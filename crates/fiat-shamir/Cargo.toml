@@ -1,0 +1,10 @@
+[package]
+name = "fiat-shamir"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+sha3.workspace = true
+algebra.workspace = true
+p3_field.workspace = true
+rayon.workspace = true

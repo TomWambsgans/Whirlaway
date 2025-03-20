@@ -1,0 +1,17 @@
+[package]
+name = "pcs"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+algebra.workspace = true
+p3_field.workspace = true
+sumcheck.workspace = true
+fiat-shamir.workspace = true
+tracing.workspace = true
+merkle-tree.workspace = true
+whir.workspace = true
+
+[dev-dependencies]
+p3_koala_bear.workspace = true
+rand.workspace = true

@@ -1,0 +1,64 @@
+[package]
+name = "whirlaway"
+version.workspace = true
+edition.workspace = true
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+members = ["crates/*"]
+
+[workspace.dependencies]
+# Local
+whir = { path = "crates/whir" }
+fiat-shamir = { path = "crates/fiat-shamir" }
+algebra = { path = "crates/algebra" }
+merkle-tree = { path = "crates/merkle-tree" }
+pcs = { path = "crates/pcs" }
+air = { path = "crates/air" }
+sumcheck = { path = "crates/sumcheck" }
+
+# External
+rand = "0.9.0"
+sha3 = "0.10.8"
+rayon = "1.5.1"
+ahash = { version = "0.8", default-features = false }
+fnv = { version = "1.0", default-features = false }
+serde = { version = "1.0.219", features = ["derive"] }
+lazy_static = "1.4.0"
+tracing = "0.1.26"
+tracing-subscriber = { version = "0.3.19", features = ["std", "env-filter"] }
+tracing-forest = { version = "0.1.6", features = ["ansi", "smallvec"] }
+p3_koala_bear = { git = "https://github.com/TomWambsgans/Plonky3", package = "p3-koala-bear", branch = "koala-bear-8" }
+p3_mersenne_31 = { git = "https://github.com/TomWambsgans/Plonky3", package = "p3-mersenne-31", branch = "koala-bear-8" }
+p3_goldilocks = { git = "https://github.com/TomWambsgans/Plonky3", package = "p3-goldilocks", branch = "koala-bear-8" }
+p3_field = { git = "https://github.com/TomWambsgans/Plonky3", package = "p3-field", branch = "koala-bear-8" }
+p3_poseidon2 = { git = "https://github.com/TomWambsgans/Plonky3", package = "p3-poseidon2", branch = "koala-bear-8" }
+p3_matrix = { git = "https://github.com/TomWambsgans/Plonky3", package = "p3-matrix", branch = "koala-bear-8" }
+
+[dependencies]
+pcs.workspace = true
+fiat-shamir.workspace = true
+algebra.workspace = true
+air.workspace = true
+p3_field.workspace = true
+tracing.workspace = true
+p3_koala_bear.workspace = true
+rand.workspace = true
+p3_poseidon2.workspace = true
+rayon.workspace = true
+p3_matrix.workspace = true
+tracing-forest.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+p3_mersenne_31.workspace = true
+p3_goldilocks.workspace = true
+
+[profile.perf]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+incremental = false

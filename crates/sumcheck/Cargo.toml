@@ -1,0 +1,14 @@
+[package]
+name = "sumcheck"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+fiat-shamir.workspace = true
+algebra.workspace = true
+p3_field.workspace = true
+rayon.workspace = true
+
+[dev-dependencies]
+p3_koala_bear.workspace = true
+rand.workspace = true

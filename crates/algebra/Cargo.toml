@@ -1,0 +1,12 @@
+[package]
+name = "algebra"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rayon.workspace = true
+rand.workspace = true
+p3_field.workspace = true
+
+[dev-dependencies]
+p3_koala_bear.workspace = true
