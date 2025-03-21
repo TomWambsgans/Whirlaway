@@ -224,13 +224,12 @@ impl<F: Field> DenseMultilinearPolynomial<F> {
     /// fix first variables
     pub fn fix_variable(&mut self, z: F) {
         let half = self.evals.len() / 2;
-        let one_minus_z = F::ONE - z;
         let mut new_evals = vec![F::ZERO; half];
         new_evals
             .par_iter_mut()
             .enumerate()
             .for_each(|(i, result)| {
-                *result = self.evals[i] * one_minus_z + self.evals[i + half] * z;
+                *result = self.evals[i] + z * (self.evals[i + half] - self.evals[i]);
             });
         self.evals = new_evals;
         self.n_vars -= 1;
