@@ -2,7 +2,7 @@ use algebra::pols::{
     ComposedPolynomial, Evaluation, HypercubePoint, PartialHypercubePoint, UnivariatePolynomial,
 };
 use fiat_shamir::{FsError, FsProver, FsVerifier};
-use p3_field::Field;
+use p3_field::{ExtensionField, Field};
 use rayon::prelude::*;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -32,13 +32,13 @@ impl SumcheckSummation for FullSumcheckSummation {
     }
 }
 
-pub fn prove<F: Field>(
-    pol: &mut ComposedPolynomial<F>,
+pub fn prove<F: Field, EF: ExtensionField<F>>(
+    pol: &mut ComposedPolynomial<F, EF>,
     fs_prover: &mut FsProver,
-    sum: Option<F>,
+    sum: Option<EF>,
     n_rounds: Option<usize>,
     pow_bits: usize,
-) -> Vec<F> {
+) -> Vec<EF> {
     prove_with_custum_summation(
         pol,
         fs_prover,
@@ -49,14 +49,14 @@ pub fn prove<F: Field>(
     )
 }
 
-pub fn prove_with_custum_summation<F: Field, S: SumcheckSummation>(
-    pol: &mut ComposedPolynomial<F>,
+pub fn prove_with_custum_summation<F: Field, EF: ExtensionField<F>, S: SumcheckSummation>(
+    pol: &mut ComposedPolynomial<F, EF>,
     fs_prover: &mut FsProver,
-    sum: Option<F>,
+    sum: Option<EF>,
     n_rounds: Option<usize>,
     pow_bits: usize,
     summation: &S,
-) -> Vec<F> {
+) -> Vec<EF> {
     assert!(pol.n_vars >= 1);
     let n_rounds = n_rounds.unwrap_or(pol.n_vars);
     let max_degree_per_vars = pol.max_degree_per_vars();
@@ -64,9 +64,9 @@ pub fn prove_with_custum_summation<F: Field, S: SumcheckSummation>(
     let mut sum = sum.unwrap_or_else(|| pol.sum_over_hypercube());
     for i in 0..n_rounds {
         let d = max_degree_per_vars[i];
-        let mut p_evals = Vec::<(F, F)>::new();
+        let mut p_evals = Vec::<(EF, EF)>::new();
         for z in 0..=d {
-            let z = F::from_u64(z as u64);
+            let z = EF::from_u64(z as u64);
             let sum_z = if z.is_one() {
                 sum - p_evals[0].1
             } else {
@@ -74,7 +74,7 @@ pub fn prove_with_custum_summation<F: Field, S: SumcheckSummation>(
                     .non_zero_points(z, pol.n_vars)
                     .into_par_iter()
                     .map(|point| pol.eval_partial_hypercube(&point))
-                    .sum::<F>()
+                    .sum::<EF>()
             };
             p_evals.push((z, sum_z));
         }

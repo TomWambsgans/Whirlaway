@@ -1,8 +1,9 @@
 use algebra::{
     field_utils::dot_product,
     pols::{
-        ArithmeticCircuit, ComposedPolynomial, DenseMultilinearPolynomial, Evaluation,
-        MultilinearPolynomial, TransparentMultivariatePolynomial,
+        ArithmeticCircuit, ComposedPolynomial, CustomTransparentMultivariatePolynomial,
+        DenseMultilinearPolynomial, Evaluation, GenericTransparentMultivariatePolynomial,
+        MultilinearPolynomial,
     },
     utils::expand_randomness,
 };
@@ -45,12 +46,12 @@ impl<F: Field> AirTable<F> {
             );
         }
 
-        let global_constraint = self.get_global_constraint::<EF>(fs_prover);
+        let constraints_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
 
         let zerocheck_challenges = fs_prover.challenge_scalars::<EF>(log_length);
 
         let mut zerofier_pol =
-            self.compute_zerofier_pol(witness, &zerocheck_challenges, &global_constraint);
+            self.compute_zerofier_pol(witness, &zerocheck_challenges, constraints_batching_scalar);
 
         let outer_challenges = {
             let _span = span!(Level::INFO, "outer sumcheck").entered();
@@ -96,7 +97,8 @@ impl<F: Field> AirTable<F> {
                             .collect::<Vec<_>>(),
                     ));
 
-            let structure = TransparentMultivariatePolynomial::new(circuit, self.n_columns * 2 + 2);
+            let structure =
+                GenericTransparentMultivariatePolynomial::new(circuit, self.n_columns * 2 + 2);
 
             ComposedPolynomial::new_without_shift(log_length, nodes, structure)
         };
@@ -130,8 +132,8 @@ impl<F: Field> AirTable<F> {
         &self,
         witness: &[DenseMultilinearPolynomial<F>],
         zerocheck_challenges: &[EF],
-        global_constraint: &TransparentMultivariatePolynomial<EF>,
-    ) -> ComposedPolynomial<EF> {
+        constraints_batching_scalar: EF,
+    ) -> ComposedPolynomial<F, EF> {
         let log_length = witness[0].n_vars;
 
         let mut nodes = Vec::with_capacity(self.n_columns * 2 + 1);
@@ -142,13 +144,23 @@ impl<F: Field> AirTable<F> {
 
         nodes.push(DenseMultilinearPolynomial::eq_mle(&zerocheck_challenges).into());
 
-        let circuit = ArithmeticCircuit::Node(self.n_columns * 2)
-            * global_constraint.coefs.clone().embed::<EF>(); // TODO avoid embed
+        let mut batched_constraints = Vec::new();
+        for (scalar, constraint) in
+            expand_randomness(constraints_batching_scalar, self.constraints.len())
+                .into_iter()
+                .zip(self.constraints.iter())
+        {
+            batched_constraints.push((scalar, constraint.expr.coefs.clone()));
+        }
 
         ComposedPolynomial::new_without_shift(
             log_length,
             nodes,
-            TransparentMultivariatePolynomial::new(circuit, self.n_columns * 2 + 1),
+            CustomTransparentMultivariatePolynomial::new(
+                self.n_columns * 2 + 1,
+                self.n_columns * 2,
+                batched_constraints,
+            ),
         )
     }
 }

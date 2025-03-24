@@ -1,32 +1,12 @@
-use algebra::pols::{ArithmeticCircuit, TransparentMultivariatePolynomial};
-use fiat_shamir::FsParticipant;
-use p3_field::{ExtensionField, Field};
-use tracing::instrument;
+use algebra::pols::{ArithmeticCircuit, GenericTransparentMultivariatePolynomial};
 
-use super::table::AirTable;
+use p3_field::Field;
 
-impl<F: Field> AirTable<F> {
-    #[instrument(name = "get_global_constraint", skip_all)]
-    pub(crate) fn get_global_constraint<EF: ExtensionField<F>>(
-        &self,
-        challenger: &mut impl FsParticipant,
-    ) -> TransparentMultivariatePolynomial<EF> {
-        let constraints_batching_scalar = challenger.challenge_scalars::<EF>(1)[0];
-        TransparentMultivariatePolynomial::new(
-            ArithmeticCircuit::new_sum(
-                (0..self.constraints.len())
-                    .map(|i| {
-                        self.constraints[i].expr.coefs.clone().embed::<EF>()
-                            * constraints_batching_scalar.exp_u64(i as u64)
-                    })
-                    .collect(),
-            ),
-            self.n_columns * 2,
-        )
-    }
-}
+use crate::table::AirConstraint;
 
-pub(crate) fn matrix_up_lde<F: Field>(log_length: usize) -> TransparentMultivariatePolynomial<F> {
+pub(crate) fn matrix_up_lde<F: Field>(
+    log_length: usize,
+) -> GenericTransparentMultivariatePolynomial<F> {
     /*
         Matrix UP:
 
@@ -45,11 +25,12 @@ pub(crate) fn matrix_up_lde<F: Field>(log_length: usize) -> TransparentMultivari
        - self.n_columns last variables -> encoding the column index
     */
 
-    TransparentMultivariatePolynomial::new(
-        TransparentMultivariatePolynomial::eq_extension_2n_vars(log_length).coefs
-            + TransparentMultivariatePolynomial::eq_extension_n_scalars(&vec![
+    GenericTransparentMultivariatePolynomial::new(
+        GenericTransparentMultivariatePolynomial::eq_extension_2n_vars(log_length).coefs
+            + GenericTransparentMultivariatePolynomial::eq_extension_n_scalars(&vec![
                 F::ONE;
-                log_length * 2 - 1
+                log_length * 2
+                    - 1
             ])
             .coefs
                 * (ArithmeticCircuit::Scalar(F::ONE)
@@ -58,7 +39,9 @@ pub(crate) fn matrix_up_lde<F: Field>(log_length: usize) -> TransparentMultivari
     )
 }
 
-pub(crate) fn matrix_down_lde<F: Field>(log_length: usize) -> TransparentMultivariatePolynomial<F> {
+pub(crate) fn matrix_down_lde<F: Field>(
+    log_length: usize,
+) -> GenericTransparentMultivariatePolynomial<F> {
     /*
         Matrix DOWN:
 
@@ -83,9 +66,9 @@ pub(crate) fn matrix_down_lde<F: Field>(log_length: usize) -> TransparentMultiva
 
     */
 
-    TransparentMultivariatePolynomial::new(
-        TransparentMultivariatePolynomial::next(log_length).coefs
-            + TransparentMultivariatePolynomial::eq_extension_n_scalars(&vec![
+    GenericTransparentMultivariatePolynomial::new(
+        GenericTransparentMultivariatePolynomial::next(log_length).coefs
+            + GenericTransparentMultivariatePolynomial::eq_extension_n_scalars(&vec![
                 F::ONE;
                 log_length * 2
             ])
@@ -95,16 +78,21 @@ pub(crate) fn matrix_down_lde<F: Field>(log_length: usize) -> TransparentMultiva
 }
 
 pub(crate) fn max_degree_per_vars_outer_sumcheck<F: Field>(
-    global_constraint: &TransparentMultivariatePolynomial<F>,
+    global_constraint: &Vec<AirConstraint<F>>,
     log_length: usize,
 ) -> Vec<usize> {
-    let circuit_degree = TransparentMultivariatePolynomial::new(
-        global_constraint
-            .coefs
-            .clone()
-            .map_node(&|_| ArithmeticCircuit::<F, _>::Node(0)),
-        1,
-    )
-    .max_degree_per_vars()[0];
+    let circuit_degree = global_constraint
+        .iter()
+        .map(|cst| {
+            GenericTransparentMultivariatePolynomial::new(
+                cst.expr
+                    .coefs
+                    .map_node(&|_| ArithmeticCircuit::<F, _>::Node(0)),
+                1,
+            )
+            .max_degree_per_vars()[0]
+        })
+        .max_by_key(|x| *x)
+        .unwrap();
     vec![1 + circuit_degree; log_length]
 }

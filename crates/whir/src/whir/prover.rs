@@ -260,7 +260,7 @@ impl<F: TwoAdicField> Prover<F> {
         let combination_randomness =
             expand_randomness(combination_randomness_gen, stir_challenges.len());
 
-        round_state.sumcheck_pol.as_product_mut().unwrap()[1] +=
+        round_state.sumcheck_pol.nodes_mut()[1] +=
             randomized_eq_extensions(&stir_challenges, &combination_randomness).into();
 
         let mut folding_randomness = sumcheck::prove(
@@ -289,7 +289,7 @@ impl<F: TwoAdicField> Prover<F> {
 struct RoundState<F: TwoAdicField> {
     round: usize,
     domain: Domain<F>,
-    sumcheck_pol: ComposedPolynomial<F>,
+    sumcheck_pol: ComposedPolynomial<F, F>,
     folding_randomness: Vec<F>,
     coefficients: CoefficientList<F>,
     prev_merkle: MerkleTree<F>,

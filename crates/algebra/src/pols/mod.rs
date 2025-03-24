@@ -1,8 +1,8 @@
 pub mod multilinear;
 pub use multilinear::*;
 
-pub mod arithmetic_circuit;
-pub use arithmetic_circuit::*;
+pub mod circuit;
+pub use circuit::*;
 
 mod transparent;
 pub use transparent::*;

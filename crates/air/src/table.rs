@@ -2,11 +2,12 @@ use p3_field::{ExtensionField, Field};
 use tracing::instrument;
 
 use algebra::pols::{
-    DenseMultilinearPolynomial, Evaluation, HypercubePoint, TransparentMultivariatePolynomial,
+    DenseMultilinearPolynomial, Evaluation, GenericTransparentMultivariatePolynomial,
+    HypercubePoint,
 };
 pub struct AirConstraint<F: Field> {
     pub name: String,
-    pub expr: TransparentMultivariatePolynomial<F>, // n_vars = 2 * n_columns. First half = columns of row i, second half = columns of row i + 1
+    pub expr: GenericTransparentMultivariatePolynomial<F>, // n_vars = 2 * n_columns. First half = columns of row i, second half = columns of row i + 1
 }
 
 #[derive(Clone, Debug)]
