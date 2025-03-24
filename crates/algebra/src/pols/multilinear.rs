@@ -366,8 +366,9 @@ impl<F: Field> AddAssign<MultilinearPolynomial<F>> for MultilinearPolynomial<F> 
 impl<F: Field> AddAssign<DenseMultilinearPolynomial<F>> for DenseMultilinearPolynomial<F> {
     fn add_assign(&mut self, other: DenseMultilinearPolynomial<F>) {
         assert_eq!(self.n_vars, other.n_vars);
-        for (a, b) in self.evals.iter_mut().zip(other.evals.iter()) {
-            *a += *b;
-        }
+        self.evals
+            .par_iter_mut()
+            .zip(other.evals.par_iter())
+            .for_each(|(a, b)| *a += *b);
     }
 }

@@ -74,31 +74,22 @@ impl<F: Field> AirTable<F> {
             let mut scalar = EF::ONE;
             for _ in 0..2 {
                 // up and down
+                let mut sum = DenseMultilinearPolynomial::<EF>::zero(log_length);
                 for w in witness {
                     let mut scaled = w.embed::<EF>();
                     scaled.scale(scalar);
-                    nodes.push(scaled.into());
+                    sum += scaled;
                     scalar *= batching_scalar;
                 }
+                nodes.push(sum.into());
             }
             nodes.push(matrix_up_folded(&outer_challenges).into());
             nodes.push(matrix_down_folded(&outer_challenges).into());
 
-            let circuit = (ArithmeticCircuit::Node(self.n_columns * 2) // matrix_up_folded
-                    * ArithmeticCircuit::new_sum(
-                        (0..self.n_columns)
-                            .map(|c| ArithmeticCircuit::Node(c))
-                            .collect::<Vec<_>>(),
-                    ))
-                + (ArithmeticCircuit::Node(self.n_columns * 2 + 1) // matrix_down_folded
-                    * ArithmeticCircuit::new_sum(
-                        (self.n_columns..2 * self.n_columns)
-                            .map(|c| ArithmeticCircuit::Node(c))
-                            .collect::<Vec<_>>(),
-                    ));
+            let circuit = (ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
+                + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3));
 
-            let structure =
-                GenericTransparentMultivariatePolynomial::new(circuit, self.n_columns * 2 + 2);
+            let structure = GenericTransparentMultivariatePolynomial::new(circuit, 4);
 
             ComposedPolynomial::new_without_shift(log_length, nodes, structure)
         };
