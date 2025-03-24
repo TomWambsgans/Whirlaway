@@ -1,22 +1,22 @@
 use algebra::pols::{ArithmeticCircuit, TransparentMultivariatePolynomial};
 use fiat_shamir::FsParticipant;
-use p3_field::Field;
+use p3_field::{ExtensionField, Field};
 use tracing::instrument;
 
 use super::table::AirTable;
 
 impl<F: Field> AirTable<F> {
     #[instrument(name = "get_global_constraint", skip_all)]
-    pub(crate) fn get_global_constraint(
+    pub(crate) fn get_global_constraint<EF: ExtensionField<F>>(
         &self,
         challenger: &mut impl FsParticipant,
-    ) -> TransparentMultivariatePolynomial<F> {
-        let constraints_batching_scalar = challenger.challenge_scalars::<F>(1)[0];
+    ) -> TransparentMultivariatePolynomial<EF> {
+        let constraints_batching_scalar = challenger.challenge_scalars::<EF>(1)[0];
         TransparentMultivariatePolynomial::new(
             ArithmeticCircuit::new_sum(
                 (0..self.constraints.len())
                     .map(|i| {
-                        self.constraints[i].expr.coefs.clone()
+                        self.constraints[i].expr.coefs.clone().embed::<EF>()
                             * constraints_batching_scalar.exp_u64(i as u64)
                     })
                     .collect(),

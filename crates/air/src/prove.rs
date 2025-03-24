@@ -45,7 +45,7 @@ impl<F: Field> AirTable<F> {
             );
         }
 
-        let global_constraint = self.get_global_constraint(fs_prover);
+        let global_constraint = self.get_global_constraint::<EF>(fs_prover);
 
         let zerocheck_challenges = fs_prover.challenge_scalars::<EF>(log_length);
 
@@ -130,7 +130,7 @@ impl<F: Field> AirTable<F> {
         &self,
         witness: &[DenseMultilinearPolynomial<F>],
         zerocheck_challenges: &[EF],
-        global_constraint: &TransparentMultivariatePolynomial<F>,
+        global_constraint: &TransparentMultivariatePolynomial<EF>,
     ) -> ComposedPolynomial<EF> {
         let log_length = witness[0].n_vars;
 

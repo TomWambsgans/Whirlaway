@@ -55,7 +55,7 @@ impl<F: Field> AirTable<F> {
             }
         }
 
-        let global_constraint = self.get_global_constraint(fs_verifier);
+        let global_constraint = self.get_global_constraint::<EF>(fs_verifier);
 
         // tau_0, ..., tau_{log_m - 1}
         let zerocheck_challenges = fs_verifier.challenge_scalars::<EF>(log_length);
