@@ -325,23 +325,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "p3-goldilocks"
-version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3?branch=koala-bear-8#fe460d3c34e9f3c81a57a1cd60a319972ae61a50"
-dependencies = [
- "num-bigint",
- "p3-dft",
- "p3-field",
- "p3-mds",
- "p3-poseidon2",
- "p3-symmetric",
- "p3-util",
- "paste",
- "rand",
- "serde",
-]
-
-[[package]]
 name = "p3-koala-bear"
 version = "0.1.0"
 source = "git+https://github.com/TomWambsgans/Plonky3?branch=koala-bear-8#fe460d3c34e9f3c81a57a1cd60a319972ae61a50"
@@ -387,26 +370,6 @@ dependencies = [
  "p3-symmetric",
  "p3-util",
  "rand",
-]
-
-[[package]]
-name = "p3-mersenne-31"
-version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3?branch=koala-bear-8#fe460d3c34e9f3c81a57a1cd60a319972ae61a50"
-dependencies = [
- "itertools",
- "num-bigint",
- "p3-dft",
- "p3-field",
- "p3-matrix",
- "p3-maybe-rayon",
- "p3-mds",
- "p3-poseidon2",
- "p3-symmetric",
- "p3-util",
- "paste",
- "rand",
- "serde",
 ]
 
 [[package]]
@@ -852,10 +815,8 @@ dependencies = [
  "algebra",
  "fiat-shamir",
  "p3-field",
- "p3-goldilocks",
  "p3-koala-bear",
  "p3-matrix",
- "p3-mersenne-31",
  "p3-poseidon2",
  "pcs",
  "rand",

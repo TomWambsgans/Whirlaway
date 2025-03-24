@@ -4,14 +4,6 @@ use rand::distr::{Distribution, StandardUniform};
 use std::fmt::{self, Debug, Formatter};
 use std::ops::Range;
 
-// pub struct Point<F: Field>(pub Vec<F>);
-
-// impl <F: Field> Point<F> {
-//     pub fn random<R: Rng>(rng: &mut R, n_vars: usize) -> Self {
-//         Self((0..n_vars).map(|_| F::rand(rng)).collect())
-//     }
-// }
-
 #[derive(Clone, PartialEq, Eq)]
 pub struct HypercubePoint {
     pub n_vars: usize,

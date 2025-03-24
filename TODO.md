@@ -8,6 +8,7 @@
 - Multilinear polynomial evaluation can be done in 2^n multiplications instead of 2^(n+1)
 - Use prefix to distinguish between leaf and internal nodes in Merkle tree (cf. RFC-6962) for soundness
 - improve serialization / deserialization of field elements, improve fiat shamir
+- https://eprint.iacr.org/2024/108.pdf 3) and 5)
 
 ## Long Term
 

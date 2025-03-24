@@ -32,8 +32,6 @@ tracing = "0.1.26"
 tracing-subscriber = { version = "0.3.19", features = ["std", "env-filter"] }
 tracing-forest = { version = "0.1.6", features = ["ansi", "smallvec"] }
 p3_koala_bear = { git = "https://github.com/TomWambsgans/Plonky3", package = "p3-koala-bear", branch = "koala-bear-8" }
-p3_mersenne_31 = { git = "https://github.com/TomWambsgans/Plonky3", package = "p3-mersenne-31", branch = "koala-bear-8" }
-p3_goldilocks = { git = "https://github.com/TomWambsgans/Plonky3", package = "p3-goldilocks", branch = "koala-bear-8" }
 p3_field = { git = "https://github.com/TomWambsgans/Plonky3", package = "p3-field", branch = "koala-bear-8" }
 p3_poseidon2 = { git = "https://github.com/TomWambsgans/Plonky3", package = "p3-poseidon2", branch = "koala-bear-8" }
 p3_matrix = { git = "https://github.com/TomWambsgans/Plonky3", package = "p3-matrix", branch = "koala-bear-8" }
@@ -54,8 +52,6 @@ tracing-forest.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
-p3_mersenne_31.workspace = true
-p3_goldilocks.workspace = true
 
 [profile.perf]
 inherits = "release"
