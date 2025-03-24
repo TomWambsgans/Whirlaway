@@ -12,7 +12,7 @@
 
 ## Long Term
 
-- speedup ff multiplication with karatsuba (requires to tweak plonky3 quite a lot)
+- speedup ff multiplication with karatsuba (requires to tweak plonky3)
 - 10x the prover speed by improving the sumcheck (cf https://eprint.iacr.org/2024/108.pdf section 5)
 - 10x the prover speed with software optimizations (SIMD, reduce all the cloning...)
 - Increase code quality

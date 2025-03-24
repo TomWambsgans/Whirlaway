@@ -1,6 +1,5 @@
 use p3_field::Field;
 use rand::Rng;
-use rand::distr::{Distribution, StandardUniform};
 use std::fmt::{self, Debug, Formatter};
 use std::ops::Range;
 
@@ -78,30 +77,14 @@ pub fn concat_hypercube_points(points: &[HypercubePoint]) -> HypercubePoint {
 }
 
 #[derive(Clone, Debug)]
-pub struct PartialHypercubePoint<F: Field> {
-    pub left: F,
+pub struct PartialHypercubePoint {
+    pub left: u32,
     pub right: HypercubePoint,
 }
 
-impl<F: Field> PartialHypercubePoint<F> {
+impl PartialHypercubePoint {
     pub fn n_vars(&self) -> usize {
         1 + self.right.n_vars
-    }
-
-    pub fn to_vec(&self) -> Vec<F> {
-        let mut point = vec![self.left];
-        point.extend(self.right.to_vec::<F>());
-        point
-    }
-
-    pub fn random<R: Rng>(rng: &mut R, n_vars: usize) -> Self
-    where
-        StandardUniform: Distribution<F>,
-    {
-        Self {
-            left: rng.random(),
-            right: HypercubePoint::random::<F, _>(rng, n_vars - 1),
-        }
     }
 }
 

@@ -59,9 +59,12 @@ impl<F: Field, EF: ExtensionField<F>> TransparentMultivariatePolynomial<F, EF> {
 }
 
 impl<F: Field, EF: ExtensionField<F>> TransparentComputation<F, EF> {
-    pub fn eval(&self, point: &[EF]) -> EF {
+    pub fn eval<NF: ExtensionField<F>>(&self, point: &[NF]) -> EF
+    where
+        EF: ExtensionField<NF>,
+    {
         match self {
-            TransparentComputation::Generic(c) => c.eval(point),
+            TransparentComputation::Generic(c) => EF::from(c.eval(point)),
             TransparentComputation::Custom(c) => c.eval(point),
         }
     }

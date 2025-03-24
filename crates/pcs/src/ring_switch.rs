@@ -117,13 +117,13 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
             }
             DenseMultilinearPolynomial::new(A_basis)
         };
-        let mut h = ComposedPolynomial::<EF, EF>::new_product(
+        let h = ComposedPolynomial::<EF, EF>::new_product(
             packed_pol.n_vars,
             vec![packed_pol.clone().into(), A_pol.into()],
         );
 
         let s0 = dot_product(&s_hat.rows(), &lagranged_r_pp);
-        let r_p = sumcheck::prove::<EF, EF>(&mut h, fs_prover, Some(s0), None, 0);
+        let (r_p, _) = sumcheck::prove::<EF, EF, EF>(h, None, fs_prover, Some(s0), None, 0);
 
         let packed_value = witness.inner_witness.pol().eval(&r_p);
         let packed_eval = Evaluation {

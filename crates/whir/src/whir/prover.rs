@@ -87,8 +87,9 @@ impl<F: TwoAdicField> Prover<F> {
             let n_rounds = Some(self.0.folding_factor.at_round(0));
             let pow_bits = self.0.starting_folding_pow_bits;
             let sum = dot_product(&initial_answers, &combination_randomness);
-            let mut folding_randomness =
-                sumcheck::prove(&mut sumcheck_pol, fs_prover, Some(sum), n_rounds, pow_bits);
+            let mut folding_randomness;
+            (folding_randomness, sumcheck_pol) =
+                sumcheck::prove(sumcheck_pol, None, fs_prover, Some(sum), n_rounds, pow_bits);
             folding_randomness.reverse();
             folding_randomness
         };
@@ -155,8 +156,9 @@ impl<F: TwoAdicField> Prover<F> {
             if self.0.final_sumcheck_rounds > 0 {
                 let n_rounds = Some(self.0.final_sumcheck_rounds);
                 let pow_bits = self.0.final_folding_pow_bits;
-                sumcheck::prove(
-                    &mut round_state.sumcheck_pol,
+                (_, round_state.sumcheck_pol) = sumcheck::prove(
+                    round_state.sumcheck_pol,
+                    None,
                     fs_prover,
                     None,
                     n_rounds,
@@ -263,8 +265,10 @@ impl<F: TwoAdicField> Prover<F> {
         round_state.sumcheck_pol.nodes_mut()[1] +=
             randomized_eq_extensions(&stir_challenges, &combination_randomness).into();
 
-        let mut folding_randomness = sumcheck::prove(
-            &mut round_state.sumcheck_pol,
+        let mut folding_randomness;
+        (folding_randomness, round_state.sumcheck_pol) = sumcheck::prove(
+            round_state.sumcheck_pol,
+            None,
             fs_prover,
             None, // TODO sum could be known, currently it is recomputed
             Some(self.0.folding_factor.at_round(round_state.round + 1)),

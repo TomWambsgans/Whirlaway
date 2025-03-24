@@ -6,8 +6,7 @@ A hash-based SNARK with lightweight proofs, powered by the [Whir](https://eprint
 
 - **Arithmetization**: AIR (Algebraic Intermediate Representation)
 - **Proof size**: ~128 KiB (with 128 bits of proven security)
-- **Proving speed**: ~500 poseidon2/s (field = koala-bear, on a standard laptop)
-- **Codebase**: 6,000 lines of code (including the Whir PCS)
+- **Proving speed**: ~1000 poseidon2/s (field = koala-bear, on a standard laptop)
 
 Being hash-based, the protocol is presumably post-quantum safe.
 
@@ -23,7 +22,7 @@ Key techniques:
 - Multiple column openings batched into a single PCS opening via the sumcheck protocol
 - "Ring-switching" from [Binius' 2nd paper](https://eprint.iacr.org/2024/504.pdf) eliminates field "embedding overhead" in the PCS
 
-Currently the main bottleneck is the sumcheck protocol, where the "embedding overhead" is substantial. The implementation uses the degree-8 extension of koala-bear, where multiplications are nearly 30× slower than in the prime field—presenting an immediate opportunity for optimization (see [this paper](https://eprint.iacr.org/2024/1046.pdf)).
+Currently the main bottleneck is the sumcheck protocol, where the "embedding overhead" is substantial. The implementation uses the degree-8 extension of koala-bear, where multiplications are nearly 30× slower than in the prime field—presenting an immediate opportunity for optimization (see [this](https://eprint.iacr.org/2024/1046.pdf) and [this](https://eprint.iacr.org/2024/108.pdf)).
 
 ## Running the Poseidon2 Benchmark
 

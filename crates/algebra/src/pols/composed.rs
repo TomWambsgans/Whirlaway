@@ -11,18 +11,24 @@ use super::{
 };
 
 #[derive(Clone, Debug)]
-pub struct ComposedPolynomial<F: Field, EF: ExtensionField<F>> {
+pub struct ComposedPolynomial<
+    F: Field,
+    NF: ExtensionField<F>,
+    EF: ExtensionField<NF> + ExtensionField<F> = NF,
+> {
     pub n_vars: usize,
-    pub nodes: Vec<MultilinearPolynomial<EF>>,
+    pub nodes: Vec<MultilinearPolynomial<NF>>,
     pub vars_shift: Vec<Range<usize>>,
     pub structure: TransparentComputation<F, EF>, // each var represents a polynomial (stored in "nodes")
     max_degree_per_vars: Vec<usize>,
 }
 
-impl<F: Field, EF: ExtensionField<F>> ComposedPolynomial<F, EF> {
+impl<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionField<F>>
+    ComposedPolynomial<F, NF, EF>
+{
     pub fn new(
         n_vars: usize,
-        nodes: Vec<MultilinearPolynomial<EF>>,
+        nodes: Vec<MultilinearPolynomial<NF>>,
         vars_shift: Vec<Range<usize>>,
         structure: impl Into<TransparentMultivariatePolynomial<F, EF>>,
     ) -> Self {
@@ -45,7 +51,7 @@ impl<F: Field, EF: ExtensionField<F>> ComposedPolynomial<F, EF> {
 
     pub fn new_without_shift(
         n_vars: usize,
-        nodes: Vec<MultilinearPolynomial<EF>>,
+        nodes: Vec<MultilinearPolynomial<NF>>,
         structure: impl Into<TransparentMultivariatePolynomial<F, EF>>,
     ) -> Self {
         let vars_shift = vec![0..n_vars; nodes.len()];
@@ -56,7 +62,7 @@ impl<F: Field, EF: ExtensionField<F>> ComposedPolynomial<F, EF> {
         self.max_degree_per_vars.clone()
     }
 
-    pub fn new_product(n_vars: usize, nodes: Vec<MultilinearPolynomial<EF>>) -> Self {
+    pub fn new_product(n_vars: usize, nodes: Vec<MultilinearPolynomial<NF>>) -> Self {
         let circuit = ArithmeticCircuit::new_product(
             (0..nodes.len())
                 .map(|i| ArithmeticCircuit::Node(i))
@@ -66,19 +72,27 @@ impl<F: Field, EF: ExtensionField<F>> ComposedPolynomial<F, EF> {
         ComposedPolynomial::new_without_shift(n_vars, nodes, structure)
     }
 
-    pub fn fix_variable(&mut self, z: EF) {
+    pub fn fix_variable(self, z: EF) -> ComposedPolynomial<F, EF, EF> {
         // computes f'(Y, Z, ...) := f(z, Y, Z, ...)
-        // TODO clean the cirsuit (structure) ?
-
         assert!(self.n_vars >= 1);
-        for i in 0..self.nodes.len() {
+        let mut nodes = Vec::<MultilinearPolynomial<EF>>::with_capacity(self.nodes.len());
+        let mut vars_shift = Vec::with_capacity(self.vars_shift.len());
+        for (i, node) in self.nodes.into_iter().enumerate() {
             let var_shift = &self.vars_shift[i];
             if var_shift.start == 0 && var_shift.end > 0 {
-                self.nodes[i].fix_variable(z);
+                nodes.push(node.fix_variable(z));
+            } else {
+                nodes.push(node.embed::<EF>());
             }
-            self.vars_shift[i] = var_shift.start.saturating_sub(1)..var_shift.end.saturating_sub(1);
+            vars_shift.push(var_shift.start.saturating_sub(1)..var_shift.end.saturating_sub(1));
         }
-        self.n_vars -= 1;
+        ComposedPolynomial {
+            n_vars: self.n_vars - 1,
+            max_degree_per_vars: self.max_degree_per_vars[1..].to_vec(),
+            vars_shift,
+            nodes,
+            structure: self.structure,
+        }
     }
 
     pub fn eval(&self, point: &[EF]) -> EF {
@@ -92,16 +106,16 @@ impl<F: Field, EF: ExtensionField<F>> ComposedPolynomial<F, EF> {
 
     pub fn eval_hypercube(&self, point: &HypercubePoint) -> EF {
         assert_eq!(point.n_vars, self.n_vars);
-        let mut nodes_evals = Vec::new();
+        let mut nodes_evals = Vec::<NF>::new();
         for i in 0..self.nodes.len() {
             nodes_evals.push(self.nodes[i].eval_hypercube(&point.crop(self.vars_shift[i].clone())));
         }
         self.structure.eval(&nodes_evals)
     }
 
-    pub fn eval_partial_hypercube(&self, point: &PartialHypercubePoint<EF>) -> EF {
+    pub fn eval_partial_hypercube(&self, point: &PartialHypercubePoint) -> EF {
         assert_eq!(point.n_vars(), self.n_vars);
-        let mut nodes_evals = Vec::new();
+        let mut nodes_evals = Vec::<NF>::new();
         for i in 0..self.nodes.len() {
             let var_shift = self.vars_shift[i].clone();
             if var_shift.is_empty() {
@@ -123,23 +137,27 @@ impl<F: Field, EF: ExtensionField<F>> ComposedPolynomial<F, EF> {
     }
 
     pub fn sum_over_hypercube(&self) -> EF {
-        self.sum_over_partial_hypercube(EF::ZERO) + self.sum_over_partial_hypercube(EF::ONE)
+        self.sum_over_partial_hypercube(0) + self.sum_over_partial_hypercube(1)
     }
 
-    pub fn sum_over_partial_hypercube(&self, left: EF) -> EF {
+    pub fn sum_over_partial_hypercube(&self, left: u32) -> EF {
         HypercubePoint::iter(self.n_vars - 1)
             .map(|right| self.eval_partial_hypercube(&PartialHypercubePoint { left, right }))
             .sum()
     }
 
-    pub fn nodes_mut(&mut self) -> &mut Vec<MultilinearPolynomial<EF>> {
+    pub fn nodes_mut(&mut self) -> &mut Vec<MultilinearPolynomial<NF>> {
         &mut self.nodes
     }
 }
 
-pub fn max_degree_per_vars<F: Field, EF: ExtensionField<F>>(
+pub fn max_degree_per_vars<
+    F: Field,
+    NF: ExtensionField<F>,
+    EF: ExtensionField<NF> + ExtensionField<F>,
+>(
     n_vars: usize,
-    nodes: &[MultilinearPolynomial<EF>],
+    nodes: &[MultilinearPolynomial<NF>],
     vars_shift: &[Range<usize>],
     structure: &TransparentMultivariatePolynomial<F, EF>,
 ) -> Vec<usize> {
@@ -156,25 +174,19 @@ pub fn max_degree_per_vars<F: Field, EF: ExtensionField<F>>(
             &|subs| max_degree_per_vars_prod(&subs),
             &|subs| max_degree_per_vars_sum(&subs),
         ),
-        TransparentMultivariatePolynomial::Custom(custom) => {
-            let mut res = max_degree_per_vars_sum(
-                &custom
-                    .right
-                    .iter()
-                    .map(|(_, expr)| {
-                        expr.parse(
-                            &|_| vec![],
-                            &|i| max_degree_per_vars_per_nodes[*i].clone(),
-                            &|subs| max_degree_per_vars_prod(&subs),
-                            &|subs| max_degree_per_vars_sum(&subs),
-                        )
-                    })
-                    .collect::<Vec<_>>(),
-            );
-            for i in 0..n_vars {
-                res[i] += max_degree_per_vars_per_nodes[custom.left][i];
-            }
-            res
-        }
+        TransparentMultivariatePolynomial::Custom(custom) => max_degree_per_vars_sum(
+            &custom
+                .linear_comb
+                .iter()
+                .map(|(_, expr)| {
+                    expr.parse(
+                        &|_| vec![],
+                        &|i| max_degree_per_vars_per_nodes[*i].clone(),
+                        &|subs| max_degree_per_vars_prod(&subs),
+                        &|subs| max_degree_per_vars_sum(&subs),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        ),
     }
 }

@@ -50,27 +50,26 @@ impl<F: Field> MultilinearPolynomial<F> {
         }
     }
 
-    pub fn eval_partial_hypercube(&self, point: &PartialHypercubePoint<F>) -> F {
+    pub fn eval_partial_hypercube(&self, point: &PartialHypercubePoint) -> F {
         match self {
             Self::Dense(p) => p.eval_partial_hypercube(point),
             Self::Sparse(p) => p.eval_partial_hypercube(point),
         }
     }
 
-    pub fn fix_variable(&mut self, z: F) {
+    pub fn fix_variable<EF: ExtensionField<F>>(self, z: EF) -> MultilinearPolynomial<EF> {
         match self {
-            Self::Dense(p) => p.fix_variable(z),
+            Self::Dense(p) => MultilinearPolynomial::Dense(p.fix_variable(z)),
             Self::Sparse(p) => {
                 if p.n_cols - p.n_final_bits_per_row >= 1 {
-                    p.evals.iter_mut().for_each(|(row_pol, _)| {
-                        row_pol.fix_variable(z);
-                    });
-                    p.n_cols -= 1;
-                    p.n_vars -= 1;
+                    let new_evals = p
+                        .evals
+                        .into_par_iter()
+                        .map(|(row_pol, point)| (row_pol.fix_variable(z), point))
+                        .collect();
+                    MultilinearPolynomial::Sparse(SparseMultilinearPolynomial::new(new_evals))
                 } else {
-                    let mut densified = p.densify();
-                    densified.fix_variable(z);
-                    *self = MultilinearPolynomial::Dense(densified);
+                    MultilinearPolynomial::Dense(p.densify().fix_variable(z))
                 }
             }
         }
@@ -88,6 +87,13 @@ impl<F: Field> MultilinearPolynomial<F> {
         StandardUniform: Distribution<F>,
     {
         DenseMultilinearPolynomial::random(rng, n_vars).into()
+    }
+
+    pub fn embed<EF: ExtensionField<F>>(&self) -> MultilinearPolynomial<EF> {
+        match self {
+            Self::Dense(p) => MultilinearPolynomial::Dense(p.embed()),
+            Self::Sparse(_) => todo!(),
+        }
     }
 }
 
@@ -149,15 +155,15 @@ impl<F: Field> SparseMultilinearPolynomial<F> {
         }
     }
 
-    pub fn eval_partial_hypercube(&self, point: &PartialHypercubePoint<F>) -> F {
+    pub fn eval_partial_hypercube(&self, point: &PartialHypercubePoint) -> F {
         self.eval_hypercube(&HypercubePoint {
             n_vars: point.n_vars(),
             val: point.right.val + (1 << point.right.n_vars),
-        }) * point.left
+        }) * F::from_u32(point.left)
             + self.eval_hypercube(&HypercubePoint {
                 n_vars: point.n_vars(),
                 val: point.right.val,
-            }) * (F::ONE - point.left)
+            }) * (F::ONE - F::from_u32(point.left))
     }
 
     pub fn max_degree_per_vars(&self) -> Vec<usize> {
@@ -222,17 +228,16 @@ impl<F: Field> DenseMultilinearPolynomial<F> {
     }
 
     /// fix first variables
-    pub fn fix_variable(&mut self, z: F) {
+    pub fn fix_variable<EF: ExtensionField<F>>(&self, z: EF) -> DenseMultilinearPolynomial<EF> {
         let half = self.evals.len() / 2;
-        let mut new_evals = vec![F::ZERO; half];
+        let mut new_evals = vec![EF::ZERO; half];
         new_evals
             .par_iter_mut()
             .enumerate()
             .for_each(|(i, result)| {
-                *result = self.evals[i] + z * (self.evals[i + half] - self.evals[i]);
+                *result = z * (self.evals[i + half] - self.evals[i]) + self.evals[i];
             });
-        self.evals = new_evals;
-        self.n_vars -= 1;
+        DenseMultilinearPolynomial::new(new_evals)
     }
 
     // TODO improve
@@ -291,10 +296,10 @@ impl<F: Field> DenseMultilinearPolynomial<F> {
         self.evals[point.val]
     }
 
-    pub fn eval_partial_hypercube(&self, point: &PartialHypercubePoint<F>) -> F {
+    pub fn eval_partial_hypercube(&self, point: &PartialHypercubePoint) -> F {
         assert_eq!(self.n_vars, point.n_vars());
-        point.left * self.evals[point.right.val + (1 << (self.n_vars - 1))]
-            + (F::ONE - point.left) * self.evals[point.right.val]
+        F::from_u32(point.left) * self.evals[point.right.val + (1 << (self.n_vars - 1))]
+            + (F::ONE - F::from_u32(point.left)) * self.evals[point.right.val]
     }
 
     pub fn random<R: Rng>(rng: &mut R, n_vars: usize) -> Self
