@@ -30,18 +30,6 @@ impl<F, N> ArithmeticCircuit<F, N> {
         Self::Composed(Arc::new(ArithmeticCircuitComposed::Product(pols)))
     }
 
-    pub fn new_scalar(scalar: F) -> Self {
-        Self::Scalar(scalar)
-    }
-
-    pub fn new_node(node: N) -> Self {
-        Self::Node(node)
-    }
-
-    pub fn is_product(&self) -> bool {
-        matches!(self, Self::Composed(c) if matches!(**c, ArithmeticCircuitComposed::Product(_)))
-    }
-
     // all functions should be pure, and deterministic
     // TODO optimize (idealy the values in the hashmap should be references)
     // a function calling parse should not call itself recursively in the closures
@@ -111,7 +99,7 @@ impl<F, N> ArithmeticCircuit<F, N> {
         F: Field,
     {
         self.parse(
-            &|scalar| ArithmeticCircuit::new_scalar(EF::from(*scalar)),
+            &|scalar| ArithmeticCircuit::Scalar(EF::from(*scalar)),
             f_node,
             &|subs| ArithmeticCircuit::new_product(subs),
             &|subs| ArithmeticCircuit::new_sum(subs),
@@ -246,7 +234,7 @@ impl<F, N> ArithmeticCircuit<F, N> {
 impl<F: Field, N: Clone> ArithmeticCircuit<F, N> {
     pub fn embed<EF: ExtensionField<F>>(self) -> ArithmeticCircuit<EF, N> {
         // TODO avoid embed
-        self.map_node(&|n| ArithmeticCircuit::new_node(n.clone()))
+        self.map_node(&|n| ArithmeticCircuit::Node(n.clone()))
     }
 }
 
@@ -258,7 +246,7 @@ impl<F: Field, N> Default for ArithmeticCircuit<F, N> {
 
 impl<F, N> From<F> for ArithmeticCircuit<F, N> {
     fn from(f: F) -> Self {
-        ArithmeticCircuit::new_scalar(f)
+        ArithmeticCircuit::Scalar(f)
     }
 }
 

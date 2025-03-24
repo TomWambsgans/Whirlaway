@@ -2,17 +2,20 @@ use std::fmt::Debug;
 
 use p3_field::{ExtensionField, Field};
 
-use crate::pols::utils::{max_degree_per_vars_prod, max_degree_per_vars_sum};
+use crate::pols::{
+    CircuitComputation,
+    utils::{max_degree_per_vars_prod, max_degree_per_vars_sum},
+};
 
 use super::ArithmeticCircuit;
 
 #[derive(Clone, Debug)]
-pub struct TransparentMultivariatePolynomial<F: Field> {
+pub struct GenericTransparentMultivariatePolynomial<F: Field> {
     pub n_vars: usize,
     pub coefs: ArithmeticCircuit<F, usize>,
 }
 
-impl<F: Field> TransparentMultivariatePolynomial<F> {
+impl<F: Field> GenericTransparentMultivariatePolynomial<F> {
     pub fn new(coefs: ArithmeticCircuit<F, usize>, n_vars: usize) -> Self {
         Self { coefs, n_vars }
     }
@@ -105,6 +108,10 @@ impl<F: Field> TransparentMultivariatePolynomial<F> {
             &|subs| max_degree_per_vars_sum(&subs),
         )
     }
+
+    pub fn fix_computation(&self) -> CircuitComputation<F, usize> {
+        self.coefs.fix_computation()
+    }
 }
 
 #[cfg(test)]
@@ -122,7 +129,7 @@ mod tests {
     #[test]
     fn test_next() {
         let n = 5;
-        let next = TransparentMultivariatePolynomial::<F>::next(n);
+        let next = GenericTransparentMultivariatePolynomial::<F>::next(n);
         let mut one_points = HashSet::new();
         for x in 0..(1 << n) - 1 {
             let y = x + 1;

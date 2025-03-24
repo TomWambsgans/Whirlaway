@@ -175,25 +175,10 @@ impl WhirParameters {
     pub fn standard(security_bits: usize, log_inv_rate: usize) -> Self {
         Self {
             security_level: security_bits,
-            pow_bits: 20,
+            pow_bits: 18,
             folding_factor: FoldingFactor::Constant(4),
             soundness_type: SoundnessType::ProvableList,
             starting_log_inv_rate: log_inv_rate,
         }
-    }
-}
-
-impl Display for WhirParameters {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(
-            f,
-            "Targeting {}-bits of security with {}-bits of PoW - soundness: {:?}",
-            self.security_level, self.pow_bits, self.soundness_type
-        )?;
-        writeln!(
-            f,
-            "Starting rate: 2^-{}, folding_factor: {:?}",
-            self.starting_log_inv_rate, self.folding_factor
-        )
     }
 }

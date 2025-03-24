@@ -2,7 +2,7 @@
 
 use p3_field::{ExtensionField, Field, PrimeField};
 
-use crate::pols::TransparentMultivariatePolynomial;
+use crate::pols::GenericTransparentMultivariatePolynomial;
 
 fn prime_field_to_bytes<F: PrimeField>(f: F) -> Vec<u8> {
     if F::bits() <= 16 {
@@ -93,7 +93,7 @@ pub fn deserialize_field<F: Field>(bytes: &[u8]) -> Option<F> {
 
 pub fn eq_extension<F: Field>(s1: &[F], s2: &[F]) -> F {
     assert_eq!(s1.len(), s2.len());
-    TransparentMultivariatePolynomial::eq_extension_n_scalars(s1).eval(s2)
+    GenericTransparentMultivariatePolynomial::eq_extension_n_scalars(s1).eval(s2)
 }
 
 pub fn hadamard_product<F: Field>(a: &[F], b: &[F]) -> Vec<F> {

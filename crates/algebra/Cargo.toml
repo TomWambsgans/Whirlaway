@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 rayon.workspace = true
 rand.workspace = true
+tracing.workspace = true
 p3_field.workspace = true
 
 [dev-dependencies]

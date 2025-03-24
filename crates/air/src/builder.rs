@@ -1,6 +1,6 @@
 use std::{borrow::Borrow, collections::BTreeMap};
 
-use algebra::pols::{ArithmeticCircuit, TransparentMultivariatePolynomial};
+use algebra::pols::{ArithmeticCircuit, GenericTransparentMultivariatePolynomial};
 use p3_field::Field;
 
 use super::table::{AirConstraint, AirTable, BoundaryCondition};
@@ -78,7 +78,7 @@ impl<F: Field, const COLS: usize> AirBuilder<F, COLS> {
             .into_iter()
             .map(|(name, expr)| AirConstraint {
                 name,
-                expr: TransparentMultivariatePolynomial::new(
+                expr: GenericTransparentMultivariatePolynomial::new(
                     expr.map_node(&|var| match var.alignment {
                         Alignment::Up => ArithmeticCircuit::Node(var.col_index),
                         Alignment::Down => ArithmeticCircuit::Node(var.col_index + COLS),

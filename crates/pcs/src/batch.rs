@@ -33,8 +33,8 @@ use algebra::{
     field_utils::eq_extension,
     pols::{
         ArithmeticCircuit, ComposedPolynomial, DenseMultilinearPolynomial, Evaluation,
-        HypercubePoint, MixedEvaluation, MixedPoint, PartialHypercubePoint,
-        SparseMultilinearPolynomial, TransparentMultivariatePolynomial, concat_hypercube_points,
+        GenericTransparentMultivariatePolynomial, HypercubePoint, MixedEvaluation, MixedPoint,
+        PartialHypercubePoint, SparseMultilinearPolynomial, concat_hypercube_points,
     },
 };
 
@@ -180,15 +180,16 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>> BatchSettings<F, EF, Pcs>
         nodes.push(eq_zi_b.into());
         vars_shift.push(0..k + kappa);
 
-        let structure = TransparentMultivariatePolynomial::new(
+        let structure = GenericTransparentMultivariatePolynomial::new(
             ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(2),
             3,
         );
 
-        let mut g_star = ComposedPolynomial::<EF>::new(k + kappa, nodes, vars_shift, structure);
+        let g_star = ComposedPolynomial::<EF, EF>::new(k + kappa, nodes, vars_shift, structure);
 
-        let challenges = sumcheck::prove_with_custum_summation(
-            &mut g_star,
+        let (challenges, _) = sumcheck::prove_with_custum_summation(
+            g_star,
+            None,
             fs_prover,
             Some(self.s(&t, &packed_claims)),
             None,
@@ -295,11 +296,7 @@ struct SparseSumcheckSummation {
 }
 
 impl SumcheckSummation for SparseSumcheckSummation {
-    fn non_zero_points<F: Field>(
-        &self,
-        z: F,
-        n_vars: usize,
-    ) -> Vec<algebra::pols::PartialHypercubePoint<F>> {
+    fn non_zero_points(&self, z: u32, n_vars: usize) -> Vec<algebra::pols::PartialHypercubePoint> {
         if n_vars <= self.n + self.k {
             FullSumcheckSummation.non_zero_points(z, n_vars)
         } else {

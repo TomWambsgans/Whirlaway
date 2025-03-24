@@ -55,14 +55,14 @@ impl<F: Field> AirTable<F> {
             }
         }
 
-        let global_constraint = self.get_global_constraint::<EF>(fs_verifier);
+        let constraints_batching_scalar = fs_verifier.challenge_scalars::<EF>(1)[0];
 
         // tau_0, ..., tau_{log_m - 1}
         let zerocheck_challenges = fs_verifier.challenge_scalars::<EF>(log_length);
 
         let (sc_sum, outer_sumcheck_challenge) = sumcheck::verify::<EF>(
             fs_verifier,
-            &max_degree_per_vars_outer_sumcheck(&global_constraint, log_length),
+            &max_degree_per_vars_outer_sumcheck(&self.constraints, log_length),
             0,
         )?;
         if sc_sum != EF::ZERO {
@@ -71,8 +71,16 @@ impl<F: Field> AirTable<F> {
 
         let inner_sums = fs_verifier.next_scalars::<EF>(2 * self.n_columns)?;
 
+        let mut global_constraint_eval = EF::ZERO;
+        for (scalar, constraint) in
+            expand_randomness(constraints_batching_scalar, self.constraints.len())
+                .into_iter()
+                .zip(self.constraints.iter())
+        {
+            global_constraint_eval += scalar * constraint.expr.eval(&inner_sums);
+        }
         if eq_extension(&zerocheck_challenges, &outer_sumcheck_challenge.point)
-            * global_constraint.coefs.eval_field(&|i| inner_sums[*i])
+            * global_constraint_eval
             != outer_sumcheck_challenge.value
         {
             return Err(AirVerifError::SumMismatch);

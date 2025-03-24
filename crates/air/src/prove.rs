@@ -1,8 +1,9 @@
 use algebra::{
     field_utils::dot_product,
     pols::{
-        ArithmeticCircuit, ComposedPolynomial, DenseMultilinearPolynomial, Evaluation,
-        MultilinearPolynomial, TransparentMultivariatePolynomial,
+        ArithmeticCircuit, ComposedPolynomial, CustomTransparentMultivariatePolynomial,
+        DenseMultilinearPolynomial, Evaluation, GenericTransparentMultivariatePolynomial,
+        MultilinearPolynomial,
     },
     utils::expand_randomness,
 };
@@ -45,16 +46,46 @@ impl<F: Field> AirTable<F> {
             );
         }
 
-        let global_constraint = self.get_global_constraint::<EF>(fs_prover);
+        let constraints_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
 
         let zerocheck_challenges = fs_prover.challenge_scalars::<EF>(log_length);
 
-        let mut zerofier_pol =
-            self.compute_zerofier_pol(witness, &zerocheck_challenges, &global_constraint);
+        let zeroed_pol = {
+            let mut nodes = Vec::<MultilinearPolynomial<F>>::with_capacity(self.n_columns * 2);
 
-        let outer_challenges = {
+            for n in witnesses_up_and_down(witness) {
+                nodes.push(n.into());
+            }
+
+            let mut batched_constraints = Vec::new();
+            for (scalar, constraint) in
+                expand_randomness(constraints_batching_scalar, self.constraints.len())
+                    .into_iter()
+                    .zip(self.constraints.iter())
+            {
+                batched_constraints.push((scalar, constraint.expr.coefs.clone()));
+            }
+
+            ComposedPolynomial::new_without_shift(
+                log_length,
+                nodes,
+                CustomTransparentMultivariatePolynomial::new(
+                    self.n_columns * 2,
+                    batched_constraints,
+                ),
+            )
+        };
+
+        let (outer_challenges, _) = {
             let _span = span!(Level::INFO, "outer sumcheck").entered();
-            sumcheck::prove(&mut zerofier_pol, fs_prover, Some(EF::ZERO), None, 0) // sum should equal 0
+            sumcheck::prove::<F, F, EF>(
+                zeroed_pol,
+                Some(DenseMultilinearPolynomial::eq_mle(&zerocheck_challenges).into()),
+                fs_prover,
+                Some(EF::ZERO),
+                None,
+                0,
+            )
         };
 
         let _span = span!(Level::INFO, "inner sumchecks").entered();
@@ -68,35 +99,27 @@ impl<F: Field> AirTable<F> {
 
         let batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
 
-        let mut batch_pol = {
+        let batch_pol = {
             let mut nodes = Vec::<MultilinearPolynomial<EF>>::with_capacity(self.n_columns * 2 + 2);
             let mut scalar = EF::ONE;
             for _ in 0..2 {
                 // up and down
+                let mut sum = DenseMultilinearPolynomial::<EF>::zero(log_length);
                 for w in witness {
                     let mut scaled = w.embed::<EF>();
                     scaled.scale(scalar);
-                    nodes.push(scaled.into());
+                    sum += scaled;
                     scalar *= batching_scalar;
                 }
+                nodes.push(sum.into());
             }
             nodes.push(matrix_up_folded(&outer_challenges).into());
             nodes.push(matrix_down_folded(&outer_challenges).into());
 
-            let circuit = (ArithmeticCircuit::Node(self.n_columns * 2) // matrix_up_folded
-                    * ArithmeticCircuit::new_sum(
-                        (0..self.n_columns)
-                            .map(|c| ArithmeticCircuit::Node(c))
-                            .collect::<Vec<_>>(),
-                    ))
-                + (ArithmeticCircuit::Node(self.n_columns * 2 + 1) // matrix_down_folded
-                    * ArithmeticCircuit::new_sum(
-                        (self.n_columns..2 * self.n_columns)
-                            .map(|c| ArithmeticCircuit::Node(c))
-                            .collect::<Vec<_>>(),
-                    ));
+            let circuit = (ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
+                + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3));
 
-            let structure = TransparentMultivariatePolynomial::new(circuit, self.n_columns * 2 + 2);
+            let structure = GenericTransparentMultivariatePolynomial::new(circuit, 4);
 
             ComposedPolynomial::new_without_shift(log_length, nodes, structure)
         };
@@ -105,7 +128,8 @@ impl<F: Field> AirTable<F> {
             &inner_sums,
             &expand_randomness(batching_scalar, self.n_columns * 2),
         );
-        let inner_challenges = sumcheck::prove(&mut batch_pol, fs_prover, Some(inner_sum), None, 0);
+        let (inner_challenges, _) =
+            sumcheck::prove(batch_pol, None, fs_prover, Some(inner_sum), None, 0);
 
         for u in 0..self.n_columns {
             let value = witness[u].eval(&inner_challenges);
@@ -123,33 +147,6 @@ impl<F: Field> AirTable<F> {
             "inner sumchecks transcript length: {:.1}Kib",
             (fs_prover.transcript_len() - initial_transcript_len) as f64 / 1024.
         );
-    }
-
-    #[instrument(name = "compute_zerofier_pol", skip_all)]
-    fn compute_zerofier_pol<EF: ExtensionField<F>>(
-        &self,
-        witness: &[DenseMultilinearPolynomial<F>],
-        zerocheck_challenges: &[EF],
-        global_constraint: &TransparentMultivariatePolynomial<EF>,
-    ) -> ComposedPolynomial<EF> {
-        let log_length = witness[0].n_vars;
-
-        let mut nodes = Vec::with_capacity(self.n_columns * 2 + 1);
-
-        for n in witnesses_up_and_down(witness) {
-            nodes.push(n.embed::<EF>().into()); // TODO avoid embed
-        }
-
-        nodes.push(DenseMultilinearPolynomial::eq_mle(&zerocheck_challenges).into());
-
-        let circuit = ArithmeticCircuit::Node(self.n_columns * 2)
-            * global_constraint.coefs.clone().embed::<EF>(); // TODO avoid embed
-
-        ComposedPolynomial::new_without_shift(
-            log_length,
-            nodes,
-            TransparentMultivariatePolynomial::new(circuit, self.n_columns * 2 + 1),
-        )
     }
 }
 
