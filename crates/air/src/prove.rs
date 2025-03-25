@@ -75,7 +75,7 @@ impl<F: Field> AirTable<F> {
             let _span = span!(Level::INFO, "outer sumcheck").entered();
             sumcheck::prove::<F, F, EF>(
                 zeroed_pol,
-                Some(DenseMultilinearPolynomial::eq_mle(&zerocheck_challenges).into()),
+                Some(&zerocheck_challenges),
                 fs_prover,
                 Some(EF::ZERO),
                 None,
