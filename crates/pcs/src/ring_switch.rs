@@ -1,7 +1,5 @@
 use algebra::field_utils::dot_product;
-use algebra::pols::{
-    ComposedPolynomial, DenseMultilinearPolynomial, Evaluation, lagrange_evaluations,
-};
+use algebra::pols::{ComposedPolynomial, DenseMultilinearPolynomial, Evaluation};
 use algebra::tensor_algebra::TensorAlgebra;
 use fiat_shamir::{FsError, FsProver, FsVerifier};
 use p3_field::{BasedVectorSpace, ExtensionField, Field};
@@ -103,10 +101,14 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
         fs_prover.add_scalar_matrix(&s_hat.data, true);
 
         let r_pp = fs_prover.challenge_scalars::<EF>(kappa);
-        let lagranged_r_pp = lagrange_evaluations(&r_pp);
+        let lagranged_r_pp = DenseMultilinearPolynomial::eq_mle(&r_pp).evals;
 
         let mut A_coefs = vec![vec![F::ZERO; two_pow_kappa]; packed_pol.n_coefs()];
-        for (w, lagrange_eval) in lagrange_evaluations(&packed_point).iter().enumerate() {
+        for (w, lagrange_eval) in DenseMultilinearPolynomial::eq_mle(&packed_point)
+            .evals
+            .iter()
+            .enumerate()
+        {
             A_coefs[w] = lagrange_eval.as_basis_coefficients_slice().to_vec();
         }
 
@@ -131,6 +133,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
             value: packed_value,
         };
         fs_prover.add_scalars(&[packed_value]);
+
         self.inner
             .open(witness.inner_witness, &packed_eval, fs_prover)
     }
@@ -150,7 +153,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
             fs_verifier.next_scalar_matrix(Some((two_pow_kappa, two_pow_kappa)))?,
         );
 
-        let lagrange_evals = lagrange_evaluations(&eval.point[n_packed_vars..]);
+        let lagrange_evals = DenseMultilinearPolynomial::eq_mle(&eval.point[n_packed_vars..]).evals;
         let columns = s_hat.columns();
 
         if dot_product(&columns, &lagrange_evals) != eval.value {
@@ -160,7 +163,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
         let r_pp = fs_verifier.challenge_scalars::<EF>(kappa);
 
         let rows = s_hat.rows();
-        let lagranged_r_pp = lagrange_evaluations(&r_pp);
+        let lagranged_r_pp = DenseMultilinearPolynomial::eq_mle(&r_pp).evals;
         let s0 = dot_product(&rows, &lagranged_r_pp);
 
         let (claimed_s0, sc_claim) = sumcheck::verify(fs_verifier, &vec![2; n_packed_vars], 0)?;

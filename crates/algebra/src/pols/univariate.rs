@@ -1,10 +1,13 @@
-use std::cmp::max;
+use std::{
+    cmp::max,
+    ops::{Mul, MulAssign},
+};
 
 use p3_field::Field;
 use rand::distr::{Distribution, StandardUniform};
 use rayon::prelude::*;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct UnivariatePolynomial<F: Field> {
     pub coeffs: Vec<F>,
 }
@@ -122,8 +125,32 @@ impl<F: Field> UnivariatePolynomial<F> {
     }
 }
 
+impl<F: Field> Mul for UnivariatePolynomial<F> {
+    type Output = Self;
+
+    fn mul(self, other: Self) -> Self {
+        let mut result = vec![F::ZERO; self.degree() + other.degree() + 1];
+
+        // No need to optimize because we only multiply low degree polynomials (during sumcheck)
+        for i in 0..=self.degree() {
+            for j in 0..=other.degree() {
+                result[i + j] += self.coeffs[i] * other.coeffs[j];
+            }
+        }
+
+        Self::new(result)
+    }
+}
+
+impl<F: Field> MulAssign for UnivariatePolynomial<F> {
+    fn mul_assign(&mut self, other: Self) {
+        *self = std::mem::take(self) * other;
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use p3_field::PrimeCharacteristicRing;
     use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
 
@@ -143,5 +170,17 @@ mod tests {
             .collect::<Vec<_>>();
         let pol2 = UnivariatePolynomial::lagrange_interpolation(&points).unwrap();
         assert_eq!(pol, pol2);
+    }
+
+    #[test]
+    fn test_mul() {
+        let rng = &mut StdRng::seed_from_u64(0);
+        let pol1 = UnivariatePolynomial::<KoalaBear>::random(rng, 5);
+        let pol2 = UnivariatePolynomial::<KoalaBear>::random(rng, 7);
+
+        assert_eq!(
+            (pol1.clone() * pol2.clone()).eval(&F::from_u32(7854)),
+            pol1.eval(&F::from_u32(7854)) * pol2.eval(&F::from_u32(7854))
+        );
     }
 }

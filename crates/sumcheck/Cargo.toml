@@ -8,6 +8,7 @@ fiat-shamir.workspace = true
 algebra.workspace = true
 p3_field.workspace = true
 rayon.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 p3_koala_bear.workspace = true

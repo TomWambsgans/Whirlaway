@@ -32,6 +32,7 @@ dependencies = [
  "p3-field",
  "p3-koala-bear",
  "pcs",
+ "rayon",
  "sumcheck",
  "tracing",
 ]
@@ -441,6 +442,7 @@ dependencies = [
  "p3-field",
  "p3-koala-bear",
  "rand",
+ "rayon",
  "sumcheck",
  "tracing",
  "whir",
@@ -634,6 +636,7 @@ dependencies = [
  "p3-koala-bear",
  "rand",
  "rayon",
+ "tracing",
 ]
 
 [[package]]

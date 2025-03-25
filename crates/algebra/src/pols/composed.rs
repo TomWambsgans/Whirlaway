@@ -137,7 +137,9 @@ impl<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionField<F>
     }
 
     pub fn sum_over_hypercube(&self) -> EF {
-        self.sum_over_partial_hypercube(0) + self.sum_over_partial_hypercube(1)
+        HypercubePoint::iter(self.n_vars)
+            .map(|point| self.eval_hypercube(&point))
+            .sum()
     }
 
     pub fn sum_over_partial_hypercube(&self, left: u32) -> EF {

@@ -10,6 +10,7 @@ use algebra::{
 use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};
 use pcs::{BatchSettings, PCS};
+use rayon::prelude::*;
 use tracing::{Level, instrument, span};
 
 use super::table::AirTable;
@@ -18,12 +19,6 @@ use super::table::AirTable;
 
 cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-air/#fnref:1
 
-The witness is split into n columns: z1, ..., z_(c-1), each represented by a multivariate polynomial with log(n) variables.
-M0, ..., M_(t-1) are t matrices of dimension log(m) x log(n).
-C is an arithmic circuit with c entries.
-col: {0, ..., t-1} -> {0, ..., c-1} assigns to each matrix u a witness column z_{col_u}.
-The statement to prove is: for all i in {0, 1}^log(m), C(M0.z_{col_0}(i), ..., M_(c-1).z_{col_(c-1)}(i)) = 0.
-which is equivalent (with negligible probability) to: sum_{i in {0, 1}^log(m)} eq(i0, ..., i_{log_m - 1}, tau0, ..., tau_{log_m - 1}) C(M0.z_{col_0}(i), ..., M_(c-1).z_{col_(c-1)}(i))) = 0
 */
 
 impl<F: Field> AirTable<F> {
@@ -80,7 +75,7 @@ impl<F: Field> AirTable<F> {
             let _span = span!(Level::INFO, "outer sumcheck").entered();
             sumcheck::prove::<F, F, EF>(
                 zeroed_pol,
-                Some(DenseMultilinearPolynomial::eq_mle(&zerocheck_challenges).into()),
+                Some(&zerocheck_challenges),
                 fs_prover,
                 Some(EF::ZERO),
                 None,
@@ -92,7 +87,7 @@ impl<F: Field> AirTable<F> {
         let initial_transcript_len = fs_prover.transcript_len();
 
         let inner_sums = witnesses_up_and_down(witness)
-            .iter()
+            .par_iter()
             .map(|n| n.eval(&outer_challenges))
             .collect::<Vec<_>>();
         fs_prover.add_scalars(&inner_sums);
@@ -106,9 +101,7 @@ impl<F: Field> AirTable<F> {
                 // up and down
                 let mut sum = DenseMultilinearPolynomial::<EF>::zero(log_length);
                 for w in witness {
-                    let mut scaled = w.embed::<EF>();
-                    scaled.scale(scalar);
-                    sum += scaled;
+                    sum += w.scale(scalar);
                     scalar *= batching_scalar;
                 }
                 nodes.push(sum.into());
@@ -131,13 +124,16 @@ impl<F: Field> AirTable<F> {
         let (inner_challenges, _) =
             sumcheck::prove(batch_pol, None, fs_prover, Some(inner_sum), None, 0);
 
+        let values = witness
+            .par_iter()
+            .map(|w| w.eval(&inner_challenges))
+            .collect::<Vec<_>>();
         for u in 0..self.n_columns {
-            let value = witness[u].eval(&inner_challenges);
             batching.register_claim(
                 u,
                 Evaluation {
                     point: inner_challenges.clone(),
-                    value,
+                    value: values[u],
                 },
                 fs_prover,
             );
@@ -176,16 +172,13 @@ fn witnesses_down<F: Field>(
 ) -> Vec<DenseMultilinearPolynomial<F>> {
     let mut res = Vec::with_capacity(witnesses.len());
     for w in witnesses {
-        // TODO opti
-        let mut down = w.clone();
-        down.evals.remove(0);
-        down.evals.push(*down.evals.last().unwrap());
-        res.push(down);
+        let mut down = w.evals[1..].to_vec();
+        down.push(*down.last().unwrap());
+        res.push(DenseMultilinearPolynomial::new(down));
     }
     res
 }
 
-#[instrument(name = "matrix_up_folded", skip_all)]
 fn matrix_up_folded<F: Field>(outer_challenges: &[F]) -> DenseMultilinearPolynomial<F> {
     let n = outer_challenges.len();
     let mut folded = DenseMultilinearPolynomial::eq_mle(&outer_challenges);
@@ -195,7 +188,6 @@ fn matrix_up_folded<F: Field>(outer_challenges: &[F]) -> DenseMultilinearPolynom
     folded
 }
 
-#[instrument(name = "matrix_down_folded", skip_all)]
 fn matrix_down_folded<F: Field>(outer_challenges: &[F]) -> DenseMultilinearPolynomial<F> {
     let n = outer_challenges.len();
     let mut folded = vec![F::ZERO; 1 << n];
@@ -203,7 +195,7 @@ fn matrix_down_folded<F: Field>(outer_challenges: &[F]) -> DenseMultilinearPolyn
         let outer_challenges_prod = (F::ONE - outer_challenges[n - k - 1])
             * outer_challenges[n - k..].iter().copied().product::<F>();
         let mut eq_mle = DenseMultilinearPolynomial::eq_mle(&outer_challenges[0..n - k - 1]);
-        eq_mle.scale(outer_challenges_prod);
+        eq_mle = eq_mle.scale(outer_challenges_prod);
         for (mut i, v) in eq_mle.evals.into_iter().enumerate() {
             i <<= k + 1;
             i += 1 << k;

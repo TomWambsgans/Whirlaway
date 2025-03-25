@@ -10,6 +10,7 @@ tracing.workspace = true
 fiat-shamir.workspace = true
 pcs.workspace = true
 sumcheck.workspace = true
+rayon.workspace = true
 
 [dev-dependencies]
 p3_koala_bear.workspace = true

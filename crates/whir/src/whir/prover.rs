@@ -315,7 +315,7 @@ fn randomized_eq_extensions<F: Field>(
         let mut initial_claim = initial_claim.clone();
         initial_claim.reverse();
         let mut eq_mle = DenseMultilinearPolynomial::eq_mle(&initial_claim);
-        eq_mle.scale(*randomness_coef);
+        eq_mle = eq_mle.scale(*randomness_coef);
         res += eq_mle;
     }
     res
