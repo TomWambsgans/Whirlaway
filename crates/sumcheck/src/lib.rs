@@ -90,7 +90,7 @@ pub fn prove_with_custum_summation<
         pow_bits,
         &mut challenges,
         summation,
-        0
+        0,
     );
     for i in 1..n_rounds {
         (folded_pol, eq_factor) = sc_round(
@@ -102,7 +102,7 @@ pub fn prove_with_custum_summation<
             pow_bits,
             &mut challenges,
             summation,
-            i
+            i,
         );
     }
     (challenges, folded_pol)
@@ -122,7 +122,7 @@ fn sc_round<
     pow_bits: usize,
     challenges: &mut Vec<EF>,
     summation: &S,
-    round: usize
+    round: usize,
 ) -> (
     ComposedPolynomial<F, EF, EF>,
     Option<DenseMultilinearPolynomial<EF>>,
