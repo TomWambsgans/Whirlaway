@@ -187,7 +187,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>> BatchSettings<F, EF, Pcs>
 
         let g_star = ComposedPolynomial::<EF, EF>::new(k + kappa, nodes, vars_shift, structure);
 
-        let (challenges, _) = sumcheck::prove_with_custum_summation(
+        let (challenges, _) = sumcheck::prove_with_custom_summation(
             g_star,
             None,
             fs_prover,
