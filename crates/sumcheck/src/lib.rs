@@ -41,7 +41,7 @@ pub fn prove<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Extension
     n_rounds: Option<usize>,
     pow_bits: usize,
 ) -> (Vec<EF>, ComposedPolynomial<F, EF, EF>) {
-    prove_with_custum_summation(
+    prove_with_custom_summation(
         pol,
         eq_factor,
         fs_prover,
@@ -52,7 +52,7 @@ pub fn prove<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Extension
     )
 }
 
-pub fn prove_with_custum_summation<
+pub fn prove_with_custom_summation<
     F: Field,
     NF: ExtensionField<F>,
     EF: ExtensionField<NF> + ExtensionField<F>,
