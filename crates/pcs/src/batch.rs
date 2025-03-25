@@ -26,6 +26,7 @@ The verifier will check this by chosing random challenges t_1, ..., t_k  in plac
 
 use fiat_shamir::{FsError, FsProver, FsVerifier};
 use p3_field::{ExtensionField, Field};
+use rayon::prelude::*;
 use sumcheck::{FullSumcheckSummation, SumcheckError, SumcheckSummation};
 use tracing::instrument;
 
@@ -163,19 +164,23 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>> BatchSettings<F, EF, Pcs>
         nodes.push(DenseMultilinearPolynomial::eq_mle(&t).into());
         vars_shift.push(kappa..kappa + k);
 
-        let mut eq_zi_b_evals = vec![];
+        let eq_zi_b_evals = (0..packed_claims.len())
+            .into_par_iter()
+            .map(|u| {
+                (
+                    DenseMultilinearPolynomial::eq_mle(&packed_claims[u].point.left),
+                    packed_claims[u].point.right.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
 
-        let mut map = vec![];
-        for u in 0..packed_claims.len() {
-            eq_zi_b_evals.push((
-                DenseMultilinearPolynomial::eq_mle(&packed_claims[u].point.left),
-                packed_claims[u].point.right.clone(),
-            ));
-            map.push(HypercubePoint {
+        let map = (0..packed_claims.len())
+            .map(|u| HypercubePoint {
                 n_vars: self.log_n_polys(),
                 val: self.claims[u].0,
-            });
-        }
+            })
+            .collect::<Vec<_>>();
+
         let eq_zi_b = SparseMultilinearPolynomial::new(eq_zi_b_evals);
         nodes.push(eq_zi_b.into());
         vars_shift.push(0..k + kappa);

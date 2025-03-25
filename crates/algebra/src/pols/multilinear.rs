@@ -1,6 +1,6 @@
 use std::ops::AddAssign;
 
-use crate::{field_utils::dot_product, tensor_algebra::TensorAlgebra};
+use crate::tensor_algebra::TensorAlgebra;
 use p3_field::{BasedVectorSpace, ExtensionField, Field};
 use rand::{
     Rng,
@@ -210,10 +210,24 @@ impl<F: Field> DenseMultilinearPolynomial<F> {
 
     pub fn eval<EF: ExtensionField<F>>(&self, point: &[EF]) -> EF {
         assert_eq!(self.n_vars, point.len());
-        dot_product(
-            &self.evals,
-            &DenseMultilinearPolynomial::eq_mle(point).evals,
-        )
+        if self.n_vars == 0 {
+            return EF::from(self.evals[0]);
+        }
+        let mut n = self.n_coefs();
+        let mut buff = self.evals[..n / 2]
+            .par_iter()
+            .zip(&self.evals[n / 2..])
+            .map(|(l, r)| point[0] * (*r - *l) + *l)
+            .collect::<Vec<_>>();
+        for p in &point[1..] {
+            n /= 2;
+            buff = buff[..n / 2]
+                .par_iter()
+                .zip(&buff[n / 2..])
+                .map(|(l, r)| *p * (*r - *l) + *l)
+                .collect();
+        }
+        buff[0]
     }
 
     pub fn packed<EF: ExtensionField<F>>(self) -> DenseMultilinearPolynomial<EF> {
@@ -240,19 +254,20 @@ impl<F: Field> DenseMultilinearPolynomial<F> {
         DenseMultilinearPolynomial::new(new_evals)
     }
 
-    // TODO improve
     pub fn eval_mixed_tensor<SubF: Field>(&self, point: &[F]) -> TensorAlgebra<SubF, F>
     where
         F: ExtensionField<SubF>,
     {
         // returns φ1(self)(φ0(point[0]), φ0(point[1]), ...)
         assert_eq!(point.len(), self.n_vars);
-        let lagrange_evals = lagrange_evaluations(point);
-        let mut res = TensorAlgebra::zero();
-        for i in 0..lagrange_evals.len() {
-            res += TensorAlgebra::phi_0_times_phi_1(&lagrange_evals[i], &self.evals[i]);
-        }
-        res
+        let lagrange_evals = DenseMultilinearPolynomial::eq_mle(point).evals;
+        lagrange_evals
+            .par_iter()
+            .zip(&self.evals)
+            .map(|(l, e)| {
+                TensorAlgebra::phi_0_times_phi_1(l, e)
+            })
+            .sum()
     }
 
     pub fn as_coefs(self) -> Vec<F> {
@@ -322,8 +337,9 @@ impl<F: Field> DenseMultilinearPolynomial<F> {
         DenseMultilinearPolynomial::new(evals)
     }
 
-    pub fn scale(&mut self, scalar: F) {
-        self.evals.par_iter_mut().for_each(|e| *e *= scalar);
+    pub fn scale<EF: ExtensionField<F>>(&self, scalar: EF) -> DenseMultilinearPolynomial<EF> {
+        let evals = self.evals.par_iter().map(|&e| scalar * e).collect();
+        DenseMultilinearPolynomial::new(evals)
     }
 
     pub fn eq_mle(scalars: &[F]) -> Self {
@@ -338,24 +354,27 @@ impl<F: Field> DenseMultilinearPolynomial<F> {
         }
         Self::new(evals)
     }
-}
 
-// TODO remove (probably duplicated)
-pub fn lagrange_evaluations<F: Field>(point: &[F]) -> Vec<F> {
-    // big indian order
-    // point = [x, y]
-    // returns [(1 - x) * (1 - y), (1 - x) * y, x * (1 - y), x * y] (00, 01, 10, 11)
-    if point.is_empty() {
-        vec![F::ONE]
-    } else {
-        let mut res = vec![F::ZERO; 1 << point.len()];
-        let rec = lagrange_evaluations(&point[1..]);
-        for (i, &val) in rec.iter().enumerate() {
-            res[i] = (F::ONE - point[0]) * val;
-            res[i + (1 << (point.len() - 1))] = point[0] * val;
-        }
-        res
-    }
+    // parallel version:
+
+    // pub fn eq_mle(scalars: &[F]) -> Self {
+    //     let mut evals = vec![F::ZERO; 1 << scalars.len()];
+    //     evals[0] = F::ONE;
+    //     for (i, &s) in scalars.iter().rev().enumerate() {
+    //         let one_minus_s = F::ONE - s;
+    //         let chunk_size = 1 << i;
+    //         let (left, rest) = evals.split_at_mut(chunk_size);
+    //         let right = &mut rest[..chunk_size];
+    //         left.par_iter_mut()
+    //             .zip(right.par_iter_mut())
+    //             .for_each(|(l, r)| {
+    //                 let tmp = *l * s;
+    //                 *l = *l * one_minus_s;
+    //                 *r = tmp;
+    //             });
+    //     }
+    //     Self::new(evals)
+    // }
 }
 
 impl<F: Field> AddAssign<MultilinearPolynomial<F>> for MultilinearPolynomial<F> {

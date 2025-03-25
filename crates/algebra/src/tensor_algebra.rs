@@ -1,4 +1,7 @@
-use std::ops::{Add, AddAssign};
+use std::{
+    iter::Sum,
+    ops::{Add, AddAssign},
+};
 
 use p3_field::{BasedVectorSpace, ExtensionField, Field};
 use rand::{
@@ -134,6 +137,12 @@ impl<F: Field, EF: ExtensionField<F>> Add for TensorAlgebra<F, EF> {
 impl<F: Field, EF: ExtensionField<F>> AddAssign for TensorAlgebra<F, EF> {
     fn add_assign(&mut self, rhs: Self) {
         *self = std::mem::replace(self, TensorAlgebra::zero()) + rhs;
+    }
+}
+
+impl<F: Field, EF: ExtensionField<F>> Sum for TensorAlgebra<F, EF> {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        iter.fold(Self::zero(), |acc, x| acc + x)
     }
 }
 

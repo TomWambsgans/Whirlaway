@@ -11,6 +11,7 @@ fiat-shamir.workspace = true
 tracing.workspace = true
 merkle-tree.workspace = true
 whir.workspace = true
+rayon.workspace = true
 
 [dev-dependencies]
 p3_koala_bear.workspace = true

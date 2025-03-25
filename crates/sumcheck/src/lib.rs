@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
+
 use algebra::pols::{
     ComposedPolynomial, DenseMultilinearPolynomial, Evaluation, HypercubePoint,
     PartialHypercubePoint, UnivariatePolynomial,
@@ -88,6 +90,7 @@ pub fn prove_with_custum_summation<
         pow_bits,
         &mut challenges,
         summation,
+        0
     );
     for i in 1..n_rounds {
         (folded_pol, eq_factor) = sc_round(
@@ -99,6 +102,7 @@ pub fn prove_with_custum_summation<
             pow_bits,
             &mut challenges,
             summation,
+            i
         );
     }
     (challenges, folded_pol)
@@ -118,10 +122,16 @@ fn sc_round<
     pow_bits: usize,
     challenges: &mut Vec<EF>,
     summation: &S,
+    round: usize
 ) -> (
     ComposedPolynomial<F, EF, EF>,
     Option<DenseMultilinearPolynomial<EF>>,
 ) {
+    let _span = if round <= 2 {
+        Some(tracing::span!(tracing::Level::INFO, "Sumcheck round").entered())
+    } else {
+        None
+    };
     let mut p_evals = Vec::<(EF, EF)>::new();
     for z in 0..=degree as u32 {
         let sum_z = if z == 1 {
