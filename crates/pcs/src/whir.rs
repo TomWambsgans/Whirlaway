@@ -1,4 +1,4 @@
-use algebra::pols::{DenseMultilinearPolynomial, Evaluation};
+use algebra::pols::{Evaluation, MultilinearPolynomial};
 use fiat_shamir::{FsProver, FsVerifier};
 use merkle_tree::KeccakDigest;
 use p3_field::TwoAdicField;
@@ -25,12 +25,12 @@ pub struct WhirPCS<F: TwoAdicField> {
 
 pub struct WhirWitness<F: TwoAdicField> {
     // TODO avoid duplication
-    pub pol: DenseMultilinearPolynomial<F>,
+    pub pol: MultilinearPolynomial<F>,
     pub inner: whir::whir::committer::Witness<F>,
 }
 
 impl<F: TwoAdicField> PcsWitness<F> for WhirWitness<F> {
-    fn pol(&self) -> &DenseMultilinearPolynomial<F> {
+    fn pol(&self) -> &MultilinearPolynomial<F> {
         &self.pol
     }
 }
@@ -48,11 +48,7 @@ impl<F: TwoAdicField> PCS<F, F> for WhirPCS<F> {
         Self { config }
     }
 
-    fn commit(
-        &self,
-        pol: DenseMultilinearPolynomial<F>,
-        fs_prover: &mut FsProver,
-    ) -> Self::Witness {
+    fn commit(&self, pol: MultilinearPolynomial<F>, fs_prover: &mut FsProver) -> Self::Witness {
         let committer = Committer::new(self.config.clone());
         let inner = committer
             .commit(fs_prover, CoefficientList::new(pol.clone().as_coefs()))
@@ -113,7 +109,7 @@ mod test {
         let evals = (0..1 << n_vars)
             .map(|x| F::from_u64(x as u64))
             .collect::<Vec<_>>();
-        let pol = DenseMultilinearPolynomial::new(evals);
+        let pol = MultilinearPolynomial::new(evals);
         let point = (0..n_vars)
             .map(|x| F::from_u64(x as u64))
             .collect::<Vec<_>>();

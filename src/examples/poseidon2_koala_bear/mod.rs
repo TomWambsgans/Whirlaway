@@ -4,7 +4,7 @@ mod constants;
 mod generation;
 
 use ::air::{AirBuilder, AirExpr};
-use algebra::pols::DenseMultilinearPolynomial;
+use algebra::pols::MultilinearPolynomial;
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear};
@@ -104,7 +104,7 @@ pub fn prove_poseidon2(log_n_rows: usize, whir_params: WhirParameters) {
 
     let witness = witness_matrix
         .rows()
-        .map(|col| DenseMultilinearPolynomial::new(col.collect()))
+        .map(|col| MultilinearPolynomial::new(col.collect()))
         .collect::<Vec<_>>();
 
     let table = air_builder.build();

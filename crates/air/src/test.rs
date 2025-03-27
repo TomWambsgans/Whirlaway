@@ -4,7 +4,7 @@ use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::KoalaBear;
 use pcs::{BatchSettings, RingSwitch, WhirPCS, WhirParameters};
 
-use algebra::pols::DenseMultilinearPolynomial;
+use algebra::pols::MultilinearPolynomial;
 
 use crate::AirBuilder;
 
@@ -35,8 +35,8 @@ fn test_air_fibonacci() {
     }
 
     let witnesses = vec![
-        DenseMultilinearPolynomial::new(col_1),
-        DenseMultilinearPolynomial::new(col_2),
+        MultilinearPolynomial::new(col_1),
+        MultilinearPolynomial::new(col_2),
     ];
 
     table.check_validity(&witnesses);
@@ -106,9 +106,9 @@ fn test_air_complex() {
     }
 
     let witnesses = vec![
-        DenseMultilinearPolynomial::new(col_1),
-        DenseMultilinearPolynomial::new(col_2),
-        DenseMultilinearPolynomial::new(col_3),
+        MultilinearPolynomial::new(col_1),
+        MultilinearPolynomial::new(col_2),
+        MultilinearPolynomial::new(col_3),
     ];
 
     table.check_validity(&witnesses);

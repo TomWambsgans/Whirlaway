@@ -27,16 +27,12 @@ The verifier will check this by chosing random challenges t_1, ..., t_k  in plac
 use fiat_shamir::{FsError, FsProver, FsVerifier};
 use p3_field::{ExtensionField, Field};
 use rayon::prelude::*;
-use sumcheck::{FullSumcheckSummation, SumcheckError, SumcheckSummation};
+use sumcheck::SumcheckError;
 use tracing::instrument;
 
 use algebra::{
     field_utils::eq_extension,
-    pols::{
-        ArithmeticCircuit, ComposedPolynomial, DenseMultilinearPolynomial, Evaluation,
-        GenericTransparentMultivariatePolynomial, HypercubePoint, MixedEvaluation, MixedPoint,
-        PartialHypercubePoint, SparseMultilinearPolynomial, concat_hypercube_points,
-    },
+    pols::{Evaluation, HypercubePoint, MixedEvaluation, MixedPoint, MultilinearPolynomial},
 };
 
 use super::PCS;
@@ -52,8 +48,8 @@ pub struct BatchSettings<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>> {
 
 // there is a lot of duplication TODO
 pub struct BatchWitness<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>> {
-    pub packed: DenseMultilinearPolynomial<F>,
-    pub polys: Vec<DenseMultilinearPolynomial<F>>,
+    pub packed: MultilinearPolynomial<F>,
+    pub polys: Vec<MultilinearPolynomial<F>>,
     pub witness: Pcs::Witness,
 }
 
@@ -108,7 +104,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>> BatchSettings<F, EF, Pcs>
     pub fn commit(
         &self,
         fs_prover: &mut FsProver,
-        polys: Vec<DenseMultilinearPolynomial<F>>,
+        polys: Vec<MultilinearPolynomial<F>>,
     ) -> BatchWitness<F, EF, Pcs> {
         // Commit to a batch of polynomials, and later evaluate them individually at a an arbitrary number of points
         // For simplicity for now, we impose that all polynomials have the same number of variables
@@ -122,7 +118,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>> BatchSettings<F, EF, Pcs>
                 batch_evals[(j << self.log_n_polys()) + i] = *eval;
             }
         }
-        let packed = DenseMultilinearPolynomial::new(batch_evals);
+        let packed = MultilinearPolynomial::new(batch_evals);
 
         let witness = self.pcs.commit(packed.clone(), fs_prover);
 
@@ -158,53 +154,22 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>> BatchSettings<F, EF, Pcs>
 
         let t = fs_prover.challenge_scalars::<EF>(k);
 
-        let mut nodes = vec![witness.packed.embed::<EF>().into()]; // TODO avoid
-        let mut vars_shift = vec![0..kappa];
-
-        nodes.push(DenseMultilinearPolynomial::eq_mle(&t).into());
-        vars_shift.push(kappa..kappa + k);
-
-        let eq_zi_b_evals = (0..packed_claims.len())
+        let mixed_eq_mles = (0..packed_claims.len())
             .into_par_iter()
             .map(|u| {
                 (
-                    DenseMultilinearPolynomial::eq_mle(&packed_claims[u].point.left),
+                    MultilinearPolynomial::eq_mle(&packed_claims[u].point.left),
                     packed_claims[u].point.right.clone(),
                 )
             })
             .collect::<Vec<_>>();
 
-        let map = (0..packed_claims.len())
-            .map(|u| HypercubePoint {
-                n_vars: self.log_n_polys(),
-                val: self.claims[u].0,
-            })
-            .collect::<Vec<_>>();
-
-        let eq_zi_b = SparseMultilinearPolynomial::new(eq_zi_b_evals);
-        nodes.push(eq_zi_b.into());
-        vars_shift.push(0..k + kappa);
-
-        let structure = GenericTransparentMultivariatePolynomial::new(
-            ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(2),
-            3,
-        );
-
-        let g_star = ComposedPolynomial::<EF, EF>::new(k + kappa, nodes, vars_shift, structure);
-
-        // TODO pass `t` as a zeriofier (arg `eq_factor`), but this require to improve the var shift mechnanism
-        let (challenges, _) = sumcheck::prove_with_custum_summation(
-            g_star,
-            None,
+        let challenges = sumcheck::prove_custom(
+            witness.packed.clone(),
+            MultilinearPolynomial::eq_mle(&t),
+            mixed_eq_mles,
             fs_prover,
-            Some(self.s(&t, &packed_claims)),
-            None,
-            0,
-            &SparseSumcheckSummation {
-                k,
-                n: self.log_n_polys(),
-                map,
-            },
+            self.s(&t, &packed_claims),
         );
 
         let value = witness.packed.eval(&challenges[k..k + kappa]);
@@ -274,7 +239,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>> BatchSettings<F, EF, Pcs>
                     &final_check.point[..kappa],
                 );
             }
-            DenseMultilinearPolynomial::new(evals).eval(&final_check.point[kappa..kappa + k])
+            MultilinearPolynomial::new(evals).eval(&final_check.point[kappa..kappa + k])
         };
 
         final_check.point = final_check.point[..kappa].to_vec();
@@ -288,47 +253,10 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>> BatchSettings<F, EF, Pcs>
     fn s(&self, t: &[EF], packed_claims: &[MixedEvaluation<EF>]) -> EF {
         let mut values = packed_claims.iter().map(|e| e.value).collect::<Vec<_>>();
         values.resize(1 << self.k(), EF::ZERO);
-        DenseMultilinearPolynomial::new(values).eval(&t)
+        MultilinearPolynomial::new(values).eval(&t)
     }
 }
 
-// iterate first over the last k variables: for each value X = x_1, x2, ..., x_k (in big indian),
-// map(X) tels us the only combination of n ending variables (the ending variables) of the (n_vars - k) first variables for
-// which the sumcheck polynomial is not zero.
-struct SparseSumcheckSummation {
-    k: usize,
-    n: usize,
-    map: Vec<HypercubePoint>,
-}
-
-impl SumcheckSummation for SparseSumcheckSummation {
-    fn non_zero_points(&self, z: u32, n_vars: usize) -> Vec<algebra::pols::PartialHypercubePoint> {
-        if n_vars <= self.n + self.k {
-            FullSumcheckSummation.non_zero_points(z, n_vars)
-        } else {
-            let n_first_vars = n_vars - 1 - self.k - self.n;
-            HypercubePoint::iter(self.k)
-                .enumerate()
-                .map(move |(k_index, k_vars)| {
-                    if k_index >= self.map.len() {
-                        return vec![];
-                    }
-                    HypercubePoint::iter(n_first_vars)
-                        .map(move |first_vars| {
-                            concat_hypercube_points(&[
-                                first_vars,
-                                self.map[k_index].clone(),
-                                k_vars.clone(),
-                            ])
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .flatten()
-                .map(move |right| PartialHypercubePoint { left: z, right })
-                .collect()
-        }
-    }
-}
 #[cfg(test)]
 mod test {
 
@@ -361,7 +289,7 @@ mod test {
         let mut fs_prover = FsProver::new();
 
         let polys = (0..n_polys)
-            .map(|_| DenseMultilinearPolynomial::<F>::random(rng, n_vars))
+            .map(|_| MultilinearPolynomial::<F>::random(rng, n_vars))
             .collect::<Vec<_>>();
         let witness = batch_prover.commit(&mut fs_prover, polys);
 

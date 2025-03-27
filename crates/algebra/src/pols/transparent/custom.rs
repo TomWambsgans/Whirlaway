@@ -2,9 +2,9 @@ use std::fmt::Debug;
 
 use p3_field::{ExtensionField, Field};
 
-use crate::pols::{CircuitComputation, utils::max_degree_per_vars_sum};
+use crate::pols::CircuitComputation;
 
-use super::{ArithmeticCircuit, GenericTransparentMultivariatePolynomial};
+use super::ArithmeticCircuit;
 
 /// a sum of expressions (with scalars in F), each multiplied by a scalar in EF
 #[derive(Clone, Debug)]
@@ -26,33 +26,12 @@ impl<F: Field, EF: ExtensionField<F>> CustomTransparentMultivariatePolynomial<F,
         }
     }
 
-    pub fn eval(&self, point: &[EF]) -> EF {
-        assert_eq!(point.len(), self.n_vars);
-        self.linear_comb
-            .iter()
-            .map(|(s, expr)| *s * expr.eval_field(&|i| point[*i]))
-            .sum::<EF>()
-    }
-
     pub fn fix_computation(&self) -> CustomComputation<F, EF> {
         CustomComputation(
             self.linear_comb
                 .iter()
                 .map(|(s, expr)| (*s, expr.fix_computation()))
                 .collect(),
-        )
-    }
-
-    pub fn max_degree_per_vars(&self) -> Vec<usize> {
-        max_degree_per_vars_sum(
-            &self
-                .linear_comb
-                .iter()
-                .map(|(_, expr)| {
-                    GenericTransparentMultivariatePolynomial::new(expr.clone(), self.n_vars)
-                        .max_degree_per_vars()
-                })
-                .collect::<Vec<_>>(),
         )
     }
 }

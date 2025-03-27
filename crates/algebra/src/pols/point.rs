@@ -1,7 +1,6 @@
 use p3_field::Field;
 use rand::Rng;
 use std::fmt::{self, Debug, Formatter};
-use std::ops::Range;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct HypercubePoint {
@@ -28,18 +27,6 @@ impl HypercubePoint {
         point
     }
 
-    pub fn from_vec<F: Field>(point: &[F]) -> Self {
-        let mut val = 0;
-        for b in 0..point.len() {
-            assert!(point[b].is_zero() || point[b].is_one());
-            val |= (point[point.len() - 1 - b].is_one() as usize) << b;
-        }
-        Self {
-            val,
-            n_vars: point.len(),
-        }
-    }
-
     pub fn random<F: Field, R: Rng>(rng: &mut R, n_vars: usize) -> Self {
         Self {
             val: rng.random_range(0..(1 << n_vars)),
@@ -51,14 +38,8 @@ impl HypercubePoint {
         (0..(1 << n_vars)).map(move |val| Self { val, n_vars })
     }
 
-    pub fn crop(&self, range: Range<usize>) -> Self {
-        assert!(range.end <= self.n_vars);
-        let val = self.val >> (self.n_vars - range.end);
-        let mask = (1 << range.len()) - 1;
-        Self {
-            val: val & mask,
-            n_vars: range.len(),
-        }
+    pub fn new(n_vars: usize, val: usize) -> Self {
+        Self { n_vars, val }
     }
 
     pub fn zero(n_vars: usize) -> Self {
@@ -85,6 +66,13 @@ pub struct PartialHypercubePoint {
 impl PartialHypercubePoint {
     pub fn n_vars(&self) -> usize {
         1 + self.right.n_vars
+    }
+
+    pub fn new(left: u32, right_n_vars: usize, right: usize) -> Self {
+        Self {
+            left,
+            right: HypercubePoint::new(right_n_vars, right),
+        }
     }
 }
 
@@ -113,70 +101,4 @@ pub struct MixedEvaluation<F: Field> {
 pub struct Evaluation<F> {
     pub point: Vec<F>,
     pub value: F,
-}
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-    use p3_field::PrimeCharacteristicRing;
-    use p3_koala_bear::KoalaBear;
-
-    type F = KoalaBear;
-
-    #[test]
-    fn test_hypercube_point() {
-        assert_eq!(
-            HypercubePoint { val: 0, n_vars: 3 }.to_vec::<F>(),
-            vec![F::ZERO, F::ZERO, F::ZERO]
-        );
-        assert_eq!(
-            HypercubePoint { val: 1, n_vars: 3 }.to_vec::<F>(),
-            vec![F::ZERO, F::ZERO, F::ONE]
-        );
-        assert_eq!(
-            HypercubePoint { val: 2, n_vars: 3 }.to_vec::<F>(),
-            vec![F::ZERO, F::ONE, F::ZERO]
-        );
-        assert_eq!(
-            HypercubePoint { val: 3, n_vars: 3 }.to_vec::<F>(),
-            vec![F::ZERO, F::ONE, F::ONE]
-        );
-        assert_eq!(
-            HypercubePoint { val: 4, n_vars: 3 }.to_vec::<F>(),
-            vec![F::ONE, F::ZERO, F::ZERO]
-        );
-        assert_eq!(
-            HypercubePoint {
-                val: (1 << 21) - 1,
-                n_vars: 20
-            }
-            .to_vec::<F>(),
-            vec![F::ONE; 20]
-        );
-
-        assert_eq!(
-            HypercubePoint {
-                val: 0b1011111111,
-                n_vars: 10
-            }
-            .crop(0..5),
-            HypercubePoint {
-                val: 0b10111,
-                n_vars: 5
-            }
-        );
-
-        assert_eq!(
-            HypercubePoint {
-                val: 0b1011111111,
-                n_vars: 10
-            }
-            .crop(1..5),
-            HypercubePoint {
-                val: 0b0111,
-                n_vars: 4
-            }
-        );
-    }
 }

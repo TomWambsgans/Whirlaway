@@ -1,9 +1,8 @@
 use algebra::{
     field_utils::dot_product,
     pols::{
-        ArithmeticCircuit, ComposedPolynomial, CustomTransparentMultivariatePolynomial,
-        DenseMultilinearPolynomial, Evaluation, GenericTransparentMultivariatePolynomial,
-        MultilinearPolynomial,
+        ArithmeticCircuit, ComposedPolynomial, CustomTransparentMultivariatePolynomial, Evaluation,
+        GenericTransparentMultivariatePolynomial, MultilinearPolynomial,
     },
     utils::expand_randomness,
 };
@@ -27,7 +26,7 @@ impl<F: Field> AirTable<F> {
         &self,
         fs_prover: &mut FsProver,
         batching: &mut BatchSettings<F, EF, Pcs>,
-        witness: &[DenseMultilinearPolynomial<F>],
+        witness: &[MultilinearPolynomial<F>],
     ) {
         let log_length = witness[0].n_vars;
         assert!(witness.iter().all(|w| w.n_vars == log_length));
@@ -49,7 +48,7 @@ impl<F: Field> AirTable<F> {
             let mut nodes = Vec::<MultilinearPolynomial<F>>::with_capacity(self.n_columns * 2);
 
             for n in witnesses_up_and_down(witness) {
-                nodes.push(n.into());
+                nodes.push(n);
             }
 
             let mut batched_constraints = Vec::new();
@@ -61,7 +60,7 @@ impl<F: Field> AirTable<F> {
                 batched_constraints.push((scalar, constraint.expr.coefs.clone()));
             }
 
-            ComposedPolynomial::new_without_shift(
+            ComposedPolynomial::new(
                 log_length,
                 nodes,
                 CustomTransparentMultivariatePolynomial::new(
@@ -99,22 +98,22 @@ impl<F: Field> AirTable<F> {
             let mut scalar = EF::ONE;
             for _ in 0..2 {
                 // up and down
-                let mut sum = DenseMultilinearPolynomial::<EF>::zero(log_length);
+                let mut sum = MultilinearPolynomial::<EF>::zero(log_length);
                 for w in witness {
                     sum += w.scale(scalar);
                     scalar *= batching_scalar;
                 }
-                nodes.push(sum.into());
+                nodes.push(sum);
             }
-            nodes.push(matrix_up_folded(&outer_challenges).into());
-            nodes.push(matrix_down_folded(&outer_challenges).into());
+            nodes.push(matrix_up_folded(&outer_challenges));
+            nodes.push(matrix_down_folded(&outer_challenges));
 
             let circuit = (ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
                 + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3));
 
             let structure = GenericTransparentMultivariatePolynomial::new(circuit, 4);
 
-            ComposedPolynomial::new_without_shift(log_length, nodes, structure)
+            ComposedPolynomial::new(log_length, nodes, structure)
         };
 
         let inner_sum = dot_product(
@@ -147,17 +146,15 @@ impl<F: Field> AirTable<F> {
 }
 
 fn witnesses_up_and_down<F: Field>(
-    witnesses: &[DenseMultilinearPolynomial<F>],
-) -> Vec<DenseMultilinearPolynomial<F>> {
+    witnesses: &[MultilinearPolynomial<F>],
+) -> Vec<MultilinearPolynomial<F>> {
     let mut res = Vec::with_capacity(witnesses.len() * 2);
     res.extend(witnesses_up(witnesses));
     res.extend(witnesses_down(witnesses));
     res
 }
 
-fn witnesses_up<F: Field>(
-    witnesses: &[DenseMultilinearPolynomial<F>],
-) -> Vec<DenseMultilinearPolynomial<F>> {
+fn witnesses_up<F: Field>(witnesses: &[MultilinearPolynomial<F>]) -> Vec<MultilinearPolynomial<F>> {
     let mut res = Vec::with_capacity(witnesses.len());
     for w in witnesses {
         let mut up = w.clone();
@@ -168,33 +165,33 @@ fn witnesses_up<F: Field>(
 }
 
 fn witnesses_down<F: Field>(
-    witnesses: &[DenseMultilinearPolynomial<F>],
-) -> Vec<DenseMultilinearPolynomial<F>> {
+    witnesses: &[MultilinearPolynomial<F>],
+) -> Vec<MultilinearPolynomial<F>> {
     let mut res = Vec::with_capacity(witnesses.len());
     for w in witnesses {
         let mut down = w.evals[1..].to_vec();
         down.push(*down.last().unwrap());
-        res.push(DenseMultilinearPolynomial::new(down));
+        res.push(MultilinearPolynomial::new(down));
     }
     res
 }
 
-fn matrix_up_folded<F: Field>(outer_challenges: &[F]) -> DenseMultilinearPolynomial<F> {
+fn matrix_up_folded<F: Field>(outer_challenges: &[F]) -> MultilinearPolynomial<F> {
     let n = outer_challenges.len();
-    let mut folded = DenseMultilinearPolynomial::eq_mle(&outer_challenges);
+    let mut folded = MultilinearPolynomial::eq_mle(&outer_challenges);
     let outer_challenges_prod: F = outer_challenges.iter().copied().product();
     folded.evals[(1 << n) - 1] -= outer_challenges_prod;
     folded.evals[(1 << n) - 2] += outer_challenges_prod;
     folded
 }
 
-fn matrix_down_folded<F: Field>(outer_challenges: &[F]) -> DenseMultilinearPolynomial<F> {
+fn matrix_down_folded<F: Field>(outer_challenges: &[F]) -> MultilinearPolynomial<F> {
     let n = outer_challenges.len();
     let mut folded = vec![F::ZERO; 1 << n];
     for k in 0..n {
         let outer_challenges_prod = (F::ONE - outer_challenges[n - k - 1])
             * outer_challenges[n - k..].iter().copied().product::<F>();
-        let mut eq_mle = DenseMultilinearPolynomial::eq_mle(&outer_challenges[0..n - k - 1]);
+        let mut eq_mle = MultilinearPolynomial::eq_mle(&outer_challenges[0..n - k - 1]);
         eq_mle = eq_mle.scale(outer_challenges_prod);
         for (mut i, v) in eq_mle.evals.into_iter().enumerate() {
             i <<= k + 1;
@@ -205,5 +202,5 @@ fn matrix_down_folded<F: Field>(outer_challenges: &[F]) -> DenseMultilinearPolyn
     // bottom left corner:
     folded[(1 << n) - 1] += outer_challenges.iter().copied().product::<F>();
 
-    DenseMultilinearPolynomial::new(folded)
+    MultilinearPolynomial::new(folded)
 }
