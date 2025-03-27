@@ -1,5 +1,5 @@
 use crate::ntt::wavelet_transform;
-use algebra::pols::{DenseMultilinearPolynomial, MultilinearPolynomial, UnivariatePolynomial};
+use algebra::pols::{MultilinearPolynomial, UnivariatePolynomial};
 use p3_field::Field;
 use {
     rayon::{join, prelude::*},
@@ -166,6 +166,6 @@ impl<F: Field> CoefficientList<F> {
     pub fn into_evals(self) -> MultilinearPolynomial<F> {
         let mut evals = self.coeffs;
         wavelet_transform(&mut evals);
-        DenseMultilinearPolynomial::new(evals).into()
+        MultilinearPolynomial::new(evals)
     }
 }

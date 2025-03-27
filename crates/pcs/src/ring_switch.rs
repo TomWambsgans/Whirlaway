@@ -1,5 +1,5 @@
 use algebra::field_utils::dot_product;
-use algebra::pols::{ComposedPolynomial, DenseMultilinearPolynomial, Evaluation};
+use algebra::pols::{ComposedPolynomial, Evaluation, MultilinearPolynomial};
 use algebra::tensor_algebra::TensorAlgebra;
 use fiat_shamir::{FsError, FsProver, FsVerifier};
 use p3_field::{BasedVectorSpace, ExtensionField, Field};
@@ -17,12 +17,12 @@ pub struct RingSwitch<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> {
 }
 
 pub struct RingSwitchWitness<F: Field, InnerWitness> {
-    pol: DenseMultilinearPolynomial<F>,
+    pol: MultilinearPolynomial<F>,
     inner_witness: InnerWitness,
 }
 
 impl<F: Field, InnerWitness> PcsWitness<F> for RingSwitchWitness<F, InnerWitness> {
-    fn pol(&self) -> &DenseMultilinearPolynomial<F> {
+    fn pol(&self) -> &MultilinearPolynomial<F> {
         &self.pol
     }
 }
@@ -66,11 +66,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
         }
     }
 
-    fn commit(
-        &self,
-        pol: DenseMultilinearPolynomial<F>,
-        fs_prover: &mut FsProver,
-    ) -> Self::Witness {
+    fn commit(&self, pol: MultilinearPolynomial<F>, fs_prover: &mut FsProver) -> Self::Witness {
         let pol_clone = pol.clone(); // TODO avoid
         let inner_witness = self.inner.commit(pol.packed::<EF>(), fs_prover);
         RingSwitchWitness {
@@ -101,10 +97,10 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
         fs_prover.add_scalar_matrix(&s_hat.data, true);
 
         let r_pp = fs_prover.challenge_scalars::<EF>(kappa);
-        let lagranged_r_pp = DenseMultilinearPolynomial::eq_mle(&r_pp).evals;
+        let lagranged_r_pp = MultilinearPolynomial::eq_mle(&r_pp).evals;
 
         let mut A_coefs = vec![vec![F::ZERO; two_pow_kappa]; packed_pol.n_coefs()];
-        for (w, lagrange_eval) in DenseMultilinearPolynomial::eq_mle(&packed_point)
+        for (w, lagrange_eval) in MultilinearPolynomial::eq_mle(&packed_point)
             .evals
             .iter()
             .enumerate()
@@ -117,11 +113,11 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
             for w in 0..packed_pol.n_coefs() {
                 A_basis.push(dot_product(&A_coefs[w], &lagranged_r_pp));
             }
-            DenseMultilinearPolynomial::new(A_basis)
+            MultilinearPolynomial::new(A_basis)
         };
         let h = ComposedPolynomial::<EF, EF>::new_product(
             packed_pol.n_vars,
-            vec![packed_pol.clone().into(), A_pol.into()],
+            vec![packed_pol.clone(), A_pol],
         );
 
         let s0 = dot_product(&s_hat.rows(), &lagranged_r_pp);
@@ -153,7 +149,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
             fs_verifier.next_scalar_matrix(Some((two_pow_kappa, two_pow_kappa)))?,
         );
 
-        let lagrange_evals = DenseMultilinearPolynomial::eq_mle(&eval.point[n_packed_vars..]).evals;
+        let lagrange_evals = MultilinearPolynomial::eq_mle(&eval.point[n_packed_vars..]).evals;
         let columns = s_hat.columns();
 
         if dot_product(&columns, &lagrange_evals) != eval.value {
@@ -163,7 +159,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
         let r_pp = fs_verifier.challenge_scalars::<EF>(kappa);
 
         let rows = s_hat.rows();
-        let lagranged_r_pp = DenseMultilinearPolynomial::eq_mle(&r_pp).evals;
+        let lagranged_r_pp = MultilinearPolynomial::eq_mle(&r_pp).evals;
         let s0 = dot_product(&rows, &lagranged_r_pp);
 
         let (claimed_s0, sc_claim) = sumcheck::verify(fs_verifier, &vec![2; n_packed_vars], 0)?;
@@ -222,7 +218,7 @@ mod test {
             n_vars,
             &WhirParameters::standard(security_bits, log_inv_rate),
         );
-        let pol = DenseMultilinearPolynomial::<F>::random(rng, n_vars);
+        let pol = MultilinearPolynomial::<F>::random(rng, n_vars);
         let mut fs_prover = FsProver::new();
         let commitment = ring_switch.commit(pol.clone(), &mut fs_prover);
         let point = (0..n_vars).map(|_| rng.random()).collect::<Vec<_>>();

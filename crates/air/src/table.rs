@@ -2,8 +2,7 @@ use p3_field::{ExtensionField, Field};
 use tracing::instrument;
 
 use algebra::pols::{
-    DenseMultilinearPolynomial, Evaluation, GenericTransparentMultivariatePolynomial,
-    HypercubePoint,
+    Evaluation, GenericTransparentMultivariatePolynomial, HypercubePoint, MultilinearPolynomial,
 };
 pub struct AirConstraint<F: Field> {
     pub name: String,
@@ -38,7 +37,7 @@ pub struct AirTable<F: Field> {
 
 impl<F: Field> AirTable<F> {
     #[instrument(name = "check_validity", skip_all)]
-    pub fn check_validity(&self, witness: &[DenseMultilinearPolynomial<F>]) {
+    pub fn check_validity(&self, witness: &[MultilinearPolynomial<F>]) {
         let log_length = witness[0].n_vars;
         assert!(
             self.constraints

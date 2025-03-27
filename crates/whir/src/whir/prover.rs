@@ -7,7 +7,7 @@ use crate::{
 };
 use algebra::{
     field_utils::{dot_product, multilinear_point_from_univariate},
-    pols::{ComposedPolynomial, DenseMultilinearPolynomial},
+    pols::{ComposedPolynomial, MultilinearPolynomial},
     utils::expand_randomness,
 };
 use fiat_shamir::FsProver;
@@ -81,7 +81,7 @@ impl<F: TwoAdicField> Prover<F> {
             let n_vars = witness.polynomial.num_variables();
             let nodes = vec![
                 witness.polynomial.clone().reverse_vars().into_evals(), // TODO: Avoid clone
-                randomized_eq_extensions(&initial_claims, &combination_randomness).into(),
+                randomized_eq_extensions(&initial_claims, &combination_randomness),
             ];
             sumcheck_pol = ComposedPolynomial::new_product(n_vars, nodes);
             let n_rounds = Some(self.0.folding_factor.at_round(0));
@@ -303,18 +303,18 @@ struct RoundState<F: TwoAdicField> {
 fn randomized_eq_extensions<F: Field>(
     eq_points: &[Vec<F>],
     randomized_coefs: &[F],
-) -> DenseMultilinearPolynomial<F> {
+) -> MultilinearPolynomial<F> {
     assert_eq!(eq_points.len(), randomized_coefs.len());
     assert!(
         eq_points
             .iter()
             .all(|point| point.len() == eq_points[0].len())
     );
-    let mut res = DenseMultilinearPolynomial::zero(eq_points[0].len());
+    let mut res = MultilinearPolynomial::zero(eq_points[0].len());
     for (initial_claim, randomness_coef) in eq_points.iter().zip(randomized_coefs) {
         let mut initial_claim = initial_claim.clone();
         initial_claim.reverse();
-        let mut eq_mle = DenseMultilinearPolynomial::eq_mle(&initial_claim);
+        let mut eq_mle = MultilinearPolynomial::eq_mle(&initial_claim);
         eq_mle = eq_mle.scale(*randomness_coef);
         res += eq_mle;
     }

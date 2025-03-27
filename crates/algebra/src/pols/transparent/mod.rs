@@ -39,13 +39,6 @@ pub enum TransparentComputation<F: Field, EF: ExtensionField<F>> {
 }
 
 impl<F: Field, EF: ExtensionField<F>> TransparentMultivariatePolynomial<F, EF> {
-    pub fn eval(&self, point: &[EF]) -> EF {
-        match self {
-            TransparentMultivariatePolynomial::Generic(p) => p.eval(point),
-            TransparentMultivariatePolynomial::Custom(p) => p.eval(point),
-        }
-    }
-
     pub fn fix_computation(&self) -> TransparentComputation<F, EF> {
         match self {
             TransparentMultivariatePolynomial::Generic(p) => {

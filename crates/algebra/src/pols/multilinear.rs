@@ -11,12 +11,12 @@ use rayon::prelude::*;
 use super::{HypercubePoint, PartialHypercubePoint, UnivariatePolynomial};
 
 #[derive(Clone, Debug)]
-pub struct DenseMultilinearPolynomial<F: Field> {
+pub struct MultilinearPolynomial<F: Field> {
     pub n_vars: usize,
     pub evals: Vec<F>, // [f(0, 0, ..., 0), f(0, 0, ..., 0, 1), f(0, 0, ..., 0, 1, 0), f(0, 0, ..., 0, 1, 1), ...]
 }
 
-impl<F: Field> DenseMultilinearPolynomial<F> {
+impl<F: Field> MultilinearPolynomial<F> {
     pub fn n_coefs(&self) -> usize {
         1 << self.n_vars
     }
@@ -56,7 +56,7 @@ impl<F: Field> DenseMultilinearPolynomial<F> {
         buff[0]
     }
 
-    pub fn packed<EF: ExtensionField<F>>(self) -> DenseMultilinearPolynomial<EF> {
+    pub fn packed<EF: ExtensionField<F>>(self) -> MultilinearPolynomial<EF> {
         assert!(<EF as BasedVectorSpace<F>>::DIMENSION.is_power_of_two());
         assert!(1 << self.n_vars > <EF as BasedVectorSpace<F>>::DIMENSION);
         let evals = self
@@ -64,11 +64,11 @@ impl<F: Field> DenseMultilinearPolynomial<F> {
             .chunks(<EF as BasedVectorSpace<F>>::DIMENSION)
             .map(|chunk| EF::from_basis_coefficients_slice(chunk))
             .collect();
-        DenseMultilinearPolynomial::new(evals)
+        MultilinearPolynomial::new(evals)
     }
 
     /// fix first variables
-    pub fn fix_variable<EF: ExtensionField<F>>(&self, z: EF) -> DenseMultilinearPolynomial<EF> {
+    pub fn fix_variable<EF: ExtensionField<F>>(&self, z: EF) -> MultilinearPolynomial<EF> {
         let half = self.evals.len() / 2;
         let mut new_evals = vec![EF::ZERO; half];
         new_evals
@@ -77,7 +77,7 @@ impl<F: Field> DenseMultilinearPolynomial<F> {
             .for_each(|(i, result)| {
                 *result = z * (self.evals[i + half] - self.evals[i]) + self.evals[i];
             });
-        DenseMultilinearPolynomial::new(new_evals)
+        MultilinearPolynomial::new(new_evals)
     }
 
     pub fn eval_mixed_tensor<SubF: Field>(&self, point: &[F]) -> TensorAlgebra<SubF, F>
@@ -86,7 +86,7 @@ impl<F: Field> DenseMultilinearPolynomial<F> {
     {
         // returns φ1(self)(φ0(point[0]), φ0(point[1]), ...)
         assert_eq!(point.len(), self.n_vars);
-        let lagrange_evals = DenseMultilinearPolynomial::eq_mle(point).evals;
+        let lagrange_evals = MultilinearPolynomial::eq_mle(point).evals;
         lagrange_evals
             .par_iter()
             .zip(&self.evals)
@@ -155,15 +155,15 @@ impl<F: Field> DenseMultilinearPolynomial<F> {
         vec![1; self.n_vars]
     }
 
-    pub fn embed<EF: ExtensionField<F>>(&self) -> DenseMultilinearPolynomial<EF> {
+    pub fn embed<EF: ExtensionField<F>>(&self) -> MultilinearPolynomial<EF> {
         // TODO avoid
         let evals = self.evals.iter().map(|&e| EF::from(e)).collect();
-        DenseMultilinearPolynomial::new(evals)
+        MultilinearPolynomial::new(evals)
     }
 
-    pub fn scale<EF: ExtensionField<F>>(&self, scalar: EF) -> DenseMultilinearPolynomial<EF> {
+    pub fn scale<EF: ExtensionField<F>>(&self, scalar: EF) -> MultilinearPolynomial<EF> {
         let evals = self.evals.par_iter().map(|&e| scalar * e).collect();
-        DenseMultilinearPolynomial::new(evals)
+        MultilinearPolynomial::new(evals)
     }
 
     pub fn eq_mle(scalars: &[F]) -> Self {
@@ -201,8 +201,8 @@ impl<F: Field> DenseMultilinearPolynomial<F> {
     // }
 }
 
-impl<F: Field> AddAssign<DenseMultilinearPolynomial<F>> for DenseMultilinearPolynomial<F> {
-    fn add_assign(&mut self, other: DenseMultilinearPolynomial<F>) {
+impl<F: Field> AddAssign<MultilinearPolynomial<F>> for MultilinearPolynomial<F> {
+    fn add_assign(&mut self, other: MultilinearPolynomial<F>) {
         assert_eq!(self.n_vars, other.n_vars);
         self.evals
             .par_iter_mut()
