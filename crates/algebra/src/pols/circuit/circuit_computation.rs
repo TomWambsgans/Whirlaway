@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::{cell::RefCell, usize};
 
 use p3_field::{ExtensionField, Field};
 
@@ -25,8 +25,18 @@ pub enum ComputationInput<F, N> {
     Stack(StackIndex),
 }
 
-impl<F: Clone, N: Clone> ArithmeticCircuit<F, N> {
-    pub fn fix_computation(&self) -> CircuitComputation<F, N> {
+impl<F: Field> ComputationInput<F, usize> {
+    fn eval<EF: ExtensionField<F>>(&self, point: &[EF], stack: &[EF]) -> EF {
+        match self {
+            ComputationInput::Node(var_index) => point[*var_index],
+            ComputationInput::Scalar(scalar) => EF::from(*scalar),
+            ComputationInput::Stack(stack_index) => stack[*stack_index],
+        }
+    }
+}
+
+impl<F: Field> ArithmeticCircuit<F, usize> {
+    pub fn fix_computation(&self) -> CircuitComputation<F, usize> {
         let stack_size = RefCell::new(0);
         let instructions = RefCell::new(Vec::new());
         self.parse(
@@ -42,6 +52,7 @@ impl<F: Clone, N: Clone> ArithmeticCircuit<F, N> {
                 {
                     tracing::warn!("Product with more than one scalar input");
                 }
+
                 instructions
                     .borrow_mut()
                     .push(CircuitInstruction::Product(product));
@@ -66,8 +77,19 @@ impl<F: Clone, N: Clone> ArithmeticCircuit<F, N> {
             },
         );
 
+        let mut instructions = instructions.into_inner();
+        // trick to speed up computations (to avoid the initial scalar embedding)
+        for inst in &mut instructions {
+            let (CircuitInstruction::Sum(inputs) | CircuitInstruction::Product(inputs)) = inst;
+            if matches!(inputs[0], ComputationInput::Scalar(_)) {
+                // swap the first element with the last one
+                let len = inputs.len();
+                inputs.swap(0, len - 1);
+            }
+        }
+
         CircuitComputation {
-            instructions: instructions.into_inner(),
+            instructions,
             stack_size: stack_size.into_inner(),
         }
     }
@@ -79,8 +101,8 @@ impl<F: Field> CircuitComputation<F, usize> {
         for instruction in &self.instructions {
             match instruction {
                 CircuitInstruction::Sum(inputs) => {
-                    let mut sum = EF::ZERO;
-                    for input in inputs {
+                    let mut sum = inputs[0].eval(point, &stack);
+                    for input in &inputs[1..] {
                         match input {
                             ComputationInput::Node(var_index) => {
                                 sum += point[*var_index];
@@ -96,8 +118,8 @@ impl<F: Field> CircuitComputation<F, usize> {
                     stack.push(sum);
                 }
                 CircuitInstruction::Product(inputs) => {
-                    let mut product = EF::ONE;
-                    for input in inputs {
+                    let mut product = inputs[0].eval(point, &stack);
+                    for input in &inputs[1..] {
                         match input {
                             ComputationInput::Node(var_index) => {
                                 product *= point[*var_index];
