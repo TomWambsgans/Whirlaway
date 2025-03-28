@@ -17,7 +17,7 @@ pub struct ComposedPolynomial<
     pub n_vars: usize,
     pub nodes: Vec<MultilinearPolynomial<NF>>,
     pub structure: TransparentComputation<F, EF>, // each var represents a polynomial (stored in "nodes")
-    max_degree_per_vars: Vec<usize>,
+    pub max_degree_per_vars: Vec<usize>,
 }
 
 impl<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionField<F>>

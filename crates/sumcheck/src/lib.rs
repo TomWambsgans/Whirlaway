@@ -9,5 +9,8 @@ pub use custom::*;
 mod verify;
 pub use verify::*;
 
+mod univariate_skip;
+pub use univariate_skip::*;
+
 #[cfg(test)]
 mod test;

@@ -127,7 +127,7 @@ impl<F: Field> MultilinearPolynomial<F> {
         // DensePolynomial::from_coefficients_slice converts to a dense univariate polynomial.
         // The coefficient order is "coefficient of 1 first".
         let univariate = self.clone().as_univariate(); // TODO avoid clone
-        points.iter().map(|point| univariate.eval(point)).collect()
+        points.iter().map(|point| univariate.eval_parallel(point)).collect()
     }
 
     pub fn eval_hypercube(&self, point: &HypercubePoint) -> F {

@@ -49,6 +49,13 @@ impl<F: Field, EF: ExtensionField<F>> TransparentMultivariatePolynomial<F, EF> {
             }
         }
     }
+
+    pub fn n_vars(&self) -> usize {
+        match self {
+            TransparentMultivariatePolynomial::Generic(p) => p.n_vars,
+            TransparentMultivariatePolynomial::Custom(p) => p.n_vars,
+        }
+    }
 }
 
 impl<F: Field, EF: ExtensionField<F>> TransparentComputation<F, EF> {
