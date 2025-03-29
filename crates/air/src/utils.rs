@@ -1,8 +1,14 @@
-use algebra::pols::{ArithmeticCircuit, GenericTransparentMultivariatePolynomial};
+use algebra::{
+    pols::{
+        ArithmeticCircuit, CustomTransparentMultivariatePolynomial,
+        GenericTransparentMultivariatePolynomial,
+    },
+    utils::expand_randomness,
+};
 
-use p3_field::Field;
+use p3_field::{ExtensionField, Field};
 
-use crate::table::AirConstraint;
+use crate::table::{AirConstraint, AirTable};
 
 pub(crate) fn matrix_up_lde<F: Field>(
     log_length: usize,
@@ -77,11 +83,8 @@ pub(crate) fn matrix_down_lde<F: Field>(
     )
 }
 
-pub(crate) fn max_degree_per_vars_outer_sumcheck<F: Field>(
-    global_constraint: &Vec<AirConstraint<F>>,
-    log_length: usize,
-) -> Vec<usize> {
-    let circuit_degree = global_constraint
+pub(crate) fn global_constraint_degree<F: Field>(constraints: &Vec<AirConstraint<F>>) -> usize {
+    constraints
         .iter()
         .map(|cst| {
             GenericTransparentMultivariatePolynomial::new(
@@ -93,6 +96,20 @@ pub(crate) fn max_degree_per_vars_outer_sumcheck<F: Field>(
             .max_degree_per_vars()[0]
         })
         .max_by_key(|x| *x)
-        .unwrap();
-    vec![1 + circuit_degree; log_length]
+        .unwrap()
+}
+impl<F: Field> AirTable<F> {
+    pub(crate) fn global_constraint<EF: ExtensionField<F>>(
+        &self,
+        batching_scalar: EF,
+    ) -> CustomTransparentMultivariatePolynomial<F, EF> {
+        let mut batched_constraints = Vec::new();
+        for (scalar, constraint) in expand_randomness(batching_scalar, self.constraints.len())
+            .into_iter()
+            .zip(&self.constraints)
+        {
+            batched_constraints.push((scalar, constraint.expr.coefs.clone()));
+        }
+        CustomTransparentMultivariatePolynomial::new(self.n_columns * 2, batched_constraints)
+    }
 }

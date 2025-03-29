@@ -13,7 +13,7 @@ use rayon::prelude::*;
 
 use crate::SumcheckError;
 
-pub fn zerocheck_with_univariate_skip<
+pub fn prove_zerocheck_with_univariate_skip<
     F: Field,
     NF: ExtensionField<F>,
     EF: ExtensionField<NF> + ExtensionField<F>,
@@ -22,7 +22,7 @@ pub fn zerocheck_with_univariate_skip<
     eq_factor: &[EF],
     fs_prover: &mut FsProver,
     n: usize, // the first round will fold 2^n (instead of 2 in the basic sumcheck)
-) -> Vec<EF> {
+) -> (Vec<EF>, Vec<EF>) {
     assert!(pol.n_vars >= n);
     assert_eq!(pol.n_vars, eq_factor.len());
     let max_degree_per_vars = pol.max_degree_per_vars();
@@ -59,7 +59,7 @@ pub fn zerocheck_with_univariate_skip<
                             .map(|y| {
                                 node.eval_hypercube(&HypercubePoint {
                                     n_vars: pol.n_vars,
-                                    val: (y << n) | x,
+                                    val: (y << (pol.n_vars - n)) | x,
                                 })
                             })
                             .zip(&selector_evals)
@@ -100,7 +100,7 @@ pub fn zerocheck_with_univariate_skip<
                     .map(|y| {
                         node.eval_hypercube(&HypercubePoint {
                             n_vars: pol.n_vars,
-                            val: (y << n) | x,
+                            val: (y << (pol.n_vars - n)) | x,
                         })
                     })
                     .zip(&selector_evals)
@@ -179,12 +179,13 @@ pub fn zerocheck_with_univariate_skip<
         .iter()
         .map(|n| n.eval(&final_challenges))
         .collect::<Vec<_>>();
+
     fs_prover.add_scalars(&final_evals);
 
-    final_challenges
+    (final_challenges, final_evals)
 }
 
-pub fn verify_with_univariate_skip<F: Field, EF: ExtensionField<F>>(
+pub fn verify_zerocheck_with_univariate_skip<F: Field, EF: ExtensionField<F>>(
     fs_verifier: &mut FsVerifier,
     eq_factor: &[EF],
     composition_degree: usize,
@@ -299,7 +300,7 @@ mod test {
 
     #[test]
     fn test_univariate_skip() {
-        let n_vars = 6;
+        let n_vars = 7;
         let n_nodes = 4;
         let n = 3;
         let composition = (ArithmeticCircuit::Node(0)
@@ -332,7 +333,7 @@ mod test {
         let eq_factor = (0..n_vars).map(|_| rng.random()).collect::<Vec<EF>>();
 
         let mut fs_prover = FsProver::new();
-        let challenges = zerocheck_with_univariate_skip::<F, F, EF>(
+        let (challenges, _) = prove_zerocheck_with_univariate_skip::<F, F, EF>(
             composed.clone(),
             &eq_factor,
             &mut fs_prover,
@@ -340,7 +341,7 @@ mod test {
         );
 
         let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
-        let (sum, final_point, final_inner_evals) = verify_with_univariate_skip::<F, EF>(
+        let (sum, final_point, final_inner_evals) = verify_zerocheck_with_univariate_skip::<F, EF>(
             &mut fs_verifier,
             &eq_factor,
             3,

@@ -10,3 +10,5 @@ mod verify;
 mod test;
 
 pub use builder::*;
+
+const N: usize = 3;

@@ -31,6 +31,10 @@ impl FsProver {
         }
     }
 
+    pub fn state_hex(&self) -> String {
+        self.state.iter().map(|b| format!("{:02x}", b)).collect()
+    }
+
     pub fn transcript_len(&self) -> usize {
         self.transcript.len()
     }
@@ -111,6 +115,10 @@ impl FsVerifier {
     }
     fn update_state(&mut self, data: &[u8]) {
         self.state = hash_sha3(&[&self.state[..], data].concat());
+    }
+
+    pub fn state_hex(&self) -> String {
+        self.state.iter().map(|b| format!("{:02x}", b)).collect()
     }
 
     pub fn next_bytes(&mut self, len: usize) -> Result<Vec<u8>, FsError> {
