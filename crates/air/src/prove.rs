@@ -1,7 +1,7 @@
 use algebra::{
     field_utils::dot_product,
     pols::{
-        ArithmeticCircuit, ComposedPolynomial, CustomTransparentMultivariatePolynomial, Evaluation,
+        ArithmeticCircuit, ComposedPolynomial, Evaluation,
         GenericTransparentMultivariatePolynomial, MultilinearPolynomial,
     },
     utils::expand_randomness,
@@ -11,6 +11,8 @@ use p3_field::{ExtensionField, Field};
 use pcs::{BatchSettings, PCS};
 use rayon::prelude::*;
 use tracing::{Level, instrument, span};
+
+use crate::N;
 
 use super::table::AirTable;
 
@@ -44,52 +46,24 @@ impl<F: Field> AirTable<F> {
 
         let zerocheck_challenges = fs_prover.challenge_scalars::<EF>(log_length);
 
-        let zeroed_pol = {
-            let mut nodes = Vec::<MultilinearPolynomial<F>>::with_capacity(self.n_columns * 2);
+        let zeroed_pol = ComposedPolynomial::new(
+            log_length,
+            witnesses_up_and_down(witness),
+            self.global_constraint(constraints_batching_scalar),
+        );
 
-            for n in witnesses_up_and_down(witness) {
-                nodes.push(n);
-            }
-
-            let mut batched_constraints = Vec::new();
-            for (scalar, constraint) in
-                expand_randomness(constraints_batching_scalar, self.constraints.len())
-                    .into_iter()
-                    .zip(self.constraints.iter())
-            {
-                batched_constraints.push((scalar, constraint.expr.coefs.clone()));
-            }
-
-            ComposedPolynomial::new(
-                log_length,
-                nodes,
-                CustomTransparentMultivariatePolynomial::new(
-                    self.n_columns * 2,
-                    batched_constraints,
-                ),
-            )
-        };
-
-        let (outer_challenges, _) = {
+        let (outer_challenges, inner_sums) = {
             let _span = span!(Level::INFO, "outer sumcheck").entered();
-            sumcheck::prove::<F, F, EF>(
+            sumcheck::prove_zerocheck_with_univariate_skip::<F, F, EF>(
                 zeroed_pol,
-                Some(&zerocheck_challenges),
+                &zerocheck_challenges,
                 fs_prover,
-                Some(EF::ZERO),
-                None,
-                0,
+                N,
             )
         };
 
         let _span = span!(Level::INFO, "inner sumchecks").entered();
         let initial_transcript_len = fs_prover.transcript_len();
-
-        let inner_sums = witnesses_up_and_down(witness)
-            .par_iter()
-            .map(|n| n.eval(&outer_challenges))
-            .collect::<Vec<_>>();
-        fs_prover.add_scalars(&inner_sums);
 
         let batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
 
@@ -121,7 +95,7 @@ impl<F: Field> AirTable<F> {
             &expand_randomness(batching_scalar, self.n_columns * 2),
         );
         let (inner_challenges, _) =
-            sumcheck::prove(batch_pol, None, fs_prover, Some(inner_sum), None, 0);
+            sumcheck::prove(batch_pol, None, false, fs_prover, Some(inner_sum), None, 0);
 
         let values = witness
             .par_iter()

@@ -18,7 +18,7 @@ fn test_sumcheck() {
     );
     let mut fs_prover = FsProver::new();
     let sum = pol.sum_over_hypercube();
-    prove(pol.clone(), None, &mut fs_prover, None, None, 0);
+    prove(pol.clone(), None, false, &mut fs_prover, None, None, 0);
 
     let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
     let (claimed_sum, postponed_verification) =

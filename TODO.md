@@ -8,6 +8,7 @@
 - Use prefix to distinguish between leaf and internal nodes in Merkle tree (cf. RFC-6962) for soundness
 - improve serialization / deserialization of field elements, improve fiat shamir
 - https://eprint.iacr.org/2024/108.pdf section 3
+- We can probably send less data in the first AIR sumcheck, with univariate skip, and the "current row" / "next row" reductions
 
 ## Long Term
 

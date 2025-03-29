@@ -1,16 +1,15 @@
-use algebra::{
-    field_utils::{dot_product, eq_extension},
-    utils::expand_randomness,
-};
+use algebra::{field_utils::dot_product, utils::expand_randomness};
 use fiat_shamir::{FsError, FsVerifier};
 use p3_field::{ExtensionField, Field};
 use pcs::{BatchSettings, PCS};
 use sumcheck::SumcheckError;
 use tracing::instrument;
 
+use crate::N;
+
 use super::{
     table::AirTable,
-    utils::{matrix_down_lde, matrix_up_lde, max_degree_per_vars_outer_sumcheck},
+    utils::{global_constraint_degree, matrix_down_lde, matrix_up_lde},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,29 +59,16 @@ impl<F: Field> AirTable<F> {
         // tau_0, ..., tau_{log_m - 1}
         let zerocheck_challenges = fs_verifier.challenge_scalars::<EF>(log_length);
 
-        let (sc_sum, outer_sumcheck_challenge) = sumcheck::verify::<EF>(
-            fs_verifier,
-            &max_degree_per_vars_outer_sumcheck(&self.constraints, log_length),
-            0,
-        )?;
+        let (sc_sum, outer_sumcheck_challenge, outer_sub_evals) =
+            sumcheck::verify_zerocheck_with_univariate_skip::<F, EF>(
+                fs_verifier,
+                &zerocheck_challenges,
+                global_constraint_degree(&self.constraints),
+                log_length,
+                &self.global_constraint(constraints_batching_scalar).into(),
+                N,
+            )?;
         if sc_sum != EF::ZERO {
-            return Err(AirVerifError::SumMismatch);
-        }
-
-        let inner_sums = fs_verifier.next_scalars::<EF>(2 * self.n_columns)?;
-
-        let mut global_constraint_eval = EF::ZERO;
-        for (scalar, constraint) in
-            expand_randomness(constraints_batching_scalar, self.constraints.len())
-                .into_iter()
-                .zip(self.constraints.iter())
-        {
-            global_constraint_eval += scalar * constraint.expr.eval(&inner_sums);
-        }
-        if eq_extension(&zerocheck_challenges, &outer_sumcheck_challenge.point)
-            * global_constraint_eval
-            != outer_sumcheck_challenge.value
-        {
             return Err(AirVerifError::SumMismatch);
         }
 
@@ -93,7 +79,7 @@ impl<F: Field> AirTable<F> {
 
         if batched_inner_sum
             != dot_product(
-                &inner_sums,
+                &outer_sub_evals,
                 &expand_randomness(batching_scalar, self.n_columns * 2),
             )
         {
@@ -105,7 +91,7 @@ impl<F: Field> AirTable<F> {
 
         let mut batched_inner_value = EF::ZERO;
         let matrix_lde_point = [
-            outer_sumcheck_challenge.point.clone(),
+            outer_sumcheck_challenge.clone(),
             inner_sumcheck_challenge.point.clone(),
         ]
         .concat();

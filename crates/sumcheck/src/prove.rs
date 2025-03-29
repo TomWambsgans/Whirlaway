@@ -12,6 +12,7 @@ use rayon::prelude::*;
 pub fn prove<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionField<F>>(
     pol: ComposedPolynomial<F, NF, EF>,
     eq_factor: Option<&[EF]>,
+    is_zerofier: bool,
     fs_prover: &mut FsProver,
     sum: Option<EF>,
     n_rounds: Option<usize>,
@@ -30,6 +31,7 @@ pub fn prove<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Extension
     folded_pol = sc_round(
         pol,
         eq_factor,
+        is_zerofier,
         fs_prover,
         max_degree_per_vars[0],
         &mut sum,
@@ -41,6 +43,7 @@ pub fn prove<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Extension
         folded_pol = sc_round(
             folded_pol,
             eq_factor,
+            is_zerofier,
             fs_prover,
             max_degree_per_vars[i],
             &mut sum,
@@ -55,6 +58,7 @@ pub fn prove<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Extension
 fn sc_round<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionField<F>>(
     pol: ComposedPolynomial<F, NF, EF>,
     eq_factor: Option<&[EF]>,
+    is_zerofier: bool,
     fs_prover: &mut FsProver,
     degree: usize,
     sum: &mut EF,
@@ -74,7 +78,7 @@ fn sc_round<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionF
         MultilinearPolynomial::zero(0)
     };
 
-    let start = if eq_factor.is_some() && round == 0 {
+    let start = if is_zerofier && round == 0 {
         p_evals.push((EF::ZERO, EF::ZERO));
         p_evals.push((EF::ONE, EF::ZERO));
         2

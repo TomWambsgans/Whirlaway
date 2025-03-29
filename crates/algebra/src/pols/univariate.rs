@@ -3,7 +3,7 @@ use std::{
     ops::{Mul, MulAssign},
 };
 
-use p3_field::Field;
+use p3_field::{ExtensionField, Field};
 use rand::distr::{Distribution, StandardUniform};
 use rayon::prelude::*;
 
@@ -28,13 +28,28 @@ impl<F: Field> UnivariatePolynomial<F> {
 
     #[inline]
     // Horner's method for polynomial evaluation
-    fn horner_evaluate(poly_coeffs: &[F], point: &F) -> F {
+    fn horner_evaluate<EF: ExtensionField<F>>(poly_coeffs: &[F], point: &EF) -> EF {
         poly_coeffs
             .iter()
-            .rfold(F::ZERO, move |result, coeff| result * *point + *coeff)
+            .rfold(EF::ZERO, move |result, coeff| result * *point + *coeff)
     }
 
-    fn internal_evaluate(&self, point: &F) -> F {
+    pub fn eval<EF: ExtensionField<F>>(&self, x: &EF) -> EF {
+        if self.coeffs.is_empty() {
+            return EF::ZERO;
+        } else if x.is_zero() {
+            return EF::from(self.coeffs[0]);
+        }
+        // Horner's method
+        Self::horner_evaluate(&self.coeffs, x)
+    }
+
+    pub fn eval_parallel<EF: ExtensionField<F>>(&self, x: &EF) -> EF {
+        if self.coeffs.is_empty() {
+            return EF::ZERO;
+        } else if x.is_zero() {
+            return EF::from(self.coeffs[0]);
+        }
         // Horners method - parallel method
         // compute the number of threads we will be using.
         let num_cpus_available = rayon::current_num_threads();
@@ -51,21 +66,12 @@ impl<F: Field> UnivariatePolynomial<F> {
             .par_chunks(num_elem_per_thread)
             .enumerate()
             .map(|(i, chunk)| {
-                let mut thread_result = Self::horner_evaluate(chunk, point);
-                thread_result *= point.exp_u64((i * num_elem_per_thread) as u64);
+                let mut thread_result = Self::horner_evaluate(chunk, x);
+                thread_result *= x.exp_u64((i * num_elem_per_thread) as u64);
                 thread_result
             })
             .sum();
         result
-    }
-
-    pub fn eval(&self, x: &F) -> F {
-        if self.coeffs.is_empty() {
-            return F::ZERO;
-        } else if x.is_zero() {
-            return self.coeffs[0];
-        }
-        self.internal_evaluate(x)
     }
 
     pub fn lagrange_interpolation(values: &[(F, F)]) -> Option<Self> {
