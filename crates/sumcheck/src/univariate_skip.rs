@@ -13,20 +13,18 @@ use rayon::prelude::*;
 
 use crate::SumcheckError;
 
-// TODO
-// re-add `eq_factor`
-// re-add `sum`
-// some evaluations can be avoided in the context of zero check
-pub fn prove_with_univariate_skip<
+pub fn zerocheck_with_univariate_skip<
     F: Field,
     NF: ExtensionField<F>,
     EF: ExtensionField<NF> + ExtensionField<F>,
 >(
     pol: ComposedPolynomial<F, NF, EF>,
+    eq_factor: &[EF],
     fs_prover: &mut FsProver,
     n: usize, // the first round will fold 2^n (instead of 2 in the basic sumcheck)
 ) -> Vec<EF> {
     assert!(pol.n_vars >= n);
+    assert_eq!(pol.n_vars, eq_factor.len());
     let max_degree_per_vars = pol.max_degree_per_vars();
     assert!(
         max_degree_per_vars
@@ -40,7 +38,12 @@ pub fn prove_with_univariate_skip<
 
     let mut evals = Vec::<(EF, EF)>::new();
 
-    for z in 0usize..=degree {
+    for z in 0..1 << n {
+        evals.push((EF::from_usize(z), EF::ZERO));
+    }
+
+    let eq_mle = MultilinearPolynomial::eq_mle(&eq_factor[n..]);
+    for z in (1 << n)..=degree {
         let selector_evals = selectors
             .iter()
             .map(|s| s.eval(&F::from_usize(z)))
@@ -65,17 +68,19 @@ pub fn prove_with_univariate_skip<
                     );
                 }
                 pol.structure.eval(&node_evals)
+                    * eq_mle.eval_hypercube(&HypercubePoint {
+                        n_vars: pol.n_vars - n,
+                        val: x,
+                    })
             })
             .sum::<EF>();
         evals.push((EF::from_usize(z), hypercube_partial_sum));
     }
 
-    let p = UnivariatePolynomial::lagrange_interpolation(&evals).unwrap();
+    let mut p = UnivariatePolynomial::lagrange_interpolation(&evals).unwrap();
 
-    debug_assert_eq!(
-        (0..1 << n).map(|i| p.eval(&EF::from_usize(i))).sum::<EF>(),
-        pol.sum_over_hypercube()
-    );
+    let left_eq_factor = lagrange_selector_for_eq_mle(&eq_factor[..n]);
+    p *= left_eq_factor.clone();
 
     fs_prover.add_scalars(&p.coeffs);
     let challenge = fs_prover.challenge_scalars::<EF>(1)[0];
@@ -106,6 +111,8 @@ pub fn prove_with_univariate_skip<
         folded_nodes.push(MultilinearPolynomial::new(folded));
     }
 
+    let folded_eq_factor = eq_factor[n..].to_vec();
+
     let initial_nodes = pol.nodes;
     let folded_pol = ComposedPolynomial {
         n_vars: pol.n_vars - n,
@@ -114,13 +121,12 @@ pub fn prove_with_univariate_skip<
         max_degree_per_vars: max_degree_per_vars[n..].to_vec(),
     };
 
-    debug_assert_eq!(folded_pol.sum_over_hypercube(), p.eval(&challenge));
-
     let (next_challenges, final_node_evals) = super::prove(
         folded_pol,
-        None,
+        Some(&folded_eq_factor),
+        false,
         fs_prover,
-        Some(p.eval(&challenge)),
+        Some(p.eval(&challenge) / left_eq_factor.eval(&challenge)),
         None,
         0,
     );
@@ -159,11 +165,10 @@ pub fn prove_with_univariate_skip<
         ),
     );
 
-    debug_assert_eq!(final_pol.sum_over_hypercube(), final_batched_eval);
-
     let (final_challenges, _) = super::prove(
         final_pol,
         None,
+        false,
         fs_prover,
         Some(final_batched_eval),
         None,
@@ -181,6 +186,7 @@ pub fn prove_with_univariate_skip<
 
 pub fn verify_with_univariate_skip<F: Field, EF: ExtensionField<F>>(
     fs_verifier: &mut FsVerifier,
+    eq_factor: &[EF],
     composition_degree: usize,
     n_vars: usize,
     composition: &TransparentMultivariatePolynomial<F, EF>,
@@ -192,19 +198,17 @@ pub fn verify_with_univariate_skip<F: Field, EF: ExtensionField<F>>(
 
     for i in 0..1 + n_vars - n {
         let d = if i == 0 {
-            (1 << n) * composition_degree
+            (1 << n) * (composition_degree + 1) - 1
         } else {
-            composition_degree
+            composition_degree + 1
         };
         let coefs = fs_verifier.next_scalars::<EF>(d + 1)?;
+
         let pol = UnivariatePolynomial::new(coefs);
-        dbg!(&pol);
         if i == 0 {
             sum = (0..1 << n).map(|i| pol.eval(&EF::from_usize(i))).sum();
             target = sum;
         }
-        dbg!(target);
-
         if i != 0 && target != pol.eval(&EF::ZERO) + pol.eval(&EF::ONE) {
             return Err(SumcheckError::InvalidRound);
         }
@@ -212,6 +216,10 @@ pub fn verify_with_univariate_skip<F: Field, EF: ExtensionField<F>>(
 
         target = pol.eval(&challenge);
         challenges.push(challenge);
+
+        if i == 0 {
+            target = target / lagrange_selector_for_eq_mle(&eq_factor[..n]).eval(&challenge);
+        }
     }
 
     let selector_evals = compute_selectors::<F>(n)
@@ -221,7 +229,10 @@ pub fn verify_with_univariate_skip<F: Field, EF: ExtensionField<F>>(
 
     let inner_evals = fs_verifier.next_scalars::<EF>(composition.n_vars())?;
 
-    if composition.fix_computation().eval::<EF>(&inner_evals) != target {
+    if target
+        != composition.fix_computation().eval::<EF>(&inner_evals)
+            * eq_extension(&eq_factor[n..], &challenges[1..])
+    {
         return Err(SumcheckError::InvalidRound);
     }
 
@@ -262,14 +273,26 @@ fn compute_selectors<F: Field>(n: usize) -> Vec<UnivariatePolynomial<F>> {
         .collect()
 }
 
+fn lagrange_selector_for_eq_mle<F: Field>(point: &[F]) -> UnivariatePolynomial<F> {
+    UnivariatePolynomial::lagrange_interpolation(
+        &MultilinearPolynomial::eq_mle(point)
+            .evals
+            .into_iter()
+            .enumerate()
+            .map(|(i, v)| (F::from_usize(i), v))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap()
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     use p3_field::PrimeCharacteristicRing;
     use p3_field::extension::BinomialExtensionField;
     use p3_koala_bear::KoalaBear;
-    use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use rand::{Rng, SeedableRng};
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<KoalaBear, 4>;
@@ -277,30 +300,55 @@ mod test {
     #[test]
     fn test_univariate_skip() {
         let n_vars = 6;
-        let n_nodes = 3;
+        let n_nodes = 4;
         let n = 3;
-        let composition = ArithmeticCircuit::Node(0)
+        let composition = (ArithmeticCircuit::Node(0)
             * (ArithmeticCircuit::Node(1)
-                + ArithmeticCircuit::Node(0) * ArithmeticCircuit::Scalar(F::from_usize(785)))
-            * ArithmeticCircuit::Node(2);
-        let composition = TransparentMultivariatePolynomial::Generic(
-            GenericTransparentMultivariatePolynomial::new(composition, 3),
+                + (ArithmeticCircuit::Node(0) * ArithmeticCircuit::Scalar(F::from_usize(785))))
+            * ArithmeticCircuit::Node(2))
+            - ArithmeticCircuit::Node(3);
+        let composition = TransparentMultivariatePolynomial::<F, EF>::Generic(
+            GenericTransparentMultivariatePolynomial::new(composition, 4),
         );
 
         let rng = &mut StdRng::seed_from_u64(0);
-        let nodes = (0..n_nodes)
+        let mut nodes = (0..3)
             .map(|_| MultilinearPolynomial::<F>::random(rng, n_vars))
             .collect::<Vec<_>>();
 
+        let final_node = {
+            let mut final_node = MultilinearPolynomial::<F>::zero(n_vars);
+            for i in 0..1 << n_vars {
+                final_node.evals[i] = nodes[0].evals[i]
+                    * (nodes[1].evals[i] + (nodes[0].evals[i] * F::from_usize(785)))
+                    * nodes[2].evals[i];
+            }
+            final_node
+        };
+        nodes.push(final_node);
+
         let composed = ComposedPolynomial::<F, F, EF>::new(n_vars, nodes, composition.clone());
+
+        let eq_factor = (0..n_vars).map(|_| rng.random()).collect::<Vec<EF>>();
+
         let mut fs_prover = FsProver::new();
-        let challenges =
-            prove_with_univariate_skip::<F, F, EF>(composed.clone(), &mut fs_prover, n);
+        let challenges = zerocheck_with_univariate_skip::<F, F, EF>(
+            composed.clone(),
+            &eq_factor,
+            &mut fs_prover,
+            n,
+        );
 
         let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
-        let (sum, final_point, final_inner_evals) =
-            verify_with_univariate_skip::<F, EF>(&mut fs_verifier, 3, n_vars, &composition, n)
-                .unwrap();
+        let (sum, final_point, final_inner_evals) = verify_with_univariate_skip::<F, EF>(
+            &mut fs_verifier,
+            &eq_factor,
+            3,
+            n_vars,
+            &composition,
+            n,
+        )
+        .unwrap();
 
         assert_eq!(sum, composed.sum_over_hypercube());
 

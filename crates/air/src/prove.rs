@@ -75,6 +75,7 @@ impl<F: Field> AirTable<F> {
             sumcheck::prove::<F, F, EF>(
                 zeroed_pol,
                 Some(&zerocheck_challenges),
+                true,
                 fs_prover,
                 Some(EF::ZERO),
                 None,
@@ -121,7 +122,7 @@ impl<F: Field> AirTable<F> {
             &expand_randomness(batching_scalar, self.n_columns * 2),
         );
         let (inner_challenges, _) =
-            sumcheck::prove(batch_pol, None, fs_prover, Some(inner_sum), None, 0);
+            sumcheck::prove(batch_pol, None, false, fs_prover, Some(inner_sum), None, 0);
 
         let values = witness
             .par_iter()
