@@ -14,6 +14,9 @@ use std::hash::BuildHasherDefault;
 use std::hash::Hash;
 use std::sync::atomic::AtomicUsize;
 
+#[cfg(test)]
+mod test_cuda;
+
 #[cfg(all(
     target_has_atomic = "8",
     target_has_atomic = "16",
