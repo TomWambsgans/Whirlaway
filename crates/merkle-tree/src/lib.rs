@@ -2,7 +2,6 @@
 
 use algebra::field_utils::serialize_field;
 use algebra::utils::log2;
-use lazy_static::lazy_static;
 use p3_field::Field;
 use rayon::prelude::*;
 use sha3::Digest;
@@ -12,7 +11,6 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::BuildHasherDefault;
 use std::hash::Hash;
-use std::sync::atomic::AtomicUsize;
 
 #[cfg(test)]
 mod test_cuda;
@@ -35,44 +33,8 @@ type DefaultHasher = ahash::AHasher;
 )))]
 type DefaultHasher = fnv::FnvHasher;
 
-#[derive(Debug, Default)]
-pub struct HashCounter {
-    counter: AtomicUsize,
-}
-
-lazy_static! {
-    static ref HASH_COUNTER: HashCounter = HashCounter::default();
-}
-
-impl HashCounter {
-    pub(crate) fn add() -> usize {
-        HASH_COUNTER
-            .counter
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-    }
-
-    pub fn reset() {
-        HASH_COUNTER
-            .counter
-            .store(0, std::sync::atomic::Ordering::SeqCst)
-    }
-
-    pub fn get() -> usize {
-        HASH_COUNTER
-            .counter
-            .load(std::sync::atomic::Ordering::SeqCst)
-    }
-}
-
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct KeccakDigest(pub [u8; 32]);
-
-/// Convert the hash digest in different layers by converting previous layer's output to
-/// `TargetType`, which is a `Borrow` to next layer's input.
-pub trait DigestConverter<From, To: ?Sized> {
-    type TargetType: Borrow<To>;
-    fn convert(item: From) -> Self::TargetType;
-}
 
 /// Optimized data structure to store multiple nodes proofs.
 /// For example:
@@ -98,9 +60,8 @@ pub trait DigestConverter<From, To: ?Sized> {
 ///  Since the Merkle Tree branch is the same, the authentication path is the same (which means in this case that there is no suffix).
 ///  The second path is hence `[C,D] + []` (i.e., plus the empty suffix). We can verify the second path as the first one.
 
-fn leaf_hash<F: Field, T: Borrow<[F]>>(input: T) -> KeccakDigest {
+fn leaf_hash<F: Field>(input: &[F]) -> KeccakDigest {
     let buf = input
-        .borrow()
         .into_iter()
         .flat_map(|f| serialize_field(*f))
         .collect::<Vec<_>>();
@@ -110,17 +71,15 @@ fn leaf_hash<F: Field, T: Borrow<[F]>>(input: T) -> KeccakDigest {
 
     let mut output = [0; 32];
     output.copy_from_slice(&h.finalize()[..]);
-    HashCounter::add();
     KeccakDigest(output)
 }
 
-fn two_to_one_hash<T: Borrow<KeccakDigest>>(left_input: T, right_input: T) -> KeccakDigest {
+fn two_to_one_hash(left_input: &KeccakDigest, right_input: &KeccakDigest) -> KeccakDigest {
     let mut h = sha3::Keccak256::new();
     h.update(left_input.borrow().0);
     h.update(right_input.borrow().0);
     let mut output = [0; 32];
     output.copy_from_slice(&h.finalize()[..]);
-    HashCounter::add();
     KeccakDigest(output)
 }
 
@@ -203,11 +162,7 @@ impl<F: Field> MultiPath<F> {
     /// * `leaf_size`: leaf size in number of bytes
     ///
     /// `verify` infers the tree height by setting `tree_height = self.auth_paths_suffixes[0].len() + 2`
-    pub fn verify<L: Borrow<[F]> + Clone>(
-        &self,
-        root_hash: &KeccakDigest,
-        leaves: impl IntoIterator<Item = L>,
-    ) -> bool {
+    pub fn verify(&self, root_hash: &KeccakDigest, leaves: &[Vec<F>]) -> bool {
         let tree_height = self.auth_paths_suffixes[0].len() + 2;
         let mut leaves = leaves.into_iter();
 
@@ -232,7 +187,7 @@ impl<F: Field> MultiPath<F> {
             // update prev path for decoding next one
             prev_path = auth_path.clone();
 
-            let claimed_leaf_hash = leaf_hash(leaf.clone());
+            let claimed_leaf_hash = leaf_hash(leaf);
             let (left_child, right_child) =
                 select_left_right_child(leaf_index, &claimed_leaf_hash, &leaf_sibling_hash);
             // check hash along the path from bottom to root
@@ -245,7 +200,7 @@ impl<F: Field> MultiPath<F> {
 
             let mut curr_path_node = hash_lut
                 .entry(index_in_tree)
-                .or_insert_with(|| two_to_one_hash(left_child, right_child));
+                .or_insert_with(|| two_to_one_hash(&left_child, &right_child));
 
             // Check levels between leaf level and root
             for level in (0..auth_path.len()).rev() {
@@ -257,7 +212,7 @@ impl<F: Field> MultiPath<F> {
                 index_in_tree = parent(index_in_tree).unwrap();
                 curr_path_node = hash_lut
                     .entry(index_in_tree)
-                    .or_insert_with(|| two_to_one_hash(left, right));
+                    .or_insert_with(|| two_to_one_hash(&left, &right));
             }
 
             // check if final hash is root
@@ -301,19 +256,11 @@ pub struct MerkleTree<F: Field> {
 }
 
 impl<F: Field> MerkleTree<F> {
-    /// Create an empty merkle tree such that all leaves are zero-filled.
-    /// Consider using a sparse merkle tree if you need the tree to be low memory
-    pub fn blank(height: usize) -> Self {
-        // use empty leaf digest
-        let leaf_digests = vec![KeccakDigest::default(); 1 << (height - 1)];
-        Self::new_with_leaf_digest(leaf_digests)
-    }
-
     /// Returns a new merkle tree. `leaves.len()` should be power of two.
-    pub fn new<L: AsRef<[F]> + Send>(leaves: impl IntoParallelIterator<Item = L>) -> Self {
+    pub fn new<'a>(leaves: impl IntoParallelIterator<Item = &'a [F]>) -> Self {
         let leaf_digests: Vec<_> = leaves
             .into_par_iter()
-            .map(|input| leaf_hash(input.as_ref()))
+            .map(|input| leaf_hash(input))
             .collect::<Vec<_>>();
 
         Self::new_with_leaf_digest(leaf_digests)
@@ -365,8 +312,8 @@ impl<F: Field> MerkleTree<F> {
                     let right_leaf_index = right_child(current_index) - upper_bound;
 
                     *n = two_to_one_hash(
-                        leaf_digests[left_leaf_index].clone(),
-                        leaf_digests[right_leaf_index].clone(),
+                        &leaf_digests[left_leaf_index],
+                        &leaf_digests[right_leaf_index],
                     );
                 });
         }
@@ -396,8 +343,8 @@ impl<F: Field> MerkleTree<F> {
 
                     // need for unwrap as Box<Error> does not implement trait Send
                     *n = two_to_one_hash(
-                        nodes_at_prev_level[left_leaf_index].clone(),
-                        nodes_at_prev_level[right_leaf_index].clone(),
+                        &nodes_at_prev_level[left_leaf_index],
+                        &nodes_at_prev_level[right_leaf_index],
                     );
                 });
         }
@@ -501,11 +448,7 @@ impl<F: Field> MerkleTree<F> {
 
     /// Given the index and new leaf, return the hash of leaf and an updated path in order from root to bottom non-leaf level.
     /// This does not mutate the underlying tree.
-    fn updated_path<T: Borrow<[F]>>(
-        &self,
-        index: usize,
-        new_leaf: T,
-    ) -> (KeccakDigest, Vec<KeccakDigest>) {
+    fn updated_path(&self, index: usize, new_leaf: &[F]) -> (KeccakDigest, Vec<KeccakDigest>) {
         // calculate the hash of leaf
         let new_leaf_hash = leaf_hash(new_leaf);
 
@@ -520,7 +463,7 @@ impl<F: Field> MerkleTree<F> {
         // calculate the updated hash at bottom non-leaf-level
         let mut path_bottom_to_top = Vec::with_capacity(self.height - 1);
         {
-            path_bottom_to_top.push(two_to_one_hash(leaf_left.clone(), leaf_right.clone()));
+            path_bottom_to_top.push(two_to_one_hash(&leaf_left, &leaf_right));
         }
 
         // then calculate the updated hash from bottom to root

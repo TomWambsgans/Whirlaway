@@ -153,7 +153,7 @@ impl<F: TwoAdicField> Verifier<F> {
                 .ok_or(WhirError::Decoding)?;
             let answers: Vec<Vec<F>> = fs_verifier.next_scalar_matrix(None)?;
 
-            if !merkle_proof.verify(&prev_root, answers.iter().map(|a| a.as_ref()))
+            if !merkle_proof.verify(&prev_root, &answers)
                 || merkle_proof.leaf_indexes != stir_challenges_indexes
             {
                 return Err(WhirError::MerkleTree);
@@ -222,10 +222,8 @@ impl<F: TwoAdicField> Verifier<F> {
             .ok_or(WhirError::Decoding)?;
         let final_randomness_answers: Vec<Vec<F>> = fs_verifier.next_scalar_matrix(None)?;
 
-        if !final_merkle_proof.verify(
-            &prev_root,
-            final_randomness_answers.iter().map(|a| a.as_ref()),
-        ) || final_merkle_proof.leaf_indexes != final_randomness_indexes
+        if !final_merkle_proof.verify(&prev_root, &final_randomness_answers)
+            || final_merkle_proof.leaf_indexes != final_randomness_indexes
         {
             return Err(WhirError::MerkleTree);
         }

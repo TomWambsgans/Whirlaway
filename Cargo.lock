@@ -260,7 +260,6 @@ dependencies = [
  "algebra",
  "cudarc",
  "fnv",
- "lazy_static",
  "p3-field",
  "rayon",
  "sha3",

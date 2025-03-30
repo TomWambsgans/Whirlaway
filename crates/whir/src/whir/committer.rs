@@ -46,12 +46,6 @@ impl<F: TwoAdicField> Committer<F> {
             self.0.folding_factor.at_round(0),
         );
 
-        // Convert to extension field.
-        // This is not necessary for the commit, but in further rounds
-        // we will need the extension field. For symplicity we do it here too.
-        // TODO: Commit to base field directly.
-        let folded_evals = folded_evals.into_iter().map(F::from).collect::<Vec<_>>();
-
         // Group folds together as a leaf.
         let fold_size = 1 << self.0.folding_factor.at_round(0);
         let leafs_iter = folded_evals.par_chunks_exact(fold_size);
