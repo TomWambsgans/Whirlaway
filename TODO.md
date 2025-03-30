@@ -9,6 +9,7 @@
 - improve serialization / deserialization of field elements, improve fiat shamir
 - https://eprint.iacr.org/2024/108.pdf section 3
 - We can probably send less data in the first AIR sumcheck, with univariate skip, and the "current row" / "next row" reductions
+- Batching can be optimized because we evaluate the columns on 2 (common) points (except for the boundary conditions) 
 
 ## Long Term
 
