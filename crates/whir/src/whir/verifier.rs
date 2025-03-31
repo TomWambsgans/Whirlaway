@@ -2,7 +2,7 @@ use algebra::field_utils::{eq_extension, multilinear_point_from_univariate};
 use algebra::pols::UnivariatePolynomial;
 use algebra::utils::expand_randomness;
 use fiat_shamir::{FsError, FsVerifier};
-use merkle_tree::{KeccakDigest, MultiPath};
+use merkle_tree::MultiPath;
 use p3_field::{Field, TwoAdicField};
 use std::iter;
 
@@ -67,8 +67,8 @@ impl<F: TwoAdicField> Verifier<F> {
     pub fn parse_commitment(
         &self,
         fs_verifier: &mut FsVerifier,
-    ) -> Result<ParsedCommitment<F, KeccakDigest>, WhirError> {
-        let root = KeccakDigest(fs_verifier.next_bytes(32)?.try_into().unwrap()); // TODO avoid harcoding 32
+    ) -> Result<ParsedCommitment<F, [u8; 32]>, WhirError> {
+        let root = fs_verifier.next_bytes(32)?.try_into().unwrap(); // TODO avoid harcoding 32
 
         let mut ood_points = vec![F::ZERO; self.params.committment_ood_samples];
         let mut ood_answers = vec![F::ZERO; self.params.committment_ood_samples];
@@ -87,7 +87,7 @@ impl<F: TwoAdicField> Verifier<F> {
     fn parse_proof(
         &self,
         fs_verifier: &mut FsVerifier,
-        parsed_commitment: &ParsedCommitment<F, KeccakDigest>,
+        parsed_commitment: &ParsedCommitment<F, [u8; 32]>,
         statement: &Statement<F>, // Will be needed later
     ) -> Result<ParsedProof<F>, WhirError> {
         let mut initial_sumcheck_rounds = Vec::new();
@@ -128,7 +128,7 @@ impl<F: TwoAdicField> Verifier<F> {
         for r in 0..self.params.n_rounds() {
             let round_params = &self.params.round_parameters[r];
 
-            let new_root = KeccakDigest(fs_verifier.next_bytes(32)?.try_into().unwrap()); // TODO avoid harcoding 32
+            let new_root: [u8; 32] = fs_verifier.next_bytes(32)?.try_into().unwrap(); // TODO avoid harcoding 32
 
             let mut ood_points = vec![F::ZERO; round_params.ood_samples];
             let mut ood_answers = vec![F::ZERO; round_params.ood_samples];
@@ -263,7 +263,7 @@ impl<F: TwoAdicField> Verifier<F> {
 
     fn compute_v_poly(
         &self,
-        parsed_commitment: &ParsedCommitment<F, KeccakDigest>,
+        parsed_commitment: &ParsedCommitment<F, [u8; 32]>,
         statement: &Statement<F>,
         proof: &ParsedProof<F>,
     ) -> F {
@@ -347,7 +347,7 @@ impl<F: TwoAdicField> Verifier<F> {
     pub fn verify(
         &self,
         fs_verifier: &mut FsVerifier,
-        parsed_commitment: &ParsedCommitment<F, KeccakDigest>,
+        parsed_commitment: &ParsedCommitment<F, [u8; 32]>,
         statement: &Statement<F>,
     ) -> Result<(), WhirError> {
         // We first do a pass in which we rederive all the FS challenges

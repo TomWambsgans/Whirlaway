@@ -1,19 +1,14 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-use algebra::field_utils::serialize_field;
 use algebra::utils::log2;
+use cuda_bindings::cuda_batch_keccak;
 use p3_field::Field;
 use rayon::prelude::*;
 use sha3::Digest;
-use std::borrow::Borrow;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::BuildHasherDefault;
-use std::hash::Hash;
-
-#[cfg(test)]
-mod test_cuda;
 
 #[cfg(all(
     target_has_atomic = "8",
@@ -32,9 +27,6 @@ type DefaultHasher = ahash::AHasher;
     target_has_atomic = "ptr"
 )))]
 type DefaultHasher = fnv::FnvHasher;
-
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
-pub struct KeccakDigest(pub [u8; 32]);
 
 /// Optimized data structure to store multiple nodes proofs.
 /// For example:
@@ -60,37 +52,38 @@ pub struct KeccakDigest(pub [u8; 32]);
 ///  Since the Merkle Tree branch is the same, the authentication path is the same (which means in this case that there is no suffix).
 ///  The second path is hence `[C,D] + []` (i.e., plus the empty suffix). We can verify the second path as the first one.
 
-fn leaf_hash<F: Field>(input: &[F]) -> KeccakDigest {
-    let buf = input
-        .into_iter()
-        .flat_map(|f| serialize_field(*f))
-        .collect::<Vec<_>>();
-
+fn leaf_hash<F: Field>(input: &[F]) -> [u8; 32] {
+    let buff = unsafe {
+        std::slice::from_raw_parts(
+            input.as_ptr() as *const u8,
+            input.len() * std::mem::size_of::<F>(),
+        )
+    };
     let mut h = sha3::Keccak256::new();
-    h.update(&buf);
+    h.update(&buff);
 
     let mut output = [0; 32];
     output.copy_from_slice(&h.finalize()[..]);
-    KeccakDigest(output)
+    output
 }
 
-fn two_to_one_hash(left_input: &KeccakDigest, right_input: &KeccakDigest) -> KeccakDigest {
+fn two_to_one_hash(left_input: &[u8; 32], right_input: &[u8; 32]) -> [u8; 32] {
     let mut h = sha3::Keccak256::new();
-    h.update(left_input.borrow().0);
-    h.update(right_input.borrow().0);
+    h.update(left_input);
+    h.update(right_input);
     let mut output = [0; 32];
     output.copy_from_slice(&h.finalize()[..]);
-    KeccakDigest(output)
+    output
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct MultiPath<F: Field> {
     /// For node i, stores the hash of node i's sibling
-    pub leaf_siblings_hashes: Vec<KeccakDigest>,
+    pub leaf_siblings_hashes: Vec<[u8; 32]>,
     /// For node i path, stores at index i the prefix length of the path, for Incremental encoding
     pub auth_paths_prefix_lenghts: Vec<usize>,
     /// For node i path, stores at index i the suffix of the path for Incremental Encoding (as vector of symbols to be resolved with self.lut). Order is from higher layer to lower layer (does not include root node).
-    pub auth_paths_suffixes: Vec<Vec<KeccakDigest>>,
+    pub auth_paths_suffixes: Vec<Vec<[u8; 32]>>,
     /// stores the leaf indexes of the nodes to prove
     pub leaf_indexes: Vec<usize>,
 
@@ -106,14 +99,14 @@ impl<F: Field> MultiPath<F> {
 
         let mut res = (n as u32).to_le_bytes().to_vec();
         for i in 0..n {
-            res.extend_from_slice(&self.leaf_siblings_hashes[i].0);
+            res.extend_from_slice(&self.leaf_siblings_hashes[i]);
             assert!(self.auth_paths_prefix_lenghts[i] <= u8::MAX as usize);
             res.push(self.auth_paths_prefix_lenghts[i] as u8);
             // TODO suffix len can be retrieved from prefix length, no need to serialize it
             assert!(self.auth_paths_suffixes[i].len() <= u8::MAX as usize);
             res.push(self.auth_paths_suffixes[i].len() as u8);
             for j in 0..self.auth_paths_suffixes[i].len() {
-                res.extend_from_slice(&self.auth_paths_suffixes[i][j].0);
+                res.extend_from_slice(&self.auth_paths_suffixes[i][j]);
             }
             assert!(self.leaf_indexes[i] <= u32::MAX as usize);
             res.extend_from_slice(&(self.leaf_indexes[i] as u32).to_le_bytes());
@@ -126,9 +119,8 @@ impl<F: Field> MultiPath<F> {
         let mut offset = 4;
         let mut res = Self::default();
         for _ in 0..n {
-            res.leaf_siblings_hashes.push(KeccakDigest(
-                bytes.get(offset..offset + 32)?.try_into().unwrap(),
-            ));
+            res.leaf_siblings_hashes
+                .push(bytes.get(offset..offset + 32)?.try_into().unwrap());
             offset += 32;
             if offset > bytes.len() - 2 {
                 return None;
@@ -138,9 +130,7 @@ impl<F: Field> MultiPath<F> {
             offset += 2;
             let mut paths_suffixes = Vec::new();
             for _ in 0..suffix_len {
-                paths_suffixes.push(KeccakDigest(
-                    bytes.get(offset..offset + 32)?.try_into().unwrap(),
-                ));
+                paths_suffixes.push(bytes.get(offset..offset + 32)?.try_into().unwrap());
                 offset += 32;
             }
             res.auth_paths_suffixes.push(paths_suffixes);
@@ -162,12 +152,12 @@ impl<F: Field> MultiPath<F> {
     /// * `leaf_size`: leaf size in number of bytes
     ///
     /// `verify` infers the tree height by setting `tree_height = self.auth_paths_suffixes[0].len() + 2`
-    pub fn verify(&self, root_hash: &KeccakDigest, leaves: &[Vec<F>]) -> bool {
+    pub fn verify(&self, root_hash: &[u8; 32], leaves: &[Vec<F>]) -> bool {
         let tree_height = self.auth_paths_suffixes[0].len() + 2;
         let mut leaves = leaves.into_iter();
 
         // LookUp table to speedup computation avoid redundant hash computations
-        let mut hash_lut: HashMap<usize, KeccakDigest, _> =
+        let mut hash_lut: HashMap<usize, [u8; 32], _> =
             HashMap::with_hasher(BuildHasherDefault::<DefaultHasher>::default());
 
         // init prev path for decoding
@@ -246,9 +236,9 @@ fn select_left_right_child<L: Clone>(index: usize, computed_hash: &L, sibling_ha
 pub struct MerkleTree<F: Field> {
     /// stores the non-leaf nodes in level order. The first element is the root node.
     /// The ith nodes (starting at 1st) children are at indices `2*i`, `2*i+1`
-    non_leaf_nodes: Vec<KeccakDigest>,
+    non_leaf_nodes: Vec<[u8; 32]>,
     /// store the hash of leaf nodes from left to right
-    leaf_nodes: Vec<KeccakDigest>,
+    leaf_nodes: Vec<[u8; 32]>,
     /// Stores the height of the MerkleTree
     height: usize,
 
@@ -257,16 +247,32 @@ pub struct MerkleTree<F: Field> {
 
 impl<F: Field> MerkleTree<F> {
     /// Returns a new merkle tree. `leaves.len()` should be power of two.
-    pub fn new<'a>(leaves: impl IntoParallelIterator<Item = &'a [F]>) -> Self {
-        let leaf_digests: Vec<_> = leaves
-            .into_par_iter()
-            .map(|input| leaf_hash(input))
-            .collect::<Vec<_>>();
+    pub fn new<'a>(leaves: &[F], batch_size: usize, cuda: bool) -> Self {
+        assert!(leaves.len() % batch_size == 0);
+        let leaf_digests: Vec<_> = if leaves.len() < 2048 || !cuda {
+            let _span =
+                tracing::info_span!("non cuda leaves hashing", leaves_len = leaves.len()).entered();
+            leaves
+                .par_chunks_exact(batch_size)
+                .map(|input| leaf_hash(input))
+                .collect::<Vec<_>>()
+        } else {
+            let _span =
+                tracing::info_span!("cuda leaves hashing", leaves_len = leaves.len()).entered();
+            let buff = unsafe {
+                std::slice::from_raw_parts(
+                    leaves.as_ptr() as *const u8,
+                    leaves.len() * std::mem::size_of::<F>(),
+                )
+            };
+            let input_length = batch_size * std::mem::size_of::<F>();
+            cuda_batch_keccak(buff, input_length, input_length).unwrap()
+        };
 
         Self::new_with_leaf_digest(leaf_digests)
     }
 
-    pub fn new_with_leaf_digest(leaf_digests: Vec<KeccakDigest>) -> Self {
+    pub fn new_with_leaf_digest(leaf_digests: Vec<[u8; 32]>) -> Self {
         let leaf_nodes_size = leaf_digests.len();
         assert!(
             leaf_nodes_size.is_power_of_two() && leaf_nodes_size > 1,
@@ -276,10 +282,10 @@ impl<F: Field> MerkleTree<F> {
 
         let tree_height = tree_height(leaf_nodes_size);
 
-        let hash_of_empty = KeccakDigest::default();
+        let hash_of_empty = leaf_hash::<F>(&[]);
 
         // initialize the merkle tree as array of nodes in level order
-        let mut non_leaf_nodes: Vec<KeccakDigest> = (0..non_leaf_nodes_size)
+        let mut non_leaf_nodes: Vec<[u8; 32]> = (0..non_leaf_nodes_size)
             .map(|_| hash_of_empty.clone())
             .collect();
 
@@ -357,7 +363,7 @@ impl<F: Field> MerkleTree<F> {
     }
 
     /// Returns the root of the Merkle tree.
-    pub fn root(&self) -> KeccakDigest {
+    pub fn root(&self) -> [u8; 32] {
         self.non_leaf_nodes[0].clone()
     }
 
@@ -367,7 +373,7 @@ impl<F: Field> MerkleTree<F> {
     }
 
     /// Given the `index` of a leaf, returns the digest of its leaf sibling
-    pub fn get_leaf_sibling_hash(&self, index: usize) -> KeccakDigest {
+    pub fn get_leaf_sibling_hash(&self, index: usize) -> [u8; 32] {
         if index & 1 == 0 {
             // leaf is left child
             self.leaf_nodes[index + 1].clone()
@@ -378,7 +384,7 @@ impl<F: Field> MerkleTree<F> {
     }
 
     /// Returns the authentication path from leaf at `index` to root, as a Vec of digests
-    fn compute_auth_path(&self, index: usize) -> Vec<KeccakDigest> {
+    fn compute_auth_path(&self, index: usize) -> Vec<[u8; 32]> {
         // gather basic tree information
         let tree_height = tree_height(self.leaf_nodes.len());
 
@@ -419,7 +425,7 @@ impl<F: Field> MerkleTree<F> {
 
         //let auth_paths = Vec::with_capacity(indexes.len());
         let mut auth_paths_prefix_lenghts: Vec<usize> = Vec::with_capacity(indexes.len());
-        let mut auth_paths_suffixes: Vec<Vec<KeccakDigest>> = Vec::with_capacity(indexes.len());
+        let mut auth_paths_suffixes: Vec<Vec<[u8; 32]>> = Vec::with_capacity(indexes.len());
 
         let mut leaf_siblings_hashes = Vec::with_capacity(indexes.len());
 
@@ -448,7 +454,7 @@ impl<F: Field> MerkleTree<F> {
 
     /// Given the index and new leaf, return the hash of leaf and an updated path in order from root to bottom non-leaf level.
     /// This does not mutate the underlying tree.
-    fn updated_path(&self, index: usize, new_leaf: &[F]) -> (KeccakDigest, Vec<KeccakDigest>) {
+    fn updated_path(&self, index: usize, new_leaf: &[F]) -> ([u8; 32], Vec<[u8; 32]>) {
         // calculate the hash of leaf
         let new_leaf_hash = leaf_hash(new_leaf);
 

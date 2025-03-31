@@ -8,7 +8,7 @@ use cudarc::driver::CudaDevice;
 use cudarc::driver::sys::CUdevice_attribute;
 
 fn main() {
-    let cuda_file = "cuda/keccak.cu";
+    let cuda_file = "kernels/keccak.cu";
     let out_dir = env::var("OUT_DIR").unwrap();
     let ptx_file = Path::new(&out_dir).join("keccak.ptx");
     println!("cargo:rerun-if-changed={}", cuda_file);

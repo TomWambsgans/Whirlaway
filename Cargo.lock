@@ -129,6 +129,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cuda-bindings"
+version = "0.1.0"
+dependencies = [
+ "cudarc",
+ "sha3",
+]
+
+[[package]]
 name = "cudarc"
 version = "0.13.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -258,11 +266,12 @@ version = "0.1.0"
 dependencies = [
  "ahash",
  "algebra",
- "cudarc",
+ "cuda-bindings",
  "fnv",
  "p3-field",
  "rayon",
  "sha3",
+ "tracing",
 ]
 
 [[package]]
@@ -836,6 +845,7 @@ version = "0.1.0"
 dependencies = [
  "air",
  "algebra",
+ "cuda-bindings",
  "fiat-shamir",
  "p3-field",
  "p3-koala-bear",

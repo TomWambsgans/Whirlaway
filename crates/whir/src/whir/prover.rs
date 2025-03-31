@@ -11,12 +11,11 @@ use algebra::{
     utils::expand_randomness,
 };
 use fiat_shamir::FsProver;
-use merkle_tree::{KeccakDigest, MerkleTree};
+use merkle_tree::MerkleTree;
 use p3_field::{Field, TwoAdicField};
 use tracing::instrument;
 
 use crate::whir::fs_utils::get_challenge_stir_queries;
-use rayon::prelude::*;
 
 pub struct Prover<F: TwoAdicField>(pub WhirConfig<F>);
 
@@ -197,12 +196,13 @@ impl<F: TwoAdicField> Prover<F> {
             self.0.folding_factor.at_round(round_state.round + 1),
         );
 
-        let leafs_iter = folded_evals
-            .par_chunks_exact(1 << self.0.folding_factor.at_round(round_state.round + 1));
-        let merkle_tree = MerkleTree::new(leafs_iter);
+        let merkle_tree = MerkleTree::new(
+            &folded_evals,
+            1 << self.0.folding_factor.at_round(round_state.round + 1),
+            self.0.cuda,
+        );
 
-        let root: KeccakDigest = merkle_tree.root();
-        fs_prover.add_bytes(&root.0);
+        fs_prover.add_bytes(&merkle_tree.root());
 
         // OOD Samples
         let mut ood_points = vec![F::ZERO; round_params.ood_samples];

@@ -37,7 +37,7 @@ type EF = BinomialExtensionField<KoalaBear, 8>;
 
 #[test]
 fn test_poseidon2() {
-    prove_poseidon2(4, WhirParameters::standard(100, 2));
+    prove_poseidon2(4, WhirParameters::standard(100, 2, false));
 }
 
 pub fn prove_poseidon2(log_n_rows: usize, whir_params: WhirParameters) {

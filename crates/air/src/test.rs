@@ -44,7 +44,7 @@ fn test_air_fibonacci() {
     let batch = BatchSettings::<F, EF, RingSwitch<F, EF, WhirPCS<EF>>>::new(
         2,
         log_length,
-        &WhirParameters::standard(security_bits, log_inv_rate),
+        &WhirParameters::standard(security_bits, log_inv_rate, false),
     );
 
     let mut batch_prover = batch.clone();
@@ -116,7 +116,7 @@ fn test_air_complex() {
     let batch = BatchSettings::<F, EF, RingSwitch<F, EF, WhirPCS<EF>>>::new(
         table.n_columns,
         log_length,
-        &WhirParameters::standard(security_bits, log_inv_rate),
+        &WhirParameters::standard(security_bits, log_inv_rate, false),
     );
 
     let mut batch_prover = batch.clone();

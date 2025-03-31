@@ -9,7 +9,6 @@ use fiat_shamir::FsProver;
 use merkle_tree::MerkleTree;
 
 use p3_field::TwoAdicField;
-use rayon::prelude::*;
 use tracing::instrument;
 
 pub struct Witness<F: TwoAdicField> {
@@ -48,13 +47,12 @@ impl<F: TwoAdicField> Committer<F> {
 
         // Group folds together as a leaf.
         let fold_size = 1 << self.0.folding_factor.at_round(0);
-        let leafs_iter = folded_evals.par_chunks_exact(fold_size);
 
-        let merkle_tree = MerkleTree::new(leafs_iter);
+        let merkle_tree = MerkleTree::new(&folded_evals, fold_size, self.0.cuda);
 
         let root = merkle_tree.root();
 
-        fs_prover.add_bytes(&root.0);
+        fs_prover.add_bytes(&root);
 
         let mut ood_points = vec![F::ZERO; self.0.committment_ood_samples];
         let mut ood_answers = Vec::with_capacity(self.0.committment_ood_samples);

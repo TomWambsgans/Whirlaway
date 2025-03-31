@@ -169,16 +169,18 @@ pub struct WhirParameters {
     pub soundness_type: SoundnessType,
     pub security_level: usize,
     pub pow_bits: usize,
+    pub cuda: bool,
 }
 
 impl WhirParameters {
-    pub fn standard(security_bits: usize, log_inv_rate: usize) -> Self {
+    pub fn standard(security_bits: usize, log_inv_rate: usize, cuda: bool) -> Self {
         Self {
             security_level: security_bits,
             pow_bits: 18,
             folding_factor: FoldingFactor::Constant(4),
             soundness_type: SoundnessType::ProvableList,
             starting_log_inv_rate: log_inv_rate,
+            cuda,
         }
     }
 }

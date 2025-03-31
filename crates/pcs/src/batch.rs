@@ -282,7 +282,7 @@ mod test {
         let mut batch_prover = BatchSettings::<F, EF, RingSwitch<F, EF, WhirPCS<EF>>>::new(
             n_polys,
             n_vars,
-            &WhirParameters::standard(security_bits, log_inv_rate),
+            &WhirParameters::standard(security_bits, log_inv_rate, false),
         );
         let rng = &mut StdRng::seed_from_u64(0);
 
@@ -309,7 +309,7 @@ mod test {
         let mut batch_verifier = BatchSettings::<F, EF, RingSwitch<F, EF, WhirPCS<EF>>>::new(
             n_polys,
             n_vars,
-            &WhirParameters::standard(security_bits, log_inv_rate),
+            &WhirParameters::standard(security_bits, log_inv_rate, false),
         );
         let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
         let parsed_commitment = batch_verifier.parse_commitment(&mut fs_verifier).unwrap();

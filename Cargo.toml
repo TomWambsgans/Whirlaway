@@ -12,6 +12,7 @@ members = ["crates/*"]
 
 [workspace.dependencies]
 # Local
+cuda-bindings = { path = "crates/cuda-bindings" }
 whir = { path = "crates/whir" }
 fiat-shamir = { path = "crates/fiat-shamir" }
 algebra = { path = "crates/algebra" }
@@ -38,6 +39,7 @@ p3_matrix = { git = "https://github.com/TomWambsgans/Plonky3", package = "p3-mat
 cudarc = { version = "0.13.9", features = ["cuda-12040", "std", "cublas", "cublaslt", "curand", "driver", "runtime", "nvrtc"] }
 
 [dependencies]
+cuda-bindings.workspace = true
 pcs.workspace = true
 fiat-shamir.workspace = true
 algebra.workspace = true

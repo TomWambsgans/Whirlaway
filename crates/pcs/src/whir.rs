@@ -1,6 +1,5 @@
 use algebra::pols::{Evaluation, MultilinearPolynomial};
 use fiat_shamir::{FsProver, FsVerifier};
-use merkle_tree::KeccakDigest;
 use p3_field::TwoAdicField;
 use whir::{
     parameters::MultivariateParameters,
@@ -37,7 +36,7 @@ impl<F: TwoAdicField> PcsWitness<F> for WhirWitness<F> {
 
 impl<F: TwoAdicField> PCS<F, F> for WhirPCS<F> {
     type Witness = WhirWitness<F>;
-    type ParsedCommitment = ParsedCommitment<F, KeccakDigest>;
+    type ParsedCommitment = ParsedCommitment<F, [u8; 32]>;
     type VerifError = WhirError;
     type Params = WhirParameters;
 
@@ -101,7 +100,7 @@ mod test {
         let log_inv_rate = 4;
         let pcs = WhirPCS::<F>::new(
             n_vars,
-            &WhirParameters::standard(security_bits, log_inv_rate),
+            &WhirParameters::standard(security_bits, log_inv_rate, false),
         );
 
         let mut fs_prover = FsProver::new();

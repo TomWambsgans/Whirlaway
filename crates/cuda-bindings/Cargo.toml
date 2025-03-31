@@ -1,0 +1,13 @@
+[package]
+name = "cuda-bindings"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cudarc.workspace = true
+
+[build-dependencies]
+cudarc.workspace = true
+
+[dev-dependencies]
+sha3.workspace = true
