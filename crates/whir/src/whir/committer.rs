@@ -48,7 +48,7 @@ impl<F: TwoAdicField> Committer<F> {
         // Group folds together as a leaf.
         let fold_size = 1 << self.0.folding_factor.at_round(0);
 
-        let merkle_tree = MerkleTree::new(&folded_evals, fold_size, self.0.cuda);
+        let merkle_tree = MerkleTree::new(&folded_evals, fold_size);
 
         let root = merkle_tree.root();
 

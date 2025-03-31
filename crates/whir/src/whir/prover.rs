@@ -199,7 +199,6 @@ impl<F: TwoAdicField> Prover<F> {
         let merkle_tree = MerkleTree::new(
             &folded_evals,
             1 << self.0.folding_factor.at_round(round_state.round + 1),
-            self.0.cuda,
         );
 
         fs_prover.add_bytes(&merkle_tree.root());

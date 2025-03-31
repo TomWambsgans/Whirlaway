@@ -1,7 +1,6 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 use algebra::utils::log2;
-use cuda_bindings::cuda_batch_keccak;
 use p3_field::Field;
 use rayon::prelude::*;
 use sha3::Digest;
@@ -9,6 +8,7 @@ use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::BuildHasherDefault;
+use tracing::instrument;
 
 #[cfg(all(
     target_has_atomic = "8",
@@ -247,27 +247,22 @@ pub struct MerkleTree<F: Field> {
 
 impl<F: Field> MerkleTree<F> {
     /// Returns a new merkle tree. `leaves.len()` should be power of two.
-    pub fn new<'a>(leaves: &[F], batch_size: usize, cuda: bool) -> Self {
+    #[instrument(name = "merkle tree creation", skip_all)]
+    pub fn new<'a>(leaves: &[F], batch_size: usize) -> Self {
         assert!(leaves.len() % batch_size == 0);
-        let leaf_digests: Vec<_> = if leaves.len() < 2048 || !cuda {
-            let _span =
-                tracing::info_span!("non cuda leaves hashing", leaves_len = leaves.len()).entered();
-            leaves
-                .par_chunks_exact(batch_size)
-                .map(|input| leaf_hash(input))
-                .collect::<Vec<_>>()
-        } else {
-            let _span =
-                tracing::info_span!("cuda leaves hashing", leaves_len = leaves.len()).entered();
-            let buff = unsafe {
-                std::slice::from_raw_parts(
-                    leaves.as_ptr() as *const u8,
-                    leaves.len() * std::mem::size_of::<F>(),
-                )
-            };
-            let input_length = batch_size * std::mem::size_of::<F>();
-            cuda_batch_keccak(buff, input_length, input_length).unwrap()
-        };
+        let leaf_digests: Vec<_> = leaves
+            .par_chunks_exact(batch_size)
+            .map(|input| leaf_hash(input))
+            .collect::<Vec<_>>();
+
+        // let buff = unsafe {
+        //     std::slice::from_raw_parts(
+        //         leaves.as_ptr() as *const u8,
+        //         leaves.len() * std::mem::size_of::<F>(),
+        //     )
+        // };
+        // let input_length = batch_size * std::mem::size_of::<F>();
+        // cuda_batch_keccak(buff, input_length, input_length).unwrap()
 
         Self::new_with_leaf_digest(leaf_digests)
     }

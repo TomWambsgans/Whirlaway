@@ -9,5 +9,5 @@ use pcs::WhirParameters;
 
 fn main() {
     cuda_bindings::init_cuda().unwrap();
-    prove_poseidon2(14, WhirParameters::standard(128, 4, false));
+    prove_poseidon2(12, WhirParameters::standard(128, 4, false));
 }

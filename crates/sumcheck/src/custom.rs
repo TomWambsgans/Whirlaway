@@ -4,6 +4,7 @@ use algebra::pols::{
 use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};
 use rayon::prelude::*;
+use tracing::instrument;
 
 /*
 TODO: The 'densification' of the sparse multilinear polynomial could be further postponed
@@ -17,6 +18,7 @@ TODO: The 'densification' of the sparse multilinear polynomial could be further 
 /// 1) 'row' = the last k variables = x[kappa..kappa + k] (the corresponing integer beeing interpreted in big indian)
 /// 2) if mixed_eql_mles[row].1 == x[kappa - j..kapaa] return mixed_eql_mles[row].0(x[0..kappa - j]), else return 0
 ///
+#[instrument(name = "sumcheck: prove_custom", skip_all)]
 pub fn prove_custom<F: Field, EF: ExtensionField<F>>(
     witness_pol: MultilinearPolynomial<F>, // kappa variables
     eq_factor: MultilinearPolynomial<EF>,  // k variables

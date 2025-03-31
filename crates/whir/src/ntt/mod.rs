@@ -10,6 +10,7 @@ use self::matrix::MatrixMut;
 use p3_field::TwoAdicField;
 
 use rayon::prelude::*;
+use tracing::instrument;
 
 pub use self::{
     ntt::{intt, intt_batch, ntt, ntt_batch},
@@ -18,6 +19,7 @@ pub use self::{
 };
 
 /// RS encode at a rate 1/`expansion`.
+#[instrument(name = "ntt: expand_from_coeff", skip_all)]
 pub fn expand_from_coeff<F: TwoAdicField>(coeffs: &[F], expansion: usize) -> Vec<F> {
     let engine = ntt::NttEngine::<F>::new_from_cache();
     let expanded_size = coeffs.len() * expansion;

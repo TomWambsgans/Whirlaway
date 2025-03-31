@@ -34,7 +34,7 @@ pub struct WhirConfig<F: TwoAdicField> {
     pub(crate) final_log_inv_rate: usize,
     pub(crate) final_sumcheck_rounds: usize,
     pub(crate) final_folding_pow_bits: usize,
-    pub(crate) cuda: bool,
+    pub(crate) _cuda: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -190,7 +190,7 @@ impl<F: TwoAdicField> WhirConfig<F> {
             final_sumcheck_rounds,
             final_folding_pow_bits,
             final_log_inv_rate: log_inv_rate,
-            cuda: whir_parameters.cuda,
+            _cuda: whir_parameters.cuda,
         }
     }
 
