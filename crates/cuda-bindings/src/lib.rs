@@ -13,10 +13,16 @@ use cudarc::{
 static CUDA_DEVICE: OnceLock<Arc<CudaDevice>> = OnceLock::new();
 
 pub fn init_cuda() -> Result<(), DriverError> {
-    let ptx_path = env!("PTX_KECCAK_PATH");
-    let ptx_content = std::fs::read_to_string(ptx_path).expect("Failed to read PTX file");
     let dev = CudaDevice::new(0)?;
-    dev.load_ptx(Ptx::from_src(ptx_content), "keccak", &["batch_keccak256"])?;
+
+    let keccak_ptx_path = env!("PTX_KECCAK_PATH");
+    let keccak_ptx = std::fs::read_to_string(keccak_ptx_path).expect("Failed to read PTX file");
+    dev.load_ptx(Ptx::from_src(keccak_ptx), "keccak", &["batch_keccak256"])?;
+
+    let keccak_ptx_path = env!("PTX_NTT_PATH");
+    let keccak_ptx = std::fs::read_to_string(keccak_ptx_path).expect("Failed to read PTX file");
+    dev.load_ptx(Ptx::from_src(keccak_ptx), "ntt", &["test_add", "test_mul", "test_sub"])?;
+
     CUDA_DEVICE
         .set(dev)
         .expect("CUDA device already initialized");
@@ -43,7 +49,7 @@ pub fn cuda_batch_keccak(
 
     let n_inputs = buff.len() / input_packed_length;
     let src_bytes_dev = dev.htod_copy(buff.to_vec())?;
-    dev.synchronize()?;
+    // dev.synchronize()?;
     let mut dest_dev = unsafe { dev.alloc::<u8>(32 * n_inputs)? };
 
     const NUM_THREADS: u32 = 256;

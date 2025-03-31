@@ -8,12 +8,23 @@ use cudarc::driver::CudaDevice;
 use cudarc::driver::sys::CUdevice_attribute;
 
 fn main() {
-    let cuda_file = "kernels/keccak.cu";
-    let out_dir = env::var("OUT_DIR").unwrap();
-    let ptx_file = Path::new(&out_dir).join("keccak.ptx");
-    println!("cargo:rerun-if-changed={}", cuda_file);
     println!("cargo:rerun-if-changed=build.rs");
-    let source_modified = Path::new(cuda_file).metadata().unwrap().modified().unwrap();
+    handle_cuda_file("keccak");
+    handle_cuda_file("ntt");
+}
+
+fn handle_cuda_file(name: &str) {
+    let cuda_file = format!("kernels/{name}.cu");
+    let out_dir = env::var("OUT_DIR").unwrap();
+    let ptx_file = Path::new(&out_dir).join(format!("{name}.ptx"));
+    println!("cargo:rerun-if-changed={}", cuda_file);
+    let (major, minor) = cuda_compute_capacity().expect("Failed to get CUDA compute capability");
+
+    let source_modified = Path::new(&cuda_file)
+        .metadata()
+        .unwrap()
+        .modified()
+        .unwrap();
 
     let should_compile = if ptx_file.exists() {
         let target_modified = ptx_file.metadata().unwrap().modified().unwrap();
@@ -21,8 +32,6 @@ fn main() {
     } else {
         true
     };
-
-    let (major, minor) = cuda_compute_capacity().expect("Failed to get CUDA compute capability");
 
     if should_compile {
         // Create directory if it doesn't exist
@@ -37,10 +46,10 @@ fn main() {
                 &format!("-arch=sm_{major}{minor}"), // NOT SURE OF THIS
                 "-o",
                 &ptx_file.to_string_lossy(), // Output file
-                cuda_file,                   // Input file
+                &cuda_file,                  // Input file
             ])
             .output()
-            .expect("Failed to execute nvcc");
+            .expect(&format!("Failed to compile {} with nvcc", name));
 
         if !output.status.success() {
             panic!("NVCC error: {}", String::from_utf8_lossy(&output.stderr));
@@ -54,7 +63,11 @@ fn main() {
     }
 
     // Make the PTX file available to the project
-    println!("cargo:rustc-env=PTX_KECCAK_PATH={}", ptx_file.display());
+    println!(
+        "cargo:rustc-env=PTX_{}_PATH={}",
+        name.to_uppercase(),
+        ptx_file.display()
+    );
 }
 
 fn cuda_compute_capacity() -> Result<(i32, i32), Box<dyn Error>> {
