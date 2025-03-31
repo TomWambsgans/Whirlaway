@@ -21,11 +21,14 @@ pub fn init_cuda() -> Result<(), DriverError> {
 
     let keccak_ptx_path = env!("PTX_NTT_PATH");
     let keccak_ptx = std::fs::read_to_string(keccak_ptx_path).expect("Failed to read PTX file");
-    dev.load_ptx(Ptx::from_src(keccak_ptx), "ntt", &["test_add", "test_mul", "test_sub"])?;
+    dev.load_ptx(
+        Ptx::from_src(keccak_ptx),
+        "ntt",
+        &["test_add", "test_mul", "test_sub"],
+    )?;
 
-    CUDA_DEVICE
-        .set(dev)
-        .expect("CUDA device already initialized");
+    let _ = CUDA_DEVICE.set(dev);
+
     Ok(())
 }
 

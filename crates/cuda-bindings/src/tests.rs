@@ -1,4 +1,5 @@
 use cudarc::driver::{LaunchAsync, LaunchConfig};
+use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::KoalaBear;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
@@ -44,10 +45,9 @@ fn hash_keccak256(data: &[u8]) -> [u8; 32] {
 pub fn test_cuda_monty_field() {
     init_cuda().unwrap();
 
-    const EXT_DEGREE: usize = 1;
+    const EXT_DEGREE: usize = 8;
 
-    // type F = BinomialExtensionField<KoalaBear, EXT_DEGREE>;
-    type F = KoalaBear;
+    type F = BinomialExtensionField<KoalaBear, EXT_DEGREE>;
 
     let rng = &mut StdRng::seed_from_u64(0);
     for _ in 0..1000 {
@@ -63,7 +63,11 @@ pub fn test_cuda_monty_field() {
         let b_bytes = unsafe { std::mem::transmute::<_, [u32; EXT_DEGREE]>(b) };
         let a_bytes_dev = dev.htod_copy(a_bytes.to_vec()).unwrap();
         let b_bytes_dev = dev.htod_copy(b_bytes.to_vec()).unwrap();
-        let cfg = LaunchConfig::for_num_elems(1);
+        let cfg = LaunchConfig {
+            grid_dim: (1, 1, 1),
+            block_dim: (1, 1, 1),
+            shared_mem_bytes: 0,
+        };
 
         let mut res_dev = unsafe { dev.alloc::<u32>(EXT_DEGREE).unwrap() };
         unsafe { f_add.launch(cfg, (&a_bytes_dev, &b_bytes_dev, &mut res_dev)) }.unwrap();
