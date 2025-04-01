@@ -165,6 +165,90 @@ pub fn test_ntt_at_block_level() {
     assert_eq!(cuda_ntt, expected_ntt);
 }
 
+#[test]
+pub fn test_ntt() {
+    init_cuda().unwrap();
+
+    const EXT_DEGREE: usize = 8;
+
+    type F = BinomialExtensionField<KoalaBear, EXT_DEGREE>;
+
+    let rng = &mut StdRng::seed_from_u64(0);
+    let dev = crate::get_cuda_device();
+    let f_ntt = dev.get_func("ntt", "test_ntt").unwrap();
+    let log_threads_per_block = 8;
+    let threads_per_block = 1 << log_threads_per_block;
+    let n_blocks = 16;
+    let log_len = log_threads_per_block + 2;
+    let len = 1 << log_len;
+    let log_expension_factor = (threads_per_block * 2 * n_blocks / len as usize).ilog2() as usize;
+    let expansion_factor = 1 << log_expension_factor;
+    let coeffs = (0..len).map(|_| rng.random()).collect::<Vec<F>>();
+
+    let expanded_size = coeffs.len() * expansion_factor;
+    let mut expected_result = Vec::with_capacity(expanded_size);
+    let root = KoalaBear::two_adic_generator(log_len + log_expension_factor);
+    expected_result.extend_from_slice(&coeffs);
+    expected_result.extend((1..expansion_factor).flat_map(|i| {
+        let root_i = root.exp_u64(i as u64);
+        coeffs
+            .iter()
+            .enumerate()
+            .map(move |(j, coeff)| *coeff * root_i.exp_u64(j as u64))
+    }));
+
+    let mut all_twiddles = Vec::new();
+
+    for i in 0..=log_len + log_expension_factor {
+        let root = KoalaBear::two_adic_generator(i);
+        let twiddles = (0..1 << i)
+            .map(|j| root.exp_u64(j as u64))
+            .collect::<Vec<KoalaBear>>();
+        all_twiddles.extend(twiddles);
+    }
+
+    let all_twiddles_u32 = unsafe {
+        std::slice::from_raw_parts(all_twiddles.as_ptr() as *const u32, all_twiddles.len())
+    }
+    .to_vec();
+
+    let all_twiddles_dev = dev.htod_copy(all_twiddles_u32).unwrap();
+
+    let coeffs_u32 =
+        unsafe { std::slice::from_raw_parts(coeffs.as_ptr() as *const u32, len * EXT_DEGREE) }
+            .to_vec();
+
+    let coeffs_dev = dev.htod_copy(coeffs_u32).unwrap();
+
+    let mut output_dev = unsafe { dev.alloc::<u32>(expanded_size * EXT_DEGREE).unwrap() };
+
+    let cfg = LaunchConfig {
+        grid_dim: (n_blocks as u32, 1, 1),
+        block_dim: (threads_per_block as u32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    unsafe {
+        f_ntt.launch(
+            cfg,
+            (
+                &coeffs_dev,
+                &mut output_dev,
+                log_len as u32,
+                log_expension_factor as u32,
+                &all_twiddles_dev,
+            ),
+        )
+    }
+    .unwrap();
+
+    let cuda_result_u32: Vec<u32> = dev.sync_reclaim(output_dev).unwrap();
+    let cuda_result =
+        unsafe { std::slice::from_raw_parts(cuda_result_u32.as_ptr() as *const F, expanded_size) }
+            .to_vec();
+    assert_eq!(cuda_result, expected_result);
+}
+
 fn cuda_shared_memory() -> Result<usize, Box<dyn Error>> {
     let dev = CudaDevice::new(0)?;
     Ok(dev.attribute(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_SHARED_MEMORY_PER_BLOCK)? as usize)

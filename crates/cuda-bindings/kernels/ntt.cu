@@ -190,6 +190,37 @@ __device__ void ntt_at_block_level(ExtField *buff, const uint32_t *twiddles)
     buff[threadId + THREAD_PER_BLOCK * (2 * blockId + 1)] = cached_buff[threadId + THREAD_PER_BLOCK];
 }
 
+// TODO use only one buffer, but I don't know how to fill it "partially" with cudarc, since the crate asserts dest size = src size when copying data
+__device__ void ntt(ExtField *input, ExtField *result, const uint32_t log_len, const uint32_t log_extension_factor, const uint32_t *twiddles)
+{
+    // twiddles = 1
+    // followed by w^0, w^1 where w is a 2-root of unity
+    // followed by w^0, w^1, w^2, w^3 where w is a 4-root of unity
+    // followed by w^0, w^1, w^2, w^3, w^4, w^5, w^6, w^7 where w is a 8-root of unity
+    // ...
+    // input has size 1 << log_len (the coefs of the polynomial we want to NTT, in the "mixed" order)
+    // result has size 1 << (log_len + log_extension_factor)
+    // we should have THREAD_PER_BLOCK * NUM_BLOCKS = 1 << (log_len + log_extension_factor - 1)
+
+    int threadIndex = threadIdx.x + blockIdx.x * blockDim.x;
+
+    int len = 1 << log_len;
+
+    if (threadIndex < len)
+    {
+        result[threadIndex] = input[threadIndex];
+    }
+    else
+    {
+        uint32_t twidle = twiddles[(1 << (log_len + log_extension_factor)) - 1 + (threadIndex % len) * (threadIndex / len)];
+        mul_prime_by_ext_field(&input[threadIndex % len], twidle, &result[threadIndex]);
+    }
+
+    int next = threadIndex + (1 << (log_len + log_extension_factor - 1));
+    uint32_t twiddle = twiddles[(1 << (log_len + log_extension_factor)) - 1 + (next % len) * (next / len)];
+    mul_prime_by_ext_field(&input[next % len], twiddle, &result[next]);
+}
+
 // Example kernel for testing extension field operations
 extern "C" __global__ void test_add(ExtField *a, ExtField *b, ExtField *result)
 {
@@ -206,7 +237,12 @@ extern "C" __global__ void test_mul(ExtField *a, ExtField *b, ExtField *result)
     ext_field_mul(a, b, result);
 }
 
-extern "C" __global__ void test_ntt_at_block_level(ExtField *buff, uint32_t *twiddles) {
+extern "C" __global__ void test_ntt_at_block_level(ExtField *buff, uint32_t *twiddles)
+{
     ntt_at_block_level(buff, twiddles);
 }
 
+extern "C" __global__ void test_ntt(ExtField *input, ExtField *result, const uint32_t log_len, const uint32_t log_extension_factor, const uint32_t *twiddles)
+{
+    ntt(input, result, log_len, log_extension_factor, twiddles);
+}

@@ -29,6 +29,7 @@ pub fn init_cuda() -> Result<(), DriverError> {
             "test_mul",
             "test_sub",
             "test_ntt_at_block_level",
+            "test_ntt",
         ],
     )?;
 
