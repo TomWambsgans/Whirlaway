@@ -30,6 +30,7 @@ pub fn init_cuda() -> Result<(), DriverError> {
             "test_sub",
             "test_ntt_at_block_level",
             "test_ntt",
+            "test_batch_reverse_bit_order"
         ],
     )?;
 

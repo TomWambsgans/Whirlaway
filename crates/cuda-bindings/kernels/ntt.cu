@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
+#include <cooperative_groups.h>
 
 // Koala bear field
 #define MONTY_PRIME 0x7f000001
@@ -190,6 +191,27 @@ __device__ void ntt_at_block_level(ExtField *buff, const uint32_t *twiddles)
     buff[threadId + THREAD_PER_BLOCK * (2 * blockId + 1)] = cached_buff[threadId + THREAD_PER_BLOCK];
 }
 
+__device__ void reverse_bit_order(ExtField *data, int bits)
+{
+    int idx = (blockIdx.x * blockDim.x + threadIdx.x) % (1 << bits);
+    int rev_idx = __brev(idx) >> (32 - bits);
+
+    // Only process when idx < rev_idx to avoid swapping twice
+    if (idx < rev_idx)
+    {
+        ExtField temp = data[idx];
+        data[idx] = data[rev_idx];
+        data[rev_idx] = temp;
+    }
+}
+
+__device__ void batch_reverse_bit_order(ExtField *data, int bits)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int len = (1 << bits);
+    reverse_bit_order(&data[(idx / len) * len], bits);
+}
+
 // TODO use only one buffer, but I don't know how to fill it "partially" with cudarc, since the crate asserts dest size = src size when copying data
 __device__ void ntt(ExtField *input, ExtField *result, const uint32_t log_len, const uint32_t log_extension_factor, const uint32_t *twiddles)
 {
@@ -201,11 +223,14 @@ __device__ void ntt(ExtField *input, ExtField *result, const uint32_t log_len, c
     // input has size 1 << log_len (the coefs of the polynomial we want to NTT, in the "mixed" order)
     // result has size 1 << (log_len + log_extension_factor)
     // we should have THREAD_PER_BLOCK * NUM_BLOCKS = 1 << (log_len + log_extension_factor - 1)
+    namespace cg = cooperative_groups;
+    cg::grid_group grid = cg::this_grid();
 
     int threadIndex = threadIdx.x + blockIdx.x * blockDim.x;
 
     int len = 1 << log_len;
 
+    // 1) Expand input several times to fill result, multiplying by the appropriate twiddle factors
     if (threadIndex < len)
     {
         result[threadIndex] = input[threadIndex];
@@ -219,6 +244,48 @@ __device__ void ntt(ExtField *input, ExtField *result, const uint32_t log_len, c
     int next = threadIndex + (1 << (log_len + log_extension_factor - 1));
     uint32_t twiddle = twiddles[(1 << (log_len + log_extension_factor)) - 1 + (next % len) * (next / len)];
     mul_prime_by_ext_field(&input[next % len], twiddle, &result[next]);
+
+    grid.sync();
+
+    // 2) Bit reverse order
+
+    batch_reverse_bit_order(result, log_len);
+    batch_reverse_bit_order(&result[1 << (log_len + log_extension_factor - 1)], log_len);
+    
+    grid.sync();
+
+    // 3) Do the NTT at block level
+
+    ntt_at_block_level(result, &twiddles[THREAD_PER_BLOCK * 2 - 1]);
+
+    // 4) Finish the NTT
+
+    for (int step = LOG_THREAD_PER_BLOCK + 1; step < log_len; step++)
+    {
+        // we group together pairs which each side contains 1 << step elements
+        grid.sync();
+
+        int packet_size = 1 << step;
+        int even_index = threadIndex + (threadIndex / packet_size) * packet_size;
+        int odd_index = even_index + packet_size;
+
+        ExtField even = result[even_index];
+        ExtField odd = result[odd_index];
+
+        int i = threadIndex % packet_size;
+        // w^i where w is a "2 * packet_size" root of unity
+        uint32_t first_twiddle = twiddles[packet_size * 2 - 1 + i];
+        // w^(i + packet_size) where w is a "2 * packet_size" root of unity
+        uint32_t second_twiddle = twiddles[packet_size * 2 - 1 + i + packet_size];
+
+        // result[even_index] = even + first_twiddle * odd
+        mul_prime_by_ext_field(&odd, first_twiddle, &result[even_index]);
+        ext_field_add(&even, &result[even_index], &result[even_index]);
+
+        // result[odd_index] = even + second_twiddle * odd
+        mul_prime_by_ext_field(&odd, second_twiddle, &result[odd_index]);
+        ext_field_add(&even, &result[odd_index], &result[odd_index]);
+    }
 }
 
 // Example kernel for testing extension field operations
@@ -245,4 +312,10 @@ extern "C" __global__ void test_ntt_at_block_level(ExtField *buff, uint32_t *twi
 extern "C" __global__ void test_ntt(ExtField *input, ExtField *result, const uint32_t log_len, const uint32_t log_extension_factor, const uint32_t *twiddles)
 {
     ntt(input, result, log_len, log_extension_factor, twiddles);
+}
+
+extern "C" __global__ void test_batch_reverse_bit_order(ExtField *data, uint32_t bits, uint32_t len)
+{
+    batch_reverse_bit_order(data, bits);
+    batch_reverse_bit_order(&data[len / 2], bits);
 }

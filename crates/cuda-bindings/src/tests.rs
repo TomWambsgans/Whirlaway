@@ -7,6 +7,7 @@ use p3_koala_bear::KoalaBear;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
 use crate::{cuda_batch_keccak, init_cuda};
+use rayon::prelude::*;
 
 #[test]
 fn test_cuda_keccak() {
@@ -72,19 +73,19 @@ pub fn test_cuda_monty_field() {
             shared_mem_bytes: 0,
         };
 
-        let mut res_dev = unsafe { dev.alloc::<u32>(EXT_DEGREE).unwrap() };
+        let mut res_dev = dev.alloc_zeros::<u32>(EXT_DEGREE).unwrap();
         unsafe { f_add.launch(cfg, (&a_bytes_dev, &b_bytes_dev, &mut res_dev)) }.unwrap();
         let res: [u32; EXT_DEGREE] = dev.sync_reclaim(res_dev).unwrap().try_into().unwrap();
         let res = unsafe { std::mem::transmute::<_, F>(res) };
         assert_eq!(res, a + b);
 
-        let mut res_dev = unsafe { dev.alloc::<u32>(EXT_DEGREE).unwrap() };
+        let mut res_dev = dev.alloc_zeros::<u32>(EXT_DEGREE).unwrap();
         unsafe { f_mul.launch(cfg, (&a_bytes_dev, &b_bytes_dev, &mut res_dev)) }.unwrap();
         let res: [u32; EXT_DEGREE] = dev.sync_reclaim(res_dev).unwrap().try_into().unwrap();
         let res = unsafe { std::mem::transmute::<_, F>(res) };
         assert_eq!(res, a * b);
 
-        let mut res_dev = unsafe { dev.alloc::<u32>(EXT_DEGREE).unwrap() };
+        let mut res_dev = dev.alloc_zeros::<u32>(EXT_DEGREE).unwrap();
         unsafe { f_sub.launch(cfg, (&a_bytes_dev, &b_bytes_dev, &mut res_dev)) }.unwrap();
         let res: [u32; EXT_DEGREE] = dev.sync_reclaim(res_dev).unwrap().try_into().unwrap();
         let res = unsafe { std::mem::transmute::<_, F>(res) };
@@ -178,16 +179,18 @@ pub fn test_ntt() {
     let f_ntt = dev.get_func("ntt", "test_ntt").unwrap();
     let log_threads_per_block = 8;
     let threads_per_block = 1 << log_threads_per_block;
-    let n_blocks = 16;
-    let log_len = log_threads_per_block + 2;
+    let n_blocks = 1 << 5;
+    let log_len = log_threads_per_block + 4;
     let len = 1 << log_len;
     let log_expension_factor = (threads_per_block * 2 * n_blocks / len as usize).ilog2() as usize;
     let expansion_factor = 1 << log_expension_factor;
     let coeffs = (0..len).map(|_| rng.random()).collect::<Vec<F>>();
 
+    println!("number of field elements: {}, expension factor: {}", len, expansion_factor);
+
     let expanded_size = coeffs.len() * expansion_factor;
-    let mut expected_result = Vec::with_capacity(expanded_size);
     let root = KoalaBear::two_adic_generator(log_len + log_expension_factor);
+    let mut expected_result = Vec::new();
     expected_result.extend_from_slice(&coeffs);
     expected_result.extend((1..expansion_factor).flat_map(|i| {
         let root_i = root.exp_u64(i as u64);
@@ -196,6 +199,8 @@ pub fn test_ntt() {
             .enumerate()
             .map(move |(j, coeff)| *coeff * root_i.exp_u64(j as u64))
     }));
+    ntt_batch(&mut expected_result, coeffs.len());
+    // expected_result = bit_reverse_order(&expected_result, log_len);
 
     let mut all_twiddles = Vec::new();
 
@@ -218,18 +223,25 @@ pub fn test_ntt() {
         unsafe { std::slice::from_raw_parts(coeffs.as_ptr() as *const u32, len * EXT_DEGREE) }
             .to_vec();
 
+    let time = std::time::Instant::now();
     let coeffs_dev = dev.htod_copy(coeffs_u32).unwrap();
+    dev.synchronize().unwrap();
+    println!(
+        "CPU -> GPU DATA transfer took {} ms",
+        time.elapsed().as_millis()
+    );
 
-    let mut output_dev = unsafe { dev.alloc::<u32>(expanded_size * EXT_DEGREE).unwrap() };
+    let mut output_dev = dev.alloc_zeros::<u32>(expanded_size * EXT_DEGREE).unwrap();
 
     let cfg = LaunchConfig {
         grid_dim: (n_blocks as u32, 1, 1),
         block_dim: (threads_per_block as u32, 1, 1),
-        shared_mem_bytes: 0,
+        shared_mem_bytes: ((threads_per_block * 2) * (EXT_DEGREE + 1) * 4) as u32,
     };
 
+    let time = std::time::Instant::now();
     unsafe {
-        f_ntt.launch(
+        f_ntt.launch_cooperative(
             cfg,
             (
                 &coeffs_dev,
@@ -241,11 +253,78 @@ pub fn test_ntt() {
         )
     }
     .unwrap();
+    dev.synchronize().unwrap();
+    println!("CUDA kernel took {} ms", time.elapsed().as_millis());
 
+    let time = std::time::Instant::now();
     let cuda_result_u32: Vec<u32> = dev.sync_reclaim(output_dev).unwrap();
+    println!(
+        "GPU -> CPU DATA transfer took {} ms",
+        time.elapsed().as_millis()
+    );
     let cuda_result =
         unsafe { std::slice::from_raw_parts(cuda_result_u32.as_ptr() as *const F, expanded_size) }
             .to_vec();
+    assert!(cuda_result == expected_result);
+}
+
+#[test]
+pub fn test_batch_reverse_bit_order() {
+    init_cuda().unwrap();
+
+    const EXT_DEGREE: usize = 8;
+
+    type F = BinomialExtensionField<KoalaBear, EXT_DEGREE>;
+
+    let rng = &mut StdRng::seed_from_u64(0);
+    let dev = crate::get_cuda_device();
+    let f_test_batch_reverse_bit_order =
+        dev.get_func("ntt", "test_batch_reverse_bit_order").unwrap();
+    let bits = 16;
+    let n_batch: usize = 32;
+    let coeffs = (0..n_batch * (1 << bits))
+        .map(|_| rng.random())
+        .collect::<Vec<F>>();
+
+    let time = std::time::Instant::now();
+    let expected_result = bit_reverse_order(&coeffs, bits);
+    println!("CPU took {} ms", time.elapsed().as_millis());
+
+    let coeffs_u32 = unsafe {
+        std::slice::from_raw_parts(coeffs.as_ptr() as *const u32, coeffs.len() * EXT_DEGREE)
+    }
+    .to_vec();
+
+    let mut coeffs_u32_dev = dev.htod_copy(coeffs_u32).unwrap();
+    dev.synchronize().unwrap();
+
+    let cfg = LaunchConfig {
+        grid_dim: ((n_batch * (1 << bits)) as u32 / 512, 1, 1),
+        block_dim: (256, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let time = std::time::Instant::now();
+    unsafe {
+        f_test_batch_reverse_bit_order.launch(
+            cfg,
+            (
+                &mut coeffs_u32_dev,
+                bits as u32,
+                (n_batch * (1 << bits)) as u32,
+            ),
+        )
+    }
+    .unwrap();
+    dev.synchronize().unwrap();
+    println!("CUDA took {} ms", time.elapsed().as_millis());
+
+    let cuda_result_u32: Vec<u32> = dev.sync_reclaim(coeffs_u32_dev).unwrap();
+    let cuda_result = unsafe {
+        std::slice::from_raw_parts(cuda_result_u32.as_ptr() as *const F, n_batch * (1 << bits))
+    }
+    .to_vec();
+    assert_eq!(cuda_result.len(), expected_result.len());
     assert_eq!(cuda_result, expected_result);
 }
 
@@ -268,4 +347,25 @@ fn print_cuda_info() {
 
     let constant_memory = cuda_constant_memory().unwrap();
     println!("Constant memory: {} bytes", constant_memory);
+}
+
+fn bit_reverse_order<T: Clone + Send + Copy>(arr: &[T], bits: usize) -> Vec<T> {
+    assert!(arr.len() % (1 << bits) == 0);
+    let mut res = arr.to_vec();
+
+    // Process and update each chunk in parallel using chunks_mut
+    res.par_chunks_mut(1 << bits).for_each(|chunk| {
+        // Create a temporary copy for the computations
+        let mut new_chunk = vec![chunk[0].clone(); chunk.len()];
+
+        for i in 0_u32..(1 << bits) {
+            let rev_i = i.reverse_bits() >> (32 - bits);
+            new_chunk[i as usize] = chunk[rev_i as usize].clone();
+        }
+
+        // Copy back the results
+        chunk.copy_from_slice(&new_chunk);
+    });
+
+    res
 }
