@@ -12,6 +12,11 @@
 #define EXT_DEGREE 8
 #define W 100663290U // montgomery representation of 3, X^8 - 3 is irreducible
 
+// we need: thread_per_block * 2 * (EXT_DEGREE + 1) * 4 bytes <= shared memory
+// TODO avoid hardcoding
+#define LOG_THREAD_PER_BLOCK 8
+#define THREAD_PER_BLOCK (1 << LOG_THREAD_PER_BLOCK)
+
 __device__ uint32_t monty_reduce(uint64_t x)
 {
     uint64_t t = x * MONTY_MU & MONTY_MASK;
@@ -84,6 +89,14 @@ __device__ void ext_field_sub(const ExtField *a, const ExtField *b, ExtField *re
     }
 }
 
+__device__ void mul_prime_by_ext_field(const ExtField *a, uint32_t b, ExtField *result)
+{
+    for (int i = 0; i < EXT_DEGREE; i++)
+    {
+        monty_field_mul(a->coeffs[i], b, &result->coeffs[i]);
+    }
+}
+
 // TODO Karatsuba ?
 __device__ void ext_field_mul(const ExtField *a, const ExtField *b, ExtField *result)
 {
@@ -117,6 +130,66 @@ __device__ void ext_field_mul(const ExtField *a, const ExtField *b, ExtField *re
     }
 }
 
+__device__ void ntt_at_block_level(ExtField *buff, const uint32_t *twiddles)
+{
+    // the initial steps of the NTT are done at block level, to make use of shared memory
+    // *buff constains THREAD_PER_BLOCK * 2 ExtField elements
+    // *twiddles: w^0, w^1, w^2, w^3, ..., w^(THREAD_PER_BLOCK * 2 - 1) where w is a "2 * THREAD_PER_BLOCK" root of unity
+
+    const int blockId = blockIdx.x;
+    const int threadId = threadIdx.x;
+
+    __shared__ ExtField cached_buff[THREAD_PER_BLOCK * 2];
+
+    cached_buff[threadId] = buff[threadId + THREAD_PER_BLOCK * 2 * blockId];
+    cached_buff[threadId + THREAD_PER_BLOCK] = buff[threadId + THREAD_PER_BLOCK * (2 * blockId + 1)];
+
+    __shared__ uint32_t cached_twiddles[THREAD_PER_BLOCK * 2];
+
+    cached_twiddles[threadId] = twiddles[threadId];
+    cached_twiddles[threadId + THREAD_PER_BLOCK] = twiddles[threadId + THREAD_PER_BLOCK];
+
+    __syncthreads();
+
+    // step 0
+
+    ExtField even = cached_buff[threadId * 2];
+    ExtField odd = cached_buff[threadId * 2 + 1];
+
+    ext_field_add(&even, &odd, &cached_buff[threadId * 2]);
+    ext_field_sub(&even, &odd, &cached_buff[threadId * 2 + 1]);
+
+    for (int step = 1; step <= LOG_THREAD_PER_BLOCK; step++)
+    {
+        int packet_size = 1 << step;
+        int even_index = threadId + (threadId / packet_size) * packet_size;
+        int odd_index = even_index + packet_size;
+
+        ExtField even = cached_buff[even_index];
+        ExtField odd = cached_buff[odd_index];
+
+        int i = threadId % packet_size;
+        // w^i where w is a "2 * packet_size" root of unity
+        uint32_t first_twiddle = cached_twiddles[i * THREAD_PER_BLOCK / packet_size];
+        // w^(i + packet_size) where w is a "2 * packet_size" root of unity
+        uint32_t second_twiddle = cached_twiddles[(i + packet_size) * THREAD_PER_BLOCK / packet_size];
+
+        // cached_buff[even_index] = even + first_twiddle * odd
+        mul_prime_by_ext_field(&odd, first_twiddle, &cached_buff[even_index]);
+        ext_field_add(&even, &cached_buff[even_index], &cached_buff[even_index]);
+
+        // cached_buff[odd_index] = even + second_twiddle * odd
+        mul_prime_by_ext_field(&odd, second_twiddle, &cached_buff[odd_index]);
+        ext_field_add(&even, &cached_buff[odd_index], &cached_buff[odd_index]);
+
+        __syncthreads();
+    }
+
+    // copy back to global memory
+    buff[threadId + THREAD_PER_BLOCK * 2 * blockId] = cached_buff[threadId];
+    buff[threadId + THREAD_PER_BLOCK * (2 * blockId + 1)] = cached_buff[threadId + THREAD_PER_BLOCK];
+}
+
 // Example kernel for testing extension field operations
 extern "C" __global__ void test_add(ExtField *a, ExtField *b, ExtField *result)
 {
@@ -132,3 +205,8 @@ extern "C" __global__ void test_mul(ExtField *a, ExtField *b, ExtField *result)
 {
     ext_field_mul(a, b, result);
 }
+
+extern "C" __global__ void test_ntt_at_block_level(ExtField *buff, uint32_t *twiddles) {
+    ntt_at_block_level(buff, twiddles);
+}
+

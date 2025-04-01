@@ -1,4 +1,4 @@
-use crate::ntt::intt_batch;
+use algebra::ntt::intt_batch;
 use p3_field::TwoAdicField;
 
 use rayon::prelude::*;

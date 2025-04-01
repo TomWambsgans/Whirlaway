@@ -1,10 +1,9 @@
 use super::parameters::WhirConfig;
 use crate::{
-    ntt::expand_from_coeff,
     poly_utils::{coeffs::CoefficientList, fold::restructure_evaluations},
     utils,
 };
-use algebra::field_utils::multilinear_point_from_univariate;
+use algebra::{field_utils::multilinear_point_from_univariate, ntt::expand_from_coeff};
 use fiat_shamir::FsProver;
 use merkle_tree::MerkleTree;
 

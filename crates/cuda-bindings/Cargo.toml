@@ -14,3 +14,4 @@ sha3.workspace = true
 p3_field.workspace = true
 p3_koala_bear.workspace = true
 rand.workspace = true
+algebra.workspace = true

@@ -132,6 +132,7 @@ dependencies = [
 name = "cuda-bindings"
 version = "0.1.0"
 dependencies = [
+ "algebra",
  "cudarc",
  "p3-field",
  "p3-koala-bear",

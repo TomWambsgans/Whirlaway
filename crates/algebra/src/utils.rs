@@ -89,3 +89,8 @@ pub fn expand_randomness<F: Field>(base: F, len: usize) -> Vec<F> {
 
     res
 }
+
+// checks whether the given number n is a power of two.
+pub fn is_power_of_two(n: usize) -> bool {
+    n != 0 && (n & (n - 1) == 0)
+}

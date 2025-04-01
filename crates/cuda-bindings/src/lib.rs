@@ -24,7 +24,12 @@ pub fn init_cuda() -> Result<(), DriverError> {
     dev.load_ptx(
         Ptx::from_src(keccak_ptx),
         "ntt",
-        &["test_add", "test_mul", "test_sub"],
+        &[
+            "test_add",
+            "test_mul",
+            "test_sub",
+            "test_ntt_at_block_level",
+        ],
     )?;
 
     let _ = CUDA_DEVICE.set(dev);

@@ -1,12 +1,12 @@
 use super::{Statement, committer::Witness, parameters::WhirConfig};
 use crate::{
     domain::Domain,
-    ntt::expand_from_coeff,
     poly_utils::{coeffs::CoefficientList, fold::restructure_evaluations},
     utils::{self},
 };
 use algebra::{
     field_utils::{dot_product, multilinear_point_from_univariate},
+    ntt::expand_from_coeff,
     pols::{ComposedPolynomial, MultilinearPolynomial},
     utils::expand_randomness,
 };

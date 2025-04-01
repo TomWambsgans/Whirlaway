@@ -1,5 +1,7 @@
-use crate::ntt::wavelet_transform;
-use algebra::pols::{MultilinearPolynomial, UnivariatePolynomial};
+use algebra::{
+    ntt::wavelet_transform,
+    pols::{MultilinearPolynomial, UnivariatePolynomial},
+};
 use p3_field::Field;
 use {
     rayon::{join, prelude::*},
