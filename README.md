@@ -5,8 +5,8 @@ A hash-based SNARK with lightweight proofs, powered by the [Whir](https://eprint
 ## Specifications
 
 - **Arithmetization**: AIR (Algebraic Intermediate Representation)
-- **Proof size**: ~128 KiB (with 128 bits of proven security)
-- **Proving speed**: ~2000 poseidon2/s (field = koala-bear, on a standard laptop)
+- **Proof size**: 150 / 200 KiB (with 128 bits of proven security)
+- **Proving speed**: ~3000 poseidon2/s (field = koala-bear, on a standard laptop)
 
 Being hash-based, the protocol is presumably post-quantum safe.
 

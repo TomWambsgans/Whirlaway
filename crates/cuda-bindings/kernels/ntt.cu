@@ -131,19 +131,19 @@ __device__ void ext_field_mul(const ExtField *a, const ExtField *b, ExtField *re
     }
 }
 
-__device__ void ntt_at_block_level(ExtField *buff, const uint32_t *twiddles)
+__device__ void ntt_at_block_level(ExtField *buff, const int block, const uint32_t *twiddles)
 {
     // the initial steps of the NTT are done at block level, to make use of shared memory
     // *buff constains THREAD_PER_BLOCK * 2 ExtField elements
     // *twiddles: w^0, w^1, w^2, w^3, ..., w^(THREAD_PER_BLOCK * 2 - 1) where w is a "2 * THREAD_PER_BLOCK" root of unity
+    // block is not necessarily blockIdx.x
 
-    const int blockId = blockIdx.x;
     const int threadId = threadIdx.x;
 
     __shared__ ExtField cached_buff[THREAD_PER_BLOCK * 2];
 
-    cached_buff[threadId] = buff[threadId + THREAD_PER_BLOCK * 2 * blockId];
-    cached_buff[threadId + THREAD_PER_BLOCK] = buff[threadId + THREAD_PER_BLOCK * (2 * blockId + 1)];
+    cached_buff[threadId] = buff[threadId + THREAD_PER_BLOCK * 2 * block];
+    cached_buff[threadId + THREAD_PER_BLOCK] = buff[threadId + THREAD_PER_BLOCK * (2 * block + 1)];
 
     __shared__ uint32_t cached_twiddles[THREAD_PER_BLOCK * 2];
 
@@ -187,13 +187,13 @@ __device__ void ntt_at_block_level(ExtField *buff, const uint32_t *twiddles)
     }
 
     // copy back to global memory
-    buff[threadId + THREAD_PER_BLOCK * 2 * blockId] = cached_buff[threadId];
-    buff[threadId + THREAD_PER_BLOCK * (2 * blockId + 1)] = cached_buff[threadId + THREAD_PER_BLOCK];
+    buff[threadId + THREAD_PER_BLOCK * 2 * block] = cached_buff[threadId];
+    buff[threadId + THREAD_PER_BLOCK * (2 * block + 1)] = cached_buff[threadId + THREAD_PER_BLOCK];
 }
 
-__device__ void reverse_bit_order(ExtField *data, int bits)
+__device__ void reverse_bit_order(ExtField *data, int block, int bits)
 {
-    int idx = (blockIdx.x * blockDim.x + threadIdx.x) % (1 << bits);
+    int idx = (block * blockDim.x + threadIdx.x) % (1 << bits);
     int rev_idx = __brev(idx) >> (32 - bits);
 
     // Only process when idx < rev_idx to avoid swapping twice
@@ -205,117 +205,113 @@ __device__ void reverse_bit_order(ExtField *data, int bits)
     }
 }
 
-__device__ void batch_reverse_bit_order(ExtField *data, int bits)
+__device__ void batch_reverse_bit_order(ExtField *data, int block, int bits)
 {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int idx = block * blockDim.x + threadIdx.x;
     int len = (1 << bits);
-    reverse_bit_order(&data[(idx / len) * len], bits);
+    reverse_bit_order(&data[(idx / len) * len], block, bits);
 }
 
 // TODO use only one buffer, but I don't know how to fill it "partially" with cudarc, since the crate asserts dest size = src size when copying data
-__device__ void ntt(ExtField *input, ExtField *result, const uint32_t log_len, const uint32_t log_extension_factor, const uint32_t *twiddles)
+extern "C" __global__ void ntt(ExtField *input, ExtField *buff, ExtField *result, const uint32_t log_len, const uint32_t log_extension_factor, const uint32_t *twiddles)
 {
     // twiddles = 1
     // followed by w^0, w^1 where w is a 2-root of unity
     // followed by w^0, w^1, w^2, w^3 where w is a 4-root of unity
     // followed by w^0, w^1, w^2, w^3, w^4, w^5, w^6, w^7 where w is a 8-root of unity
     // ...
-    // input has size 1 << log_len (the coefs of the polynomial we want to NTT, in the "mixed" order)
-    // result has size 1 << (log_len + log_extension_factor)
-    // we should have THREAD_PER_BLOCK * NUM_BLOCKS = 1 << (log_len + log_extension_factor - 1)
+    // input has size 1 << log_len (the coefs of the polynomial we want to NTT)
+    // buff and result both have size 1 << (log_len + log_extension_factor)
+
     namespace cg = cooperative_groups;
     cg::grid_group grid = cg::this_grid();
 
-    int threadIndex = threadIdx.x + blockIdx.x * blockDim.x;
+    // we should have THREAD_PER_BLOCK * NUM_BLOCKS * n_repetitions * 2 = 1 << (log_len + log_extension_factor)
+    // WARNING: We assume the number of blocks is a power of 2
+    const uint32_t n_repetitions = (1 << (log_len + log_extension_factor)) / (THREAD_PER_BLOCK * gridDim.x * 2);
 
-    int len = 1 << log_len;
+    // int threadIndex = threadIdx.x + blockIdx.x * blockDim.x;
+
+    const int len = 1 << log_len;
+    const int expansion_factor = 1 << log_extension_factor;
 
     // 1) Expand input several times to fill result, multiplying by the appropriate twiddle factors
-    if (threadIndex < len)
+    for (int rep = 0; rep < n_repetitions * 2; rep++)
     {
-        result[threadIndex] = input[threadIndex];
-    }
-    else
-    {
-        uint32_t twidle = twiddles[(1 << (log_len + log_extension_factor)) - 1 + (threadIndex % len) * (threadIndex / len)];
-        mul_prime_by_ext_field(&input[threadIndex % len], twidle, &result[threadIndex]);
-    }
+        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * THREAD_PER_BLOCK;
 
-    int next = threadIndex + (1 << (log_len + log_extension_factor - 1));
-    uint32_t twiddle = twiddles[(1 << (log_len + log_extension_factor)) - 1 + (next % len) * (next / len)];
-    mul_prime_by_ext_field(&input[next % len], twiddle, &result[next]);
+        if (threadIndex < len)
+        {
+            buff[threadIndex] = input[threadIndex];
+        }
+        else
+        {
+            uint32_t twidle = twiddles[(1 << (log_len + log_extension_factor)) - 1 + (threadIndex % len) * (threadIndex / len)];
+            mul_prime_by_ext_field(&input[threadIndex % len], twidle, &buff[threadIndex]);
+        }
+    }
 
     grid.sync();
 
     // 2) Bit reverse order
 
-    batch_reverse_bit_order(result, log_len);
-    batch_reverse_bit_order(&result[1 << (log_len + log_extension_factor - 1)], log_len);
-    
+    for (int rep = 0; rep < n_repetitions * 2; rep++)
+    {
+        batch_reverse_bit_order(buff, blockIdx.x + gridDim.x * rep, log_len);
+    }
+
     grid.sync();
 
     // 3) Do the NTT at block level
 
-    ntt_at_block_level(result, &twiddles[THREAD_PER_BLOCK * 2 - 1]);
+    for (int rep = 0; rep < n_repetitions; rep++)
+    {
+        ntt_at_block_level(buff, blockIdx.x + gridDim.x * rep, &twiddles[THREAD_PER_BLOCK * 2 - 1]);
+    }
 
     // 4) Finish the NTT
 
     for (int step = LOG_THREAD_PER_BLOCK + 1; step < log_len; step++)
     {
-        // we group together pairs which each side contains 1 << step elements
         grid.sync();
 
-        int packet_size = 1 << step;
-        int even_index = threadIndex + (threadIndex / packet_size) * packet_size;
-        int odd_index = even_index + packet_size;
+        // we group together pairs which each side contains 1 << step elements
 
-        ExtField even = result[even_index];
-        ExtField odd = result[odd_index];
+        for (int rep = 0; rep < n_repetitions; rep++)
+        {
+            int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * THREAD_PER_BLOCK;
 
-        int i = threadIndex % packet_size;
-        // w^i where w is a "2 * packet_size" root of unity
-        uint32_t first_twiddle = twiddles[packet_size * 2 - 1 + i];
-        // w^(i + packet_size) where w is a "2 * packet_size" root of unity
-        uint32_t second_twiddle = twiddles[packet_size * 2 - 1 + i + packet_size];
+            int packet_size = 1 << step;
+            int even_index = threadIndex + (threadIndex / packet_size) * packet_size;
+            int odd_index = even_index + packet_size;
 
-        // result[even_index] = even + first_twiddle * odd
-        mul_prime_by_ext_field(&odd, first_twiddle, &result[even_index]);
-        ext_field_add(&even, &result[even_index], &result[even_index]);
+            ExtField even = buff[even_index];
+            ExtField odd = buff[odd_index];
 
-        // result[odd_index] = even + second_twiddle * odd
-        mul_prime_by_ext_field(&odd, second_twiddle, &result[odd_index]);
-        ext_field_add(&even, &result[odd_index], &result[odd_index]);
+            int i = threadIndex % packet_size;
+            // w^i where w is a "2 * packet_size" root of unity
+            uint32_t first_twiddle = twiddles[packet_size * 2 - 1 + i];
+            // w^(i + packet_size) where w is a "2 * packet_size" root of unity
+            uint32_t second_twiddle = twiddles[packet_size * 2 - 1 + i + packet_size];
+
+            // result[even_index] = even + first_twiddle * odd
+            mul_prime_by_ext_field(&odd, first_twiddle, &buff[even_index]);
+            ext_field_add(&even, &buff[even_index], &buff[even_index]);
+
+            // result[odd_index] = even + second_twiddle * odd
+            mul_prime_by_ext_field(&odd, second_twiddle, &buff[odd_index]);
+            ext_field_add(&even, &buff[odd_index], &buff[odd_index]);
+        }
     }
-}
 
-// Example kernel for testing extension field operations
-extern "C" __global__ void test_add(ExtField *a, ExtField *b, ExtField *result)
-{
-    ext_field_add(a, b, result);
-}
+    grid.sync();
 
-extern "C" __global__ void test_sub(ExtField *a, ExtField *b, ExtField *result)
-{
-    ext_field_sub(a, b, result);
-}
+    // 5) Transpose buff to result
 
-extern "C" __global__ void test_mul(ExtField *a, ExtField *b, ExtField *result)
-{
-    ext_field_mul(a, b, result);
-}
+    for (int rep = 0; rep < n_repetitions * 2; rep++)
+    {
+        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * THREAD_PER_BLOCK;
 
-extern "C" __global__ void test_ntt_at_block_level(ExtField *buff, uint32_t *twiddles)
-{
-    ntt_at_block_level(buff, twiddles);
-}
-
-extern "C" __global__ void test_ntt(ExtField *input, ExtField *result, const uint32_t log_len, const uint32_t log_extension_factor, const uint32_t *twiddles)
-{
-    ntt(input, result, log_len, log_extension_factor, twiddles);
-}
-
-extern "C" __global__ void test_batch_reverse_bit_order(ExtField *data, uint32_t bits, uint32_t len)
-{
-    batch_reverse_bit_order(data, bits);
-    batch_reverse_bit_order(&data[len / 2], bits);
+        result[threadIndex] = buff[(threadIndex % expansion_factor) * len + (threadIndex / expansion_factor)];
+    }
 }

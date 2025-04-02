@@ -1,5 +1,5 @@
-use algebra::ntt::transpose;
-use p3_field::Field;
+use algebra::ntt::{expand_from_coeff, transpose};
+use p3_field::{Field, TwoAdicField};
 use std::collections::BTreeSet;
 
 /// performs big-endian binary decomposition of `value` and returns the result.
@@ -34,4 +34,16 @@ pub fn stack_evaluations<F: Field>(mut evals: Vec<F>, folding_factor: usize) -> 
     // interpret evals as (folding_factor_exp x size_of_new_domain)-matrix and transpose in-place
     transpose(&mut evals, folding_factor_exp, size_of_new_domain);
     evals
+}
+
+pub fn expand_from_coeff_maybe_with_cuda<F: TwoAdicField>(
+    coeffs: &[F],
+    expansion: usize,
+    cuda: bool,
+) -> Vec<F> {
+    if cuda && coeffs.len() >= 1024 {
+        cuda_bindings::cuda_ntt(coeffs, expansion)
+    } else {
+        expand_from_coeff(coeffs, expansion)
+    }
 }

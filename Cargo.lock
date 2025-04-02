@@ -139,6 +139,7 @@ dependencies = [
  "rand",
  "rayon",
  "sha3",
+ "tracing",
 ]
 
 [[package]]
@@ -834,6 +835,7 @@ name = "whir"
 version = "0.1.0"
 dependencies = [
  "algebra",
+ "cuda-bindings",
  "fiat-shamir",
  "merkle-tree",
  "p3-field",

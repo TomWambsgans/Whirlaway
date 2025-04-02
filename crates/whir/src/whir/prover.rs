@@ -2,11 +2,10 @@ use super::{Statement, committer::Witness, parameters::WhirConfig};
 use crate::{
     domain::Domain,
     poly_utils::{coeffs::CoefficientList, fold::restructure_evaluations},
-    utils::{self},
+    utils::{self, expand_from_coeff_maybe_with_cuda},
 };
 use algebra::{
     field_utils::{dot_product, multilinear_point_from_univariate},
-    ntt::expand_from_coeff,
     pols::{ComposedPolynomial, MultilinearPolynomial},
     utils::expand_randomness,
 };
@@ -181,7 +180,8 @@ impl<F: TwoAdicField> Prover<F> {
         // Fold the coefficients, and compute fft of polynomial (and commit)
         let new_domain = round_state.domain.scale(2);
         let expansion = new_domain.size() / folded_coefficients.num_coeffs();
-        let evals = expand_from_coeff(folded_coefficients.coeffs(), expansion);
+        let evals =
+            expand_from_coeff_maybe_with_cuda(folded_coefficients.coeffs(), expansion, self.0.cuda);
         // Group the evaluations into leaves by the *next* round folding factor
         // TODO: `stack_evaluations` and `restructure_evaluations` are really in-place algorithms.
         // They also partially overlap and undo one another. We should merge them.

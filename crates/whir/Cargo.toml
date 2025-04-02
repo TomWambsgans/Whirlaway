@@ -12,3 +12,4 @@ merkle-tree.workspace = true
 p3_field.workspace = true
 sumcheck.workspace = true
 tracing.workspace = true
+cuda-bindings.workspace = true

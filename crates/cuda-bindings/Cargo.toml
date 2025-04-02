@@ -5,14 +5,15 @@ edition.workspace = true
 
 [dependencies]
 cudarc.workspace = true
+rayon.workspace = true
+tracing.workspace = true
+p3_field.workspace = true
 
 [build-dependencies]
 cudarc.workspace = true
 
 [dev-dependencies]
 sha3.workspace = true
-p3_field.workspace = true
 p3_koala_bear.workspace = true
 rand.workspace = true
 algebra.workspace = true
-rayon.workspace = true
