@@ -10,8 +10,8 @@ use p3_field::{Algebra, ExtensionField, Field, PrimeCharacteristicRing};
 
 #[derive(Debug, Clone)]
 pub enum ArithmeticCircuitComposed<F, N> {
-    Sum(Vec<ArithmeticCircuit<F, N>>),
-    Product(Vec<ArithmeticCircuit<F, N>>),
+    Sum((ArithmeticCircuit<F, N>, ArithmeticCircuit<F, N>)),
+    Product((ArithmeticCircuit<F, N>, ArithmeticCircuit<F, N>)),
 }
 
 #[derive(Debug, Clone)]
@@ -21,13 +21,41 @@ pub enum ArithmeticCircuit<F, N> {
     Composed(Arc<ArithmeticCircuitComposed<F, N>>),
 }
 
-impl<F, N> ArithmeticCircuit<F, N> {
+impl<F: Clone, N: Clone> ArithmeticCircuit<F, N> {
     pub fn new_sum(pols: Vec<Self>) -> Self {
-        Self::Composed(Arc::new(ArithmeticCircuitComposed::Sum(pols)))
+        assert!(pols.len() >= 1);
+        if pols.len() == 1 {
+            return pols[0].clone();
+        }
+        let mut sum = pols[1].clone();
+        for i in 2..pols.len() {
+            sum = ArithmeticCircuit::Composed(Arc::new(ArithmeticCircuitComposed::Sum((
+                sum,
+                pols[i].clone(),
+            ))));
+        }
+        Self::Composed(Arc::new(ArithmeticCircuitComposed::Sum((
+            pols[0].clone(),
+            sum,
+        ))))
     }
 
     pub fn new_product(pols: Vec<Self>) -> Self {
-        Self::Composed(Arc::new(ArithmeticCircuitComposed::Product(pols)))
+        assert!(pols.len() >= 1);
+        if pols.len() == 1 {
+            return pols[0].clone();
+        }
+        let mut product = pols[1].clone();
+        for i in 2..pols.len() {
+            product = ArithmeticCircuit::Composed(Arc::new(ArithmeticCircuitComposed::Product((
+                product,
+                pols[i].clone(),
+            ))));
+        }
+        Self::Composed(Arc::new(ArithmeticCircuitComposed::Product((
+            pols[0].clone(),
+            product,
+        ))))
     }
 
     // all functions should be pure, and deterministic
@@ -37,8 +65,8 @@ impl<F, N> ArithmeticCircuit<F, N> {
         V: Clone,
         FScalar: for<'a> Fn(&'a F) -> V,
         FNode: for<'a> Fn(&'a N) -> V,
-        FProd: Fn(Vec<V>) -> V,
-        FSum: Fn(Vec<V>) -> V,
+        FProd: Fn(V, V) -> V,
+        FSum: Fn(V, V) -> V,
     >(
         &self,
         f_scalar: &FScalar,
@@ -52,8 +80,8 @@ impl<F, N> ArithmeticCircuit<F, N> {
             V: Clone,
             FScalar: for<'a> Fn(&'a F) -> V,
             FNode: for<'a> Fn(&'a N) -> V,
-            FProd: Fn(Vec<V>) -> V,
-            FSum: Fn(Vec<V>) -> V,
+            FProd: Fn(V, V) -> V,
+            FSum: Fn(V, V) -> V,
         >(
             c: &ArithmeticCircuit<F, N>,
             f_scalar: &FScalar,
@@ -69,17 +97,15 @@ impl<F, N> ArithmeticCircuit<F, N> {
                     if let Some(val) = prev_computation.get(&Arc::as_ptr(composed)) {
                         val.clone()
                     } else {
-                        let (ArithmeticCircuitComposed::Product(subs)
-                        | ArithmeticCircuitComposed::Sum(subs)) = &**composed;
-                        let sub_evals = subs
-                            .iter()
-                            .map(|c| {
-                                parse_inner(c, f_scalar, f_node, f_prod, f_sum, prev_computation)
-                            })
-                            .collect();
+                        let (ArithmeticCircuitComposed::Product((left, right))
+                        | ArithmeticCircuitComposed::Sum((left, right))) = &**composed;
+                        let eval_left =
+                            parse_inner(left, f_scalar, f_node, f_prod, f_sum, prev_computation);
+                        let eval_right =
+                            parse_inner(right, f_scalar, f_node, f_prod, f_sum, prev_computation);
                         let eval = match &**composed {
-                            ArithmeticCircuitComposed::Sum(_) => f_sum(sub_evals),
-                            ArithmeticCircuitComposed::Product(_) => f_prod(sub_evals),
+                            ArithmeticCircuitComposed::Sum(_) => f_sum(eval_left, eval_right),
+                            ArithmeticCircuitComposed::Product(_) => f_prod(eval_left, eval_right),
                         };
                         prev_computation.insert(Arc::as_ptr(composed), eval.clone());
                         eval
@@ -101,8 +127,14 @@ impl<F, N> ArithmeticCircuit<F, N> {
         self.parse(
             &|scalar| ArithmeticCircuit::Scalar(EF::from(*scalar)),
             f_node,
-            &|subs| ArithmeticCircuit::new_product(subs),
-            &|subs| ArithmeticCircuit::new_sum(subs),
+            &|left, right| {
+                ArithmeticCircuit::Composed(Arc::new(ArithmeticCircuitComposed::Product((
+                    left, right,
+                ))))
+            },
+            &|left, right| {
+                ArithmeticCircuit::Composed(Arc::new(ArithmeticCircuitComposed::Sum((left, right))))
+            },
         )
     }
 
@@ -116,8 +148,8 @@ impl<F, N> ArithmeticCircuit<F, N> {
         self.parse(
             &|scalar| EF::from(*scalar),
             &|node| node_to_field(node),
-            &|subs| subs.into_iter().product(),
-            &|subs| subs.into_iter().sum(),
+            &|left, right| left * right,
+            &|left, right| left + right,
         )
     }
 
@@ -144,9 +176,9 @@ impl<F, N> ArithmeticCircuit<F, N> {
 
                     // Recursively index subcircuits
                     match &**composed {
-                        ArithmeticCircuitComposed::Sum(subcircuits)
-                        | ArithmeticCircuitComposed::Product(subcircuits) => {
-                            for subcircuit in subcircuits {
+                        ArithmeticCircuitComposed::Sum((left, right))
+                        | ArithmeticCircuitComposed::Product((left, right)) => {
+                            for subcircuit in [left, right] {
                                 index_composed(subcircuit, indices, next_index);
                             }
                         }
@@ -203,24 +235,18 @@ impl<F, N> ArithmeticCircuit<F, N> {
                 let composed = unsafe { &*ptr };
 
                 match composed {
-                    ArithmeticCircuitComposed::Sum(subcircuits) => {
+                    ArithmeticCircuitComposed::Sum((left, right)) => {
                         result.push_str(&format!("Sum#{} = ", idx));
-                        for (i, subcircuit) in subcircuits.iter().enumerate() {
-                            if i > 0 {
-                                result.push_str(" + ");
-                            }
-                            result.push_str(&to_string_inner(subcircuit, &composed_indices));
-                        }
+                        result.push_str(&to_string_inner(left, &composed_indices));
+                        result.push_str(" + ");
+                        result.push_str(&to_string_inner(right, &composed_indices));
                         result.push('\n');
                     }
-                    ArithmeticCircuitComposed::Product(subcircuits) => {
+                    ArithmeticCircuitComposed::Product((left, right)) => {
                         result.push_str(&format!("Product#{} = ", idx));
-                        for (i, subcircuit) in subcircuits.iter().enumerate() {
-                            if i > 0 {
-                                result.push_str(" * ");
-                            }
-                            result.push_str(&to_string_inner(subcircuit, &composed_indices));
-                        }
+                        result.push_str(&to_string_inner(left, &composed_indices));
+                        result.push_str(" * ");
+                        result.push_str(&to_string_inner(right, &composed_indices));
                         result.push('\n');
                     }
                 }
@@ -250,7 +276,7 @@ impl<F, N> From<F> for ArithmeticCircuit<F, N> {
     }
 }
 
-impl<F, N> Add for ArithmeticCircuit<F, N> {
+impl<F: Clone, N: Clone> Add for ArithmeticCircuit<F, N> {
     type Output = Self;
 
     fn add(self, other: Self) -> Self {
@@ -258,7 +284,7 @@ impl<F, N> Add for ArithmeticCircuit<F, N> {
     }
 }
 
-impl<F, N> Mul for ArithmeticCircuit<F, N> {
+impl<F: Clone, N: Clone> Mul for ArithmeticCircuit<F, N> {
     type Output = Self;
 
     fn mul(self, other: Self) -> Self {
@@ -266,7 +292,7 @@ impl<F, N> Mul for ArithmeticCircuit<F, N> {
     }
 }
 
-impl<F: Field, N> Sub for ArithmeticCircuit<F, N> {
+impl<F: Field, N: Clone> Sub for ArithmeticCircuit<F, N> {
     type Output = Self;
 
     fn sub(self, other: Self) -> Self {
@@ -274,7 +300,7 @@ impl<F: Field, N> Sub for ArithmeticCircuit<F, N> {
     }
 }
 
-impl<F: Field, N> Add<F> for ArithmeticCircuit<F, N> {
+impl<F: Field, N: Clone> Add<F> for ArithmeticCircuit<F, N> {
     type Output = Self;
 
     fn add(self, other: F) -> Self {
@@ -282,7 +308,7 @@ impl<F: Field, N> Add<F> for ArithmeticCircuit<F, N> {
     }
 }
 
-impl<F: Field, N> Mul<F> for ArithmeticCircuit<F, N> {
+impl<F: Field, N: Clone> Mul<F> for ArithmeticCircuit<F, N> {
     type Output = Self;
 
     fn mul(self, other: F) -> Self {
@@ -290,7 +316,7 @@ impl<F: Field, N> Mul<F> for ArithmeticCircuit<F, N> {
     }
 }
 
-impl<F: Field, N> Sub<F> for ArithmeticCircuit<F, N> {
+impl<F: Field, N: Clone> Sub<F> for ArithmeticCircuit<F, N> {
     type Output = Self;
 
     fn sub(self, other: F) -> Self {
@@ -298,7 +324,7 @@ impl<F: Field, N> Sub<F> for ArithmeticCircuit<F, N> {
     }
 }
 
-impl<F: Field, N> Neg for ArithmeticCircuit<F, N> {
+impl<F: Field, N: Clone> Neg for ArithmeticCircuit<F, N> {
     type Output = Self;
 
     fn neg(self) -> Self {
@@ -309,7 +335,7 @@ impl<F: Field, N> Neg for ArithmeticCircuit<F, N> {
 macro_rules! impl_assign_ops {
     ($($op_trait:ident, $op_fn:ident, $op:tt);*) => {
         $(
-            impl<F: Field, N> $op_trait<ArithmeticCircuit<F, N>> for ArithmeticCircuit<F, N> {
+            impl<F: Field, N: Clone> $op_trait<ArithmeticCircuit<F, N>> for ArithmeticCircuit<F, N> {
                 fn $op_fn(&mut self, other: Self) {
                     *self = std::mem::take(self) $op other;
                 }
@@ -327,7 +353,7 @@ impl_assign_ops!(
 macro_rules! impl_field_assign_ops {
     ($($op_trait:ident, $op_fn:ident, $op:tt);*) => {
         $(
-            impl<F: Field, N> $op_trait<F> for ArithmeticCircuit<F, N> {
+            impl<F: Field, N: Clone> $op_trait<F> for ArithmeticCircuit<F, N> {
                 fn $op_fn(&mut self, other: F) {
                     *self = std::mem::take(self) $op other;
                 }
@@ -342,13 +368,13 @@ impl_field_assign_ops!(
     SubAssign, sub_assign, -
 );
 
-impl<F: Field, N> Product for ArithmeticCircuit<F, N> {
+impl<F: Field, N: Clone> Product for ArithmeticCircuit<F, N> {
     fn product<I: Iterator<Item = Self>>(iter: I) -> Self {
         Self::new_product(iter.collect())
     }
 }
 
-impl<F: Field, N> Sum for ArithmeticCircuit<F, N> {
+impl<F: Field, N: Clone> Sum for ArithmeticCircuit<F, N> {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
         Self::new_sum(iter.collect())
     }

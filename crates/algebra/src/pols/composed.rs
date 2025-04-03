@@ -131,8 +131,8 @@ pub fn max_degree_per_vars<
         TransparentMultivariatePolynomial::Generic(generic) => generic.coefs.parse(
             &|_| vec![],
             &|i| max_degree_per_vars_per_nodes[*i].clone(),
-            &|subs| max_degree_per_vars_prod(&subs),
-            &|subs| max_degree_per_vars_sum(&subs),
+            &|left, right| max_degree_per_vars_prod(&vec![left, right]),
+            &|left, right| max_degree_per_vars_sum(&vec![left, right]),
         ),
         TransparentMultivariatePolynomial::Custom(custom) => max_degree_per_vars_sum(
             &custom
@@ -142,8 +142,8 @@ pub fn max_degree_per_vars<
                     expr.parse(
                         &|_| vec![],
                         &|i| max_degree_per_vars_per_nodes[*i].clone(),
-                        &|subs| max_degree_per_vars_prod(&subs),
-                        &|subs| max_degree_per_vars_sum(&subs),
+                        &|left, right| max_degree_per_vars_prod(&vec![left, right]),
+                        &|left, right| max_degree_per_vars_sum(&vec![left, right]),
                     )
                 })
                 .collect::<Vec<_>>(),

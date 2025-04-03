@@ -60,18 +60,20 @@ impl<F: Field> GenericTransparentMultivariatePolynomial<F> {
                 factors.push(factor(i, i + n));
             }
             factors.push(factor(2 * n - 1 - k, n - 1 - k));
-            factors.push(
-                Self::_eq_extension(
-                    n * 2,
-                    &(0..n - k - 1)
-                        .map(|i| ArithmeticCircuit::Node(i))
-                        .collect::<Vec<_>>(),
-                    &(0..n - k - 1)
-                        .map(|i| ArithmeticCircuit::Node(i + n))
-                        .collect::<Vec<_>>(),
-                )
-                .coefs,
-            );
+            if k < n - 1 {
+                factors.push(
+                    Self::_eq_extension(
+                        n * 2,
+                        &(0..n - k - 1)
+                            .map(|i| ArithmeticCircuit::Node(i))
+                            .collect::<Vec<_>>(),
+                        &(0..n - k - 1)
+                            .map(|i| ArithmeticCircuit::Node(i + n))
+                            .collect::<Vec<_>>(),
+                    )
+                    .coefs,
+                );
+            }
             ArithmeticCircuit::new_product(factors)
         };
         Self::new(ArithmeticCircuit::new_sum((0..n).map(g).collect()), n * 2)
@@ -104,8 +106,8 @@ impl<F: Field> GenericTransparentMultivariatePolynomial<F> {
                 res[*i] = 1;
                 res
             },
-            &|subs| max_degree_per_vars_prod(&subs),
-            &|subs| max_degree_per_vars_sum(&subs),
+            &|left, right| max_degree_per_vars_prod(&vec![left, right]),
+            &|left, right| max_degree_per_vars_sum(&vec![left, right]),
         )
     }
 

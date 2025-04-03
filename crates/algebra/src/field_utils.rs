@@ -93,6 +93,9 @@ pub fn deserialize_field<F: Field>(bytes: &[u8]) -> Option<F> {
 
 pub fn eq_extension<F: Field>(s1: &[F], s2: &[F]) -> F {
     assert_eq!(s1.len(), s2.len());
+    if s1.len() == 0 {
+        return F::ONE;
+    }
     GenericTransparentMultivariatePolynomial::eq_extension_n_scalars(s1).eval(s2)
 }
 
