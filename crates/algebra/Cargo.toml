@@ -7,7 +7,7 @@ edition.workspace = true
 rayon.workspace = true
 rand.workspace = true
 tracing.workspace = true
-p3_field.workspace = true
+p3-field.workspace = true
 
 [dev-dependencies]
-p3_koala_bear.workspace = true
+p3-koala-bear.workspace = true

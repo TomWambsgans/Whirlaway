@@ -45,6 +45,15 @@ pub fn init_cuda<F: TwoAdicField>() {
         dev.load_ptx(Ptx::from_src(keccak_ptx), "ntt", &["ntt"])
             .unwrap();
 
+        let keccak_ptx_path = env!("PTX_SUMCHECK_PATH");
+        let keccak_ptx = std::fs::read_to_string(keccak_ptx_path).expect("Failed to read PTX file");
+        dev.load_ptx(
+            Ptx::from_src(keccak_ptx),
+            "sumcheck",
+            &["fold_prime_by_prime", "fold_prime_by_ext", "fold_ext_by_prime", "fold_ext_by_ext"],
+        )
+        .unwrap();
+
         let twiddles = store_twiddles::<F>(&dev).unwrap();
 
         CudaInfo {

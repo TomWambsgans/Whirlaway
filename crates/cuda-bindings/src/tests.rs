@@ -1,13 +1,419 @@
 use std::error::Error;
 
-use algebra::ntt::expand_from_coeff;
-use cudarc::driver::{CudaDevice, sys::CUdevice_attribute};
+use algebra::{ntt::expand_from_coeff, pols::MultilinearPolynomial};
+use cudarc::driver::{CudaDevice, DevicePtr, LaunchAsync, LaunchConfig, sys::CUdevice_attribute};
 use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::KoalaBear;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
-use crate::{cuda_batch_keccak, cuda_ntt, init_cuda};
+use crate::{cuda_batch_keccak, cuda_info, cuda_ntt, init_cuda};
 use rayon::prelude::*;
+
+
+#[test]
+fn test_cuda_fold_ext_by_ext() {
+    init_cuda::<KoalaBear>();
+    let dev = &cuda_info().dev;
+
+    const EXT_DEGREE: usize = 8;
+    type EF = BinomialExtensionField<KoalaBear, EXT_DEGREE>;
+
+    let n_slices = 382;
+    let log_slices_len = 11;
+
+    let rng = &mut StdRng::seed_from_u64(0);
+
+    let slices = (0..n_slices)
+        .map(|_| {
+            (0..1 << log_slices_len)
+                .map(|_| rng.random())
+                .collect::<Vec<EF>>()
+        })
+        .collect::<Vec<_>>();
+
+    let cfg = LaunchConfig {
+        grid_dim: (7, 1, 1),
+        block_dim: (3, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let slices_dev = slices
+        .iter()
+        .map(|slice| {
+            dev.htod_sync_copy(unsafe {
+                std::slice::from_raw_parts(slice.as_ptr() as *const u32, EXT_DEGREE * slice.len())
+            })
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+
+    let slices_ptr_dev = dev
+        .htod_sync_copy(
+            &slices_dev
+                .iter()
+                .map(|slice_dev| *slice_dev.device_ptr())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+
+    let results_dev = (0..n_slices)
+        .map(|_| unsafe {
+            dev.alloc::<u32>(EXT_DEGREE * 1 << (log_slices_len - 1))
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+
+    let mut results_ptr_dev = dev
+        .htod_sync_copy(
+            &results_dev
+                .iter()
+                .map(|slice_dev| *slice_dev.device_ptr())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+
+    let scalar: EF = rng.random();
+    let scalar_u32 = unsafe { std::mem::transmute::<_, [u32; EXT_DEGREE]>(scalar) };
+    let scalar_dev = dev.htod_copy(scalar_u32.to_vec()).unwrap();
+
+    let f_fold_prime_by_prime = dev.get_func("sumcheck", "fold_prime_by_prime").unwrap();
+    unsafe {
+        f_fold_prime_by_prime.launch(
+            cfg,
+            (
+                &slices_ptr_dev,
+                &mut results_ptr_dev,
+                &scalar_dev,
+                n_slices as u32,
+                log_slices_len as u32,
+            ),
+        )
+    }
+    .unwrap();
+
+    let result = results_dev
+        .into_iter()
+        .map(|res| unsafe {
+            std::slice::from_raw_parts(
+                dev.sync_reclaim(res).unwrap().as_ptr() as *const KoalaBear,
+                1 << (log_slices_len - 1),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let expected_result = slices
+        .iter()
+        .map(|slice| {
+            MultilinearPolynomial::new(slice.clone())
+                .fix_variable(EF::from(scalar))
+                .evals
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(result.len(), expected_result.len());
+}
+
+
+#[test]
+fn test_cuda_fold_ext_by_prime() {
+    init_cuda::<KoalaBear>();
+    let dev = &cuda_info().dev;
+
+    const EXT_DEGREE: usize = 8;
+    type EF = BinomialExtensionField<KoalaBear, EXT_DEGREE>;
+
+    let n_slices = 382;
+    let log_slices_len = 11;
+
+    let rng = &mut StdRng::seed_from_u64(0);
+
+    let slices = (0..n_slices)
+        .map(|_| {
+            (0..1 << log_slices_len)
+                .map(|_| rng.random())
+                .collect::<Vec<EF>>()
+        })
+        .collect::<Vec<_>>();
+
+    let cfg = LaunchConfig {
+        grid_dim: (7, 1, 1),
+        block_dim: (3, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let slices_dev = slices
+        .iter()
+        .map(|slice| {
+            dev.htod_sync_copy(unsafe {
+                std::slice::from_raw_parts(slice.as_ptr() as *const u32, EXT_DEGREE * slice.len())
+            })
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+
+    let slices_ptr_dev = dev
+        .htod_sync_copy(
+            &slices_dev
+                .iter()
+                .map(|slice_dev| *slice_dev.device_ptr())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+
+    let results_dev = (0..n_slices)
+        .map(|_| unsafe {
+            dev.alloc::<u32>(EXT_DEGREE * 1 << (log_slices_len - 1))
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+
+    let mut results_ptr_dev = dev
+        .htod_sync_copy(
+            &results_dev
+                .iter()
+                .map(|slice_dev| *slice_dev.device_ptr())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+
+    let scalar: KoalaBear = rng.random();
+    let scalar_u32 = unsafe { std::mem::transmute::<_, u32>(scalar) };
+
+    let f_fold_prime_by_prime = dev.get_func("sumcheck", "fold_prime_by_prime").unwrap();
+    unsafe {
+        f_fold_prime_by_prime.launch(
+            cfg,
+            (
+                &slices_ptr_dev,
+                &mut results_ptr_dev,
+                scalar_u32 as u32,
+                n_slices as u32,
+                log_slices_len as u32,
+            ),
+        )
+    }
+    .unwrap();
+
+    let result = results_dev
+        .into_iter()
+        .map(|res| unsafe {
+            std::slice::from_raw_parts(
+                dev.sync_reclaim(res).unwrap().as_ptr() as *const KoalaBear,
+                1 << (log_slices_len - 1),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let expected_result = slices
+        .iter()
+        .map(|slice| {
+            MultilinearPolynomial::new(slice.clone())
+                .fix_variable(EF::from(scalar))
+                .evals
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(result.len(), expected_result.len());
+}
+
+#[test]
+fn test_cuda_fold_prime_by_ext() {
+    init_cuda::<KoalaBear>();
+    let dev = &cuda_info().dev;
+
+    const EXT_DEGREE: usize = 8;
+    type EF = BinomialExtensionField<KoalaBear, EXT_DEGREE>;
+
+    let n_slices = 382;
+    let log_slices_len = 11;
+
+    let rng = &mut StdRng::seed_from_u64(0);
+
+    let slices = (0..n_slices)
+        .map(|_| {
+            (0..1 << log_slices_len)
+                .map(|_| rng.random())
+                .collect::<Vec<KoalaBear>>()
+        })
+        .collect::<Vec<_>>();
+
+    let cfg = LaunchConfig {
+        grid_dim: (7, 1, 1),
+        block_dim: (3, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let slices_dev = slices
+        .iter()
+        .map(|slice| {
+            dev.htod_sync_copy(unsafe {
+                std::slice::from_raw_parts(slice.as_ptr() as *const u32, slice.len())
+            })
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+
+    let slices_ptr_dev = dev
+        .htod_sync_copy(
+            &slices_dev
+                .iter()
+                .map(|slice_dev| *slice_dev.device_ptr())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+
+    let results_dev = (0..n_slices)
+        .map(|_| unsafe {
+            dev.alloc::<u32>(EXT_DEGREE * 1 << (log_slices_len - 1))
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+
+    let mut results_ptr_dev = dev
+        .htod_sync_copy(
+            &results_dev
+                .iter()
+                .map(|slice_dev| *slice_dev.device_ptr())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+
+    let scalar: EF = rng.random();
+    let scalar_u32 = unsafe { std::mem::transmute::<_, [u32; 8]>(scalar) };
+    let scalar_dev = dev.htod_copy(scalar_u32.to_vec()).unwrap();
+
+    let f_fold_prime_by_prime = dev.get_func("sumcheck", "fold_prime_by_prime").unwrap();
+    unsafe {
+        f_fold_prime_by_prime.launch(
+            cfg,
+            (
+                &slices_ptr_dev,
+                &mut results_ptr_dev,
+                &scalar_dev,
+                n_slices as u32,
+                log_slices_len as u32,
+            ),
+        )
+    }
+    .unwrap();
+
+    let result = results_dev
+        .into_iter()
+        .map(|res| unsafe {
+            std::slice::from_raw_parts(
+                dev.sync_reclaim(res).unwrap().as_ptr() as *const KoalaBear,
+                1 << (log_slices_len - 1),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let expected_result = slices
+        .iter()
+        .map(|slice| {
+            MultilinearPolynomial::new(slice.clone())
+                .fix_variable(scalar)
+                .evals
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(result.len(), expected_result.len());
+}
+
+#[test]
+fn test_cuda_fold_prime_by_prime() {
+    init_cuda::<KoalaBear>();
+    let dev = &cuda_info().dev;
+
+    let n_slices = 382;
+    let log_slices_len = 11;
+
+    let rng = &mut StdRng::seed_from_u64(0);
+
+    let slices = (0..n_slices)
+        .map(|_| {
+            (0..1 << log_slices_len)
+                .map(|_| rng.random())
+                .collect::<Vec<KoalaBear>>()
+        })
+        .collect::<Vec<_>>();
+
+    let cfg = LaunchConfig {
+        grid_dim: (7, 1, 1),
+        block_dim: (3, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let slices_dev = slices
+        .iter()
+        .map(|slice| {
+            dev.htod_sync_copy(unsafe {
+                std::slice::from_raw_parts(slice.as_ptr() as *const u32, slice.len())
+            })
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+
+    let slices_ptr_dev = dev
+        .htod_sync_copy(
+            &slices_dev
+                .iter()
+                .map(|slice_dev| *slice_dev.device_ptr())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+
+    let results_dev = (0..n_slices)
+        .map(|_| unsafe { dev.alloc::<u32>(1 << (log_slices_len - 1)).unwrap() })
+        .collect::<Vec<_>>();
+
+    let mut results_ptr_dev = dev
+        .htod_sync_copy(
+            &results_dev
+                .iter()
+                .map(|slice_dev| *slice_dev.device_ptr())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+
+    let scalar: KoalaBear = rng.random();
+    let scalar_u32 = unsafe { std::mem::transmute::<_, u32>(scalar) };
+
+    let f_fold_prime_by_prime = dev.get_func("sumcheck", "fold_prime_by_prime").unwrap();
+    unsafe {
+        f_fold_prime_by_prime.launch(
+            cfg,
+            (
+                &slices_ptr_dev,
+                &mut results_ptr_dev,
+                scalar_u32,
+                n_slices as u32,
+                log_slices_len as u32,
+            ),
+        )
+    }
+    .unwrap();
+
+    let result = results_dev
+        .into_iter()
+        .map(|res| unsafe {
+            std::slice::from_raw_parts(
+                dev.sync_reclaim(res).unwrap().as_ptr() as *const KoalaBear,
+                1 << (log_slices_len - 1),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let expected_result = slices
+        .iter()
+        .map(|slice| {
+            MultilinearPolynomial::new(slice.clone())
+                .fix_variable(scalar)
+                .evals
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(result.len(), expected_result.len());
+}
 
 #[test]
 fn test_cuda_keccak() {

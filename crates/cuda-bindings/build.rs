@@ -11,6 +11,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     handle_cuda_file("keccak");
     handle_cuda_file("ntt");
+    handle_cuda_file("sumcheck");
 }
 
 fn handle_cuda_file(name: &str) {

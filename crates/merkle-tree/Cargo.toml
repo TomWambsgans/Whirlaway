@@ -6,7 +6,7 @@ edition.workspace = true
 [dependencies]
 algebra.workspace = true
 rayon.workspace = true
-p3_field.workspace = true
+p3-field.workspace = true
 sha3.workspace = true
 tracing.workspace = true
 
