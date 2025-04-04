@@ -10,7 +10,7 @@
 #define EXT_DEGREE 8
 #define W 100663290U // montgomery representation of 3, X^8 - 3 is irreducible
 
-__device__ uint32_t to_monty(uint32_t x)
+__device__ constexpr uint32_t to_monty(uint32_t x)
 {
     return (uint32_t)(((uint64_t)x << MONTY_BITS) % MONTY_PRIME);
 }
@@ -68,6 +68,7 @@ __device__ void print_ext_field(const ExtField *a)
 // Add two extension field elements
 __device__ void ext_field_add(const ExtField *a, const ExtField *b, ExtField *result)
 {
+    // Works even if result is the same as a or b
     for (int i = 0; i < EXT_DEGREE; i++)
     {
         result->coeffs[i] = monty_field_add(a->coeffs[i], b->coeffs[i]);
@@ -77,6 +78,7 @@ __device__ void ext_field_add(const ExtField *a, const ExtField *b, ExtField *re
 // Subtract two extension field elements
 __device__ void ext_field_sub(const ExtField *a, const ExtField *b, ExtField *result)
 {
+    // Works even if result is the same as a or b
     for (int i = 0; i < EXT_DEGREE; i++)
     {
         result->coeffs[i] = monty_field_sub(a->coeffs[i], b->coeffs[i]);
@@ -85,6 +87,7 @@ __device__ void ext_field_sub(const ExtField *a, const ExtField *b, ExtField *re
 
 __device__ void mul_prime_by_ext_field(const ExtField *a, uint32_t b, ExtField *result)
 {
+    // Works even if result is the same as a
     for (int i = 0; i < EXT_DEGREE; i++)
     {
         result->coeffs[i] = monty_field_mul(a->coeffs[i], b);
@@ -99,6 +102,7 @@ __device__ void add_prime_and_ext_field(const ExtField *a, uint32_t b, ExtField 
 // TODO Karatsuba ?
 __device__ void ext_field_mul(const ExtField *a, const ExtField *b, ExtField *result)
 {
+    // Does not work if result is the same as a or b
     for (int i = 0; i < EXT_DEGREE; i++)
     {
         result->coeffs[i] = 0;

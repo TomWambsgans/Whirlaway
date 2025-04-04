@@ -50,7 +50,13 @@ pub fn init_cuda<F: TwoAdicField>() {
         dev.load_ptx(
             Ptx::from_src(keccak_ptx),
             "sumcheck",
-            &["fold_prime_by_prime", "fold_prime_by_ext", "fold_ext_by_prime", "fold_ext_by_ext"],
+            &[
+                "fold_prime_by_prime",
+                "fold_prime_by_ext",
+                "fold_ext_by_prime",
+                "fold_ext_by_ext",
+                "sum_over_hypercube_ext",
+            ],
         )
         .unwrap();
 

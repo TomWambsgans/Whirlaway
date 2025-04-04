@@ -6,29 +6,29 @@
 
 #include "finite_field.cu"
 
-// we need: thread_per_block * 2 * (EXT_DEGREE + 1) * 4 bytes <= shared memory
+// we need: N_THREADS_PER_BLOCK * 2 * (EXT_DEGREE + 1) * 4 bytes <= shared memory
 // TODO avoid hardcoding
-#define LOG_THREAD_PER_BLOCK 8
-#define THREAD_PER_BLOCK (1 << LOG_THREAD_PER_BLOCK)
+#define LOG_N_THREADS_PER_BLOCK 8
+#define N_THREADS_PER_BLOCK (1 << LOG_N_THREADS_PER_BLOCK)
 
 __device__ void ntt_at_block_level(ExtField *buff, const int block, const uint32_t *twiddles)
 {
     // the initial steps of the NTT are done at block level, to make use of shared memory
-    // *buff constains THREAD_PER_BLOCK * 2 ExtField elements
-    // *twiddles: w^0, w^1, w^2, w^3, ..., w^(THREAD_PER_BLOCK * 2 - 1) where w is a "2 * THREAD_PER_BLOCK" root of unity
+    // *buff constains N_THREADS_PER_BLOCK * 2 ExtField elements
+    // *twiddles: w^0, w^1, w^2, w^3, ..., w^(N_THREADS_PER_BLOCK * 2 - 1) where w is a "2 * N_THREADS_PER_BLOCK" root of unity
     // block is not necessarily blockIdx.x
 
     const int threadId = threadIdx.x;
 
-    __shared__ ExtField cached_buff[THREAD_PER_BLOCK * 2];
+    __shared__ ExtField cached_buff[N_THREADS_PER_BLOCK * 2];
 
-    cached_buff[threadId] = buff[threadId + THREAD_PER_BLOCK * 2 * block];
-    cached_buff[threadId + THREAD_PER_BLOCK] = buff[threadId + THREAD_PER_BLOCK * (2 * block + 1)];
+    cached_buff[threadId] = buff[threadId + N_THREADS_PER_BLOCK * 2 * block];
+    cached_buff[threadId + N_THREADS_PER_BLOCK] = buff[threadId + N_THREADS_PER_BLOCK * (2 * block + 1)];
 
-    __shared__ uint32_t cached_twiddles[THREAD_PER_BLOCK * 2];
+    __shared__ uint32_t cached_twiddles[N_THREADS_PER_BLOCK * 2];
 
     cached_twiddles[threadId] = twiddles[threadId];
-    cached_twiddles[threadId + THREAD_PER_BLOCK] = twiddles[threadId + THREAD_PER_BLOCK];
+    cached_twiddles[threadId + N_THREADS_PER_BLOCK] = twiddles[threadId + N_THREADS_PER_BLOCK];
 
     __syncthreads();
 
@@ -40,7 +40,7 @@ __device__ void ntt_at_block_level(ExtField *buff, const int block, const uint32
     ext_field_add(&even, &odd, &cached_buff[threadId * 2]);
     ext_field_sub(&even, &odd, &cached_buff[threadId * 2 + 1]);
 
-    for (int step = 1; step <= LOG_THREAD_PER_BLOCK; step++)
+    for (int step = 1; step <= LOG_N_THREADS_PER_BLOCK; step++)
     {
         int packet_size = 1 << step;
         int even_index = threadId + (threadId / packet_size) * packet_size;
@@ -51,9 +51,9 @@ __device__ void ntt_at_block_level(ExtField *buff, const int block, const uint32
 
         int i = threadId % packet_size;
         // w^i where w is a "2 * packet_size" root of unity
-        uint32_t first_twiddle = cached_twiddles[i * THREAD_PER_BLOCK / packet_size];
+        uint32_t first_twiddle = cached_twiddles[i * N_THREADS_PER_BLOCK / packet_size];
         // w^(i + packet_size) where w is a "2 * packet_size" root of unity
-        uint32_t second_twiddle = cached_twiddles[(i + packet_size) * THREAD_PER_BLOCK / packet_size];
+        uint32_t second_twiddle = cached_twiddles[(i + packet_size) * N_THREADS_PER_BLOCK / packet_size];
 
         // cached_buff[even_index] = even + first_twiddle * odd
         mul_prime_by_ext_field(&odd, first_twiddle, &cached_buff[even_index]);
@@ -67,8 +67,8 @@ __device__ void ntt_at_block_level(ExtField *buff, const int block, const uint32
     }
 
     // copy back to global memory
-    buff[threadId + THREAD_PER_BLOCK * 2 * block] = cached_buff[threadId];
-    buff[threadId + THREAD_PER_BLOCK * (2 * block + 1)] = cached_buff[threadId + THREAD_PER_BLOCK];
+    buff[threadId + N_THREADS_PER_BLOCK * 2 * block] = cached_buff[threadId];
+    buff[threadId + N_THREADS_PER_BLOCK * (2 * block + 1)] = cached_buff[threadId + N_THREADS_PER_BLOCK];
 }
 
 __device__ void reverse_bit_order(ExtField *data, int block, int bits)
@@ -106,9 +106,9 @@ extern "C" __global__ void ntt(ExtField *input, ExtField *buff, ExtField *result
     namespace cg = cooperative_groups;
     cg::grid_group grid = cg::this_grid();
 
-    // we should have THREAD_PER_BLOCK * NUM_BLOCKS * n_repetitions * 2 = 1 << (log_len + log_extension_factor)
+    // we should have N_THREADS_PER_BLOCK * NUM_BLOCKS * n_repetitions * 2 = 1 << (log_len + log_extension_factor)
     // WARNING: We assume the number of blocks is a power of 2
-    const uint32_t n_repetitions = (1 << (log_len + log_extension_factor)) / (THREAD_PER_BLOCK * gridDim.x * 2);
+    const uint32_t n_repetitions = (1 << (log_len + log_extension_factor)) / (N_THREADS_PER_BLOCK * gridDim.x * 2);
 
     // int threadIndex = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -118,7 +118,7 @@ extern "C" __global__ void ntt(ExtField *input, ExtField *buff, ExtField *result
     // 1) Expand input several times to fill result, multiplying by the appropriate twiddle factors
     for (int rep = 0; rep < n_repetitions * 2; rep++)
     {
-        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * THREAD_PER_BLOCK;
+        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * N_THREADS_PER_BLOCK;
 
         if (threadIndex < len)
         {
@@ -146,12 +146,12 @@ extern "C" __global__ void ntt(ExtField *input, ExtField *buff, ExtField *result
 
     for (int rep = 0; rep < n_repetitions; rep++)
     {
-        ntt_at_block_level(buff, blockIdx.x + gridDim.x * rep, &twiddles[THREAD_PER_BLOCK * 2 - 1]);
+        ntt_at_block_level(buff, blockIdx.x + gridDim.x * rep, &twiddles[N_THREADS_PER_BLOCK * 2 - 1]);
     }
 
     // 4) Finish the NTT
 
-    for (int step = LOG_THREAD_PER_BLOCK + 1; step < log_len; step++)
+    for (int step = LOG_N_THREADS_PER_BLOCK + 1; step < log_len; step++)
     {
         grid.sync();
 
@@ -159,7 +159,7 @@ extern "C" __global__ void ntt(ExtField *input, ExtField *buff, ExtField *result
 
         for (int rep = 0; rep < n_repetitions; rep++)
         {
-            int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * THREAD_PER_BLOCK;
+            int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * N_THREADS_PER_BLOCK;
 
             int packet_size = 1 << step;
             int even_index = threadIndex + (threadIndex / packet_size) * packet_size;
@@ -190,7 +190,7 @@ extern "C" __global__ void ntt(ExtField *input, ExtField *buff, ExtField *result
 
     for (int rep = 0; rep < n_repetitions * 2; rep++)
     {
-        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * THREAD_PER_BLOCK;
+        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * N_THREADS_PER_BLOCK;
 
         result[threadIndex] = buff[(threadIndex % expansion_factor) * len + (threadIndex / expansion_factor)];
     }
