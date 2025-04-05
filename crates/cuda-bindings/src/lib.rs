@@ -1,6 +1,8 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 mod init;
+use std::time::Duration;
+
 use algebra::pols::{MultilinearPolynomial, TransparentComputation};
 pub use init::*;
 
@@ -159,7 +161,7 @@ pub fn cuda_sum_over_hypercube<const EXT_DEGREE: usize, F: PrimeField32, EF: Ext
     composition: &TransparentComputation<F, EF>,
     multilinears: &[MultilinearPolynomial<EF>],
     batching_scalars: &[EF],
-) -> [u32; EXT_DEGREE] {
+) -> ([u32; EXT_DEGREE], Duration) {
     // TODO return EF
     let dev = &cuda_info().dev;
     assert!(
@@ -191,6 +193,7 @@ pub fn cuda_sum_over_hypercube<const EXT_DEGREE: usize, F: PrimeField32, EF: Ext
         shared_mem_bytes: batching_scalars.len() as u32 * EXT_DEGREE as u32 * 4, // cf: __shared__ ExtField cached_batching_scalars[N_BATCHING_SCALARS];
     };
 
+    let time = std::time::Instant::now();
     // TODO this could be parallelized ?
     let multilinears_dev = multilinears
         .iter()
@@ -213,6 +216,7 @@ pub fn cuda_sum_over_hypercube<const EXT_DEGREE: usize, F: PrimeField32, EF: Ext
                 .collect::<Vec<_>>(),
         )
         .unwrap();
+    let copy_duration = time.elapsed();
 
     let mut sums_dev = unsafe { dev.alloc::<u32>(EXT_DEGREE << n_vars).unwrap() };
 
@@ -237,5 +241,5 @@ pub fn cuda_sum_over_hypercube<const EXT_DEGREE: usize, F: PrimeField32, EF: Ext
     .unwrap();
 
     let res_u32: [u32; EXT_DEGREE] = dev.sync_reclaim(res_dev).unwrap().try_into().unwrap();
-    res_u32
+    (res_u32, copy_duration)
 }

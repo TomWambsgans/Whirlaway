@@ -19,6 +19,8 @@ pub struct CudaInfo {
     pub two_adicity: usize,
 }
 
+const MAX_NUMBER_OF_SUMCHECK_COMPOSITION_INSTRUCTIONS_TO_REMOVE_INLINING: usize = 10;
+
 static CUDA_INFO: OnceLock<CudaInfo> = OnceLock::new();
 
 pub fn cuda_info() -> &'static CudaInfo {
@@ -62,6 +64,7 @@ fn _init<F: TwoAdicField + PrimeField32, EF: ExtensionField<F>>(
             &kernels_folder.join(format!("{module}.cu")),
             module,
             func_names,
+            false,
         );
     }
 
@@ -79,7 +82,18 @@ fn _init<F: TwoAdicField + PrimeField32, EF: ExtensionField<F>>(
             let cuda = get_specialized_sumcheck_cuda(&specialized_sumcheck_template, composition);
             std::fs::write(&file, cuda).unwrap();
         }
-        compile_module(dev.clone(), &file, &module, vec!["sum_over_hypercube_ext"]);
+
+        // To avoid huge PTX file, and reduce compilation time, we may remove inlining
+        let use_noinline = composition.n_instructions()
+            > MAX_NUMBER_OF_SUMCHECK_COMPOSITION_INSTRUCTIONS_TO_REMOVE_INLINING;
+
+        compile_module(
+            dev.clone(),
+            &file,
+            &module,
+            vec!["sum_over_hypercube_ext"],
+            use_noinline,
+        );
     }
 
     let twiddles = store_twiddles::<F>(&dev).unwrap();
@@ -96,6 +110,7 @@ fn compile_module(
     cuda_file: &PathBuf,
     module: &str,
     func_names: Vec<&'static str>,
+    use_noinline: bool,
 ) {
     let ptx_file = my_temp_dir().join(format!("{module}.ptx"));
     let (major, minor) = cuda_compute_capacity().expect("Failed to get CUDA compute capability");
@@ -121,14 +136,21 @@ fn compile_module(
         }
 
         // Run nvcc to compile the CUDA code to PTX
-        let output = Command::new("nvcc")
-            .args(&[
-                "--ptx",
-                &format!("-arch=sm_{major}{minor}"), // NOT SURE OF THIS
-                "-o",
-                &ptx_file.to_string_lossy(),  // Output file
-                &cuda_file.to_string_lossy(), // Input file
-            ])
+        let mut command = Command::new("nvcc");
+
+        command.args(&[
+            &cuda_file.to_string_lossy() as &str, // Input file
+            "--ptx",
+            &format!("-arch=sm_{major}{minor}"), // NOT SURE OF THIS
+            "-o",
+            &ptx_file.to_string_lossy(), // Output file
+        ]);
+
+        if use_noinline {
+            command.arg("-DUSE_NOINLINE");
+        }
+
+        let output = command
             .output()
             .expect(&format!("Failed to compile {} with nvcc", module));
 

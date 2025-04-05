@@ -46,4 +46,8 @@ impl<F: Field, EF: ExtensionField<F>> CustomComputation<F, EF> {
             .map(|(s, expr)| *s * expr.eval(point))
             .sum::<EF>()
     }
+
+    pub fn n_instructions(&self) -> usize {
+        self.0.iter().map(|(_, expr)| expr.instructions.len()).sum()
+    }
 }

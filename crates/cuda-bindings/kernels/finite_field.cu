@@ -1,6 +1,12 @@
 #include <stdio.h>
 #include <stdint.h>
 
+#ifdef USE_NOINLINE
+#define MAYBE_NOINLINE __noinline__
+#else
+#define MAYBE_NOINLINE
+#endif
+
 // Koala bear field
 #define MONTY_PRIME 0x7f000001
 #define MONTY_BITS 32
@@ -66,7 +72,7 @@ __device__ void print_ext_field(const ExtField *a)
 }
 
 // Add two extension field elements
-__device__ void ext_field_add(const ExtField *a, const ExtField *b, ExtField *result)
+__device__ MAYBE_NOINLINE void ext_field_add(const ExtField *a, const ExtField *b, ExtField *result)
 {
     // Works even if result is the same as a or b
     for (int i = 0; i < EXT_DEGREE; i++)
@@ -76,7 +82,7 @@ __device__ void ext_field_add(const ExtField *a, const ExtField *b, ExtField *re
 }
 
 // Subtract two extension field elements
-__device__ void ext_field_sub(const ExtField *a, const ExtField *b, ExtField *result)
+__device__ MAYBE_NOINLINE void ext_field_sub(const ExtField *a, const ExtField *b, ExtField *result)
 {
     // Works even if result is the same as a or b
     for (int i = 0; i < EXT_DEGREE; i++)
@@ -85,7 +91,7 @@ __device__ void ext_field_sub(const ExtField *a, const ExtField *b, ExtField *re
     }
 }
 
-__device__ void mul_prime_and_ext_field(const ExtField *a, uint32_t b, ExtField *result)
+__device__ MAYBE_NOINLINE void mul_prime_and_ext_field(const ExtField *a, uint32_t b, ExtField *result)
 {
     // Works even if result is the same as a
     for (int i = 0; i < EXT_DEGREE; i++)
@@ -94,7 +100,7 @@ __device__ void mul_prime_and_ext_field(const ExtField *a, uint32_t b, ExtField 
     }
 }
 
-__device__ void add_prime_and_ext_field(const ExtField *a, uint32_t b, ExtField *result)
+__device__ MAYBE_NOINLINE void add_prime_and_ext_field(const ExtField *a, uint32_t b, ExtField *result)
 {
     // TODO this would be more efficient in place (to avoid the copy loop)
 
@@ -106,7 +112,7 @@ __device__ void add_prime_and_ext_field(const ExtField *a, uint32_t b, ExtField 
 }
 
 // TODO Karatsuba ?
-__device__ void ext_field_mul(const ExtField *a, const ExtField *b, ExtField *result)
+__device__ MAYBE_NOINLINE void ext_field_mul(const ExtField *a, const ExtField *b, ExtField *result)
 {
     // Does not work if result is the same as a or b
     for (int i = 0; i < EXT_DEGREE; i++)

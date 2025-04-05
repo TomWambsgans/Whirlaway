@@ -71,6 +71,13 @@ impl<F: Field, EF: ExtensionField<F>> TransparentComputation<F, EF> {
             TransparentComputation::Custom(c) => c.eval(point),
         }
     }
+
+    pub fn n_instructions(&self) -> usize {
+        match self {
+            TransparentComputation::Generic(p) => p.instructions.len(),
+            TransparentComputation::Custom(p) => p.n_instructions(),
+        }
+    }
 }
 
 impl<F: Field, EF: ExtensionField<F>> TransparentComputation<F, EF> {

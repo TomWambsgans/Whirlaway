@@ -19,11 +19,11 @@ fn test_cuda_hypercube_sum() {
     const EXT_DEGREE: usize = 8;
     type EF = BinomialExtensionField<KoalaBear, EXT_DEGREE>;
 
-    let n_multilinears = 5;
-    let n_vars = 22;
+    let n_multilinears = 200;
+    let n_vars = 16;
 
     let composition: ArithmeticCircuit<F, usize> =
-        ArithmeticCircuit::random(&mut StdRng::seed_from_u64(0), n_multilinears, 5);
+        ArithmeticCircuit::random(&mut StdRng::seed_from_u64(0), n_multilinears, 50);
     let composition = TransparentComputation::Generic(composition.fix_computation(true));
     let time = std::time::Instant::now();
     super::init::<F, EF>(&[&composition]);
@@ -49,10 +49,14 @@ fn test_cuda_hypercube_sum() {
     println!("CPU hypercube sum took {} ms", time.elapsed().as_millis());
 
     let time = std::time::Instant::now();
-    let cuda_sum_u32 =
+    let (cuda_sum_u32, copy_duration) =
         cuda_sum_over_hypercube::<EXT_DEGREE, F, EF>(&composition, &multilinears, &[]);
     let cuda_sum: EF = unsafe { std::mem::transmute(cuda_sum_u32) };
-    println!("CUDA hypercube sum took {} ms", time.elapsed().as_millis());
+    println!(
+        "CUDA hypercube sum took {} ms (copy duration: {} ms)",
+        time.elapsed().as_millis() - copy_duration.as_millis(),
+        copy_duration.as_millis()
+    );
 
     assert_eq!(cuda_sum, expected_sum);
 }
