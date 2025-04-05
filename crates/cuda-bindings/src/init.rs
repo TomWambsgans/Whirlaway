@@ -69,7 +69,7 @@ fn _init<F: TwoAdicField + PrimeField32, EF: ExtensionField<F>>(
     }
 
     let specialized_sumcheck_template =
-        std::fs::read_to_string(Path::new(kernels_folder).join("specialized_sumcheck.txt"))
+        std::fs::read_to_string(Path::new(kernels_folder).join("sumcheck_template.txt"))
             .unwrap();
 
     let cuda_generated_dir = kernels_folder.join("auto_generated");
