@@ -24,7 +24,7 @@ fn main() {
         .init();
 
     if USE_CUDA {
-        cuda_bindings::init::<KoalaBear, KoalaBear>(&[]);
+        cuda_bindings::init::<KoalaBear>(&[]);
     }
     prove_poseidon2(13, WhirParameters::standard(128, 3, USE_CUDA));
 }

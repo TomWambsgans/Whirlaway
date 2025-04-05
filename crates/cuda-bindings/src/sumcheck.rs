@@ -1,7 +1,5 @@
-use std::time::Duration;
-
-use algebra::pols::{MultilinearPolynomial, TransparentComputation};
-use cudarc::driver::{DevicePtr, LaunchConfig, PushKernelArg};
+use algebra::pols::TransparentComputation;
+use cudarc::driver::{CudaSlice, DevicePtr, LaunchConfig, PushKernelArg};
 
 use p3_field::{ExtensionField, PrimeField32};
 
@@ -13,36 +11,24 @@ const SUMCHECK_N_THREADS_PER_BLOCK: u32 = 1 << SUMCHECK_LOG_N_THREADS_PER_BLOCK;
 
 pub fn cuda_sum_over_hypercube<const EXT_DEGREE: usize, F: PrimeField32, EF: ExtensionField<F>>(
     composition: &TransparentComputation<F, EF>,
-    multilinears: &[MultilinearPolynomial<EF>],
+    n_vars: u32,
+    multilinears: &[CudaSlice<EF>],
     batching_scalars: &[EF],
-) -> ([u32; EXT_DEGREE], Duration) {
+) -> EF {
     // TODO return EF
     let cuda = cuda_info();
-    assert!(
-        multilinears
-            .iter()
-            .all(|m| m.n_vars == multilinears[0].n_vars)
-    );
-    let n_vars = multilinears[0].n_vars as u32;
+    assert!(multilinears.iter().all(|m| m.len() == 1 << n_vars),);
 
-    let batching_scalars_u32 = if batching_scalars.is_empty() {
+    let batching_scalars = if batching_scalars.is_empty() {
         // We put 1 dummy scalar because N_BATCHING_SCALARS is always N_BATCHING_SCALARS >= 1 (To avoid an nvcc error)
-        &[0_u32; EXT_DEGREE]
+        &[EF::ZERO]
     } else {
-        unsafe {
-            std::slice::from_raw_parts(
-                batching_scalars.as_ptr() as *const u32,
-                EXT_DEGREE * batching_scalars.len(),
-            )
-        }
+        batching_scalars
     };
-    let mut batching_scalars_dev = unsafe {
-        cuda.stream
-            .alloc::<u32>(batching_scalars_u32.len())
-            .unwrap()
-    };
+    let mut batching_scalars_dev =
+        unsafe { cuda.stream.alloc::<EF>(batching_scalars.len()).unwrap() };
     cuda.stream
-        .memcpy_htod(batching_scalars_u32, &mut batching_scalars_dev)
+        .memcpy_htod(batching_scalars, &mut batching_scalars_dev)
         .unwrap();
 
     let log_n_blocks =
@@ -54,44 +40,21 @@ pub fn cuda_sum_over_hypercube<const EXT_DEGREE: usize, F: PrimeField32, EF: Ext
         shared_mem_bytes: batching_scalars.len() as u32 * EXT_DEGREE as u32 * 4, // cf: __shared__ ExtField cached_batching_scalars[N_BATCHING_SCALARS];
     };
 
-    let time = std::time::Instant::now();
-
-    let multilinears_dev = multilinears
-        .iter()
-        .map(|multilinear| {
-            let mut multiliner_dev =
-                unsafe { cuda.stream.alloc::<u32>(EXT_DEGREE << n_vars).unwrap() };
-            cuda.stream
-                .memcpy_htod(
-                    unsafe {
-                        std::slice::from_raw_parts(
-                            multilinear.evals.as_ptr() as *const u32,
-                            EXT_DEGREE << n_vars,
-                        )
-                    },
-                    &mut multiliner_dev,
-                )
-                .unwrap();
-            multiliner_dev
-        })
-        .collect::<Vec<_>>();
-
     let mut multilinears_ptrs_dev =
-        unsafe { cuda.stream.alloc::<u64>(multilinears_dev.len()).unwrap() }; // TODO avoid hardcoding u64 (this is platform dependent)
+        unsafe { cuda.stream.alloc::<u64>(multilinears.len()).unwrap() }; // TODO avoid hardcoding u64 (this is platform dependent)
     cuda.stream
         .memcpy_htod(
-            &multilinears_dev
+            &multilinears
                 .iter()
                 .map(|slice_dev| slice_dev.device_ptr(&cuda.stream).0)
                 .collect::<Vec<_>>(),
             &mut multilinears_ptrs_dev,
         )
         .unwrap();
-    let copy_duration = time.elapsed();
 
-    let mut sums_dev = unsafe { cuda.stream.alloc::<u32>(EXT_DEGREE << n_vars).unwrap() };
+    let mut sums_dev = unsafe { cuda.stream.alloc::<EF>(1 << n_vars).unwrap() };
 
-    let mut res_dev = unsafe { cuda.stream.alloc::<u32>(EXT_DEGREE).unwrap() };
+    let mut res_dev = unsafe { cuda.stream.alloc::<EF>(1).unwrap() };
 
     let module_name = format!("sumcheck_{:x}", composition.uuid());
     let f = cuda.get_function(&module_name, "sum_over_hypercube_ext");
@@ -104,9 +67,9 @@ pub fn cuda_sum_over_hypercube<const EXT_DEGREE: usize, F: PrimeField32, EF: Ext
     launch_args.arg(&mut res_dev);
     unsafe { launch_args.launch_cooperative(cfg) }.unwrap();
 
-    let mut res_u32 = [0u32; EXT_DEGREE];
-    cuda.stream.memcpy_dtoh(&res_dev, &mut res_u32).unwrap();
+    let mut res = [EF::ZERO];
+    cuda.stream.memcpy_dtoh(&res_dev, &mut res).unwrap();
     cuda.stream.synchronize().unwrap();
 
-    (res_u32, copy_duration)
+    res[0]
 }

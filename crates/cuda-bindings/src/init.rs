@@ -11,26 +11,28 @@ use cudarc::driver::sys::CUdevice_attribute;
 use cudarc::driver::{CudaContext, CudaFunction, CudaSlice, CudaStream, DriverError};
 use cudarc::nvrtc::Ptx;
 use p3_field::{ExtensionField, PrimeField32, TwoAdicField};
+use p3_koala_bear::KoalaBear;
 use rayon::prelude::*;
 use tracing::instrument;
 
-pub struct CudaInfo {
+pub struct CudaInfo<F: TwoAdicField> {
     pub dev: Arc<CudaContext>,
     pub stream: Arc<CudaStream>,
-    pub twiddles: CudaSlice<u32>, // For now we restrain ourseleves to the 2-addic roots of unity in the prime fields, so each one is represented by a u32
+    pub twiddles: CudaSlice<F>, // For now we restrain ourseleves to the 2-addic roots of unity in the prime fields, so each one is represented by a u32
     pub two_adicity: usize,
     functions: HashMap<String, HashMap<&'static str, CudaFunction>>, // module => function_name => cuda_function
 }
 
 const MAX_NUMBER_OF_SUMCHECK_COMPOSITION_INSTRUCTIONS_TO_REMOVE_INLINING: usize = 10;
 
-static CUDA_INFO: OnceLock<CudaInfo> = OnceLock::new();
+type F = KoalaBear; // TODO avoid harcoding this
+static CUDA_INFO: OnceLock<CudaInfo<F>> = OnceLock::new();
 
-pub fn cuda_info() -> &'static CudaInfo {
+pub fn cuda_info() -> &'static CudaInfo<F> {
     CUDA_INFO.get().expect("CUDA not initialized")
 }
 
-impl CudaInfo {
+impl CudaInfo<F> {
     pub fn get_function(&self, module: &str, func_name: &str) -> &CudaFunction {
         self.functions
             .get(module)
@@ -40,15 +42,13 @@ impl CudaInfo {
 }
 
 #[instrument(name = "CUDA initialization", skip_all)]
-pub fn init<F: TwoAdicField + PrimeField32, EF: ExtensionField<F>>(
-    sumcheck_compositions: &[&TransparentComputation<F, EF>],
-) {
+pub fn init<EF: ExtensionField<F>>(sumcheck_compositions: &[&TransparentComputation<F, EF>]) {
     let _ = CUDA_INFO.get_or_init(|| _init(sumcheck_compositions));
 }
 
-fn _init<F: TwoAdicField + PrimeField32, EF: ExtensionField<F>>(
+fn _init<EF: ExtensionField<F>>(
     sumcheck_compositions: &[&TransparentComputation<F, EF>],
-) -> CudaInfo {
+) -> CudaInfo<F> {
     let dev = CudaContext::new(0).unwrap();
 
     // TODO avoid this ugly trick
@@ -193,9 +193,7 @@ fn compile_module(
 }
 
 #[instrument(name = "pre-processing twiddles for CUDA NTT", skip_all)]
-fn store_twiddles<F: TwoAdicField>(
-    stream: &Arc<CudaStream>,
-) -> Result<CudaSlice<u32>, DriverError> {
+fn store_twiddles<F: TwoAdicField>(stream: &Arc<CudaStream>) -> Result<CudaSlice<F>, DriverError> {
     assert!(F::bits() <= 32);
     let num_threads = rayon::current_num_threads().next_power_of_two();
     let mut all_twiddles = Vec::new();
@@ -226,15 +224,10 @@ fn store_twiddles<F: TwoAdicField>(
         all_twiddles.extend(twiddles);
     }
 
-    let all_twiddles_u32 = unsafe {
-        std::slice::from_raw_parts(all_twiddles.as_ptr() as *const u32, all_twiddles.len())
-    }
-    .to_vec();
-
-    let mut all_twiddles_dev = unsafe { stream.alloc::<u32>(all_twiddles.len()).unwrap() };
+    let mut all_twiddles_dev = unsafe { stream.alloc::<F>(all_twiddles.len()).unwrap() };
 
     stream
-        .memcpy_htod(&all_twiddles_u32, &mut all_twiddles_dev)
+        .memcpy_htod(&all_twiddles, &mut all_twiddles_dev)
         .unwrap();
     stream.synchronize().unwrap();
 

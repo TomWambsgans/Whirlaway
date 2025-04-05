@@ -195,14 +195,14 @@ dependencies = [
 
 [[package]]
 name = "getrandom"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43a49c392881ce6d5c3b8cb70f98717b7c07aabbdff06687b9030dbfbe2725f8"
+checksum = "73fea8450eea4bac3940448fb7ae50d91f034f941199fcd9d909a5a07aa455f0"
 dependencies = [
  "cfg-if",
  "libc",
+ "r-efi",
  "wasi",
- "windows-targets",
 ]
 
 [[package]]
@@ -247,9 +247,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.26"
+version = "0.4.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30bde2b3dc3671ae49d8e2e9f044c7c005836e7a023ee57cffa25ab82764bb9e"
+checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
 
 [[package]]
 name = "matchers"
@@ -319,9 +319,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.21.0"
+version = "1.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cde51589ab56b20a6f686b2c68f7a0bd6add753d697abf720d63f8db3ab7b1ad"
+checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 
 [[package]]
 name = "overload"
@@ -332,7 +332,7 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 [[package]]
 name = "p3-dft"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#fe460d3c34e9f3c81a57a1cd60a319972ae61a50"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#c4721449af7c0f06c628a68aaa526215045abd60"
 dependencies = [
  "itertools",
  "p3-field",
@@ -345,11 +345,11 @@ dependencies = [
 [[package]]
 name = "p3-field"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#fe460d3c34e9f3c81a57a1cd60a319972ae61a50"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#c4721449af7c0f06c628a68aaa526215045abd60"
 dependencies = [
+ "cudarc",
  "itertools",
  "num-bigint",
- "num-integer",
  "num-traits",
  "p3-maybe-rayon",
  "p3-util",
@@ -362,7 +362,7 @@ dependencies = [
 [[package]]
 name = "p3-koala-bear"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#fe460d3c34e9f3c81a57a1cd60a319972ae61a50"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#c4721449af7c0f06c628a68aaa526215045abd60"
 dependencies = [
  "p3-field",
  "p3-mds",
@@ -376,7 +376,7 @@ dependencies = [
 [[package]]
 name = "p3-matrix"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#fe460d3c34e9f3c81a57a1cd60a319972ae61a50"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#c4721449af7c0f06c628a68aaa526215045abd60"
 dependencies = [
  "itertools",
  "p3-field",
@@ -391,12 +391,12 @@ dependencies = [
 [[package]]
 name = "p3-maybe-rayon"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#fe460d3c34e9f3c81a57a1cd60a319972ae61a50"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#c4721449af7c0f06c628a68aaa526215045abd60"
 
 [[package]]
 name = "p3-mds"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#fe460d3c34e9f3c81a57a1cd60a319972ae61a50"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#c4721449af7c0f06c628a68aaa526215045abd60"
 dependencies = [
  "itertools",
  "p3-dft",
@@ -410,8 +410,9 @@ dependencies = [
 [[package]]
 name = "p3-monty-31"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#fe460d3c34e9f3c81a57a1cd60a319972ae61a50"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#c4721449af7c0f06c628a68aaa526215045abd60"
 dependencies = [
+ "cudarc",
  "itertools",
  "num-bigint",
  "p3-dft",
@@ -432,7 +433,7 @@ dependencies = [
 [[package]]
 name = "p3-poseidon2"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#fe460d3c34e9f3c81a57a1cd60a319972ae61a50"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#c4721449af7c0f06c628a68aaa526215045abd60"
 dependencies = [
  "p3-field",
  "p3-mds",
@@ -444,7 +445,7 @@ dependencies = [
 [[package]]
 name = "p3-symmetric"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#fe460d3c34e9f3c81a57a1cd60a319972ae61a50"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#c4721449af7c0f06c628a68aaa526215045abd60"
 dependencies = [
  "itertools",
  "p3-field",
@@ -454,7 +455,7 @@ dependencies = [
 [[package]]
 name = "p3-util"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#fe460d3c34e9f3c81a57a1cd60a319972ae61a50"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#c4721449af7c0f06c628a68aaa526215045abd60"
 dependencies = [
  "serde",
 ]
@@ -493,7 +494,7 @@ version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
 dependencies = [
- "zerocopy 0.8.23",
+ "zerocopy 0.8.24",
 ]
 
 [[package]]
@@ -515,6 +516,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "r-efi"
+version = "5.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74765f6d916ee2faa39bc8e68e4f3ed8949b48cccdac59983d287a7cb71ce9c5"
+
+[[package]]
 name = "rand"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -522,7 +529,7 @@ checksum = "3779b94aeb87e8bd4e834cee3650289ee9e0d5677f976ecdb6d219e5f4f6cd94"
 dependencies = [
  "rand_chacha",
  "rand_core",
- "zerocopy 0.8.23",
+ "zerocopy 0.8.24",
 ]
 
 [[package]]
@@ -649,9 +656,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.14.0"
+version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7fcf8323ef1faaee30a44a340193b1ac6814fd9b7b4e88e9d4519a3e4abe1cfd"
+checksum = "8917285742e9f3e1683f0a9c4e6b57960b7314d0b08d30d1ecd426713ee2eee9"
 
 [[package]]
 name = "strength_reduce"
@@ -823,9 +830,9 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "wasi"
-version = "0.13.3+wasi-0.2.2"
+version = "0.14.2+wasi-0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26816d2e1a4a36a2940b96c5296ce403917633dff8f3440e9b236ed6f6bacad2"
+checksum = "9683f9a5a998d873c0d21fcbe3c083009670149a8fab228644b8bd36b2c48cb3"
 dependencies = [
  "wit-bindgen-rt",
 ]
@@ -953,9 +960,9 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 
 [[package]]
 name = "wit-bindgen-rt"
-version = "0.33.0"
+version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3268f3d866458b787f390cf61f4bbb563b922d091359f9608842999eaee3943c"
+checksum = "6f42320e61fe2cfd34354ecb597f86f413484a798ba44a8ca1165c58d42da6c1"
 dependencies = [
  "bitflags",
 ]
@@ -971,11 +978,11 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.23"
+version = "0.8.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd97444d05a4328b90e75e503a34bad781f14e28a823ad3557f0750df1ebcbc6"
+checksum = "2586fea28e186957ef732a5f8b3be2da217d65c5969d4b1e17f973ebbe876879"
 dependencies = [
- "zerocopy-derive 0.8.23",
+ "zerocopy-derive 0.8.24",
 ]
 
 [[package]]
@@ -991,9 +998,9 @@ dependencies = [
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.23"
+version = "0.8.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6352c01d0edd5db859a63e2605f4ea3183ddbd15e2c4a9e7d32184df75e4f154"
+checksum = "a996a8f63c5c4448cd959ac1bab0aaa3306ccfd060472f85943ee0750f0169be"
 dependencies = [
  "proc-macro2",
  "quote",

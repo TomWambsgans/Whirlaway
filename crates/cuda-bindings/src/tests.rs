@@ -9,7 +9,7 @@ use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::KoalaBear;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
-use crate::{cuda_batch_keccak, cuda_ntt, cuda_sum_over_hypercube};
+use crate::{cuda_batch_keccak, cuda_info, cuda_ntt, cuda_sum_over_hypercube};
 use rayon::prelude::*;
 
 #[test]
@@ -26,8 +26,9 @@ fn test_cuda_hypercube_sum() {
         ArithmeticCircuit::random(&mut StdRng::seed_from_u64(0), n_multilinears, 50);
     let composition = TransparentComputation::Generic(composition.fix_computation(true));
     let time = std::time::Instant::now();
-    super::init::<F, EF>(&[&composition]);
+    super::init::<EF>(&[&composition]);
     println!("CUDA initialized in {} ms", time.elapsed().as_millis());
+    let cuda = cuda_info();
 
     let rng = &mut StdRng::seed_from_u64(0);
 
@@ -49,12 +50,29 @@ fn test_cuda_hypercube_sum() {
     println!("CPU hypercube sum took {} ms", time.elapsed().as_millis());
 
     let time = std::time::Instant::now();
-    let (cuda_sum_u32, copy_duration) =
-        cuda_sum_over_hypercube::<EXT_DEGREE, F, EF>(&composition, &multilinears, &[]);
-    let cuda_sum: EF = unsafe { std::mem::transmute(cuda_sum_u32) };
+    let multilinears_dev = multilinears
+        .iter()
+        .map(|multilinear| {
+            let mut multiliner_dev = unsafe { cuda.stream.alloc::<EF>(1 << n_vars).unwrap() };
+            cuda.stream
+                .memcpy_htod(&multilinear.evals, &mut multiliner_dev)
+                .unwrap();
+            multiliner_dev
+        })
+        .collect::<Vec<_>>();
+    let copy_duration = time.elapsed();
+
+    let time = std::time::Instant::now();
+    let cuda_sum = cuda_sum_over_hypercube::<EXT_DEGREE, F, EF>(
+        &composition,
+        n_vars as u32,
+        &multilinears_dev,
+        &[],
+    );
+
     println!(
         "CUDA hypercube sum took {} ms (copy duration: {} ms)",
-        time.elapsed().as_millis() - copy_duration.as_millis(),
+        time.elapsed().as_millis(),
         copy_duration.as_millis()
     );
 
@@ -64,7 +82,7 @@ fn test_cuda_hypercube_sum() {
 #[test]
 fn test_cuda_keccak() {
     let t = std::time::Instant::now();
-    super::init::<KoalaBear, KoalaBear>(&[]);
+    super::init::<KoalaBear>(&[]);
     println!("CUDA initialized in {} ms", t.elapsed().as_millis());
 
     let n_inputs = 1000_000;
@@ -105,7 +123,7 @@ fn hash_keccak256(data: &[u8]) -> [u8; 32] {
 
 #[test]
 pub fn test_cuda_ntt() {
-    super::init::<KoalaBear, KoalaBear>(&[]);
+    super::init::<KoalaBear>(&[]);
 
     const EXT_DEGREE: usize = 8;
 
@@ -145,7 +163,7 @@ fn cuda_constant_memory() -> Result<usize, Box<dyn Error>> {
 
 #[test]
 fn print_cuda_info() {
-    super::init::<KoalaBear, KoalaBear>(&[]);
+    super::init::<KoalaBear>(&[]);
 
     let shared_memory = cuda_shared_memory().unwrap();
     println!("Shared memory per block: {} bytes", shared_memory);

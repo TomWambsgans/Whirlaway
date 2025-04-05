@@ -38,33 +38,13 @@ pub fn cuda_ntt<F: TwoAdicField>(coeffs: &[F], expansion_factor: usize) -> Vec<F
     );
 
     assert_eq!(std::mem::size_of::<F>() % std::mem::size_of::<u32>(), 0);
+
+    let mut coeffs_dev = unsafe { cuda.stream.alloc(coeffs.len()).unwrap() };
+    cuda.stream.memcpy_htod(coeffs, &mut coeffs_dev).unwrap();
+    let mut buff_dev = unsafe { cuda.stream.alloc::<F>(expanded_len).unwrap() };
+    let mut result_dev = unsafe { cuda.stream.alloc::<F>(expanded_len).unwrap() };
+
     let extension_degree = std::mem::size_of::<F>() / std::mem::size_of::<u32>(); // TODO improve
-
-    let coeffs_u32 = unsafe {
-        std::slice::from_raw_parts(
-            coeffs.as_ptr() as *const u32,
-            coeffs.len() * extension_degree,
-        )
-    };
-
-    let mut coeffs_dev = unsafe { cuda.stream.alloc::<u32>(coeffs_u32.len()).unwrap() };
-    cuda.stream
-        .memcpy_htod(coeffs_u32, &mut coeffs_dev)
-        .unwrap();
-    cuda.dev.synchronize().unwrap();
-
-    let mut buff_dev = unsafe {
-        cuda.stream
-            .alloc::<u32>(expanded_len * extension_degree)
-            .unwrap()
-    };
-
-    let mut result_dev = unsafe {
-        cuda.stream
-            .alloc::<u32>(expanded_len * extension_degree)
-            .unwrap()
-    };
-
     let cfg = LaunchConfig {
         grid_dim: (n_blocks, 1, 1),
         block_dim: (NTT_N_THREADS_PER_BLOCK, 1, 1),
@@ -81,16 +61,11 @@ pub fn cuda_ntt<F: TwoAdicField>(coeffs: &[F], expansion_factor: usize) -> Vec<F
     launch_args.arg(&cuda.twiddles);
     unsafe { launch_args.launch_cooperative(cfg) }.unwrap();
 
-    let mut cuda_result_u32 = vec![0u32; expanded_len * extension_degree];
+    let mut cuda_result = vec![F::ZERO; expanded_len];
     cuda.stream
-        .memcpy_dtoh(&result_dev, &mut cuda_result_u32)
+        .memcpy_dtoh(&result_dev, &mut cuda_result)
         .unwrap();
     cuda.stream.synchronize().unwrap();
 
-    assert_eq!(cuda_result_u32.capacity(), cuda_result_u32.len());
-
-    let ptr = cuda_result_u32.as_ptr() as *mut F;
-    // Prevent the original vector from being dropped
-    let _ = std::mem::ManuallyDrop::new(cuda_result_u32);
-    unsafe { Vec::from_raw_parts(ptr, expanded_len, expanded_len) }
+    cuda_result
 }
