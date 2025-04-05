@@ -56,11 +56,11 @@ __device__ void ntt_at_block_level(ExtField *buff, const int block, const uint32
         uint32_t second_twiddle = cached_twiddles[(i + packet_size) * N_THREADS_PER_BLOCK / packet_size];
 
         // cached_buff[even_index] = even + first_twiddle * odd
-        mul_prime_by_ext_field(&odd, first_twiddle, &cached_buff[even_index]);
+        mul_prime_and_ext_field(&odd, first_twiddle, &cached_buff[even_index]);
         ext_field_add(&even, &cached_buff[even_index], &cached_buff[even_index]);
 
         // cached_buff[odd_index] = even + second_twiddle * odd
-        mul_prime_by_ext_field(&odd, second_twiddle, &cached_buff[odd_index]);
+        mul_prime_and_ext_field(&odd, second_twiddle, &cached_buff[odd_index]);
         ext_field_add(&even, &cached_buff[odd_index], &cached_buff[odd_index]);
 
         __syncthreads();
@@ -127,7 +127,7 @@ extern "C" __global__ void ntt(ExtField *input, ExtField *buff, ExtField *result
         else
         {
             uint32_t twidle = twiddles[(1 << (log_len + log_extension_factor)) - 1 + (threadIndex % len) * (threadIndex / len)];
-            mul_prime_by_ext_field(&input[threadIndex % len], twidle, &buff[threadIndex]);
+            mul_prime_and_ext_field(&input[threadIndex % len], twidle, &buff[threadIndex]);
         }
     }
 
@@ -175,11 +175,11 @@ extern "C" __global__ void ntt(ExtField *input, ExtField *buff, ExtField *result
             uint32_t second_twiddle = twiddles[packet_size * 2 - 1 + i + packet_size];
 
             // result[even_index] = even + first_twiddle * odd
-            mul_prime_by_ext_field(&odd, first_twiddle, &buff[even_index]);
+            mul_prime_and_ext_field(&odd, first_twiddle, &buff[even_index]);
             ext_field_add(&even, &buff[even_index], &buff[even_index]);
 
             // result[odd_index] = even + second_twiddle * odd
-            mul_prime_by_ext_field(&odd, second_twiddle, &buff[odd_index]);
+            mul_prime_and_ext_field(&odd, second_twiddle, &buff[odd_index]);
             ext_field_add(&even, &buff[odd_index], &buff[odd_index]);
         }
     }

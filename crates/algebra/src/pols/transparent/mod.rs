@@ -1,4 +1,7 @@
-use std::fmt::Debug;
+use std::{
+    fmt::Debug,
+    hash::{DefaultHasher, Hash, Hasher},
+};
 
 use p3_field::{ExtensionField, Field};
 
@@ -32,7 +35,7 @@ impl<F: Field, EF: ExtensionField<F>> From<CustomTransparentMultivariatePolynomi
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub enum TransparentComputation<F: Field, EF: ExtensionField<F>> {
     Generic(CircuitComputation<F, usize>),
     Custom(CustomComputation<F, EF>),
@@ -67,5 +70,14 @@ impl<F: Field, EF: ExtensionField<F>> TransparentComputation<F, EF> {
             TransparentComputation::Generic(c) => EF::from(c.eval(point)),
             TransparentComputation::Custom(c) => c.eval(point),
         }
+    }
+}
+
+impl<F: Field, EF: ExtensionField<F>> TransparentComputation<F, EF> {
+    pub fn uuid(&self) -> u64 {
+        // TODO use a 256 bits collision resistant hash function (VERY IMPORTANT)
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
     }
 }

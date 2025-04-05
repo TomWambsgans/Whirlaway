@@ -11,9 +11,6 @@ use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear};
 use p3_matrix::Matrix;
 use pcs::{BatchSettings, RingSwitch, WhirPCS, WhirParameters};
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use tracing::level_filters::LevelFilter;
-use tracing_forest::ForestLayer;
-use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 
 use std::{borrow::Borrow, time::Instant};
 
@@ -37,11 +34,10 @@ type EF = BinomialExtensionField<KoalaBear, 8>;
 
 #[test]
 fn test_poseidon2() {
-    prove_poseidon2(4, WhirParameters::standard(100, 2, false));
-}
+    use tracing::level_filters::LevelFilter;
+    use tracing_forest::ForestLayer;
+    use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 
-pub fn prove_poseidon2(log_n_rows: usize, whir_params: WhirParameters) {
-    let n_rows = 1 << log_n_rows;
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy();
@@ -51,7 +47,11 @@ pub fn prove_poseidon2(log_n_rows: usize, whir_params: WhirParameters) {
         .with(ForestLayer::default())
         .init();
 
-    let t = Instant::now();
+    prove_poseidon2(4, WhirParameters::standard(100, 2, false));
+}
+
+pub fn prove_poseidon2(log_n_rows: usize, whir_params: WhirParameters) {
+    let n_rows = 1 << log_n_rows;
 
     let rng = &mut StdRng::seed_from_u64(0);
     let constants = RoundConstants::<F, WIDTH, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>::from_rng(rng);
@@ -115,6 +115,7 @@ pub fn prove_poseidon2(log_n_rows: usize, whir_params: WhirParameters) {
 
     let mut batch_prover = batch.clone();
 
+    let t = Instant::now();
     let mut fs_prover = FsProver::new();
     let batch_witness = batch_prover.commit(&mut fs_prover, witness);
     table.prove(&mut fs_prover, &mut batch_prover, &batch_witness.polys);

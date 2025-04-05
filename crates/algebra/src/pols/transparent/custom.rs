@@ -13,7 +13,7 @@ pub struct CustomTransparentMultivariatePolynomial<F: Field, EF: ExtensionField<
     pub linear_comb: Vec<(EF, ArithmeticCircuit<F, usize>)>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct CustomComputation<F: Field, EF: ExtensionField<F>>(
     Vec<(EF, CircuitComputation<F, usize>)>,
 );
@@ -30,7 +30,7 @@ impl<F: Field, EF: ExtensionField<F>> CustomTransparentMultivariatePolynomial<F,
         CustomComputation(
             self.linear_comb
                 .iter()
-                .map(|(s, expr)| (*s, expr.fix_computation()))
+                .map(|(s, expr)| (*s, expr.fix_computation(true)))
                 .collect(),
         )
     }

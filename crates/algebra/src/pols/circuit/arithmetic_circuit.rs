@@ -7,6 +7,10 @@ use std::{
 };
 
 use p3_field::{Algebra, ExtensionField, Field, PrimeCharacteristicRing};
+use rand::{
+    Rng,
+    distr::{Distribution, StandardUniform},
+};
 
 #[derive(Debug, Clone)]
 pub enum ArithmeticCircuitComposed<F, N> {
@@ -254,6 +258,33 @@ impl<F: Clone, N: Clone> ArithmeticCircuit<F, N> {
         }
 
         result
+    }
+}
+
+impl<F: Field> ArithmeticCircuit<F, usize> {
+    // usefull for tests
+    pub fn random<R: Rng>(rng: &mut R, n_nodes: usize, depth: usize) -> Self
+    where
+        StandardUniform: Distribution<F>,
+    {
+        let mut circuit = ArithmeticCircuit::Node(0);
+        let rand_f = |rng: &mut R| -> F { rng.random() };
+        let rand_n = |rng: &mut R| ArithmeticCircuit::Node(rng.random_range(0..n_nodes));
+
+        for _ in 0..depth {
+            let a = (circuit.clone() * rand_f(rng) + rand_f(rng)) * rand_n(rng);
+            let b = (circuit.clone() + a.clone() * rand_f(rng)) * rand_n(rng);
+            let c =
+                (a.clone() + b.clone() + circuit.clone() * rand_f(rng)) * rand_n(rng) + rand_n(rng);
+            let d = b.clone() + (c.clone() * rand_f(rng)) * rand_n(rng);
+            let e = (c.clone() + d.clone()) * rand_n(rng);
+            circuit = e.clone() + (d.clone() * rand_f(rng)) * rand_n(rng);
+            circuit = circuit.clone() + (circuit.clone() * rand_f(rng)) * rand_n(rng);
+            circuit = circuit.clone() * rand_n(rng) + (circuit.clone() * rand_f(rng)) * rand_n(rng);
+            circuit = circuit.clone() + (circuit.clone() * rand_f(rng)) * rand_n(rng);
+        }
+
+        circuit
     }
 }
 

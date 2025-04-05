@@ -1,117 +1,27 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+mod init;
+use algebra::pols::{MultilinearPolynomial, TransparentComputation};
+pub use init::*;
+
 #[cfg(test)]
 mod tests;
 
-use std::sync::{Arc, OnceLock};
+use cudarc::driver::{DevicePtr, DriverError, LaunchAsync, LaunchConfig};
 
-use cudarc::{
-    driver::{CudaDevice, CudaSlice, DriverError, LaunchAsync, LaunchConfig},
-    nvrtc::Ptx,
-};
-
-use p3_field::TwoAdicField;
-use rayon::prelude::*;
+use p3_field::{ExtensionField, PrimeField32, TwoAdicField};
 use tracing::instrument;
 
-const NTT_LOG_N_THREADS_PER_BLOCK: u32 = 8; // TODO this value is also hardcoded in ntt.cuda, this is ugly
+// TODO this value is also hardcoded in ntt.cuda, this is ugly
+const NTT_LOG_N_THREADS_PER_BLOCK: u32 = 8;
 const NTT_N_THREADS_PER_BLOCK: u32 = 1 << NTT_LOG_N_THREADS_PER_BLOCK;
-const NTT_MAX_LOG_N_BLOCKS: u32 = 5; // Should be a power of two, Should be not too big to avoid CUDA_ERROR_COOPERATIVE_LAUNCH_TOO_LARGE
 
-pub struct CudaInfo {
-    dev: Arc<CudaDevice>,
-    twiddles: CudaSlice<u32>, // For now we restrain ourseleves to the 2-addic roots of unity in the prime fields, so each one is represented by a u32
-    two_adicity: usize,
-}
+// TODO same remark, avoid hardcoding
+const SUMCHECK_LOG_N_THREADS_PER_BLOCK: u32 = 8;
+const SUMCHECK_N_THREADS_PER_BLOCK: u32 = 1 << SUMCHECK_LOG_N_THREADS_PER_BLOCK;
 
-static CUDA_INFO: OnceLock<CudaInfo> = OnceLock::new();
-
-fn cuda_info() -> &'static CudaInfo {
-    CUDA_INFO.get().expect("CUDA not initialized")
-}
-
-#[instrument(name = "CUDA initialization", skip_all)]
-pub fn init_cuda<F: TwoAdicField>() {
-    let _ = CUDA_INFO.get_or_init(|| {
-        let dev = CudaDevice::new(0).unwrap();
-
-        let keccak_ptx_path = env!("PTX_KECCAK_PATH");
-        let keccak_ptx = std::fs::read_to_string(keccak_ptx_path).expect("Failed to read PTX file");
-        dev.load_ptx(Ptx::from_src(keccak_ptx), "keccak", &["batch_keccak256"])
-            .unwrap();
-
-        let keccak_ptx_path = env!("PTX_NTT_PATH");
-        let keccak_ptx = std::fs::read_to_string(keccak_ptx_path).expect("Failed to read PTX file");
-        dev.load_ptx(Ptx::from_src(keccak_ptx), "ntt", &["ntt"])
-            .unwrap();
-
-        let keccak_ptx_path = env!("PTX_SUMCHECK_PATH");
-        let keccak_ptx = std::fs::read_to_string(keccak_ptx_path).expect("Failed to read PTX file");
-        dev.load_ptx(
-            Ptx::from_src(keccak_ptx),
-            "sumcheck",
-            &[
-                "fold_prime_by_prime",
-                "fold_prime_by_ext",
-                "fold_ext_by_prime",
-                "fold_ext_by_ext",
-                "sum_over_hypercube_ext",
-            ],
-        )
-        .unwrap();
-
-        let twiddles = store_twiddles::<F>(&dev).unwrap();
-
-        CudaInfo {
-            dev,
-            twiddles,
-            two_adicity: F::TWO_ADICITY,
-        }
-    });
-}
-
-#[instrument(name = "pre-processing twiddles for CUDA", skip_all)]
-fn store_twiddles<F: TwoAdicField>(dev: &Arc<CudaDevice>) -> Result<CudaSlice<u32>, DriverError> {
-    assert!(F::bits() <= 32);
-    let num_threads = rayon::current_num_threads().next_power_of_two();
-    let mut all_twiddles = Vec::new();
-    for i in 0..=F::TWO_ADICITY {
-        // TODO only use the required twiddles (TWO_ADICITY may be larger than needed)
-        let root = F::two_adic_generator(i);
-        let twiddles = if (1 << i) <= num_threads {
-            (0..1 << i)
-                .into_iter()
-                .map(|j| root.exp_u64(j as u64))
-                .collect::<Vec<F>>()
-        } else {
-            let chunk_size = (1 << i) / num_threads;
-            (0..num_threads)
-                .into_par_iter()
-                .map(|j| {
-                    let mut start = root.exp_u64(j as u64 * chunk_size as u64);
-                    let mut chunck = Vec::new();
-                    for _ in 0..chunk_size {
-                        chunck.push(start);
-                        start = start * root;
-                    }
-                    chunck
-                })
-                .flatten()
-                .collect()
-        };
-        all_twiddles.extend(twiddles);
-    }
-
-    let all_twiddles_u32 = unsafe {
-        std::slice::from_raw_parts(all_twiddles.as_ptr() as *const u32, all_twiddles.len())
-    }
-    .to_vec();
-
-    let all_twiddles_dev = dev.htod_copy(all_twiddles_u32).unwrap();
-    dev.synchronize().unwrap();
-
-    Ok(all_twiddles_dev)
-}
+// Should be not too big to avoid CUDA_ERROR_COOPERATIVE_LAUNCH_TOO_LARGE
+const MAX_LOG_N_BLOCKS: u32 = 5;
 
 pub fn cuda_batch_keccak(
     buff: &[u8],
@@ -179,8 +89,8 @@ pub fn cuda_ntt<F: TwoAdicField>(coeffs: &[F], expansion_factor: usize) -> Vec<F
         "Cuda small NTT not suported (for now), use CPU instead"
     );
 
-    let log_n_blocks = (log_len + log_expension_factor - NTT_LOG_N_THREADS_PER_BLOCK - 1)
-        .min(NTT_MAX_LOG_N_BLOCKS);
+    let log_n_blocks =
+        (log_len + log_expension_factor - NTT_LOG_N_THREADS_PER_BLOCK - 1).min(MAX_LOG_N_BLOCKS);
     let n_blocks = 1 << log_n_blocks;
 
     assert!(
@@ -243,4 +153,89 @@ pub fn cuda_ntt<F: TwoAdicField>(coeffs: &[F], expansion_factor: usize) -> Vec<F
     // Prevent the original vector from being dropped
     let _ = std::mem::ManuallyDrop::new(cuda_result_u32);
     unsafe { Vec::from_raw_parts(ptr, expanded_len, expanded_len) }
+}
+
+pub fn cuda_sum_over_hypercube<const EXT_DEGREE: usize, F: PrimeField32, EF: ExtensionField<F>>(
+    composition: &TransparentComputation<F, EF>,
+    multilinears: &[MultilinearPolynomial<EF>],
+    batching_scalars: &[EF],
+) -> [u32; EXT_DEGREE] {
+    // TODO return EF
+    let dev = &cuda_info().dev;
+    assert!(
+        multilinears
+            .iter()
+            .all(|m| m.n_vars == multilinears[0].n_vars)
+    );
+    let n_vars = multilinears[0].n_vars as u32;
+
+    let batching_scalars_u32 = if batching_scalars.is_empty() {
+        // We put 1 dummy scalar because N_BATCHING_SCALARS is always N_BATCHING_SCALARS >= 1 (To avoid an nvcc error)
+        &[0_u32; EXT_DEGREE]
+    } else {
+        unsafe {
+            std::slice::from_raw_parts(
+                batching_scalars.as_ptr() as *const u32,
+                EXT_DEGREE * batching_scalars.len(),
+            )
+        }
+    };
+    let batching_scalars_dev = dev.htod_copy(batching_scalars_u32.to_vec()).unwrap();
+
+    let log_n_blocks =
+        (n_vars.saturating_sub(SUMCHECK_LOG_N_THREADS_PER_BLOCK)).min(MAX_LOG_N_BLOCKS);
+    let n_blocks = 1 << log_n_blocks;
+    let cfg = LaunchConfig {
+        grid_dim: (n_blocks, 1, 1),
+        block_dim: (SUMCHECK_N_THREADS_PER_BLOCK, 1, 1),
+        shared_mem_bytes: batching_scalars.len() as u32 * EXT_DEGREE as u32 * 4, // cf: __shared__ ExtField cached_batching_scalars[N_BATCHING_SCALARS];
+    };
+
+    // TODO this could be parallelized ?
+    let multilinears_dev = multilinears
+        .iter()
+        .map(|multilinear| {
+            dev.htod_sync_copy(unsafe {
+                std::slice::from_raw_parts(
+                    multilinear.evals.as_ptr() as *const u32,
+                    EXT_DEGREE << n_vars,
+                )
+            })
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+
+    let multilinears_ptrs_dev = dev
+        .htod_sync_copy(
+            &multilinears_dev
+                .iter()
+                .map(|slice_dev| *slice_dev.device_ptr())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+
+    let mut sums_dev = unsafe { dev.alloc::<u32>(EXT_DEGREE << n_vars).unwrap() };
+
+    let mut res_dev = unsafe { dev.alloc::<u32>(EXT_DEGREE).unwrap() };
+
+    let module_name = format!("sumcheck_{:x}", composition.uuid());
+    let f = dev
+        .get_func(&module_name, "sum_over_hypercube_ext")
+        .unwrap();
+    unsafe {
+        f.launch_cooperative(
+            cfg,
+            (
+                &multilinears_ptrs_dev,
+                &mut sums_dev,
+                &batching_scalars_dev,
+                n_vars as u32,
+                &mut res_dev,
+            ),
+        )
+    }
+    .unwrap();
+
+    let res_u32: [u32; EXT_DEGREE] = dev.sync_reclaim(res_dev).unwrap().try_into().unwrap();
+    res_u32
 }

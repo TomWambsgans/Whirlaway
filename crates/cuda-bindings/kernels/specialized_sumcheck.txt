@@ -1,0 +1,85 @@
+/*
+
+This file is a template, automatically generated for each sumcheck composition.
+
+*/
+
+#include <stdio.h>
+#include <stdint.h>
+#include <device_launch_parameters.h>
+#include <cooperative_groups.h>
+
+#include "../finite_field.cu"
+
+// TODO avoid hardcoding
+#define LOG_N_THREADS_PER_BLOCK 8
+#define N_THREADS_PER_BLOCK (1 << LOG_N_THREADS_PER_BLOCK)
+
+#define N_BATCHING_SCALARS N_BATCHING_SCALARS_PLACEHOLDER
+#define N_REGISTERS N_REGISTERS_PLACEHOLDER // Should idealy be as low as possible, because otherwise the cuda compiler will be forced to use global memory (-> "local" memory) instead of thread registers
+
+// TODO avoid embedding overhead in the first round
+extern "C" __global__ void sum_over_hypercube_ext(const ExtField **multilinears, ExtField *sums, const ExtField *batching_scalars, const uint32_t n_vars, ExtField *res)
+{
+    namespace cg = cooperative_groups;
+    cg::grid_group grid = cg::this_grid();
+
+    const int n_total_threads = N_THREADS_PER_BLOCK * gridDim.x;
+
+    __shared__ ExtField cached_batching_scalars[N_BATCHING_SCALARS];
+
+    // 1) Copy batching_scalars to shared memory
+    for (int rep = 0; rep < (N_BATCHING_SCALARS + N_THREADS_PER_BLOCK - 1) / N_THREADS_PER_BLOCK; rep++)
+    {
+        const int thread_index = threadIdx.x + rep * N_THREADS_PER_BLOCK;
+        if (thread_index < N_BATCHING_SCALARS)
+            cached_batching_scalars[thread_index] = batching_scalars[thread_index];
+    }
+
+    __syncthreads();
+
+    // 2) Compute all the sums, and stored them in `sums`
+
+    const int n_reps = ((1 << n_vars) + n_total_threads - 1) / n_total_threads;
+
+    for (int rep = 0; rep < n_reps; rep++)
+    {
+        const int thread_index = threadIdx.x + (blockIdx.x + rep * gridDim.x) * N_THREADS_PER_BLOCK;
+
+        // we want to compute sum[thread_index]
+
+        ExtField regs[N_REGISTERS];
+
+        {
+            // AUTOMATICALLY GENERATED (harcoded composition from the sumcheck)
+
+COMPOSITION_PLACEHOLDER
+        }
+
+        sums[thread_index] = regs[N_REGISTERS - 1];
+    }
+
+    grid.sync();
+
+    // 3) Compute the final sum
+
+    for (int step = 0; step < n_vars; step++)
+    {
+        const int half_len = 1 << (n_vars - step - 1);
+        const int n_reps = (half_len + n_total_threads - 1) / n_total_threads;
+        for (int rep = 0; rep < n_reps; rep++)
+        {
+            const int thread_index = threadIdx.x + (blockIdx.x + rep * gridDim.x) * N_THREADS_PER_BLOCK;
+            if (thread_index < half_len)
+            {
+                ext_field_add(&sums[thread_index], &sums[thread_index + half_len], &sums[thread_index]);
+            }
+        }
+        grid.sync();
+    }
+
+    if (threadIdx.x == 0 && blockIdx.x == 0)
+    {
+        res[0] = sums[0];
+    }
+}

@@ -112,7 +112,7 @@ impl<F: Field> GenericTransparentMultivariatePolynomial<F> {
     }
 
     pub fn fix_computation(&self) -> CircuitComputation<F, usize> {
-        self.coefs.fix_computation()
+        self.coefs.fix_computation(true)
     }
 }
 

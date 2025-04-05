@@ -85,7 +85,7 @@ __device__ void ext_field_sub(const ExtField *a, const ExtField *b, ExtField *re
     }
 }
 
-__device__ void mul_prime_by_ext_field(const ExtField *a, uint32_t b, ExtField *result)
+__device__ void mul_prime_and_ext_field(const ExtField *a, uint32_t b, ExtField *result)
 {
     // Works even if result is the same as a
     for (int i = 0; i < EXT_DEGREE; i++)
@@ -96,7 +96,13 @@ __device__ void mul_prime_by_ext_field(const ExtField *a, uint32_t b, ExtField *
 
 __device__ void add_prime_and_ext_field(const ExtField *a, uint32_t b, ExtField *result)
 {
+    // TODO this would be more efficient in place (to avoid the copy loop)
+
     result->coeffs[0] = monty_field_add(a->coeffs[0], b);
+    for (int i = 1; i < EXT_DEGREE; i++)
+    {
+        result->coeffs[i] = a->coeffs[i];
+    }
 }
 
 // TODO Karatsuba ?

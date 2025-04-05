@@ -8,12 +8,9 @@ cudarc.workspace = true
 rayon.workspace = true
 tracing.workspace = true
 p3-field.workspace = true
-
-[build-dependencies]
-cudarc.workspace = true
+algebra.workspace = true
 
 [dev-dependencies]
 sha3.workspace = true
 p3-koala-bear.workspace = true
 rand.workspace = true
-algebra.workspace = true
