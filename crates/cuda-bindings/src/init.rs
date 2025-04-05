@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -7,16 +8,18 @@ use std::sync::{Arc, OnceLock};
 
 use algebra::pols::{CircuitComputation, CircuitOp, ComputationInput, TransparentComputation};
 use cudarc::driver::sys::CUdevice_attribute;
-use cudarc::driver::{CudaDevice, CudaSlice, DriverError};
+use cudarc::driver::{CudaContext, CudaFunction, CudaSlice, CudaStream, DriverError};
 use cudarc::nvrtc::Ptx;
 use p3_field::{ExtensionField, PrimeField32, TwoAdicField};
 use rayon::prelude::*;
 use tracing::instrument;
 
 pub struct CudaInfo {
-    pub dev: Arc<CudaDevice>,
+    pub dev: Arc<CudaContext>,
+    pub stream: Arc<CudaStream>,
     pub twiddles: CudaSlice<u32>, // For now we restrain ourseleves to the 2-addic roots of unity in the prime fields, so each one is represented by a u32
     pub two_adicity: usize,
+    functions: HashMap<String, HashMap<&'static str, CudaFunction>>, // module => function_name => cuda_function
 }
 
 const MAX_NUMBER_OF_SUMCHECK_COMPOSITION_INSTRUCTIONS_TO_REMOVE_INLINING: usize = 10;
@@ -25,6 +28,15 @@ static CUDA_INFO: OnceLock<CudaInfo> = OnceLock::new();
 
 pub fn cuda_info() -> &'static CudaInfo {
     CUDA_INFO.get().expect("CUDA not initialized")
+}
+
+impl CudaInfo {
+    pub fn get_function(&self, module: &str, func_name: &str) -> &CudaFunction {
+        self.functions
+            .get(module)
+            .and_then(|f| f.get(func_name))
+            .unwrap_or_else(|| panic!("Function {func_name} not found in module {module}"))
+    }
 }
 
 #[instrument(name = "CUDA initialization", skip_all)]
@@ -37,7 +49,7 @@ pub fn init<F: TwoAdicField + PrimeField32, EF: ExtensionField<F>>(
 fn _init<F: TwoAdicField + PrimeField32, EF: ExtensionField<F>>(
     sumcheck_compositions: &[&TransparentComputation<F, EF>],
 ) -> CudaInfo {
-    let dev = CudaDevice::new(0).unwrap();
+    let dev = CudaContext::new(0).unwrap();
 
     // TODO avoid this ugly trick
     let kernels_folder = if Path::new("kernels").exists() {
@@ -45,6 +57,8 @@ fn _init<F: TwoAdicField + PrimeField32, EF: ExtensionField<F>>(
     } else {
         Path::new("crates/cuda-bindings/kernels")
     };
+
+    let mut functions = HashMap::new();
 
     for (module, func_names) in [
         ("keccak", vec!["batch_keccak256"]),
@@ -65,12 +79,12 @@ fn _init<F: TwoAdicField + PrimeField32, EF: ExtensionField<F>>(
             module,
             func_names,
             false,
+            &mut functions,
         );
     }
 
     let specialized_sumcheck_template =
-        std::fs::read_to_string(Path::new(kernels_folder).join("sumcheck_template.txt"))
-            .unwrap();
+        std::fs::read_to_string(Path::new(kernels_folder).join("sumcheck_template.txt")).unwrap();
 
     let cuda_generated_dir = kernels_folder.join("auto_generated");
     fs::create_dir_all(&cuda_generated_dir).unwrap();
@@ -93,24 +107,30 @@ fn _init<F: TwoAdicField + PrimeField32, EF: ExtensionField<F>>(
             &module,
             vec!["sum_over_hypercube_ext"],
             use_noinline,
+            &mut functions,
         );
     }
 
-    let twiddles = store_twiddles::<F>(&dev).unwrap();
+    let stream = dev.default_stream();
+
+    let twiddles = store_twiddles::<F>(&stream).unwrap();
 
     CudaInfo {
         dev,
+        stream,
         twiddles,
         two_adicity: F::TWO_ADICITY,
+        functions,
     }
 }
 
 fn compile_module(
-    dev: Arc<CudaDevice>,
+    dev: Arc<CudaContext>,
     cuda_file: &PathBuf,
     module: &str,
     func_names: Vec<&'static str>,
     use_noinline: bool,
+    functions: &mut HashMap<String, HashMap<&'static str, CudaFunction>>, // module => function_name => cuda_function
 ) {
     let ptx_file = my_temp_dir().join(format!("{module}.ptx"));
     let (major, minor) = cuda_compute_capacity().expect("Failed to get CUDA compute capability");
@@ -162,12 +182,20 @@ fn compile_module(
     }
 
     let ptx_content = std::fs::read_to_string(ptx_file).expect("Failed to read PTX file");
-    dev.load_ptx(Ptx::from_src(ptx_content), module, &func_names)
-        .unwrap();
+    let my_module = dev.load_module(Ptx::from_src(ptx_content)).unwrap();
+    functions.insert(
+        module.to_string(),
+        func_names
+            .iter()
+            .map(|fn_name| (*fn_name, my_module.load_function(fn_name).unwrap()))
+            .collect::<HashMap<_, _>>(),
+    );
 }
 
 #[instrument(name = "pre-processing twiddles for CUDA NTT", skip_all)]
-fn store_twiddles<F: TwoAdicField>(dev: &Arc<CudaDevice>) -> Result<CudaSlice<u32>, DriverError> {
+fn store_twiddles<F: TwoAdicField>(
+    stream: &Arc<CudaStream>,
+) -> Result<CudaSlice<u32>, DriverError> {
     assert!(F::bits() <= 32);
     let num_threads = rayon::current_num_threads().next_power_of_two();
     let mut all_twiddles = Vec::new();
@@ -203,14 +231,18 @@ fn store_twiddles<F: TwoAdicField>(dev: &Arc<CudaDevice>) -> Result<CudaSlice<u3
     }
     .to_vec();
 
-    let all_twiddles_dev = dev.htod_copy(all_twiddles_u32).unwrap();
-    dev.synchronize().unwrap();
+    let mut all_twiddles_dev = unsafe { stream.alloc::<u32>(all_twiddles.len()).unwrap() };
+
+    stream
+        .memcpy_htod(&all_twiddles_u32, &mut all_twiddles_dev)
+        .unwrap();
+    stream.synchronize().unwrap();
 
     Ok(all_twiddles_dev)
 }
 
 fn cuda_compute_capacity() -> Result<(i32, i32), Box<dyn Error>> {
-    let dev = CudaDevice::new(0)?;
+    let dev = CudaContext::new(0)?;
     let major = dev.attribute(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR)?;
     let minor = dev.attribute(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR)?;
 

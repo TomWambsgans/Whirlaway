@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use algebra::pols::{MultilinearPolynomial, TransparentComputation};
-use cudarc::driver::{DevicePtr, LaunchAsync, LaunchConfig};
+use cudarc::driver::{DevicePtr, LaunchConfig, PushKernelArg};
 
 use p3_field::{ExtensionField, PrimeField32};
 
@@ -17,7 +17,7 @@ pub fn cuda_sum_over_hypercube<const EXT_DEGREE: usize, F: PrimeField32, EF: Ext
     batching_scalars: &[EF],
 ) -> ([u32; EXT_DEGREE], Duration) {
     // TODO return EF
-    let dev = &cuda_info().dev;
+    let cuda = cuda_info();
     assert!(
         multilinears
             .iter()
@@ -36,7 +36,14 @@ pub fn cuda_sum_over_hypercube<const EXT_DEGREE: usize, F: PrimeField32, EF: Ext
             )
         }
     };
-    let batching_scalars_dev = dev.htod_copy(batching_scalars_u32.to_vec()).unwrap();
+    let mut batching_scalars_dev = unsafe {
+        cuda.stream
+            .alloc::<u32>(batching_scalars_u32.len())
+            .unwrap()
+    };
+    cuda.stream
+        .memcpy_htod(batching_scalars_u32, &mut batching_scalars_dev)
+        .unwrap();
 
     let log_n_blocks =
         (n_vars.saturating_sub(SUMCHECK_LOG_N_THREADS_PER_BLOCK)).min(MAX_LOG_N_BLOCKS);
@@ -48,52 +55,58 @@ pub fn cuda_sum_over_hypercube<const EXT_DEGREE: usize, F: PrimeField32, EF: Ext
     };
 
     let time = std::time::Instant::now();
-    // TODO this could be parallelized ?
+
     let multilinears_dev = multilinears
         .iter()
         .map(|multilinear| {
-            dev.htod_sync_copy(unsafe {
-                std::slice::from_raw_parts(
-                    multilinear.evals.as_ptr() as *const u32,
-                    EXT_DEGREE << n_vars,
+            let mut multiliner_dev =
+                unsafe { cuda.stream.alloc::<u32>(EXT_DEGREE << n_vars).unwrap() };
+            cuda.stream
+                .memcpy_htod(
+                    unsafe {
+                        std::slice::from_raw_parts(
+                            multilinear.evals.as_ptr() as *const u32,
+                            EXT_DEGREE << n_vars,
+                        )
+                    },
+                    &mut multiliner_dev,
                 )
-            })
-            .unwrap()
+                .unwrap();
+            multiliner_dev
         })
         .collect::<Vec<_>>();
 
-    let multilinears_ptrs_dev = dev
-        .htod_sync_copy(
+    let mut multilinears_ptrs_dev =
+        unsafe { cuda.stream.alloc::<u64>(multilinears_dev.len()).unwrap() }; // TODO avoid hardcoding u64 (this is platform dependent)
+    cuda.stream
+        .memcpy_htod(
             &multilinears_dev
                 .iter()
-                .map(|slice_dev| *slice_dev.device_ptr())
+                .map(|slice_dev| slice_dev.device_ptr(&cuda.stream).0)
                 .collect::<Vec<_>>(),
+            &mut multilinears_ptrs_dev,
         )
         .unwrap();
     let copy_duration = time.elapsed();
 
-    let mut sums_dev = unsafe { dev.alloc::<u32>(EXT_DEGREE << n_vars).unwrap() };
+    let mut sums_dev = unsafe { cuda.stream.alloc::<u32>(EXT_DEGREE << n_vars).unwrap() };
 
-    let mut res_dev = unsafe { dev.alloc::<u32>(EXT_DEGREE).unwrap() };
+    let mut res_dev = unsafe { cuda.stream.alloc::<u32>(EXT_DEGREE).unwrap() };
 
     let module_name = format!("sumcheck_{:x}", composition.uuid());
-    let f = dev
-        .get_func(&module_name, "sum_over_hypercube_ext")
-        .unwrap();
-    unsafe {
-        f.launch_cooperative(
-            cfg,
-            (
-                &multilinears_ptrs_dev,
-                &mut sums_dev,
-                &batching_scalars_dev,
-                n_vars as u32,
-                &mut res_dev,
-            ),
-        )
-    }
-    .unwrap();
+    let f = cuda.get_function(&module_name, "sum_over_hypercube_ext");
 
-    let res_u32: [u32; EXT_DEGREE] = dev.sync_reclaim(res_dev).unwrap().try_into().unwrap();
+    let mut launch_args = cuda.stream.launch_builder(&f);
+    launch_args.arg(&multilinears_ptrs_dev);
+    launch_args.arg(&mut sums_dev);
+    launch_args.arg(&batching_scalars_dev);
+    launch_args.arg(&n_vars);
+    launch_args.arg(&mut res_dev);
+    unsafe { launch_args.launch_cooperative(cfg) }.unwrap();
+
+    let mut res_u32 = [0u32; EXT_DEGREE];
+    cuda.stream.memcpy_dtoh(&res_dev, &mut res_u32).unwrap();
+    cuda.stream.synchronize().unwrap();
+
     (res_u32, copy_duration)
 }

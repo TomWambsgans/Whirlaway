@@ -1,4 +1,4 @@
-use cudarc::driver::{LaunchAsync, LaunchConfig};
+use cudarc::driver::{LaunchConfig, PushKernelArg};
 
 use p3_field::TwoAdicField;
 use tracing::instrument;
@@ -47,17 +47,20 @@ pub fn cuda_ntt<F: TwoAdicField>(coeffs: &[F], expansion_factor: usize) -> Vec<F
         )
     };
 
-    let coeffs_dev = cuda.dev.htod_sync_copy(coeffs_u32).unwrap();
+    let mut coeffs_dev = unsafe { cuda.stream.alloc::<u32>(coeffs_u32.len()).unwrap() };
+    cuda.stream
+        .memcpy_htod(coeffs_u32, &mut coeffs_dev)
+        .unwrap();
     cuda.dev.synchronize().unwrap();
 
     let mut buff_dev = unsafe {
-        cuda.dev
+        cuda.stream
             .alloc::<u32>(expanded_len * extension_degree)
             .unwrap()
     };
 
     let mut result_dev = unsafe {
-        cuda.dev
+        cuda.stream
             .alloc::<u32>(expanded_len * extension_degree)
             .unwrap()
     };
@@ -68,24 +71,22 @@ pub fn cuda_ntt<F: TwoAdicField>(coeffs: &[F], expansion_factor: usize) -> Vec<F
         shared_mem_bytes: (NTT_N_THREADS_PER_BLOCK * 2) * (extension_degree as u32 + 1) * 4, // cf `ntt_at_block_level` in ntt.cu
     };
 
-    let f_ntt = cuda.dev.get_func("ntt", "ntt").unwrap();
-    unsafe {
-        f_ntt.launch_cooperative(
-            cfg,
-            (
-                &coeffs_dev,
-                &mut buff_dev,
-                &mut result_dev,
-                log_len as u32,
-                log_expension_factor as u32,
-                &cuda.twiddles,
-            ),
-        )
-    }
-    .unwrap();
+    let f = cuda.get_function("ntt", "ntt");
+    let mut launch_args = cuda.stream.launch_builder(&f);
+    launch_args.arg(&coeffs_dev);
+    launch_args.arg(&mut buff_dev);
+    launch_args.arg(&mut result_dev);
+    launch_args.arg(&log_len);
+    launch_args.arg(&log_expension_factor);
+    launch_args.arg(&cuda.twiddles);
+    unsafe { launch_args.launch_cooperative(cfg) }.unwrap();
 
-    let cuda_result_u32: Vec<u32> = cuda.dev.sync_reclaim(result_dev).unwrap();
-    assert_eq!(cuda_result_u32.len(), expanded_len * extension_degree);
+    let mut cuda_result_u32 = vec![0u32; expanded_len * extension_degree];
+    cuda.stream
+        .memcpy_dtoh(&result_dev, &mut cuda_result_u32)
+        .unwrap();
+    cuda.stream.synchronize().unwrap();
+
     assert_eq!(cuda_result_u32.capacity(), cuda_result_u32.len());
 
     let ptr = cuda_result_u32.as_ptr() as *mut F;

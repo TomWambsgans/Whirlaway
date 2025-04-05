@@ -4,7 +4,7 @@ use algebra::{
     ntt::expand_from_coeff,
     pols::{ArithmeticCircuit, MultilinearPolynomial, TransparentComputation},
 };
-use cudarc::driver::{CudaDevice, sys::CUdevice_attribute};
+use cudarc::driver::{CudaContext, sys::CUdevice_attribute};
 use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::KoalaBear;
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -86,7 +86,8 @@ fn test_cuda_keccak() {
     println!("CPU took {} ms", time.elapsed().as_millis());
 
     let time = std::time::Instant::now();
-    let dest = cuda_batch_keccak(&src_bytes, input_length, input_packed_length).unwrap();
+    let dest =
+        cuda_batch_keccak(&src_bytes, input_length as u32, input_packed_length as u32).unwrap();
     println!("CUDA took {} ms", time.elapsed().as_millis());
     assert_eq!(dest.len(), expected_result.len());
 }
@@ -133,12 +134,12 @@ pub fn test_cuda_ntt() {
 }
 
 fn cuda_shared_memory() -> Result<usize, Box<dyn Error>> {
-    let dev = CudaDevice::new(0)?;
+    let dev = CudaContext::new(0)?;
     Ok(dev.attribute(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_SHARED_MEMORY_PER_BLOCK)? as usize)
 }
 
 fn cuda_constant_memory() -> Result<usize, Box<dyn Error>> {
-    let dev = CudaDevice::new(0)?;
+    let dev = CudaContext::new(0)?;
     Ok(dev.attribute(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_TOTAL_CONSTANT_MEMORY)? as usize)
 }
 

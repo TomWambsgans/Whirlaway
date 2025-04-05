@@ -36,7 +36,7 @@ p3-koala-bear = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = 
 p3-field = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "koala-bear-8" }
 p3-poseidon2 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "koala-bear-8" }
 p3-matrix = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "koala-bear-8" }
-cudarc = { version = "0.13.9", features = ["cuda-12040", "std", "cublas", "cublaslt", "curand", "driver", "runtime", "nvrtc"] }
+cudarc = { version = "0.14.0", features = ["cuda-12040", "std", "cublas", "cublaslt", "curand", "driver", "runtime", "nvrtc"] }
 
 [dependencies]
 cuda-bindings.workspace = true
