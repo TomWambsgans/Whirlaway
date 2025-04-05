@@ -111,33 +111,100 @@ __device__ MAYBE_NOINLINE void add_prime_and_ext_field(const ExtField *a, uint32
     }
 }
 
-// TODO Karatsuba ?
+// Extension field multiplication (with 1 "karatsuba step")
 __device__ MAYBE_NOINLINE void ext_field_mul(const ExtField *a, const ExtField *b, ExtField *result)
 {
-    // Does not work if result is the same as a or b
-    for (int i = 0; i < EXT_DEGREE; i++)
-    {
-        result->coeffs[i] = 0;
-    }
+    // a = a0 + a1.X + a2.X^2 + a3.X^3 + X^4.(a4 + a5.X + a6.X^2 + a7.X^3) = A0 + A1.X^4
+    // b = b0 + b1.X + b2.X^2 + b3.X^3 + X^4.(b4 + b5.X + b6.X^2 + b7.X^3) = B0 + B1.X^4
+    // a * b = A0.B0 + W.A1.B1 + X^4.[(A0 + A1).(B0 + B1) - A0.A1 - A1.B1]
 
-    // Schoolbook multiplication
-    for (int i = 0; i < EXT_DEGREE; i++)
+    ExtField A0_B0 = {0};
+    for (int i = 0; i < EXT_DEGREE / 2; i++)
     {
-        for (int j = 0; j < EXT_DEGREE; j++)
+        for (int j = 0; j < EXT_DEGREE / 2; j++)
         {
-
             uint32_t prod = monty_field_mul(a->coeffs[i], b->coeffs[j]);
-
-            if (i + j < EXT_DEGREE)
-            {
-                uint32_t temp = monty_field_add(result->coeffs[i + j], prod);
-                result->coeffs[i + j] = temp;
-            }
-            else
-            {
-                uint32_t temp = monty_field_mul(prod, W);
-                result->coeffs[i + j - EXT_DEGREE] = monty_field_add(result->coeffs[i + j - EXT_DEGREE], temp);
-            }
+            A0_B0.coeffs[i + j] = monty_field_add(A0_B0.coeffs[i + j], prod);
         }
     }
+
+    ExtField A1_B1 = {0};
+    for (int i = 0; i < EXT_DEGREE / 2; i++)
+    {
+        for (int j = 0; j < EXT_DEGREE / 2; j++)
+        {
+            uint32_t prod = monty_field_mul(a->coeffs[i + EXT_DEGREE / 2], b->coeffs[j + EXT_DEGREE / 2]);
+            A1_B1.coeffs[i + j] = monty_field_add(A1_B1.coeffs[i + j], prod);
+        }
+    }
+
+    uint32_t A0_PLUS_A1[EXT_DEGREE / 2];
+    for (int i = 0; i < EXT_DEGREE / 2; i++)
+    {
+        A0_PLUS_A1[i] = monty_field_add(a->coeffs[i], a->coeffs[i + EXT_DEGREE / 2]);
+    }
+
+    uint32_t B0_PLUS_B1[EXT_DEGREE / 2];
+    for (int i = 0; i < EXT_DEGREE / 2; i++)
+    {
+        B0_PLUS_B1[i] = monty_field_add(b->coeffs[i], b->coeffs[i + EXT_DEGREE / 2]);
+    }
+
+    ExtField A0_PLUS_A1_MULT_B0_PLUS_B1 = {0};
+    for (int i = 0; i < EXT_DEGREE / 2; i++)
+    {
+        for (int j = 0; j < EXT_DEGREE / 2; j++)
+        {
+            uint32_t prod = monty_field_mul(A0_PLUS_A1[i], B0_PLUS_B1[j]);
+            A0_PLUS_A1_MULT_B0_PLUS_B1.coeffs[i + j] = monty_field_add(A0_PLUS_A1_MULT_B0_PLUS_B1.coeffs[i + j], prod);
+        }
+    }
+
+    for (int i = 0; i < EXT_DEGREE / 2; i++)
+    {
+        result->coeffs[i] = monty_field_sub(A0_PLUS_A1_MULT_B0_PLUS_B1.coeffs[i + EXT_DEGREE / 2], A0_B0.coeffs[i + EXT_DEGREE / 2]);
+        result->coeffs[i] = monty_field_sub(result->coeffs[i], A1_B1.coeffs[i + EXT_DEGREE / 2]);
+        result->coeffs[i] = monty_field_mul(result->coeffs[i], W);
+    }
+
+    for (int i = 0; i < EXT_DEGREE / 2; i++)
+    {
+        result->coeffs[i + EXT_DEGREE / 2] = monty_field_sub(A0_PLUS_A1_MULT_B0_PLUS_B1.coeffs[i], A0_B0.coeffs[i]);
+        result->coeffs[i + EXT_DEGREE / 2] = monty_field_sub(result->coeffs[i + EXT_DEGREE / 2], A1_B1.coeffs[i]);
+    }
+
+    ext_field_add(&A0_B0, result, result);
+    mul_prime_and_ext_field(&A1_B1, W, &A1_B1);
+    ext_field_add(result, &A1_B1, result);
 }
+
+// Schoolbook multiplication for extension fields
+// __device__ MAYBE_NOINLINE void ext_field_mul(const ExtField *a, const ExtField *b, ExtField *result)
+// {
+//     // Does not work if result is the same as a or b
+//     for (int i = 0; i < EXT_DEGREE; i++)
+//     {
+//         result->coeffs[i] = 0;
+//     }
+
+//     // Schoolbook multiplication
+//     for (int i = 0; i < EXT_DEGREE; i++)
+//     {
+//         for (int j = 0; j < EXT_DEGREE; j++)
+//         {
+
+//             uint32_t prod = monty_field_mul(a->coeffs[i], b->coeffs[j]);
+
+//             if (i + j < EXT_DEGREE)
+//             {
+//                 uint32_t temp = monty_field_add(result->coeffs[i + j], prod);
+//                 result->coeffs[i + j] = temp;
+//             }
+//             else
+//             {
+//                 uint32_t temp = monty_field_mul(prod, W);
+//                 result->coeffs[i + j - EXT_DEGREE] = monty_field_add(result->coeffs[i + j - EXT_DEGREE], temp);
+//             }
+//         }
+//     }
+// }
