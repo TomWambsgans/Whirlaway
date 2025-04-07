@@ -3,7 +3,6 @@
 ## Short Term
 
 - In whir::prove, the hypercube sum is already known, so no need to recompute it in sumcheck::prove
-- Fix NTT (fn new_from_field(), where 24 is hardcoded for koala-bear)
 - Avoid variable reversing for whir sumchecks
 - Use prefix to distinguish between leaf and internal nodes in Merkle tree (cf. RFC-6962) for soundness
 - improve serialization / deserialization of field elements, improve fiat shamir

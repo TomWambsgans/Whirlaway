@@ -147,14 +147,15 @@ pub fn test_cuda_ntt() {
 
     const EXT_DEGREE: usize = 8;
 
-    type F = BinomialExtensionField<KoalaBear, EXT_DEGREE>;
+    type F = KoalaBear;
+    type EF = BinomialExtensionField<F, EXT_DEGREE>;
 
     let rng = &mut StdRng::seed_from_u64(0);
     let log_len = 20;
     let len = 1 << log_len;
     let log_expension_factor: usize = 3;
     let expansion_factor = 1 << log_expension_factor;
-    let coeffs = (0..len).map(|_| rng.random()).collect::<Vec<F>>();
+    let coeffs = (0..len).map(|_| rng.random()).collect::<Vec<EF>>();
 
     println!(
         "number of field elements: {}, expension factor: {}",
@@ -165,7 +166,7 @@ pub fn test_cuda_ntt() {
     println!("CUDA NTT took {} ms", time.elapsed().as_millis());
 
     let time = std::time::Instant::now();
-    let expected_result = expand_from_coeff(&coeffs, expansion_factor);
+    let expected_result = expand_from_coeff::<F, EF>(&coeffs, expansion_factor);
     println!("CPU NTT took {} ms", time.elapsed().as_millis());
 
     assert_eq!(cuda_result, expected_result);

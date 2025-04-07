@@ -119,7 +119,8 @@ pub fn prove_poseidon2(log_n_rows: usize, security_bits: usize, log_inv_rate: us
         cuda_bindings::init(&[sumcheck_computations]);
     }
 
-    let pcs = RingSwitch::<F, EF, WhirPCS<EF>>::new(
+
+    let pcs = RingSwitch::<F, EF, WhirPCS<F, EF>>::new(
         log_n_rows + table.log_n_witness_columns(),
         &whir_params,
     );

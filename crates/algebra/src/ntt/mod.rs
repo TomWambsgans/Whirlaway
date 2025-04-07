@@ -7,7 +7,7 @@ mod utils;
 mod wavelet;
 
 use self::matrix::MatrixMut;
-use p3_field::TwoAdicField;
+use p3_field::{ExtensionField, TwoAdicField};
 
 use rayon::prelude::*;
 use tracing::instrument;
@@ -19,9 +19,12 @@ pub use self::{
 };
 
 /// RS encode at a rate 1/`expansion`.
-#[instrument(name = "ntt: expand_from_coeff", skip_all)]
-pub fn expand_from_coeff<F: TwoAdicField>(coeffs: &[F], expansion: usize) -> Vec<F> {
-    let engine = ntt::NttEngine::<F>::new_from_cache();
+#[instrument(name = "cpu: expand_from_coeff", skip_all)]
+pub fn expand_from_coeff<F: TwoAdicField, EF: ExtensionField<F>>(
+    coeffs: &[EF],
+    expansion: usize,
+) -> Vec<EF> {
+    let engine = ntt::NttEngine::<F, EF>::new_from_cache();
     let expanded_size = coeffs.len() * expansion;
     let mut result = Vec::with_capacity(expanded_size);
     // Note: We can also zero-extend the coefficients and do a larger NTT.

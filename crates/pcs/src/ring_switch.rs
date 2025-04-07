@@ -224,7 +224,7 @@ mod test {
         let log_inv_rate = 4;
 
         let rng = &mut StdRng::seed_from_u64(0);
-        let ring_switch = RingSwitch::<F, EF, WhirPCS<EF>>::new(
+        let ring_switch = RingSwitch::<F, EF, WhirPCS<F, EF>>::new(
             n_vars,
             &WhirParameters::standard(security_bits, log_inv_rate, false),
         );

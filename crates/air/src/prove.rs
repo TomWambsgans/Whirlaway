@@ -94,8 +94,6 @@ impl<F: Field> AirTable<F> {
             .collect::<Vec<_>>();
         fs_prover.add_scalars(&inner_sums);
 
-        let initial_transcript_len = fs_prover.transcript_len();
-
         let inner_sumcheck_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
 
         let mles_for_inner_sumcheck = {
@@ -156,12 +154,10 @@ impl<F: Field> AirTable<F> {
             point: final_point,
             value: packed_value,
         };
-        pcs.open(packed_pol_witness, &packed_eval, fs_prover);
 
-        tracing::info!(
-            "inner sumchecks transcript length: {:.1}Kib",
-            (fs_prover.transcript_len() - initial_transcript_len) as f64 / 1024.
-        );
+        std::mem::drop(_span);
+
+        pcs.open(packed_pol_witness, &packed_eval, fs_prover);
     }
 }
 

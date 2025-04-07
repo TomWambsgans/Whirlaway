@@ -2,7 +2,7 @@ use super::{Statement, committer::Witness, parameters::WhirConfig};
 use crate::{
     domain::Domain,
     poly_utils::{coeffs::CoefficientList, fold::restructure_evaluations},
-    utils::{self, expand_from_coeff_maybe_with_cuda},
+    utils::expand_from_coeff_maybe_with_cuda,
 };
 use algebra::{
     field_utils::{dot_product, multilinear_point_from_univariate},
@@ -11,20 +11,20 @@ use algebra::{
 };
 use fiat_shamir::FsProver;
 use merkle_tree::MerkleTree;
-use p3_field::{Field, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use tracing::instrument;
 
 use crate::whir::fs_utils::get_challenge_stir_queries;
 
-pub struct Prover<F: TwoAdicField>(pub WhirConfig<F>);
+pub struct Prover<F: TwoAdicField, EF: ExtensionField<F>>(pub WhirConfig<F, EF>);
 
-impl<F: TwoAdicField> Prover<F> {
+impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
     fn validate_parameters(&self) -> bool {
         self.0.mv_parameters.num_variables
             == self.0.folding_factor.total_number(self.0.n_rounds()) + self.0.final_sumcheck_rounds
     }
 
-    fn validate_statement(&self, statement: &Statement<F>) -> bool {
+    fn validate_statement(&self, statement: &Statement<EF>) -> bool {
         if statement.points.len() != statement.evaluations.len() {
             return false;
         }
@@ -38,7 +38,7 @@ impl<F: TwoAdicField> Prover<F> {
         true
     }
 
-    fn validate_witness(&self, witness: &Witness<F>) -> bool {
+    fn validate_witness(&self, witness: &Witness<EF>) -> bool {
         assert_eq!(witness.ood_points.len(), witness.ood_answers.len());
         witness.polynomial.num_variables() == self.0.mv_parameters.num_variables
     }
@@ -47,8 +47,8 @@ impl<F: TwoAdicField> Prover<F> {
     pub fn prove(
         &self,
         fs_prover: &mut FsProver,
-        statement: Statement<F>,
-        witness: Witness<F>,
+        statement: Statement<EF>,
+        witness: Witness<EF>,
     ) -> Option<()> {
         assert!(self.validate_parameters());
         assert!(self.validate_statement(&statement));
@@ -72,7 +72,7 @@ impl<F: TwoAdicField> Prover<F> {
         let folding_randomness = {
             // If there is initial statement, then we run the sum-check for
             // this initial statement.
-            let combination_randomness_gen = fs_prover.challenge_scalars(1)[0];
+            let combination_randomness_gen = fs_prover.challenge_scalars::<EF>(1)[0];
             let combination_randomness =
                 expand_randomness(combination_randomness_gen, initial_claims.len());
 
@@ -90,7 +90,7 @@ impl<F: TwoAdicField> Prover<F> {
                     (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
                         .fix_computation(false),
                 ],
-                &[F::ONE],
+                &[EF::ONE],
                 None,
                 false,
                 fs_prover,
@@ -115,7 +115,7 @@ impl<F: TwoAdicField> Prover<F> {
         self.round(fs_prover, round_state)
     }
 
-    fn round(&self, fs_prover: &mut FsProver, mut round_state: RoundState<F>) -> Option<()> {
+    fn round(&self, fs_prover: &mut FsProver, mut round_state: RoundState<F, EF>) -> Option<()> {
         // Fold the coefficients
         let folded_coefficients = round_state
             .coefficients
@@ -170,7 +170,7 @@ impl<F: TwoAdicField> Prover<F> {
                         (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
                             .fix_computation(false),
                     ],
-                    &[F::ONE],
+                    &[EF::ONE],
                     None,
                     false,
                     fs_prover,
@@ -188,18 +188,13 @@ impl<F: TwoAdicField> Prover<F> {
         // Fold the coefficients, and compute fft of polynomial (and commit)
         let new_domain = round_state.domain.scale(2);
         let expansion = new_domain.size() / folded_coefficients.num_coeffs();
-        let evals =
-            expand_from_coeff_maybe_with_cuda(folded_coefficients.coeffs(), expansion, self.0.cuda);
-        // Group the evaluations into leaves by the *next* round folding factor
-        // TODO: `stack_evaluations` and `restructure_evaluations` are really in-place algorithms.
-        // They also partially overlap and undo one another. We should merge them.
-        let folded_evals = utils::stack_evaluations(
-            evals,
-            self.0.folding_factor.at_round(round_state.round + 1), // Next round fold factor
+        let evals = expand_from_coeff_maybe_with_cuda::<F, EF>(
+            folded_coefficients.coeffs(),
+            expansion,
+            self.0.cuda,
         );
-        let folded_evals = restructure_evaluations(
-            folded_evals,
-            new_domain.backing_domain.group_gen(),
+        let folded_evals = restructure_evaluations::<F, EF>(
+            evals,
             new_domain.backing_domain.group_gen_inv(),
             self.0.folding_factor.at_round(round_state.round + 1),
         );
@@ -212,10 +207,10 @@ impl<F: TwoAdicField> Prover<F> {
         fs_prover.add_bytes(&merkle_tree.root());
 
         // OOD Samples
-        let mut ood_points = vec![F::ZERO; round_params.ood_samples];
+        let mut ood_points = vec![EF::ZERO; round_params.ood_samples];
         let mut ood_answers = Vec::with_capacity(round_params.ood_samples);
         if round_params.ood_samples > 0 {
-            ood_points = fs_prover.challenge_scalars(round_params.ood_samples);
+            ood_points = fs_prover.challenge_scalars::<EF>(round_params.ood_samples);
             ood_answers.extend(ood_points.iter().map(|ood_point| {
                 folded_coefficients.evaluate(&multilinear_point_from_univariate(
                     *ood_point,
@@ -242,7 +237,7 @@ impl<F: TwoAdicField> Prover<F> {
             .chain(
                 stir_challenges_indexes
                     .iter()
-                    .map(|i| domain_scaled_gen.exp_u64(*i as u64)),
+                    .map(|i| EF::from(domain_scaled_gen.exp_u64(*i as u64))),
             )
             .map(|univariate| multilinear_point_from_univariate(univariate, num_variables))
             .collect();
@@ -273,7 +268,7 @@ impl<F: TwoAdicField> Prover<F> {
         }
 
         // Randomness for combination
-        let combination_randomness_gen = fs_prover.challenge_scalars(1)[0];
+        let combination_randomness_gen = fs_prover.challenge_scalars::<EF>(1)[0];
         let combination_randomness =
             expand_randomness(combination_randomness_gen, stir_challenges.len());
 
@@ -287,7 +282,7 @@ impl<F: TwoAdicField> Prover<F> {
                 (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
                     .fix_computation(false),
             ],
-            &[F::ONE],
+            &[EF::ONE],
             None,
             false,
             fs_prover,
@@ -311,14 +306,14 @@ impl<F: TwoAdicField> Prover<F> {
     }
 }
 
-struct RoundState<F: TwoAdicField> {
+struct RoundState<F: TwoAdicField, EF: ExtensionField<F>> {
     round: usize,
     domain: Domain<F>,
-    sumcheck_mles: Vec<MultilinearPolynomial<F>>,
-    folding_randomness: Vec<F>,
-    coefficients: CoefficientList<F>,
-    prev_merkle: MerkleTree<F>,
-    prev_merkle_answers: Vec<F>,
+    sumcheck_mles: Vec<MultilinearPolynomial<EF>>,
+    folding_randomness: Vec<EF>,
+    coefficients: CoefficientList<EF>,
+    prev_merkle: MerkleTree<EF>,
+    prev_merkle_answers: Vec<EF>,
 }
 
 fn randomized_eq_extensions<F: Field>(

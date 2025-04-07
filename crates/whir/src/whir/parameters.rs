@@ -1,7 +1,7 @@
 use core::panic;
 use std::{f64::consts::LOG2_10, fmt::Display};
 
-use p3_field::TwoAdicField;
+use p3_field::{ExtensionField, TwoAdicField};
 
 use crate::{
     domain::Domain,
@@ -9,8 +9,8 @@ use crate::{
 };
 
 #[derive(Clone)]
-pub struct WhirConfig<F: TwoAdicField> {
-    pub(crate) mv_parameters: MultivariateParameters<F>,
+pub struct WhirConfig<F: TwoAdicField, EF: ExtensionField<F>> {
+    pub(crate) mv_parameters: MultivariateParameters<EF>,
     pub(crate) soundness_type: SoundnessType,
     pub(crate) security_level: usize,
     pub(crate) max_pow_bits: usize,
@@ -46,8 +46,11 @@ pub(crate) struct RoundConfig {
     pub(crate) log_inv_rate: usize,
 }
 
-impl<F: TwoAdicField> WhirConfig<F> {
-    pub fn new(mv_parameters: MultivariateParameters<F>, whir_parameters: &WhirParameters) -> Self {
+impl<F: TwoAdicField, EF: ExtensionField<F>> WhirConfig<F, EF> {
+    pub fn new(
+        mv_parameters: MultivariateParameters<EF>,
+        whir_parameters: &WhirParameters,
+    ) -> Self {
         whir_parameters
             .folding_factor
             .check_validity(mv_parameters.num_variables)
@@ -66,7 +69,7 @@ impl<F: TwoAdicField> WhirConfig<F> {
             .folding_factor
             .compute_number_of_rounds(mv_parameters.num_variables);
 
-        let field_size_bits = F::bits() as usize;
+        let field_size_bits = EF::bits() as usize;
 
         let committment_ood_samples = Self::ood_samples(
             whir_parameters.security_level,
@@ -399,7 +402,7 @@ impl<F: TwoAdicField> WhirConfig<F> {
     }
 }
 
-impl<F: TwoAdicField> Display for WhirConfig<F> {
+impl<F: TwoAdicField, EF: ExtensionField<F>> Display for WhirConfig<F, EF> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.mv_parameters.fmt(f)?;
         writeln!(f, ", folding factor: {:?}", self.folding_factor)?;

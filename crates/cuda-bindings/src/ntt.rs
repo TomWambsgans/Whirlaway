@@ -1,6 +1,6 @@
 use cudarc::driver::{LaunchConfig, PushKernelArg};
 
-use p3_field::TwoAdicField;
+use p3_field::Field;
 use tracing::instrument;
 
 use crate::{MAX_LOG_N_BLOCKS, cuda_info};
@@ -10,7 +10,7 @@ const NTT_LOG_N_THREADS_PER_BLOCK: u32 = 8;
 const NTT_N_THREADS_PER_BLOCK: u32 = 1 << NTT_LOG_N_THREADS_PER_BLOCK;
 
 #[instrument(name = "CUDA NTT", skip_all)]
-pub fn cuda_ntt<F: TwoAdicField>(coeffs: &[F], expansion_factor: usize) -> Vec<F> {
+pub fn cuda_ntt<F: Field>(coeffs: &[F], expansion_factor: usize) -> Vec<F> {
     // SAFETY: one should have called init_cuda::<F::PrimeSubfield>() before
 
     let cuda = cuda_info();
@@ -51,7 +51,7 @@ pub fn cuda_ntt<F: TwoAdicField>(coeffs: &[F], expansion_factor: usize) -> Vec<F
         shared_mem_bytes: (NTT_N_THREADS_PER_BLOCK * 2) * (extension_degree as u32 + 1) * 4, // cf `ntt_at_block_level` in ntt.cu
     };
 
-    let f = cuda.get_function("ntt", "ntt");
+    let f = cuda.get_function("ntt", "expanded_ntt");
     let mut launch_args = cuda.stream.launch_builder(&f);
     launch_args.arg(&coeffs_dev);
     launch_args.arg(&mut buff_dev);

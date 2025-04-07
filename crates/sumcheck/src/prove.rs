@@ -62,7 +62,7 @@ pub fn prove_with_initial_rounds<
     let max_degree_per_vars = exprs
         .iter()
         .map(|expr| expr.composition_degree)
-        .max()
+        .max_by_key(|d| *d)
         .unwrap();
     if let Some(eq_factor) = &eq_factor {
         assert_eq!(eq_factor.len(), n_vars + starting_round);

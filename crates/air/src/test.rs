@@ -61,7 +61,7 @@ fn test_air_fibonacci() {
 
     table.check_validity(&witnesses);
 
-    let pcs = RingSwitch::<F, EF, WhirPCS<EF>>::new(
+    let pcs = RingSwitch::<F, EF, WhirPCS<F, EF>>::new(
         log_length + 1,
         &WhirParameters::standard(security_bits, log_inv_rate, false),
     );
@@ -174,7 +174,7 @@ fn test_air_complex() {
 
     table.check_validity(&witnesses);
 
-    let pcs = RingSwitch::<F, EF, WhirPCS<EF>>::new(
+    let pcs = RingSwitch::<F, EF, WhirPCS<F, EF>>::new(
         log_length + 3,
         &WhirParameters::standard(security_bits, log_inv_rate, false),
     );

@@ -3,7 +3,7 @@
 //! Implements the √N Cooley-Tukey six-step algorithm to achieve parallelism with good locality.
 //! A global cache is used for twiddle factors.
 
-use p3_field::TwoAdicField;
+use p3_field::{ExtensionField, TwoAdicField};
 
 use super::{
     transpose,
@@ -25,7 +25,7 @@ static ENGINE_CACHE: LazyLock<Mutex<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>
 
 /// Enginge for computing NTTs over arbitrary fields.
 /// Assumes the field has large two-adicity.
-pub struct NttEngine<F: TwoAdicField> {
+pub struct NttEngine<F, EF> {
     order: usize,   // order of omega_orger
     omega_order: F, // primitive order'th root.
 
@@ -41,35 +41,37 @@ pub struct NttEngine<F: TwoAdicField> {
 
     // Root lookup table (extended on demand)
     roots: RwLock<Vec<F>>,
+
+    _ef: std::marker::PhantomData<EF>,
 }
 
 /// Compute the NTT of a slice of field elements using a cached engine.
-pub fn ntt<F: TwoAdicField>(values: &mut [F]) {
-    NttEngine::<F>::new_from_cache().ntt(values);
+pub fn ntt<F: TwoAdicField, EF: ExtensionField<F>>(values: &mut [EF]) {
+    NttEngine::<F, EF>::new_from_cache().ntt(values);
 }
 
 /// Compute the many NTTs of size `size` using a cached engine.
-pub fn ntt_batch<F: TwoAdicField>(values: &mut [F], size: usize) {
-    NttEngine::<F>::new_from_cache().ntt_batch(values, size);
+pub fn ntt_batch<F: TwoAdicField, EF: ExtensionField<F>>(values: &mut [EF], size: usize) {
+    NttEngine::<F, EF>::new_from_cache().ntt_batch(values, size);
 }
 
 /// Compute the inverse NTT of a slice of field element without the 1/n scaling factor, using a cached engine.
-pub fn intt<F: TwoAdicField>(values: &mut [F]) {
-    NttEngine::<F>::new_from_cache().intt(values);
+pub fn intt<F: TwoAdicField, EF: ExtensionField<F>>(values: &mut [EF]) {
+    NttEngine::<F, EF>::new_from_cache().intt(values);
 }
 
 /// Compute the inverse NTT of multiple slice of field elements, each of size `size`, without the 1/n scaling factor and using a cached engine.
-pub fn intt_batch<F: TwoAdicField>(values: &mut [F], size: usize) {
-    NttEngine::<F>::new_from_cache().intt_batch(values, size);
+pub fn intt_batch<F: TwoAdicField, EF: ExtensionField<F>>(values: &mut [EF], size: usize) {
+    NttEngine::<F, EF>::new_from_cache().intt_batch(values, size);
 }
 
-impl<F: TwoAdicField> NttEngine<F> {
+impl<F: TwoAdicField, EF: ExtensionField<F>> NttEngine<F, EF> {
     /// Get or create a cached engine for the field `F`.
     pub fn new_from_cache() -> Arc<Self> {
         let mut cache = ENGINE_CACHE.lock().unwrap();
-        let type_id = TypeId::of::<F>();
+        let type_id = TypeId::of::<(F, EF)>();
         if let Some(engine) = cache.get(&type_id) {
-            engine.clone().downcast::<NttEngine<F>>().unwrap()
+            engine.clone().downcast::<NttEngine<F, EF>>().unwrap()
         } else {
             let engine = Arc::new(NttEngine::new_from_field());
             cache.insert(type_id, engine.clone());
@@ -79,20 +81,12 @@ impl<F: TwoAdicField> NttEngine<F> {
 
     /// Construct a new engine from the field's `Field` trait.
     fn new_from_field() -> Self {
-        if F::TWO_ADICITY <= 63 {
-            Self::new(1 << 24, F::two_adic_generator(24)) // TODO AVOID HARDCODING 24, AND MAKE iT WORK FOR 27 in KoalaBear^8
-        } else {
-            let mut generator = F::two_adic_generator(F::TWO_ADICITY);
-            for _ in 0..(F::TWO_ADICITY - 63) {
-                generator = generator.square();
-            }
-            Self::new(1 << 63, generator)
-        }
+        Self::new(1 << F::TWO_ADICITY, F::two_adic_generator(F::TWO_ADICITY))
     }
 }
 
 /// Creates a new NttEngine. `omega_order` must be a primitive root of unity of even order `omega`.
-impl<F: TwoAdicField> NttEngine<F> {
+impl<F: TwoAdicField, EF: ExtensionField<F>> NttEngine<F, EF> {
     pub fn new(order: usize, omega_order: F) -> Self {
         assert!(order.trailing_zeros() > 0, "Order must be a multiple of 2.");
         // TODO: Assert that omega factors into 2s and 3s.
@@ -110,6 +104,7 @@ impl<F: TwoAdicField> NttEngine<F> {
             omega_16_3: F::ZERO,
             omega_16_9: F::ZERO,
             roots: RwLock::new(Vec::new()),
+            _ef: std::marker::PhantomData,
         };
         if order % 3 == 0 {
             let omega_3_1 = res.root(3);
@@ -133,24 +128,24 @@ impl<F: TwoAdicField> NttEngine<F> {
         res
     }
 
-    pub fn ntt(&self, values: &mut [F]) {
+    pub fn ntt(&self, values: &mut [EF]) {
         self.ntt_batch(values, values.len())
     }
 
-    pub fn ntt_batch(&self, values: &mut [F], size: usize) {
+    pub fn ntt_batch(&self, values: &mut [EF], size: usize) {
         assert!(values.len() % size == 0);
         let roots = self.roots_table(size);
         self.ntt_dispatch(values, &roots, size);
     }
 
     /// Inverse NTT. Does not aply 1/n scaling factor.
-    pub fn intt(&self, values: &mut [F]) {
+    pub fn intt(&self, values: &mut [EF]) {
         values[1..].reverse();
         self.ntt(values);
     }
 
     /// Inverse batch NTT. Does not aply 1/n scaling factor.
-    pub fn intt_batch(&self, values: &mut [F], size: usize) {
+    pub fn intt_batch(&self, values: &mut [EF], size: usize) {
         assert!(values.len() % size == 0);
 
         values.par_chunks_exact_mut(size).for_each(|values| {
@@ -209,7 +204,7 @@ impl<F: TwoAdicField> NttEngine<F> {
 
     /// Compute NTTs in place by splititng into two factors.
     /// Recurses using the sqrt(N) Cooley-Tukey Six step NTT algorithm.
-    fn ntt_recurse(&self, values: &mut [F], roots: &[F], size: usize) {
+    fn ntt_recurse(&self, values: &mut [EF], roots: &[F], size: usize) {
         debug_assert_eq!(values.len() % size, 0);
         let n1 = sqrt_factor(size);
         let n2 = size / n1;
@@ -224,7 +219,7 @@ impl<F: TwoAdicField> NttEngine<F> {
         transpose(values, n1, n2);
     }
 
-    fn apply_twiddles(&self, values: &mut [F], roots: &[F], rows: usize, cols: usize) {
+    fn apply_twiddles(&self, values: &mut [EF], roots: &[F], rows: usize, cols: usize) {
         debug_assert_eq!(values.len() % (rows * cols), 0);
         if values.len() > workload_size::<F>() {
             let size = rows * cols;
@@ -265,7 +260,7 @@ impl<F: TwoAdicField> NttEngine<F> {
         }
     }
 
-    fn ntt_dispatch(&self, values: &mut [F], roots: &[F], size: usize) {
+    fn ntt_dispatch(&self, values: &mut [EF], roots: &[F], size: usize) {
         debug_assert_eq!(values.len() % size, 0);
         debug_assert_eq!(roots.len() % size, 0);
         if values.len() > workload_size::<F>() && values.len() != size {

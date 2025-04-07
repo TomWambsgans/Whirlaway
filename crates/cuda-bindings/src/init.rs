@@ -109,7 +109,7 @@ fn _init<F: TwoAdicField + PrimeField32>(
 
     for (module, func_names) in [
         ("keccak", vec!["batch_keccak256"]),
-        ("ntt", vec!["ntt"]),
+        ("ntt", vec!["expanded_ntt"]),
         (
             "sumcheck_folding",
             vec![
