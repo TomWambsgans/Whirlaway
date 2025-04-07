@@ -2,21 +2,24 @@ use std::{cell::RefCell, collections::HashSet, usize};
 
 use p3_field::{ExtensionField, Field};
 
-use super::ArithmeticCircuit;
+use super::TransparentPolynomial;
 
 type StackIndex = usize;
 
 #[derive(Clone, Debug, Hash)]
-pub struct CircuitComputation<F, N> {
-    pub instructions: Vec<CircuitInstruction<F, N>>,
+pub struct CircuitComputation<F> {
+    pub instructions: Vec<CircuitInstruction<F>>,
     pub stack_size: usize,
+    pub n_vars: usize,
+    pub degree_per_var: Vec<usize>,
+    pub composition_degree: usize, // if all the avriables where the same X -> represents the degree of X
 }
 
 #[derive(Clone, Debug, Hash)]
-pub struct CircuitInstruction<F, N> {
+pub struct CircuitInstruction<F> {
     pub op: CircuitOp,
-    pub left: ComputationInput<F, N>,
-    pub right: ComputationInput<F, N>,
+    pub left: ComputationInput<F>,
+    pub right: ComputationInput<F>,
     pub result_location: StackIndex,
 }
 
@@ -27,13 +30,13 @@ pub enum CircuitOp {
 }
 
 #[derive(Clone, Debug, Hash)]
-pub enum ComputationInput<F, N> {
-    Node(N),
+pub enum ComputationInput<F> {
+    Node(usize),
     Scalar(F),
     Stack(StackIndex),
 }
 
-impl<F: Field> ComputationInput<F, usize> {
+impl<F: Field> ComputationInput<F> {
     fn eval<EF: ExtensionField<F>>(&self, point: &[EF], stack: &[EF]) -> EF {
         match self {
             ComputationInput::Node(var_index) => point[*var_index],
@@ -47,12 +50,13 @@ impl<F: Field> ComputationInput<F, usize> {
     }
 }
 
-impl<F: Field> ArithmeticCircuit<F, usize> {
-    pub fn fix_computation(&self, optimized: bool) -> CircuitComputation<F, usize> {
+impl<F: Field> TransparentPolynomial<F> {
+    pub fn fix_computation(&self, optimized: bool) -> CircuitComputation<F> {
         let stack_size = RefCell::new(0);
         let instructions = RefCell::new(Vec::new());
+        let n_vars = RefCell::new(Option::<usize>::None);
         let build_instruction =
-            |op: CircuitOp, left: ComputationInput<F, usize>, right: ComputationInput<F, usize>| {
+            |op: CircuitOp, left: ComputationInput<F>, right: ComputationInput<F>| {
                 if left.is_scalar() && right.is_scalar() {
                     tracing::warn!("Instruction with more than one scalar input -> useless work");
                 }
@@ -68,13 +72,22 @@ impl<F: Field> ArithmeticCircuit<F, usize> {
             };
         self.parse(
             &|scalar| ComputationInput::Scalar(scalar.clone()),
-            &|node| ComputationInput::Node(node.clone()),
+            &|node| {
+                let mut n_vars_guard = n_vars.borrow_mut();
+                *n_vars_guard = Some((n_vars_guard.unwrap_or_default()).max(*node + 1));
+                ComputationInput::Node(node.clone())
+            },
             &|left, right| build_instruction(CircuitOp::Product, left, right),
             &|left, right| build_instruction(CircuitOp::Sum, left, right),
         );
 
         let stack_size = stack_size.into_inner();
         let mut instructions = instructions.into_inner();
+        let n_vars = n_vars.into_inner().unwrap_or_default();
+        let degree_per_var = self.max_degree_per_vars(n_vars);
+        let composition_degree = self
+            .map_node(&|_| TransparentPolynomial::Node(0))
+            .max_degree_per_vars(1)[0];
 
         // trick to speed up computations (to avoid the initial scalar embedding)
         for inst in &mut instructions {
@@ -86,6 +99,9 @@ impl<F: Field> ArithmeticCircuit<F, usize> {
         let mut res = CircuitComputation {
             instructions,
             stack_size,
+            n_vars,
+            degree_per_var,
+            composition_degree,
         };
         if optimized {
             res = res.optimize_stack_usage();
@@ -94,27 +110,23 @@ impl<F: Field> ArithmeticCircuit<F, usize> {
     }
 }
 
-impl<F: Field> CircuitComputation<F, usize> {
+impl<F: Field> CircuitComputation<F> {
     pub fn eval<EF: ExtensionField<F>>(&self, point: &[EF]) -> EF {
         let mut stack = vec![EF::ZERO; self.stack_size];
         for instruction in &self.instructions {
-            let eval_left = instruction.left.eval(point, &stack);
-            let res = match &instruction.op {
-                CircuitOp::Sum => match &instruction.right {
-                    ComputationInput::Node(var_index) => eval_left + point[*var_index],
-                    ComputationInput::Scalar(scalar) => eval_left + *scalar,
-                    ComputationInput::Stack(stack_index) => eval_left + stack[*stack_index],
-                },
-                CircuitOp::Product => match &instruction.right {
-                    ComputationInput::Node(var_index) => eval_left * point[*var_index],
-                    ComputationInput::Scalar(scalar) => eval_left * *scalar,
-                    ComputationInput::Stack(stack_index) => eval_left * stack[*stack_index],
-                },
+            stack[instruction.result_location] = match &instruction.op {
+                CircuitOp::Sum => {
+                    instruction.left.eval(point, &stack).clone()
+                        + instruction.right.eval(point, &stack).clone()
+                }
+                CircuitOp::Product => {
+                    instruction.left.eval(point, &stack).clone()
+                        * instruction.right.eval(point, &stack).clone()
+                }
             };
-            stack[instruction.result_location] = res;
         }
         assert_eq!(stack.len(), self.stack_size);
-        stack[self.stack_size - 1]
+        stack[self.stack_size - 1].clone()
     }
 
     /// Optimize the stack usage by performing lifetime analysis and a linear‐scan register
@@ -295,6 +307,7 @@ impl<F: Field> CircuitComputation<F, usize> {
         Self {
             instructions: new_instructions,
             stack_size: next_alloc, // the optimized number of registers.
+            ..self
         }
     }
 }
@@ -305,6 +318,8 @@ mod test {
     use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
 
+    use crate::pols::TransparentPolynomial;
+
     use super::*;
 
     #[test]
@@ -312,7 +327,7 @@ mod test {
         type F = KoalaBear;
         type EF = BinomialExtensionField<F, 8>;
 
-        let circuit = ArithmeticCircuit::<F, usize>::random(&mut StdRng::seed_from_u64(0), 10, 100);
+        let circuit = TransparentPolynomial::<F>::random(&mut StdRng::seed_from_u64(0), 10, 100);
 
         let optimized = circuit.fix_computation(true);
         let non_optimized = circuit.fix_computation(false);

@@ -1,65 +1,46 @@
 use std::{
-    collections::{HashMap, hash_map::Entry},
+    collections::HashMap,
     fmt::Debug,
     iter::{Product, Sum},
-    ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
+    ops::{Add, AddAssign, Mul, MulAssign},
     sync::Arc,
 };
 
-use p3_field::{Algebra, ExtensionField, Field, PrimeCharacteristicRing};
-use rand::{
-    Rng,
-    distr::{Distribution, StandardUniform},
-};
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub enum ArithmeticCircuitComposed<F, N> {
+    // TODO Add a Subtraction operation
     Sum((ArithmeticCircuit<F, N>, ArithmeticCircuit<F, N>)),
     Product((ArithmeticCircuit<F, N>, ArithmeticCircuit<F, N>)),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub enum ArithmeticCircuit<F, N> {
     Scalar(F),
     Node(N),
     Composed(Arc<ArithmeticCircuitComposed<F, N>>),
 }
 
-impl<F: Clone, N: Clone> ArithmeticCircuit<F, N> {
-    pub fn new_sum(pols: Vec<Self>) -> Self {
-        assert!(pols.len() >= 1);
-        if pols.len() == 1 {
-            return pols[0].clone();
-        }
-        let mut sum = pols[1].clone();
-        for i in 2..pols.len() {
+impl<F, N> ArithmeticCircuit<F, N> {
+    pub fn new_sum(mut pols: Vec<Self>) -> Self {
+        let mut sum = pols.pop().unwrap();
+        while !pols.is_empty() {
             sum = ArithmeticCircuit::Composed(Arc::new(ArithmeticCircuitComposed::Sum((
                 sum,
-                pols[i].clone(),
+                pols.pop().unwrap(),
             ))));
         }
-        Self::Composed(Arc::new(ArithmeticCircuitComposed::Sum((
-            pols[0].clone(),
-            sum,
-        ))))
+        sum
     }
 
-    pub fn new_product(pols: Vec<Self>) -> Self {
-        assert!(pols.len() >= 1);
-        if pols.len() == 1 {
-            return pols[0].clone();
-        }
-        let mut product = pols[1].clone();
-        for i in 2..pols.len() {
-            product = ArithmeticCircuit::Composed(Arc::new(ArithmeticCircuitComposed::Product((
-                product,
-                pols[i].clone(),
+    pub fn new_product(mut pols: Vec<Self>) -> Self {
+        let mut sum = pols.pop().unwrap();
+        while !pols.is_empty() {
+            sum = ArithmeticCircuit::Composed(Arc::new(ArithmeticCircuitComposed::Product((
+                sum,
+                pols.pop().unwrap(),
             ))));
         }
-        Self::Composed(Arc::new(ArithmeticCircuitComposed::Product((
-            pols[0].clone(),
-            product,
-        ))))
+        sum
     }
 
     // all functions should be pure, and deterministic
@@ -121,193 +102,35 @@ impl<F: Clone, N: Clone> ArithmeticCircuit<F, N> {
         parse_inner(self, f_scalar, f_node, f_prod, f_sum, &mut HashMap::new())
     }
 
-    pub fn map_node<EF: ExtensionField<F>, N2: Clone, FNode: Fn(&N) -> ArithmeticCircuit<EF, N2>>(
+    pub fn map_node<N2: Clone, FNode: Fn(&N) -> ArithmeticCircuit<F, N2>>(
         &self,
         f_node: &FNode,
-    ) -> ArithmeticCircuit<EF, N2>
+    ) -> ArithmeticCircuit<F, N2>
     where
-        F: Field,
+        F: Clone,
     {
         self.parse(
-            &|scalar| ArithmeticCircuit::Scalar(EF::from(*scalar)),
+            &|scalar| ArithmeticCircuit::Scalar(scalar.clone()),
             f_node,
-            &|left, right| {
-                ArithmeticCircuit::Composed(Arc::new(ArithmeticCircuitComposed::Product((
-                    left, right,
-                ))))
-            },
-            &|left, right| {
-                ArithmeticCircuit::Composed(Arc::new(ArithmeticCircuitComposed::Sum((left, right))))
-            },
+            &|left, right| ArithmeticCircuit::new_product(vec![left, right]),
+            &|left, right| ArithmeticCircuit::new_sum(vec![left, right]),
         )
     }
-
-    pub fn eval_field<EF: ExtensionField<F>, NodeToField: for<'a> Fn(&'a N) -> EF>(
-        &self,
-        node_to_field: &NodeToField,
-    ) -> EF
-    where
-        F: Field,
-    {
-        self.parse(
-            &|scalar| EF::from(*scalar),
-            &|node| node_to_field(node),
-            &|left, right| left * right,
-            &|left, right| left + right,
-        )
-    }
-
-    pub fn to_string(&self) -> String
-    where
-        F: Field,
-        N: Debug,
-    {
-        // Use a hashmap to track unique composed circuits and assign them indices
-        let mut composed_indices = HashMap::new();
-        let mut next_index = 0;
-
-        // First pass: index all composed circuits
-        fn index_composed<F: Field, N: Debug>(
-            circuit: &ArithmeticCircuit<F, N>,
-            indices: &mut HashMap<*const ArithmeticCircuitComposed<F, N>, usize>,
-            next_index: &mut usize,
-        ) {
-            if let ArithmeticCircuit::Composed(composed) = circuit {
-                let ptr = Arc::as_ptr(composed);
-                if let Entry::Vacant(e) = indices.entry(ptr) {
-                    e.insert(*next_index);
-                    *next_index += 1;
-
-                    // Recursively index subcircuits
-                    match &**composed {
-                        ArithmeticCircuitComposed::Sum((left, right))
-                        | ArithmeticCircuitComposed::Product((left, right)) => {
-                            for subcircuit in [left, right] {
-                                index_composed(subcircuit, indices, next_index);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        index_composed(self, &mut composed_indices, &mut next_index);
-
-        // Second pass: build the string representation
-        fn to_string_inner<F: Field, N: Debug>(
-            circuit: &ArithmeticCircuit<F, N>,
-            indices: &HashMap<*const ArithmeticCircuitComposed<F, N>, usize>,
-        ) -> String {
-            match circuit {
-                ArithmeticCircuit::Scalar(scalar) => format!("scalar({:?})", scalar),
-                ArithmeticCircuit::Node(node) => format!("node({:?})", node),
-                ArithmeticCircuit::Composed(composed) => {
-                    let ptr = Arc::as_ptr(composed);
-                    let index = indices.get(&ptr).unwrap();
-
-                    let op_type = match &**composed {
-                        ArithmeticCircuitComposed::Sum(_) => "Sum",
-                        ArithmeticCircuitComposed::Product(_) => "Product",
-                    };
-
-                    // Represent a composed circuit by its index
-                    format!("{}#{}", op_type, index)
-                }
-            }
-        }
-
-        // Build the full representation with definitions
-        let mut result = String::new();
-
-        // First add the main circuit representation
-        result.push_str(&format!(
-            "Result: {}\n\n",
-            to_string_inner(self, &composed_indices)
-        ));
-
-        // Then add definitions for all composed circuits
-        if !composed_indices.is_empty() {
-            result.push_str("Definitions:\n");
-
-            // Create a map from indices to pointers for sorting
-            let mut indices_to_ptr: Vec<(usize, *const ArithmeticCircuitComposed<F, N>)> =
-                composed_indices.iter().map(|(k, v)| (*v, *k)).collect();
-            indices_to_ptr.sort_by_key(|(idx, _)| *idx);
-
-            for (idx, ptr) in indices_to_ptr {
-                // Safety: We know these pointers are valid because they came from Arc
-                let composed = unsafe { &*ptr };
-
-                match composed {
-                    ArithmeticCircuitComposed::Sum((left, right)) => {
-                        result.push_str(&format!("Sum#{} = ", idx));
-                        result.push_str(&to_string_inner(left, &composed_indices));
-                        result.push_str(" + ");
-                        result.push_str(&to_string_inner(right, &composed_indices));
-                        result.push('\n');
-                    }
-                    ArithmeticCircuitComposed::Product((left, right)) => {
-                        result.push_str(&format!("Product#{} = ", idx));
-                        result.push_str(&to_string_inner(left, &composed_indices));
-                        result.push_str(" * ");
-                        result.push_str(&to_string_inner(right, &composed_indices));
-                        result.push('\n');
-                    }
-                }
-            }
-        }
-
-        result
-    }
 }
 
-impl<F: Field> ArithmeticCircuit<F, usize> {
-    // usefull for tests
-    pub fn random<R: Rng>(rng: &mut R, n_nodes: usize, depth: usize) -> Self
-    where
-        StandardUniform: Distribution<F>,
-    {
-        let mut circuit = ArithmeticCircuit::Node(0);
-        let rand_f = |rng: &mut R| -> F { rng.random() };
-        let rand_n = |rng: &mut R| ArithmeticCircuit::Node(rng.random_range(0..n_nodes));
-
-        for _ in 0..depth {
-            let a = (circuit.clone() * rand_f(rng) + rand_f(rng)) * rand_n(rng);
-            let b = (circuit.clone() + a.clone() * rand_f(rng)) * rand_n(rng);
-            let c =
-                (a.clone() + b.clone() + circuit.clone() * rand_f(rng)) * rand_n(rng) + rand_n(rng);
-            let d = b.clone() + (c.clone() * rand_f(rng)) * rand_n(rng);
-            let e = (c.clone() + d.clone()) * rand_n(rng);
-            circuit = e.clone() + (d.clone() * rand_f(rng)) * rand_n(rng);
-            circuit = circuit.clone() + (circuit.clone() * rand_f(rng)) * rand_n(rng);
-            circuit = circuit.clone() * rand_n(rng) + (circuit.clone() * rand_f(rng)) * rand_n(rng);
-            circuit = circuit.clone() + (circuit.clone() * rand_f(rng)) * rand_n(rng);
-        }
-
-        circuit
-    }
-}
-
-impl<F: Field, N: Clone> ArithmeticCircuit<F, N> {
-    pub fn embed<EF: ExtensionField<F>>(self) -> ArithmeticCircuit<EF, N> {
-        // TODO avoid embed
-        self.map_node(&|n| ArithmeticCircuit::Node(n.clone()))
-    }
-}
-
-impl<F: Field, N> Default for ArithmeticCircuit<F, N> {
+impl<F: Default, N> Default for ArithmeticCircuit<F, N> {
     fn default() -> Self {
-        Self::from(F::ZERO)
+        ArithmeticCircuit::Scalar(F::default())
     }
 }
 
 impl<F, N> From<F> for ArithmeticCircuit<F, N> {
-    fn from(f: F) -> Self {
-        ArithmeticCircuit::Scalar(f)
+    fn from(scalar: F) -> Self {
+        ArithmeticCircuit::Scalar(scalar)
     }
 }
 
-impl<F: Clone, N: Clone> Add for ArithmeticCircuit<F, N> {
+impl<F, N> Add for ArithmeticCircuit<F, N> {
     type Output = Self;
 
     fn add(self, other: Self) -> Self {
@@ -315,7 +138,7 @@ impl<F: Clone, N: Clone> Add for ArithmeticCircuit<F, N> {
     }
 }
 
-impl<F: Clone, N: Clone> Mul for ArithmeticCircuit<F, N> {
+impl<F, N> Mul for ArithmeticCircuit<F, N> {
     type Output = Self;
 
     fn mul(self, other: Self) -> Self {
@@ -323,105 +146,26 @@ impl<F: Clone, N: Clone> Mul for ArithmeticCircuit<F, N> {
     }
 }
 
-impl<F: Field, N: Clone> Sub for ArithmeticCircuit<F, N> {
-    type Output = Self;
-
-    fn sub(self, other: Self) -> Self {
-        self + (other * F::NEG_ONE)
+impl<F: Default, N> AddAssign for ArithmeticCircuit<F, N> {
+    fn add_assign(&mut self, other: Self) {
+        *self = Self::new_sum(vec![std::mem::take(self), other]);
     }
 }
 
-impl<F: Field, N: Clone> Add<F> for ArithmeticCircuit<F, N> {
-    type Output = Self;
-
-    fn add(self, other: F) -> Self {
-        self + Self::from(other)
+impl<F: Default, N> MulAssign for ArithmeticCircuit<F, N> {
+    fn mul_assign(&mut self, other: Self) {
+        *self = Self::new_product(vec![std::mem::take(self), other]);
     }
 }
 
-impl<F: Field, N: Clone> Mul<F> for ArithmeticCircuit<F, N> {
-    type Output = Self;
-
-    fn mul(self, other: F) -> Self {
-        self * Self::from(other)
-    }
-}
-
-impl<F: Field, N: Clone> Sub<F> for ArithmeticCircuit<F, N> {
-    type Output = Self;
-
-    fn sub(self, other: F) -> Self {
-        self + (-other)
-    }
-}
-
-impl<F: Field, N: Clone> Neg for ArithmeticCircuit<F, N> {
-    type Output = Self;
-
-    fn neg(self) -> Self {
-        self * F::NEG_ONE
-    }
-}
-
-macro_rules! impl_assign_ops {
-    ($($op_trait:ident, $op_fn:ident, $op:tt);*) => {
-        $(
-            impl<F: Field, N: Clone> $op_trait<ArithmeticCircuit<F, N>> for ArithmeticCircuit<F, N> {
-                fn $op_fn(&mut self, other: Self) {
-                    *self = std::mem::take(self) $op other;
-                }
-            }
-        )*
-    };
-}
-
-impl_assign_ops!(
-    AddAssign, add_assign, +;
-    SubAssign, sub_assign, -;
-    MulAssign, mul_assign, *
-);
-
-macro_rules! impl_field_assign_ops {
-    ($($op_trait:ident, $op_fn:ident, $op:tt);*) => {
-        $(
-            impl<F: Field, N: Clone> $op_trait<F> for ArithmeticCircuit<F, N> {
-                fn $op_fn(&mut self, other: F) {
-                    *self = std::mem::take(self) $op other;
-                }
-            }
-        )*
-    };
-}
-
-impl_field_assign_ops!(
-    AddAssign, add_assign, +;
-    MulAssign, mul_assign, *;
-    SubAssign, sub_assign, -
-);
-
-impl<F: Field, N: Clone> Product for ArithmeticCircuit<F, N> {
+impl<F, N> Product for ArithmeticCircuit<F, N> {
     fn product<I: Iterator<Item = Self>>(iter: I) -> Self {
         Self::new_product(iter.collect())
     }
 }
 
-impl<F: Field, N: Clone> Sum for ArithmeticCircuit<F, N> {
+impl<F, N> Sum for ArithmeticCircuit<F, N> {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
         Self::new_sum(iter.collect())
     }
 }
-
-impl<F: Field, N: Clone + Debug> PrimeCharacteristicRing for ArithmeticCircuit<F, N> {
-    type PrimeSubfield = F::PrimeSubfield;
-
-    const ZERO: Self = Self::Scalar(F::ZERO);
-    const ONE: Self = Self::Scalar(F::ONE);
-    const NEG_ONE: Self = Self::Scalar(F::NEG_ONE);
-    const TWO: Self = Self::Scalar(F::TWO);
-
-    fn from_prime_subfield(f: Self::PrimeSubfield) -> Self {
-        ArithmeticCircuit::Scalar(F::from_prime_subfield(f))
-    }
-}
-
-impl<F: Field, N: Clone + Debug> Algebra<F> for ArithmeticCircuit<F, N> {}

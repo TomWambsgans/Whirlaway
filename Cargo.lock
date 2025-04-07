@@ -671,6 +671,7 @@ name = "sumcheck"
 version = "0.1.0"
 dependencies = [
  "algebra",
+ "cuda-bindings",
  "fiat-shamir",
  "p3-field",
  "p3-koala-bear",

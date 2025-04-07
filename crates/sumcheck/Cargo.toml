@@ -9,6 +9,7 @@ algebra.workspace = true
 p3-field.workspace = true
 rayon.workspace = true
 tracing.workspace = true
+cuda-bindings.workspace = true
 
 [dev-dependencies]
 p3-koala-bear.workspace = true

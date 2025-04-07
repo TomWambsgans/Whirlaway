@@ -1,9 +1,9 @@
-use std::{borrow::Borrow, collections::BTreeMap};
+use std::collections::BTreeMap;
 
-use algebra::pols::{ArithmeticCircuit, GenericTransparentMultivariatePolynomial};
+use algebra::pols::ArithmeticCircuit;
 use p3_field::Field;
 
-use super::table::{AirConstraint, AirTable, BoundaryCondition};
+use super::table::{AirTable, BoundaryCondition};
 
 pub type ColIndex = usize;
 pub type RowIndex = usize;
@@ -23,7 +23,7 @@ pub struct ConstraintVariable {
 pub type AirExpr<F> = ArithmeticCircuit<F, ConstraintVariable>;
 
 pub struct AirBuilder<F: Field, const COLS: usize> {
-    constraints: Vec<(String, AirExpr<F>)>, // every expr should equal to zero
+    constraints: Vec<AirExpr<F>>, // every expr should equal to zero
     fixd_values: BTreeMap<(ColIndex, RowIndex), F>,
 }
 
@@ -35,13 +35,12 @@ impl<F: Field, const COLS: usize> AirBuilder<F, COLS> {
         }
     }
 
-    pub fn assert_zero(&mut self, name: &str, expr: AirExpr<F>) {
-        self.constraints
-            .push((name.to_string(), expr.borrow().clone()));
+    pub fn assert_zero(&mut self, expr: AirExpr<F>) {
+        self.constraints.push(expr);
     }
 
-    pub fn assert_eq(&mut self, name: &str, expr_1: AirExpr<F>, expr_2: AirExpr<F>) {
-        self.assert_zero(name, expr_1 - expr_2);
+    pub fn assert_eq(&mut self, expr_1: AirExpr<F>, expr_2: AirExpr<F>) {
+        self.assert_zero(expr_1 - expr_2);
     }
 
     pub fn set_fixed_value(&mut self, col_index: ColIndex, row_index: RowIndex, value: F) {
@@ -76,15 +75,12 @@ impl<F: Field, const COLS: usize> AirBuilder<F, COLS> {
     pub fn build(mut self) -> AirTable<F> {
         let constraints = std::mem::take(&mut self.constraints)
             .into_iter()
-            .map(|(name, expr)| AirConstraint {
-                name,
-                expr: GenericTransparentMultivariatePolynomial::new(
-                    expr.map_node(&|var| match var.alignment {
-                        Alignment::Up => ArithmeticCircuit::Node(var.col_index),
-                        Alignment::Down => ArithmeticCircuit::Node(var.col_index + COLS),
-                    }),
-                    COLS * 2,
-                ),
+            .map(|expr| {
+                expr.map_node(&|var| match var.alignment {
+                    Alignment::Up => ArithmeticCircuit::Node(var.col_index),
+                    Alignment::Down => ArithmeticCircuit::Node(var.col_index + COLS),
+                })
+                .fix_computation(true)
             })
             .collect();
         let boundary_conditions = std::mem::take(&mut self.fixd_values)

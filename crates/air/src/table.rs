@@ -1,13 +1,7 @@
 use p3_field::{ExtensionField, Field};
 use tracing::instrument;
 
-use algebra::pols::{
-    Evaluation, GenericTransparentMultivariatePolynomial, HypercubePoint, MultilinearPolynomial,
-};
-pub struct AirConstraint<F: Field> {
-    pub name: String,
-    pub expr: GenericTransparentMultivariatePolynomial<F>, // n_vars = 2 * n_columns. First half = columns of row i, second half = columns of row i + 1
-}
+use algebra::pols::{CircuitComputation, Evaluation, HypercubePoint, MultilinearPolynomial};
 
 #[derive(Clone, Debug)]
 pub struct BoundaryCondition<F: Field> {
@@ -31,7 +25,7 @@ impl<F: Field> BoundaryCondition<F> {
 
 pub struct AirTable<F: Field> {
     pub n_columns: usize,
-    pub constraints: Vec<AirConstraint<F>>,
+    pub constraints: Vec<CircuitComputation<F>>, // n_vars = 2 * n_columns. First half = columns of row i, second half = columns of row i + 1
     pub boundary_conditions: Vec<BoundaryCondition<F>>,
 }
 
@@ -39,11 +33,6 @@ impl<F: Field> AirTable<F> {
     #[instrument(name = "check_validity", skip_all)]
     pub fn check_validity(&self, witness: &[MultilinearPolynomial<F>]) {
         let log_length = witness[0].n_vars;
-        assert!(
-            self.constraints
-                .iter()
-                .all(|c| c.expr.n_vars == 2 * self.n_columns)
-        );
         assert_eq!(self.n_columns, witness.len());
         assert!(witness.iter().all(|w| w.n_vars == log_length));
 
@@ -62,9 +51,8 @@ impl<F: Field> AirTable<F> {
                         .collect::<Vec<_>>(),
                 );
                 assert!(
-                    constraint.expr.eval(&point).is_zero(),
-                    "Constraint {} is not satisfied",
-                    constraint.name,
+                    constraint.eval(&point).is_zero(),
+                    "Constraint is not satisfied",
                 );
             }
         }
@@ -77,5 +65,13 @@ impl<F: Field> AirTable<F> {
                 bound_condition.value
             );
         }
+    }
+
+    pub fn constraint_degree(&self) -> usize {
+        self.constraints
+            .iter()
+            .map(|c| c.composition_degree)
+            .max()
+            .unwrap()
     }
 }

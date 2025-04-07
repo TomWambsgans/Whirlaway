@@ -58,7 +58,8 @@ pub fn cuda_ntt<F: TwoAdicField>(coeffs: &[F], expansion_factor: usize) -> Vec<F
     launch_args.arg(&mut result_dev);
     launch_args.arg(&log_len);
     launch_args.arg(&log_expension_factor);
-    launch_args.arg(&cuda.twiddles);
+    let twiddles = cuda.twiddles::<F::PrimeSubfield>();
+    launch_args.arg(&twiddles);
     unsafe { launch_args.launch_cooperative(cfg) }.unwrap();
 
     let mut cuda_result = vec![F::ZERO; expanded_len];

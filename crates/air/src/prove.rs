@@ -1,9 +1,6 @@
 use algebra::{
     field_utils::dot_product,
-    pols::{
-        ArithmeticCircuit, ComposedPolynomial, Evaluation,
-        GenericTransparentMultivariatePolynomial, MultilinearPolynomial,
-    },
+    pols::{ArithmeticCircuit, Evaluation, MultilinearPolynomial},
     utils::expand_randomness,
 };
 use fiat_shamir::FsProver;
@@ -11,8 +8,6 @@ use p3_field::{ExtensionField, Field};
 use pcs::{BatchSettings, PCS};
 use rayon::prelude::*;
 use tracing::{Level, instrument, span};
-
-use crate::N;
 
 use super::table::AirTable;
 
@@ -29,6 +24,7 @@ impl<F: Field> AirTable<F> {
         fs_prover: &mut FsProver,
         batching: &mut BatchSettings<F, EF, Pcs>,
         witness: &[MultilinearPolynomial<F>],
+        cuda: bool,
     ) {
         let log_length = witness[0].n_vars;
         assert!(witness.iter().all(|w| w.n_vars == log_length));
@@ -43,31 +39,53 @@ impl<F: Field> AirTable<F> {
         }
 
         let constraints_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
+        let constraints_batching_scalars =
+            expand_randomness(constraints_batching_scalar, self.constraints.len());
 
         let zerocheck_challenges = fs_prover.challenge_scalars::<EF>(log_length);
 
-        let zeroed_pol = ComposedPolynomial::new(
-            log_length,
-            witnesses_up_and_down(witness),
-            self.global_constraint(constraints_batching_scalar),
-        );
-
         let (outer_challenges, inner_sums) = {
             let _span = span!(Level::INFO, "outer sumcheck").entered();
-            sumcheck::prove_zerocheck_with_univariate_skip::<F, F, EF>(
-                zeroed_pol,
-                &zerocheck_challenges,
-                fs_prover,
-                N,
-            )
+            if cuda {
+                sumcheck::prove_with_cuda(
+                    witnesses_up_and_down(witness),
+                    &self.constraints,
+                    &constraints_batching_scalars,
+                    Some(&zerocheck_challenges),
+                    true,
+                    fs_prover,
+                    Some(EF::ZERO),
+                    None,
+                    0,
+                )
+            } else {
+                sumcheck::prove::<F, F, EF>(
+                    witnesses_up_and_down(witness),
+                    &self.constraints,
+                    &constraints_batching_scalars,
+                    Some(&zerocheck_challenges),
+                    true,
+                    fs_prover,
+                    Some(EF::ZERO),
+                    None,
+                    0,
+                )
+            }
         };
 
         let _span = span!(Level::INFO, "inner sumchecks").entered();
+
+        let inner_sums = inner_sums
+            .into_iter()
+            .map(|s| s.eval::<EF>(&[]))
+            .collect::<Vec<_>>();
+        fs_prover.add_scalars(&inner_sums);
+
         let initial_transcript_len = fs_prover.transcript_len();
 
-        let batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
+        let inner_sumcheck_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
 
-        let batch_pol = {
+        let mles_for_inner_sumcheck = {
             let mut nodes = Vec::<MultilinearPolynomial<EF>>::with_capacity(self.n_columns * 2 + 2);
             let mut scalar = EF::ONE;
             for _ in 0..2 {
@@ -75,27 +93,34 @@ impl<F: Field> AirTable<F> {
                 let mut sum = MultilinearPolynomial::<EF>::zero(log_length);
                 for w in witness {
                     sum += w.scale(scalar);
-                    scalar *= batching_scalar;
+                    scalar *= inner_sumcheck_batching_scalar;
                 }
                 nodes.push(sum);
             }
             nodes.push(matrix_up_folded(&outer_challenges));
             nodes.push(matrix_down_folded(&outer_challenges));
 
-            let circuit = (ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
-                + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3));
-
-            let structure = GenericTransparentMultivariatePolynomial::new(circuit, 4);
-
-            ComposedPolynomial::new(log_length, nodes, structure)
+            nodes
         };
+
+        let inner_sumcheck_circuit = (ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
+            + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3));
 
         let inner_sum = dot_product(
             &inner_sums,
-            &expand_randomness(batching_scalar, self.n_columns * 2),
+            &expand_randomness(inner_sumcheck_batching_scalar, self.n_columns * 2),
         );
-        let (inner_challenges, _) =
-            sumcheck::prove(batch_pol, None, false, fs_prover, Some(inner_sum), None, 0);
+        let (inner_challenges, _) = sumcheck::prove(
+            mles_for_inner_sumcheck,
+            &[inner_sumcheck_circuit.fix_computation(false)],
+            &[EF::ONE],
+            None,
+            false,
+            fs_prover,
+            Some(inner_sum),
+            None,
+            0,
+        );
 
         let values = witness
             .par_iter()

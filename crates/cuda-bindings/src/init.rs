@@ -1,62 +1,109 @@
 use std::collections::HashMap;
-use std::env;
 use std::error::Error;
 use std::fs;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, OnceLock};
 
-use algebra::pols::{CircuitComputation, CircuitOp, ComputationInput, TransparentComputation};
+use algebra::pols::{CircuitComputation, CircuitOp, ComputationInput};
 use cudarc::driver::sys::CUdevice_attribute;
 use cudarc::driver::{CudaContext, CudaFunction, CudaSlice, CudaStream, DriverError};
 use cudarc::nvrtc::Ptx;
-use p3_field::{ExtensionField, PrimeField32, TwoAdicField};
-use p3_koala_bear::KoalaBear;
+use p3_field::{Field, PrimeField32, TwoAdicField};
 use rayon::prelude::*;
 use tracing::instrument;
 
-pub struct CudaInfo<F: TwoAdicField> {
+pub struct CudaInfo {
     pub dev: Arc<CudaContext>,
     pub stream: Arc<CudaStream>,
-    pub twiddles: CudaSlice<F>, // For now we restrain ourseleves to the 2-addic roots of unity in the prime fields, so each one is represented by a u32
+    twiddles: CudaSlice<u32>, // For now we restrain ourseleves to the 2-addic roots of unity in the prime fields, so each one is represented by a u32
     pub two_adicity: usize,
     functions: HashMap<String, HashMap<&'static str, CudaFunction>>, // module => function_name => cuda_function
 }
 
-const MAX_NUMBER_OF_SUMCHECK_COMPOSITION_INSTRUCTIONS_TO_REMOVE_INLINING: usize = 10;
+const MAX_SUMCHECK_INSTRUCTIONS_TO_REMOVE_INLINING: usize = 10;
 
-type F = KoalaBear; // TODO avoid harcoding this
-static CUDA_INFO: OnceLock<CudaInfo<F>> = OnceLock::new();
+static CUDA_INFO: OnceLock<CudaInfo> = OnceLock::new();
 
-pub fn cuda_info() -> &'static CudaInfo<F> {
+pub fn cuda_info() -> &'static CudaInfo {
     CUDA_INFO.get().expect("CUDA not initialized")
 }
 
-impl CudaInfo<F> {
+impl CudaInfo {
     pub fn get_function(&self, module: &str, func_name: &str) -> &CudaFunction {
         self.functions
             .get(module)
             .and_then(|f| f.get(func_name))
             .unwrap_or_else(|| panic!("Function {func_name} not found in module {module}"))
     }
+
+    pub fn twiddles<F: Field>(&self) -> CudaSlice<F> {
+        // SAFETY: F should be the same field as the one used at initialization
+        assert!(F::bits() <= 32);
+        unsafe { std::mem::transmute(self.twiddles.clone()) }
+    }
+}
+
+#[derive(Clone, Debug, Hash)]
+pub struct SumcheckComputation<F> {
+    pub inner: Vec<CircuitComputation<F>>, // each one is multiplied by a 'batching scalar'. We assume the first batching scalar is always 1.
+    pub n_multilinears: usize,             // including the eq_mle multiplier (if any)
+    pub eq_mle_multiplier: bool,
+}
+
+impl<F> SumcheckComputation<F> {
+    pub fn total_n_instructions(&self) -> usize {
+        self.inner.iter().map(|c| c.instructions.len()).sum()
+    }
+
+    pub fn stack_size(&self) -> usize {
+        if self.inner.len() == 1 {
+            self.inner[0].stack_size
+        } else {
+            2 + self.inner.iter().map(|c| c.stack_size).max().unwrap()
+        }
+    }
+
+    pub fn uuid(&self) -> u64
+    where
+        F: Hash,
+    {
+        // TODO avoid, use a custom string instead
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
+    }
 }
 
 #[instrument(name = "CUDA initialization", skip_all)]
-pub fn init<EF: ExtensionField<F>>(sumcheck_compositions: &[&TransparentComputation<F, EF>]) {
-    let _ = CUDA_INFO.get_or_init(|| _init(sumcheck_compositions));
+pub fn init<F: TwoAdicField + PrimeField32>(sumcheck_computations: &[SumcheckComputation<F>]) {
+    let _ = CUDA_INFO.get_or_init(|| _init(sumcheck_computations));
 }
 
-fn _init<EF: ExtensionField<F>>(
-    sumcheck_compositions: &[&TransparentComputation<F, EF>],
-) -> CudaInfo<F> {
+fn _init<F: TwoAdicField + PrimeField32>(
+    sumcheck_computations: &[SumcheckComputation<F>],
+) -> CudaInfo {
     let dev = CudaContext::new(0).unwrap();
 
     // TODO avoid this ugly trick
-    let kernels_folder = if Path::new("kernels").exists() {
-        Path::new("kernels")
-    } else {
-        Path::new("crates/cuda-bindings/kernels")
+    let mut kernels_folder = Path::new("kernels");
+    if !kernels_folder.exists() {
+        kernels_folder = Path::new("crates/cuda-bindings/kernels")
     };
+    if !kernels_folder.exists() {
+        kernels_folder = Path::new("../cuda-bindings/kernels")
+    }
+    assert!(kernels_folder.exists());
+
+    let build_dir = kernels_folder.join("build");
+    fs::create_dir_all(&build_dir).unwrap();
+
+    let ptx_dir = build_dir.join("ptx");
+    fs::create_dir_all(&ptx_dir).unwrap();
+
+    let cuda_synthetic_dir = build_dir.join("cuda_synthetic");
+    fs::create_dir_all(&cuda_synthetic_dir).unwrap();
 
     let mut functions = HashMap::new();
 
@@ -64,7 +111,7 @@ fn _init<EF: ExtensionField<F>>(
         ("keccak", vec!["batch_keccak256"]),
         ("ntt", vec!["ntt"]),
         (
-            "sumcheck_common",
+            "sumcheck_folding",
             vec![
                 "fold_prime_by_prime",
                 "fold_prime_by_ext",
@@ -76,6 +123,7 @@ fn _init<EF: ExtensionField<F>>(
         compile_module(
             dev.clone(),
             &kernels_folder.join(format!("{module}.cu")),
+            &ptx_dir,
             module,
             func_names,
             false,
@@ -86,24 +134,22 @@ fn _init<EF: ExtensionField<F>>(
     let specialized_sumcheck_template =
         std::fs::read_to_string(Path::new(kernels_folder).join("sumcheck_template.txt")).unwrap();
 
-    let cuda_generated_dir = kernels_folder.join("auto_generated");
-    fs::create_dir_all(&cuda_generated_dir).unwrap();
-
-    for composition in sumcheck_compositions {
+    for composition in sumcheck_computations {
         let module = format!("sumcheck_{:x}", composition.uuid());
-        let file = cuda_generated_dir.join(format!("{module}.cu"));
+        let file = cuda_synthetic_dir.join(format!("{module}.cu"));
         if !file.exists() {
             let cuda = get_specialized_sumcheck_cuda(&specialized_sumcheck_template, composition);
-            std::fs::write(&file, cuda).unwrap();
+            std::fs::write(&file, &cuda).unwrap();
         }
 
         // To avoid huge PTX file, and reduce compilation time, we may remove inlining
-        let use_noinline = composition.n_instructions()
-            > MAX_NUMBER_OF_SUMCHECK_COMPOSITION_INSTRUCTIONS_TO_REMOVE_INLINING;
+        let use_noinline =
+            composition.total_n_instructions() > MAX_SUMCHECK_INSTRUCTIONS_TO_REMOVE_INLINING;
 
         compile_module(
             dev.clone(),
             &file,
+            &ptx_dir,
             &module,
             vec!["sum_over_hypercube_ext"],
             use_noinline,
@@ -113,7 +159,7 @@ fn _init<EF: ExtensionField<F>>(
 
     let stream = dev.default_stream();
 
-    let twiddles = store_twiddles::<F>(&stream).unwrap();
+    let twiddles = unsafe { std::mem::transmute(store_twiddles::<F>(&stream).unwrap()) };
 
     CudaInfo {
         dev,
@@ -127,17 +173,18 @@ fn _init<EF: ExtensionField<F>>(
 fn compile_module(
     dev: Arc<CudaContext>,
     cuda_file: &PathBuf,
+    ptx_dir: &PathBuf,
     module: &str,
     func_names: Vec<&'static str>,
     use_noinline: bool,
     functions: &mut HashMap<String, HashMap<&'static str, CudaFunction>>, // module => function_name => cuda_function
 ) {
-    let ptx_file = my_temp_dir().join(format!("{module}.ptx"));
+    let ptx_file = ptx_dir.join(format!("{module}.ptx"));
     let (major, minor) = cuda_compute_capacity().expect("Failed to get CUDA compute capability");
 
     let source_modified = Path::new(&cuda_file)
         .metadata()
-        .unwrap()
+        .expect(&format!("Cannot find {}", cuda_file.display()))
         .modified()
         .unwrap();
 
@@ -157,6 +204,14 @@ fn compile_module(
 
         // Run nvcc to compile the CUDA code to PTX
         let mut command = Command::new("nvcc");
+
+        let cuda_file_size = fs::metadata(cuda_file).unwrap().len() / 1024;
+        if cuda_file_size > 50 {
+            println!(
+                "Compiling a big cuda file ({} kb), may take a while...",
+                cuda_file_size
+            );
+        }
 
         command.args(&[
             &cuda_file.to_string_lossy() as &str, // Input file
@@ -242,26 +297,25 @@ fn cuda_compute_capacity() -> Result<(i32, i32), Box<dyn Error>> {
     Ok((major, minor))
 }
 
-fn get_specialized_sumcheck_cuda<F: TwoAdicField + PrimeField32, EF: ExtensionField<F>>(
+fn get_specialized_sumcheck_cuda<F: TwoAdicField + PrimeField32>(
     template: &str,
-    composition: &TransparentComputation<F, EF>,
+    composition: &SumcheckComputation<F>,
 ) -> String {
-    match composition {
-        TransparentComputation::Generic(generic) => {
-            let composition_instructions = get_specialized_sumcheck_generic_instructions(generic);
-            template
-                .replace("N_REGISTERS_PLACEHOLDER", &generic.stack_size.to_string())
-                .replace("N_BATCHING_SCALARS_PLACEHOLDER", "1") // Should be 0 in theory, but this avoids "error: zero-sized variable "cached_batching_scalars" is not allowed in device code"
-                .replace("COMPOSITION_PLACEHOLDER", &composition_instructions)
-        }
-        TransparentComputation::Custom(_custom) => {
-            todo!()
-        }
-    }
+    let composition_instructions = get_specialized_sumcheck_generic_instructions(composition);
+    template
+        .replace(
+            "N_REGISTERS_PLACEHOLDER",
+            &composition.stack_size().to_string(),
+        )
+        .replace(
+            "N_BATCHING_SCALARS_PLACEHOLDER",
+            &composition.inner.len().to_string(),
+        )
+        .replace("COMPOSITION_PLACEHOLDER", &composition_instructions)
 }
 
 fn get_specialized_sumcheck_generic_instructions<F: TwoAdicField + PrimeField32>(
-    composition: &CircuitComputation<F, usize>,
+    sumcheck_computation: &SumcheckComputation<F>,
 ) -> String {
     /*
 
@@ -289,63 +343,112 @@ fn get_specialized_sumcheck_generic_instructions<F: TwoAdicField + PrimeField32>
      */
 
     let mut res = String::new();
+    let blank = "            ";
+    let total_stack_size = sumcheck_computation.stack_size();
 
-    for instr in &composition.instructions {
-        let blank = "            ";
-        let op_str = match instr.op {
-            CircuitOp::Product => "mul",
-            CircuitOp::Sum => "add",
-        };
+    for (i, inner) in sumcheck_computation.inner.iter().enumerate() {
+        res += &format!(
+            "\n{blank}// computation {}/{}\n\n",
+            i + 1,
+            sumcheck_computation.inner.len()
+        );
+        for instr in &inner.instructions {
+            let op_str = match instr.op {
+                CircuitOp::Product => "mul",
+                CircuitOp::Sum => "add",
+            };
 
-        match (&instr.left, &instr.right) {
-            (ComputationInput::Stack(stack_index), ComputationInput::Scalar(scalar)) => {
+            match (&instr.left, &instr.right) {
+                (ComputationInput::Stack(stack_index), ComputationInput::Scalar(scalar)) => {
+                    res += &format!(
+                        "{}{}_prime_and_ext_field(&regs[{}], to_monty({}), &regs[{}]);\n",
+                        blank,
+                        op_str,
+                        stack_index,
+                        scalar.as_canonical_u32(),
+                        instr.result_location
+                    )
+                }
+                (ComputationInput::Node(node_index), ComputationInput::Scalar(scalar)) => {
+                    res += &format!(
+                        "{}{}_prime_and_ext_field(&multilinears[{}][thread_index], to_monty({}), &regs[{}]);\n",
+                        blank,
+                        op_str,
+                        node_index,
+                        scalar.as_canonical_u32(),
+                        instr.result_location
+                    )
+                }
+                (ComputationInput::Node(node_left), ComputationInput::Node(node_right)) => {
+                    res += &format!(
+                        "{}ext_field_{}(&multilinears[{}][thread_index], &multilinears[{}][thread_index], &regs[{}]);\n",
+                        blank, op_str, node_left, node_right, instr.result_location
+                    )
+                }
+                (ComputationInput::Stack(stack_index), ComputationInput::Node(node_index))
+                | (ComputationInput::Node(node_index), ComputationInput::Stack(stack_index)) => {
+                    res += &format!(
+                        "{}ext_field_{}(&regs[{}], &multilinears[{}][thread_index], &regs[{}]);\n",
+                        blank, op_str, stack_index, node_index, instr.result_location
+                    )
+                }
+                (ComputationInput::Stack(stack_left), ComputationInput::Stack(stack_right)) => {
+                    res += &format!(
+                        "{}ext_field_{}(&regs[{}], &regs[{}], &regs[{}]);\n",
+                        blank, op_str, stack_left, stack_right, instr.result_location
+                    )
+                }
+                (ComputationInput::Scalar(_), _) => {
+                    unreachable!("Scalar should always be on the right")
+                }
+            }
+        }
+
+        if sumcheck_computation.inner.len() > 1 {
+            if i == 0 {
                 res += &format!(
-                    "{}{}_prime_and_ext_field(&regs[{}], to_monty({}), &regs[{}]);\n",
+                    "{}regs[{}] = regs[{}];\n",
                     blank,
-                    op_str,
-                    stack_index,
-                    scalar.as_canonical_u32(),
-                    instr.result_location
-                )
-            }
-            (ComputationInput::Node(node_index), ComputationInput::Scalar(scalar)) => {
+                    total_stack_size - 1,
+                    inner.stack_size - 1
+                );
+            } else {
+                // multiply by batching scalar
+                assert!(inner.stack_size >= 2, "TODO edge case");
                 res += &format!(
-                    "{}{}_prime_and_ext_field(&multilinears[{}][thread_index], to_monty({}), &regs[{}]);\n",
+                    "{}ext_field_mul(&regs[{}], &cached_batching_scalars[{}], &regs[{}]);\n",
                     blank,
-                    op_str,
-                    node_index,
-                    scalar.as_canonical_u32(),
-                    instr.result_location
-                )
-            }
-            (ComputationInput::Node(node_left), ComputationInput::Node(node_right)) => {
+                    inner.stack_size - 1,
+                    i,
+                    total_stack_size - 2,
+                );
                 res += &format!(
-                    "{}ext_field_{}(&multilinears[{}][thread_index], &multilinears[{}][thread_index], &regs[{}]);\n",
-                    blank, op_str, node_left, node_right, instr.result_location
-                )
-            }
-            (ComputationInput::Stack(stack_index), ComputationInput::Node(node_index))
-            | (ComputationInput::Node(node_index), ComputationInput::Stack(stack_index)) => {
-                res += &format!(
-                    "{}ext_field_{}(&regs[{}], &multilinears[{}][thread_index], &regs[{}]);\n",
-                    blank, op_str, stack_index, node_index, instr.result_location
-                )
-            }
-            (ComputationInput::Stack(stack_left), ComputationInput::Stack(stack_right)) => {
-                res += &format!(
-                    "{}ext_field_{}(&regs[{}], &regs[{}], &regs[{}]);\n",
-                    blank, op_str, stack_left, stack_right, instr.result_location
-                )
-            }
-            (ComputationInput::Scalar(_), _) => {
-                unreachable!("Scalar should always be on the right")
+                    "{}ext_field_add(&regs[{}], &regs[{}], &regs[{}]);\n",
+                    blank,
+                    total_stack_size - 2,
+                    total_stack_size - 1,
+                    total_stack_size - 1,
+                );
             }
         }
     }
 
-    res
-}
+    if sumcheck_computation.eq_mle_multiplier {
+        assert!(total_stack_size >= 2, "TODO edge case");
+        res += &format!(
+            "{}regs[{}] = regs[{}];\n",
+            blank,
+            total_stack_size - 2,
+            total_stack_size - 1
+        );
+        res += &format!(
+            "{}ext_field_mul(&regs[{}], &multilinears[{}][thread_index], &regs[{}]);\n",
+            blank,
+            total_stack_size - 2,
+            sumcheck_computation.n_multilinears - 1,
+            total_stack_size - 1
+        );
+    }
 
-fn my_temp_dir() -> PathBuf {
-    env::temp_dir().join("whirlaway-cuda-bindings")
+    res
 }

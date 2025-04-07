@@ -6,7 +6,7 @@ use crate::{
 };
 use algebra::{
     field_utils::{dot_product, multilinear_point_from_univariate},
-    pols::{ComposedPolynomial, MultilinearPolynomial},
+    pols::{MultilinearPolynomial, TransparentPolynomial},
     utils::expand_randomness,
 };
 use fiat_shamir::FsProver;
@@ -68,7 +68,7 @@ impl<F: TwoAdicField> Prover<F> {
             .chain(statement.evaluations)
             .collect();
 
-        let mut sumcheck_pol;
+        let sumcheck_mles;
         let folding_randomness = {
             // If there is initial statement, then we run the sum-check for
             // this initial statement.
@@ -76,18 +76,21 @@ impl<F: TwoAdicField> Prover<F> {
             let combination_randomness =
                 expand_randomness(combination_randomness_gen, initial_claims.len());
 
-            let n_vars = witness.polynomial.num_variables();
             let nodes = vec![
                 witness.polynomial.clone().reverse_vars().into_evals(), // TODO: Avoid clone
                 randomized_eq_extensions(&initial_claims, &combination_randomness),
             ];
-            sumcheck_pol = ComposedPolynomial::new_product(n_vars, nodes);
             let n_rounds = Some(self.0.folding_factor.at_round(0));
             let pow_bits = self.0.starting_folding_pow_bits;
             let sum = dot_product(&initial_answers, &combination_randomness);
             let mut folding_randomness;
-            (folding_randomness, sumcheck_pol) = sumcheck::prove(
-                sumcheck_pol,
+            (folding_randomness, sumcheck_mles) = sumcheck::prove(
+                nodes,
+                &[
+                    (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
+                        .fix_computation(false),
+                ],
+                &[F::ONE],
                 None,
                 false,
                 fs_prover,
@@ -102,7 +105,7 @@ impl<F: TwoAdicField> Prover<F> {
         let round_state = RoundState {
             domain: self.0.starting_domain.clone(),
             round: 0,
-            sumcheck_pol,
+            sumcheck_mles,
             folding_randomness,
             coefficients: witness.polynomial,
             prev_merkle: witness.merkle_tree,
@@ -161,8 +164,13 @@ impl<F: TwoAdicField> Prover<F> {
             if self.0.final_sumcheck_rounds > 0 {
                 let n_rounds = Some(self.0.final_sumcheck_rounds);
                 let pow_bits = self.0.final_folding_pow_bits;
-                (_, round_state.sumcheck_pol) = sumcheck::prove(
-                    round_state.sumcheck_pol,
+                (_, round_state.sumcheck_mles) = sumcheck::prove(
+                    round_state.sumcheck_mles,
+                    &[
+                        (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
+                            .fix_computation(false),
+                    ],
+                    &[F::ONE],
                     None,
                     false,
                     fs_prover,
@@ -269,12 +277,17 @@ impl<F: TwoAdicField> Prover<F> {
         let combination_randomness =
             expand_randomness(combination_randomness_gen, stir_challenges.len());
 
-        round_state.sumcheck_pol.nodes_mut()[1] +=
+        round_state.sumcheck_mles[1] +=
             randomized_eq_extensions(&stir_challenges, &combination_randomness).into();
 
         let mut folding_randomness;
-        (folding_randomness, round_state.sumcheck_pol) = sumcheck::prove(
-            round_state.sumcheck_pol,
+        (folding_randomness, round_state.sumcheck_mles) = sumcheck::prove(
+            round_state.sumcheck_mles,
+            &[
+                (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
+                    .fix_computation(false),
+            ],
+            &[F::ONE],
             None,
             false,
             fs_prover,
@@ -287,7 +300,7 @@ impl<F: TwoAdicField> Prover<F> {
         let round_state = RoundState {
             round: round_state.round + 1,
             domain: new_domain,
-            sumcheck_pol: round_state.sumcheck_pol,
+            sumcheck_mles: round_state.sumcheck_mles,
             folding_randomness,
             coefficients: folded_coefficients, // TODO: Is this redundant with `sumcheck_prover.coeff` ?
             prev_merkle: merkle_tree,
@@ -301,7 +314,7 @@ impl<F: TwoAdicField> Prover<F> {
 struct RoundState<F: TwoAdicField> {
     round: usize,
     domain: Domain<F>,
-    sumcheck_pol: ComposedPolynomial<F, F>,
+    sumcheck_mles: Vec<MultilinearPolynomial<F>>,
     folding_randomness: Vec<F>,
     coefficients: CoefficientList<F>,
     prev_merkle: MerkleTree<F>,

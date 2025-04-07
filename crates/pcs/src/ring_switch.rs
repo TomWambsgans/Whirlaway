@@ -1,5 +1,5 @@
 use algebra::field_utils::dot_product;
-use algebra::pols::{ComposedPolynomial, Evaluation, MultilinearPolynomial};
+use algebra::pols::{Evaluation, MultilinearPolynomial, TransparentPolynomial};
 use algebra::tensor_algebra::TensorAlgebra;
 use fiat_shamir::{FsError, FsProver, FsVerifier};
 use p3_field::{BasedVectorSpace, ExtensionField, Field};
@@ -115,13 +115,22 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
             }
             MultilinearPolynomial::new(A_basis)
         };
-        let h = ComposedPolynomial::<EF, EF>::new_product(
-            packed_pol.n_vars,
-            vec![packed_pol.clone(), A_pol],
-        );
 
         let s0 = dot_product(&s_hat.rows(), &lagranged_r_pp);
-        let (r_p, _) = sumcheck::prove::<EF, EF, EF>(h, None, false, fs_prover, Some(s0), None, 0);
+        let (r_p, _) = sumcheck::prove::<EF, EF, EF>(
+            vec![packed_pol.clone(), A_pol],
+            &[
+                (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
+                    .fix_computation(false),
+            ],
+            &[EF::ONE],
+            None,
+            false,
+            fs_prover,
+            Some(s0),
+            None,
+            0,
+        );
 
         let packed_value = witness.inner_witness.pol().eval(&r_p);
         let packed_eval = Evaluation {

@@ -22,8 +22,8 @@ fn test_air_fibonacci() {
     builder.set_fixed_value(1, 0, F::ONE);
     builder.set_fixed_value(1, (1 << log_length) - 1, nth_fibonacci(1 << log_length));
     let ([c0_up, c1_up], [c0_down, c1_down]) = builder.vars();
-    builder.assert_eq("Fibonacci cst 1", c1_down, c0_up + c1_up.clone());
-    builder.assert_eq("Fibonacci cst 2", c0_down, c1_up);
+    builder.assert_eq(c1_down, c0_up + c1_up.clone());
+    builder.assert_eq(c0_down, c1_up);
 
     let table = builder.build();
 
@@ -51,7 +51,12 @@ fn test_air_fibonacci() {
 
     let mut fs_prover = FsProver::new();
     let batch_witness = batch_prover.commit(&mut fs_prover, witnesses);
-    table.prove(&mut fs_prover, &mut batch_prover, &batch_witness.polys);
+    table.prove(
+        &mut fs_prover,
+        &mut batch_prover,
+        &batch_witness.polys,
+        false,
+    );
     batch_prover.prove(batch_witness, &mut fs_prover);
 
     let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
@@ -76,15 +81,10 @@ fn test_air_complex() {
     builder.set_fixed_value(1, 0, F::ONE);
     builder.set_fixed_value(1, (1 << log_length) - 1, nth_fibonacci(1 << log_length));
     let ([c0_up, c1_up, c2_up], [c0_down, c1_down, c2_down]) = builder.vars();
-    builder.assert_eq(
-        "Fibonacci cst 1",
-        c1_down.clone(),
-        c0_up.clone() + c1_up.clone(),
-    );
-    builder.assert_eq("Fibonacci cst 2", c0_down.clone(), c1_up.clone());
+    builder.assert_eq(c1_down.clone(), c0_up.clone() + c1_up.clone());
+    builder.assert_eq(c0_down.clone(), c1_up.clone());
     // c2 + c1 * c0 + c1 * (c1 + c0 * c1 * 10) = 0
     builder.assert_zero(
-        "Complex cst",
         c2_down.clone()
             + c2_up.square()
             + (c1_up.clone() * c0_up.clone())
@@ -123,7 +123,12 @@ fn test_air_complex() {
 
     let mut fs_prover = FsProver::new();
     let batch_witness = batch_prover.commit(&mut fs_prover, witnesses);
-    table.prove(&mut fs_prover, &mut batch_prover, &batch_witness.polys);
+    table.prove(
+        &mut fs_prover,
+        &mut batch_prover,
+        &batch_witness.polys,
+        false,
+    );
     batch_prover.prove(batch_witness, &mut fs_prover);
 
     let mut fs_verifier = FsVerifier::new(fs_prover.transcript());

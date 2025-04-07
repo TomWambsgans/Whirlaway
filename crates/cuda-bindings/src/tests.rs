@@ -1,16 +1,15 @@
-use std::error::Error;
-
+use crate::{SumcheckComputation, cuda_batch_keccak, cuda_info, cuda_ntt, cuda_sum_over_hypercube};
 use algebra::{
     ntt::expand_from_coeff,
-    pols::{ArithmeticCircuit, MultilinearPolynomial, TransparentComputation},
+    pols::{ArithmeticCircuit, MultilinearPolynomial},
 };
 use cudarc::driver::{CudaContext, sys::CUdevice_attribute};
+use p3_field::PrimeCharacteristicRing;
 use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::KoalaBear;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-
-use crate::{cuda_batch_keccak, cuda_info, cuda_ntt, cuda_sum_over_hypercube};
 use rayon::prelude::*;
+use std::error::Error;
 
 #[test]
 #[ignore]
@@ -19,14 +18,23 @@ fn test_cuda_hypercube_sum() {
     const EXT_DEGREE: usize = 8;
     type EF = BinomialExtensionField<KoalaBear, EXT_DEGREE>;
 
-    let n_multilinears = 200;
-    let n_vars = 16;
+    let n_multilinears = 50;
+    let n_vars = 14;
+    let depth = 25;
+    let n_batching_scalars = 3;
 
-    let composition: ArithmeticCircuit<F, usize> =
-        ArithmeticCircuit::random(&mut StdRng::seed_from_u64(0), n_multilinears, 50);
-    let composition = TransparentComputation::Generic(composition.fix_computation(true));
+    let rng = &mut StdRng::seed_from_u64(0);
+    let compositions = (0..n_batching_scalars)
+        .map(|_| ArithmeticCircuit::random(rng, n_multilinears, depth).fix_computation(true))
+        .collect::<Vec<_>>();
+
+    let sumcheck_computation = SumcheckComputation {
+        n_multilinears,
+        inner: compositions.clone(),
+        eq_mle_multiplier: false,
+    };
     let time = std::time::Instant::now();
-    super::init::<EF>(&[&composition]);
+    super::init(&[sumcheck_computation.clone()]);
     println!("CUDA initialized in {} ms", time.elapsed().as_millis());
     let cuda = cuda_info();
 
@@ -36,20 +44,33 @@ fn test_cuda_hypercube_sum() {
         .map(|_| MultilinearPolynomial::<EF>::random(rng, n_vars))
         .collect::<Vec<_>>();
 
+    let batching_scalar: EF = rng.random();
+    let batching_scalars = (0..n_batching_scalars)
+        .map(|e| batching_scalar.exp_u64(e))
+        .collect::<Vec<_>>();
+
     let time = std::time::Instant::now();
     let expected_sum = (0..1 << n_vars)
         .into_par_iter()
         .map(|i| {
-            composition.eval(
-                &(0..n_multilinears)
-                    .map(|j| multilinears[j].evals[i])
-                    .collect::<Vec<_>>(),
-            )
+            compositions.iter().zip(&batching_scalars).map(|(comp, b)| {
+                comp.eval(
+                    &(0..n_multilinears)
+                        .map(|j| multilinears[j].evals[i])
+                        .collect::<Vec<_>>(),
+                )
+            } * *b).sum::<EF>()
         })
         .sum::<EF>();
     println!("CPU hypercube sum took {} ms", time.elapsed().as_millis());
 
     let time = std::time::Instant::now();
+    let mut batching_scalars_dev =
+        unsafe { cuda.stream.alloc::<EF>(batching_scalars.len()).unwrap() };
+    cuda.stream
+        .memcpy_htod(&batching_scalars, &mut batching_scalars_dev)
+        .unwrap();
+
     let multilinears_dev = multilinears
         .iter()
         .map(|multilinear| {
@@ -63,11 +84,10 @@ fn test_cuda_hypercube_sum() {
     let copy_duration = time.elapsed();
 
     let time = std::time::Instant::now();
-    let cuda_sum = cuda_sum_over_hypercube::<EXT_DEGREE, F, EF>(
-        &composition,
-        n_vars as u32,
+    let cuda_sum = cuda_sum_over_hypercube::<F, EF>(
+        &sumcheck_computation,
         &multilinears_dev,
-        &[],
+        &batching_scalars_dev,
     );
 
     println!(

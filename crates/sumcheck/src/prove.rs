@@ -1,7 +1,7 @@
 use algebra::{
     field_utils::eq_extension,
     pols::{
-        ComposedPolynomial, HypercubePoint, MultilinearPolynomial, PartialHypercubePoint,
+        CircuitComputation, HypercubePoint, MultilinearPolynomial, PartialHypercubePoint,
         UnivariatePolynomial,
     },
 };
@@ -9,54 +9,107 @@ use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};
 use rayon::prelude::*;
 
+use crate::{eval_batched_exprs_on_partial_hypercube, sum_batched_exprs_over_hypercube};
+
 pub fn prove<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionField<F>>(
-    pol: ComposedPolynomial<F, NF, EF>,
+    multilinears: Vec<MultilinearPolynomial<NF>>,
+    exprs: &[CircuitComputation<F>],
+    batching_scalars: &[EF],
     eq_factor: Option<&[EF]>,
     is_zerofier: bool,
     fs_prover: &mut FsProver,
     sum: Option<EF>,
     n_rounds: Option<usize>,
     pow_bits: usize,
-) -> (Vec<EF>, ComposedPolynomial<F, EF, EF>) {
-    assert!(pol.n_vars >= 1);
-    let n_rounds = n_rounds.unwrap_or(pol.n_vars);
-    let max_degree_per_vars = pol.max_degree_per_vars();
-    if let Some(eq_factor) = &eq_factor {
-        assert_eq!(eq_factor.len(), pol.n_vars);
-    }
-    let mut challenges = Vec::new();
-    let mut sum = sum.unwrap_or_else(|| pol.sum_over_hypercube());
-    let mut folded_pol;
+) -> (Vec<EF>, Vec<MultilinearPolynomial<EF>>) {
+    prove_with_initial_rounds(
+        multilinears,
+        exprs,
+        batching_scalars,
+        eq_factor,
+        Vec::new(),
+        is_zerofier,
+        fs_prover,
+        sum,
+        n_rounds,
+        pow_bits,
+    )
+}
 
-    folded_pol = sc_round(
-        pol,
+pub fn prove_with_initial_rounds<
+    F: Field,
+    NF: ExtensionField<F>,
+    EF: ExtensionField<NF> + ExtensionField<F>,
+>(
+    multilinears: Vec<MultilinearPolynomial<NF>>,
+    exprs: &[CircuitComputation<F>],
+    batching_scalars: &[EF],
+    eq_factor: Option<&[EF]>,
+    mut challenges: Vec<EF>,
+    is_zerofier: bool,
+    fs_prover: &mut FsProver,
+    sum: Option<EF>,
+    n_rounds: Option<usize>,
+    pow_bits: usize,
+) -> (Vec<EF>, Vec<MultilinearPolynomial<EF>>) {
+    let mut n_vars = multilinears[0].n_vars;
+    assert!(multilinears.iter().all(|m| m.n_vars == n_vars));
+    assert_eq!(exprs.len(), batching_scalars.len());
+    assert!(batching_scalars[0].is_one());
+
+    let starting_round = challenges.len();
+    let n_rounds = n_rounds.unwrap_or(n_vars);
+    let max_degree_per_vars = exprs
+        .iter()
+        .map(|expr| expr.composition_degree)
+        .max()
+        .unwrap();
+    if let Some(eq_factor) = &eq_factor {
+        assert_eq!(eq_factor.len(), n_vars + starting_round);
+    }
+    let mut sum = sum.unwrap_or_else(|| {
+        sum_batched_exprs_over_hypercube(&multilinears, n_vars, exprs, batching_scalars)
+    });
+    let mut folded_multilinears;
+
+    folded_multilinears = sc_round(
+        multilinears,
+        &mut n_vars,
+        exprs,
+        batching_scalars,
         eq_factor,
         is_zerofier,
         fs_prover,
-        max_degree_per_vars[0],
+        max_degree_per_vars,
         &mut sum,
         pow_bits,
         &mut challenges,
-        0,
+        starting_round,
     );
-    for i in 1..n_rounds {
-        folded_pol = sc_round(
-            folded_pol,
+    for i in starting_round + 1..n_rounds {
+        folded_multilinears = sc_round(
+            folded_multilinears,
+            &mut n_vars,
+            exprs,
+            batching_scalars,
             eq_factor,
             is_zerofier,
             fs_prover,
-            max_degree_per_vars[i],
+            max_degree_per_vars,
             &mut sum,
             pow_bits,
             &mut challenges,
             i,
         );
     }
-    (challenges, folded_pol)
+    (challenges, folded_multilinears)
 }
 
 fn sc_round<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionField<F>>(
-    pol: ComposedPolynomial<F, NF, EF>,
+    multilinears: Vec<MultilinearPolynomial<NF>>,
+    n_vars: &mut usize,
+    exprs: &[CircuitComputation<F>],
+    batching_scalars: &[EF],
     eq_factor: Option<&[EF]>,
     is_zerofier: bool,
     fs_prover: &mut FsProver,
@@ -65,8 +118,8 @@ fn sc_round<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionF
     pow_bits: usize,
     challenges: &mut Vec<EF>,
     round: usize,
-) -> ComposedPolynomial<F, EF, EF> {
-    let _span = if round <= 2 {
+) -> Vec<MultilinearPolynomial<EF>> {
+    let _span = if *n_vars >= 6 {
         Some(tracing::span!(tracing::Level::INFO, "Sumcheck round").entered())
     } else {
         None
@@ -95,31 +148,34 @@ fn sc_round<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionF
             }
         } else {
             if eq_factor.is_some() {
-                (0..1 << (pol.n_vars - 1))
+                (0..1 << (*n_vars - 1))
                     .into_par_iter()
                     .map(|x| {
-                        pol.eval_partial_hypercube(&PartialHypercubePoint::new(
-                            z,
-                            pol.n_vars - 1,
-                            x,
-                        )) * eq_mle.eval_hypercube(&HypercubePoint::new(eq_mle.n_vars, x))
+                        eval_batched_exprs_on_partial_hypercube(
+                            &multilinears,
+                            exprs,
+                            batching_scalars,
+                            &PartialHypercubePoint::new(z, *n_vars - 1, x),
+                        ) * eq_mle.eval_hypercube(&HypercubePoint::new(eq_mle.n_vars, x))
                     })
                     .sum::<EF>()
             } else {
-                (0..1 << (pol.n_vars - 1))
+                (0..1 << (*n_vars - 1))
                     .into_par_iter()
                     .map(|x| {
-                        pol.eval_partial_hypercube(&PartialHypercubePoint::new(
-                            z,
-                            pol.n_vars - 1,
-                            x,
-                        ))
+                        eval_batched_exprs_on_partial_hypercube(
+                            &multilinears,
+                            exprs,
+                            batching_scalars,
+                            &PartialHypercubePoint::new(z, *n_vars - 1, x),
+                        )
                     })
                     .sum::<EF>()
             }
         };
         p_evals.push((EF::from_u32(z), sum_z));
     }
+
     let mut p = UnivariatePolynomial::lagrange_interpolation(&p_evals).unwrap();
 
     if let Some(eq_factor) = &eq_factor {
@@ -134,14 +190,17 @@ fn sc_round<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionF
 
     fs_prover.add_scalars(&p.coeffs);
     let challenge = fs_prover.challenge_scalars(1)[0];
+    challenges.push(challenge);
+    *sum = p.eval(&challenge);
+    *n_vars -= 1;
 
     // Do PoW if needed
     if pow_bits > 0 {
         fs_prover.challenge_pow(pow_bits);
     }
 
-    let pol = pol.fix_variable(challenge);
-    challenges.push(challenge);
-    *sum = p.eval(&challenge);
-    pol
+    multilinears
+        .into_iter()
+        .map(|pol| pol.fix_variable(challenge))
+        .collect()
 }

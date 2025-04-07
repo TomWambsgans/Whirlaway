@@ -93,6 +93,7 @@ __device__ void batch_reverse_bit_order(ExtField *data, int block, int bits)
 }
 
 // TODO use only one buffer, but I don't know how to fill it "partially" with cudarc, since the crate asserts dest size = src size when copying data
+// This can now be done with cudarc 0.14 -> TODO
 extern "C" __global__ void ntt(ExtField *input, ExtField *buff, ExtField *result, const uint32_t log_len, const uint32_t log_extension_factor, const uint32_t *twiddles)
 {
     // twiddles = 1
