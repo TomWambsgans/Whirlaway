@@ -78,7 +78,7 @@ pub fn prove_with_cuda<
         // TODO use cuda here
         sum_batched_exprs_over_hypercube(&multilinears, n_vars, exprs, batching_scalars)
     });
-    
+
     let mut folded_multilinears_dev = multilinears
         .iter()
         .map(|m| memcpy_htod(&m.evals))

@@ -1,9 +1,7 @@
-use std::collections::BTreeMap;
-
-use algebra::pols::ArithmeticCircuit;
+use algebra::pols::{ArithmeticCircuit, MultilinearPolynomial};
 use p3_field::Field;
 
-use super::table::{AirTable, BoundaryCondition};
+use super::table::AirTable;
 
 pub type ColIndex = usize;
 pub type RowIndex = usize;
@@ -23,15 +21,17 @@ pub struct ConstraintVariable {
 pub type AirExpr<F> = ArithmeticCircuit<F, ConstraintVariable>;
 
 pub struct AirBuilder<F: Field, const COLS: usize> {
+    log_length: usize,
     constraints: Vec<AirExpr<F>>, // every expr should equal to zero
-    fixd_values: BTreeMap<(ColIndex, RowIndex), F>,
+    preprocessed_columns: Vec<Vec<F>>,
 }
 
 impl<F: Field, const COLS: usize> AirBuilder<F, COLS> {
-    pub fn new() -> Self {
+    pub fn new(log_length: usize) -> Self {
         Self {
+            log_length,
             constraints: Vec::new(),
-            fixd_values: BTreeMap::new(),
+            preprocessed_columns: Vec::new(),
         }
     }
 
@@ -43,8 +43,19 @@ impl<F: Field, const COLS: usize> AirBuilder<F, COLS> {
         self.assert_zero(expr_1 - expr_2);
     }
 
-    pub fn set_fixed_value(&mut self, col_index: ColIndex, row_index: RowIndex, value: F) {
-        self.fixd_values.insert((col_index, row_index), value);
+    /// Assumes condition is 0 or 1
+    pub fn assert_eq_if(&mut self, expr_1: AirExpr<F>, expr_2: AirExpr<F>, condition: AirExpr<F>) {
+        self.assert_zero_if(expr_1 - expr_2, condition);
+    }
+
+    /// Assumes condition is 0 or 1
+    pub fn assert_zero_if(&mut self, expr: AirExpr<F>, condition: AirExpr<F>) {
+        self.assert_zero(expr * condition);
+    }
+
+    pub fn add_preprocess_column(&mut self, col: Vec<F>) {
+        assert_eq!(col.len(), 1 << self.log_length);
+        self.preprocessed_columns.push(col);
     }
 
     pub fn vars(
@@ -83,18 +94,16 @@ impl<F: Field, const COLS: usize> AirBuilder<F, COLS> {
                 .fix_computation(true)
             })
             .collect();
-        let boundary_conditions = std::mem::take(&mut self.fixd_values)
-            .into_iter()
-            .map(|((col_index, row_index), value)| BoundaryCondition {
-                col: col_index,
-                row: row_index,
-                value,
-            })
-            .collect();
+
         AirTable {
+            log_length: self.log_length,
             n_columns: COLS,
             constraints,
-            boundary_conditions,
+            preprocessed_columns: self
+                .preprocessed_columns
+                .into_iter()
+                .map(MultilinearPolynomial::new)
+                .collect(),
         }
     }
 }

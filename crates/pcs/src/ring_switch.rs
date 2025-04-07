@@ -86,6 +86,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
 
     #[allow(non_snake_case)]
     fn open(&self, witness: Self::Witness, eval: &Evaluation<EF>, fs_prover: &mut FsProver) {
+        let _span = tracing::info_span!("RingSwitch::open").entered();
         let two_pow_kappa = <EF as BasedVectorSpace<F>>::DIMENSION;
         assert!(two_pow_kappa.is_power_of_two());
         let kappa = two_pow_kappa.ilog2() as usize;
@@ -138,7 +139,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
             value: packed_value,
         };
         fs_prover.add_scalars(&[packed_value]);
-
+        std::mem::drop(_span);
         self.inner
             .open(witness.inner_witness, &packed_eval, fs_prover)
     }

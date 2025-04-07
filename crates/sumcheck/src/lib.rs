@@ -9,9 +9,6 @@ use rayon::prelude::*;
 mod prove;
 pub use prove::*;
 
-mod custom;
-pub use custom::*;
-
 mod verify;
 pub use verify::*;
 

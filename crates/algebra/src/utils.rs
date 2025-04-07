@@ -5,6 +5,7 @@ use rayon::prelude::*;
 
 #[inline(always)]
 pub const fn log2(x: usize) -> u32 {
+    // rounded up
     if x == 0 {
         0
     } else if x.is_power_of_two() {

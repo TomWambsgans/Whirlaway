@@ -5,7 +5,7 @@ use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear};
 use p3_matrix::Matrix;
-use pcs::{BatchSettings, RingSwitch, WhirPCS, WhirParameters};
+use pcs::{PCS, RingSwitch, WhirPCS, WhirParameters};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::{borrow::Borrow, time::Instant};
 use tracing::level_filters::LevelFilter;
@@ -64,7 +64,7 @@ pub fn prove_poseidon2(log_n_rows: usize, security_bits: usize, log_inv_rate: us
         PARTIAL_ROUNDS,
     >::new(constants.clone());
 
-    let mut air_builder = AirBuilder::<F, COLS>::new();
+    let mut air_builder = AirBuilder::<F, COLS>::new(log_n_rows);
     let (up, down) = air_builder.vars();
 
     type Columns = Poseidon2Cols<
@@ -119,35 +119,21 @@ pub fn prove_poseidon2(log_n_rows: usize, security_bits: usize, log_inv_rate: us
         cuda_bindings::init(&[sumcheck_computations]);
     }
 
-    let batch =
-        BatchSettings::<F, EF, RingSwitch<F, EF, WhirPCS<EF>>>::new(COLS, log_n_rows, &whir_params);
-
-    let mut batch_prover = batch.clone();
+    let pcs = RingSwitch::<F, EF, WhirPCS<EF>>::new(
+        log_n_rows + table.log_n_witness_columns(),
+        &whir_params,
+    );
 
     let t = Instant::now();
     let mut fs_prover = FsProver::new();
-    let batch_witness = batch_prover.commit(&mut fs_prover, witness);
-    table.prove(
-        &mut fs_prover,
-        &mut batch_prover,
-        &batch_witness.polys,
-        cuda,
-    );
-    batch_prover.prove(batch_witness, &mut fs_prover);
+    table.prove(&mut fs_prover, &pcs, &witness, cuda);
     let proof_size = fs_prover.transcript_len();
 
     let prover_time = t.elapsed();
     let time = Instant::now();
 
     let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
-    let mut batch_verifier = batch.clone();
-    let commitment = batch_verifier.parse_commitment(&mut fs_verifier).unwrap();
-    table
-        .verify(&mut fs_verifier, &mut batch_verifier, log_n_rows)
-        .unwrap();
-    batch_verifier
-        .verify(&mut fs_verifier, &commitment)
-        .unwrap();
+    table.verify(&mut fs_verifier, &pcs, log_n_rows).unwrap();
     let verifier_time = time.elapsed();
 
     println!();
