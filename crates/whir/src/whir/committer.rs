@@ -47,7 +47,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Committer<F, EF> {
 
         let root = merkle_tree.root();
 
-        fs_prover.add_bytes(&root);
+        fs_prover.add_bytes(&root.0);
 
         let mut ood_points = vec![EF::ZERO; self.0.committment_ood_samples];
         let mut ood_answers = Vec::with_capacity(self.0.committment_ood_samples);

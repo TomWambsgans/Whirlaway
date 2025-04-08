@@ -6,12 +6,11 @@ A hash-based SNARK with lightweight proofs, powered by the [Whir](https://eprint
 
 - **Arithmetization**: AIR (Algebraic Intermediate Representation) with preprocessed columns
 - **Proof size**: 150 / 200 KiB (with 128 bits of proven security)
-- **Proving speed**: ~7500 poseidon2/s (field = koala-bear, on a standard laptop)
+- **Proving speed**: ~10.000 poseidon2/s (field = koala-bear, gpu = RTX 3060)
 
 Being hash-based, the protocol is presumably post-quantum safe.
 
-> **Note**: This library is experimental and not production-ready. The implementation is deliberately naive from both software and algorithmic perspectives. Known optimizations should yield >10× improvements in both aspects.
-The open question is whether, once optimizations achieve ~100K poseidon2 hash/s, this approach can scale further to match Plonky3's impressive ~1M hash/s performance (at the expense of heavier proofs).
+> **Note**: This library is under construction and not production-ready.
 
 > Roadmap: Phase 1 = Speed. Phase 2 = Code quality.
 
@@ -24,12 +23,10 @@ Key techniques:
 - Multiple column openings batched into a single PCS opening via the sumcheck protocol
 - "Ring-switching" from [Binius' 2nd paper](https://eprint.iacr.org/2024/504.pdf) eliminates field "embedding overhead" in the PCS
 
-Currently the main bottleneck is the sumcheck protocol, where the "embedding overhead" is substantial. The implementation uses the degree-8 extension of koala-bear, where multiplications are nearly 30× slower than in the prime field—presenting an immediate opportunity for optimization (see [this](https://eprint.iacr.org/2024/1046.pdf) and [this](https://eprint.iacr.org/2024/108.pdf)).
-
 ## Running the Poseidon2 Benchmark
 
 ```
-cargo run --profile perf
+cargo run --release
 ```
 
 ## Credits

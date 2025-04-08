@@ -1,4 +1,7 @@
-use algebra::pols::{CoefficientList, Evaluation, MultilinearPolynomial};
+use algebra::{
+    pols::{CoefficientList, Evaluation, MultilinearPolynomial},
+    utils::KeccakDigest,
+};
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use whir::{
@@ -35,7 +38,7 @@ impl<EF: Field> PcsWitness<EF> for WhirWitness<EF> {
 
 impl<F: TwoAdicField, EF: ExtensionField<F>> PCS<EF, EF> for WhirPCS<F, EF> {
     type Witness = WhirWitness<EF>;
-    type ParsedCommitment = ParsedCommitment<EF, [u8; 32]>;
+    type ParsedCommitment = ParsedCommitment<EF, KeccakDigest>;
     type VerifError = WhirError;
     type Params = WhirParameters;
 

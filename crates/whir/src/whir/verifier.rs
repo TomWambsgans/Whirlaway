@@ -1,5 +1,5 @@
 use algebra::pols::{CoefficientList, UnivariatePolynomial};
-use algebra::utils::powers;
+use algebra::utils::{KeccakDigest, powers};
 use algebra::utils::{eq_extension, multilinear_point_from_univariate};
 use fiat_shamir::{FsError, FsVerifier};
 use merkle_tree::MultiPath;
@@ -66,8 +66,8 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
     pub fn parse_commitment(
         &self,
         fs_verifier: &mut FsVerifier,
-    ) -> Result<ParsedCommitment<EF, [u8; 32]>, WhirError> {
-        let root = fs_verifier.next_bytes(32)?.try_into().unwrap(); // TODO avoid harcoding 32
+    ) -> Result<ParsedCommitment<EF, KeccakDigest>, WhirError> {
+        let root = KeccakDigest(fs_verifier.next_bytes(32)?.try_into().unwrap()); // TODO avoid harcoding 32
 
         let mut ood_points = vec![EF::ZERO; self.params.committment_ood_samples];
         let mut ood_answers = vec![EF::ZERO; self.params.committment_ood_samples];
@@ -86,7 +86,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
     fn parse_proof(
         &self,
         fs_verifier: &mut FsVerifier,
-        parsed_commitment: &ParsedCommitment<EF, [u8; 32]>,
+        parsed_commitment: &ParsedCommitment<EF, KeccakDigest>,
         statement: &Statement<EF>, // Will be needed later
     ) -> Result<ParsedProof<EF>, WhirError> {
         let mut initial_sumcheck_rounds = Vec::new();
@@ -127,7 +127,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
         for r in 0..self.params.n_rounds() {
             let round_params = &self.params.round_parameters[r];
 
-            let new_root: [u8; 32] = fs_verifier.next_bytes(32)?.try_into().unwrap(); // TODO avoid harcoding 32
+            let new_root = KeccakDigest(fs_verifier.next_bytes(32)?.try_into().unwrap()); // TODO avoid harcoding 32
 
             let mut ood_points = vec![EF::ZERO; round_params.ood_samples];
             let mut ood_answers = vec![EF::ZERO; round_params.ood_samples];
@@ -150,9 +150,12 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
 
             let merkle_proof = MultiPath::<EF>::from_bytes(&fs_verifier.next_variable_bytes()?)
                 .ok_or(WhirError::Decoding)?;
-            let answers: Vec<Vec<EF>> = fs_verifier.next_scalar_matrix(None)?;
 
-            if !merkle_proof.verify(&prev_root, &answers)
+            let answers: Vec<Vec<EF>> = fs_verifier.next_scalar_matrix(None).unwrap();
+
+            let merkle_tree_height =
+                domain_size.trailing_zeros() as usize - self.params.folding_factor.at_round(r);
+            if !merkle_proof.verify(&prev_root, &answers, merkle_tree_height)
                 || merkle_proof.leaf_indexes != stir_challenges_indexes
             {
                 return Err(WhirError::MerkleTree);
@@ -219,9 +222,11 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
 
         let final_merkle_proof = MultiPath::<EF>::from_bytes(&fs_verifier.next_variable_bytes()?)
             .ok_or(WhirError::Decoding)?;
-        let final_randomness_answers: Vec<Vec<EF>> = fs_verifier.next_scalar_matrix(None)?;
+        let final_randomness_answers: Vec<Vec<EF>> = fs_verifier.next_scalar_matrix(None).unwrap();
 
-        if !final_merkle_proof.verify(&prev_root, &final_randomness_answers)
+        let merkle_tree_height = domain_size.trailing_zeros() as usize
+            - self.params.folding_factor.at_round(self.params.n_rounds());
+        if !final_merkle_proof.verify(&prev_root, &final_randomness_answers, merkle_tree_height)
             || final_merkle_proof.leaf_indexes != final_randomness_indexes
         {
             return Err(WhirError::MerkleTree);
@@ -262,7 +267,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
 
     fn compute_v_poly(
         &self,
-        parsed_commitment: &ParsedCommitment<EF, [u8; 32]>,
+        parsed_commitment: &ParsedCommitment<EF, KeccakDigest>,
         statement: &Statement<EF>,
         proof: &ParsedProof<EF>,
     ) -> EF {
@@ -346,7 +351,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
     pub fn verify(
         &self,
         fs_verifier: &mut FsVerifier,
-        parsed_commitment: &ParsedCommitment<EF, [u8; 32]>,
+        parsed_commitment: &ParsedCommitment<EF, KeccakDigest>,
         statement: &Statement<EF>,
     ) -> Result<(), WhirError> {
         // We first do a pass in which we rederive all the FS challenges

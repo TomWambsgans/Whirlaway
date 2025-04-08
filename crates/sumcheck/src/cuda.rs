@@ -13,7 +13,7 @@ use rayon::prelude::*;
 
 use crate::sum_batched_exprs_over_hypercube;
 
-const MIN_VARS_FOR_GPU: usize = 8;
+const MIN_VARS_FOR_GPU: usize = 9;
 
 pub fn prove_with_cuda<
     F: Field,

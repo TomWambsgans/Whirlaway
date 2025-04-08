@@ -54,11 +54,3 @@ rayon.workspace = true
 p3-matrix.workspace = true
 tracing-forest.workspace = true
 tracing-subscriber.workspace = true
-
-[dev-dependencies]
-
-[profile.perf]
-inherits = "release"
-lto = "fat"
-codegen-units = 1
-incremental = false

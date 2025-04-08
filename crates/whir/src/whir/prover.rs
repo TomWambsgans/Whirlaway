@@ -196,7 +196,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
             1 << self.0.folding_factor.at_round(round_state.round + 1),
         );
 
-        fs_prover.add_bytes(&merkle_tree.root());
+        fs_prover.add_bytes(&merkle_tree.root().0);
 
         // OOD Samples
         let mut ood_points = vec![EF::ZERO; round_params.ood_samples];

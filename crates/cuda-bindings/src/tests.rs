@@ -1,10 +1,11 @@
 use crate::{
-    SumcheckComputation, cuda_batch_keccak, cuda_expanded_ntt, cuda_info, cuda_ntt,
+    SumcheckComputation, cuda_expanded_ntt, cuda_info, cuda_keccak256, cuda_ntt,
     cuda_restructure_evaluations, cuda_sum_over_hypercube, cuda_sync, memcpy_dtoh, memcpy_htod,
 };
 use algebra::{
     ntt::{expand_from_coeff, ntt_batch, restructure_evaluations},
     pols::{ArithmeticCircuit, MultilinearPolynomial},
+    utils::{KeccakDigest, keccak256},
 };
 use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
@@ -118,9 +119,9 @@ fn test_cuda_keccak() {
     super::init::<KoalaBear>(&[], 0);
     println!("CUDA initialized in {} ms", t.elapsed().as_millis());
 
-    let n_inputs = 1000_000;
-    let input_length = 100;
-    let input_packed_length = 111;
+    let n_inputs = 5_000_000;
+    let input_length = 200;
+    let input_packed_length = 211;
     let src_bytes = (0..n_inputs * input_packed_length)
         .map(|i| (i % 256) as u8)
         .collect::<Vec<u8>>();
@@ -129,29 +130,62 @@ fn test_cuda_keccak() {
     let expected_result = (0..n_inputs)
         .into_par_iter()
         .map(|i| {
-            hash_keccak256(
-                &src_bytes[i * input_packed_length..i * input_packed_length + input_length],
-            )
+            keccak256(&src_bytes[i * input_packed_length..i * input_packed_length + input_length])
         })
-        .collect::<Vec<[u8; 32]>>();
-    println!("CPU took {} ms", time.elapsed().as_millis());
+        .collect::<Vec<KeccakDigest>>();
+    println!("CPU keccak took {} ms", time.elapsed().as_millis());
 
     let time = std::time::Instant::now();
-    let dest =
-        cuda_batch_keccak(&src_bytes, input_length as u32, input_packed_length as u32).unwrap();
-    println!("CUDA took {} ms", time.elapsed().as_millis());
-    assert!(dest == expected_result);
-}
+    let src_bytes_dev = memcpy_htod(&src_bytes);
+    cuda_sync();
+    println!("CUDA memcpy_htod took {} ms", time.elapsed().as_millis());
 
-fn hash_keccak256(data: &[u8]) -> [u8; 32] {
-    // TODO this function is duplicated elsewhere
-    use sha3::{Digest, Keccak256};
-    let mut hasher = Keccak256::new();
-    hasher.update(data);
-    let result = hasher.finalize();
-    let mut output = [0u8; 32];
-    output.copy_from_slice(&result);
-    output
+    let time = std::time::Instant::now();
+    let res_dev = cuda_keccak256(
+        &src_bytes_dev,
+        input_length as u32,
+        input_packed_length as u32,
+    );
+    cuda_sync();
+    println!("CUDA keccak took {} ms", time.elapsed().as_millis());
+
+    let time = std::time::Instant::now();
+    let dest = memcpy_dtoh(&res_dev);
+    cuda_sync();
+    println!("CUDA memcpy_dtoh took {} ms", time.elapsed().as_millis());
+    assert!(dest == expected_result);
+
+    let n_particular_hashes = 300;
+    let particular_indexes = (0..n_particular_hashes)
+        .map(|i| (i * i * 3 + i + 78) % n_inputs)
+        .collect::<Vec<_>>();
+    let mut particular_hashes = (0..n_particular_hashes)
+        .map(|_| [KeccakDigest::default()])
+        .collect::<Vec<_>>();
+
+    let time = std::time::Instant::now();
+    for i in 0..n_particular_hashes {
+        cuda_info()
+            .stream
+            .memcpy_dtoh(
+                &res_dev.slice(particular_indexes[i]..1 + particular_indexes[i]),
+                &mut particular_hashes[i],
+            )
+            .unwrap();
+    }
+    cuda_sync();
+    println!(
+        "CUDA transfer of {} hashes from gpu to cpu took {} ms",
+        n_particular_hashes,
+        time.elapsed().as_millis()
+    );
+
+    for i in 0..n_particular_hashes {
+        assert_eq!(
+            particular_hashes[i][0],
+            expected_result[particular_indexes[i]]
+        );
+    }
 }
 
 #[test]
