@@ -4,7 +4,7 @@
 mod tests;
 
 mod keccak;
-use cudarc::driver::DeviceRepr;
+use cudarc::driver::{DevicePtr, DeviceRepr};
 pub use keccak::*;
 
 mod ntt;
@@ -35,6 +35,15 @@ pub fn memcpy_dtoh<T: DeviceRepr + Default + Clone>(src: &CudaSlice<T>) -> Vec<T
     dst
 }
 
+pub fn concat_pointers<T: DeviceRepr>(slices: &[CudaSlice<T>]) -> CudaSlice<u64> {
+    let cuda = cuda_info();
+    memcpy_htod(
+        &slices
+            .iter()
+            .map(|slice_dev| slice_dev.device_ptr(&cuda.stream).0)
+            .collect::<Vec<u64>>(), // TODO avoid hardcoding u64 (this is platform dependent)
+    )
+}
 pub fn cuda_sync() {
     cuda_info().stream.synchronize().unwrap();
 }

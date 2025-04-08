@@ -1,9 +1,9 @@
 use algebra::{
-    field_utils::eq_extension,
     pols::{
         CircuitComputation, HypercubePoint, MultilinearPolynomial, PartialHypercubePoint,
         UnivariatePolynomial,
     },
+    utils::eq_extension,
 };
 use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};

@@ -1,16 +1,28 @@
-use crate::{SumcheckComputation, cuda_batch_keccak, cuda_info, cuda_ntt, cuda_sum_over_hypercube};
+use crate::{
+    SumcheckComputation, cuda_batch_keccak, cuda_expanded_ntt, cuda_info, cuda_ntt,
+    cuda_restructure_evaluations, cuda_sum_over_hypercube, cuda_sync, memcpy_dtoh, memcpy_htod,
+};
 use algebra::{
-    ntt::expand_from_coeff,
+    ntt::{expand_from_coeff, ntt_batch, restructure_evaluations},
     pols::{ArithmeticCircuit, MultilinearPolynomial},
 };
-use cudarc::driver::{CudaContext, sys::CUdevice_attribute};
+use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
+use p3_field::TwoAdicField;
 use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::KoalaBear;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
-use std::error::Error;
 
+/*
+To run all the tests here:
+
+for test in test_cuda_hypercube_sum test_cuda_keccak test_cuda_expanded_ntt test_cuda_expanded_ntt test_cuda_ntt test_cuda_restructure_evaluations; do
+  cargo test --release --package cuda-bindings --lib -- "tests::$test" --exact --nocapture --ignored
+done
+
+(TODO make `cargo test` work (the issue is that tests dont have the same cuda_init config))
+*/
 #[test]
 #[ignore]
 fn test_cuda_hypercube_sum() {
@@ -34,7 +46,7 @@ fn test_cuda_hypercube_sum() {
         eq_mle_multiplier: false,
     };
     let time = std::time::Instant::now();
-    super::init(&[sumcheck_computation.clone()]);
+    super::init(&[sumcheck_computation.clone()], 0);
     println!("CUDA initialized in {} ms", time.elapsed().as_millis());
     let cuda = cuda_info();
 
@@ -100,9 +112,10 @@ fn test_cuda_hypercube_sum() {
 }
 
 #[test]
+#[ignore]
 fn test_cuda_keccak() {
     let t = std::time::Instant::now();
-    super::init::<KoalaBear>(&[]);
+    super::init::<KoalaBear>(&[], 0);
     println!("CUDA initialized in {} ms", t.elapsed().as_millis());
 
     let n_inputs = 1000_000;
@@ -127,7 +140,7 @@ fn test_cuda_keccak() {
     let dest =
         cuda_batch_keccak(&src_bytes, input_length as u32, input_packed_length as u32).unwrap();
     println!("CUDA took {} ms", time.elapsed().as_millis());
-    assert_eq!(dest.len(), expected_result.len());
+    assert!(dest == expected_result);
 }
 
 fn hash_keccak256(data: &[u8]) -> [u8; 32] {
@@ -142,8 +155,9 @@ fn hash_keccak256(data: &[u8]) -> [u8; 32] {
 }
 
 #[test]
-pub fn test_cuda_ntt() {
-    super::init::<KoalaBear>(&[]);
+#[ignore]
+pub fn test_cuda_expanded_ntt() {
+    super::init::<KoalaBear>(&[], 0);
 
     const EXT_DEGREE: usize = 8;
 
@@ -151,7 +165,7 @@ pub fn test_cuda_ntt() {
     type EF = BinomialExtensionField<F, EXT_DEGREE>;
 
     let rng = &mut StdRng::seed_from_u64(0);
-    let log_len = 20;
+    let log_len = 19;
     let len = 1 << log_len;
     let log_expension_factor: usize = 3;
     let expansion_factor = 1 << log_expension_factor;
@@ -162,33 +176,91 @@ pub fn test_cuda_ntt() {
         len, expansion_factor
     );
     let time = std::time::Instant::now();
-    let cuda_result = cuda_ntt(&coeffs, expansion_factor);
+    let cuda_result = cuda_expanded_ntt(&coeffs, expansion_factor);
+    cuda_sync();
     println!("CUDA NTT took {} ms", time.elapsed().as_millis());
+
+    let time = std::time::Instant::now();
+    let cuda_result = memcpy_dtoh(&cuda_result);
+    cuda_sync();
+    println!("CUDA memcpy_dtoh took {} ms", time.elapsed().as_millis());
 
     let time = std::time::Instant::now();
     let expected_result = expand_from_coeff::<F, EF>(&coeffs, expansion_factor);
     println!("CPU NTT took {} ms", time.elapsed().as_millis());
 
-    assert_eq!(cuda_result, expected_result);
-}
-
-fn cuda_shared_memory() -> Result<usize, Box<dyn Error>> {
-    let dev = CudaContext::new(0)?;
-    Ok(dev.attribute(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_SHARED_MEMORY_PER_BLOCK)? as usize)
-}
-
-fn cuda_constant_memory() -> Result<usize, Box<dyn Error>> {
-    let dev = CudaContext::new(0)?;
-    Ok(dev.attribute(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_TOTAL_CONSTANT_MEMORY)? as usize)
+    assert!(cuda_result == expected_result);
 }
 
 #[test]
-fn print_cuda_info() {
-    super::init::<KoalaBear>(&[]);
+#[ignore]
+pub fn test_cuda_ntt() {
+    const EXT_DEGREE: usize = 8;
 
-    let shared_memory = cuda_shared_memory().unwrap();
-    println!("Shared memory per block: {} bytes", shared_memory);
+    type F = KoalaBear;
+    type EF = BinomialExtensionField<F, EXT_DEGREE>;
 
-    let constant_memory = cuda_constant_memory().unwrap();
-    println!("Constant memory: {} bytes", constant_memory);
+    super::init::<F>(&[], 0);
+
+    let rng = &mut StdRng::seed_from_u64(0);
+    let log_len = 15;
+    let len = 1 << log_len;
+    for log_chunck_size in [3, 11] {
+        let mut coeffs = (0..len).map(|_| rng.random()).collect::<Vec<EF>>();
+        let cuda_result = cuda_ntt(&coeffs, log_chunck_size);
+        ntt_batch::<F, EF>(&mut coeffs, 1 << log_chunck_size);
+        assert!(cuda_result == coeffs);
+    }
 }
+
+#[test]
+#[ignore]
+pub fn test_cuda_restructure_evaluations() {
+    const EXT_DEGREE: usize = 8;
+
+    type F = KoalaBear;
+    type EF = BinomialExtensionField<F, EXT_DEGREE>;
+    let whir_folding_factor = 4;
+
+    super::init::<F>(&[], whir_folding_factor);
+
+    let rng = &mut StdRng::seed_from_u64(0);
+    let log_len = 24;
+    let len = 1 << log_len;
+    let coeffs = (0..len).map(|_| rng.random()).collect::<Vec<EF>>();
+    let coeffs_dev = memcpy_htod(&coeffs);
+    cuda_sync();
+
+    let time = std::time::Instant::now();
+    let cuda_result = cuda_restructure_evaluations(&coeffs_dev, whir_folding_factor);
+    cuda_sync();
+    println!(
+        "CUDA restructuraction took {} ms",
+        time.elapsed().as_millis()
+    );
+    let time = std::time::Instant::now();
+    let cuda_result = memcpy_dtoh(&cuda_result);
+    cuda_sync();
+    println!("CUDA memcpy_dtoh took {} ms", time.elapsed().as_millis());
+
+    let time = std::time::Instant::now();
+    let domain_gen_inv = F::two_adic_generator(log_len).inverse();
+    let expected_result =
+        restructure_evaluations::<F, EF>(coeffs, domain_gen_inv, whir_folding_factor);
+    println!(
+        "CPU restructuraction took {} ms",
+        time.elapsed().as_millis()
+    );
+
+    assert!(cuda_result == expected_result);
+}
+
+// fn cuda_shared_memory() -> Result<usize, Box<dyn Error>> {
+//     let dev = CudaContext::new(0)?;
+//     Ok(dev.attribute(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_SHARED_MEMORY_PER_BLOCK)? as usize)
+// }
+
+// fn cuda_constant_memory() -> Result<usize, Box<dyn Error>> {
+//     let dev = CudaContext::new(0)?;
+//     Ok(dev.attribute(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_TOTAL_CONSTANT_MEMORY)? as usize)
+// }

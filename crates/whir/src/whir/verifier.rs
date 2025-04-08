@@ -1,13 +1,12 @@
-use algebra::field_utils::{eq_extension, multilinear_point_from_univariate};
-use algebra::pols::UnivariatePolynomial;
-use algebra::utils::expand_randomness;
+use algebra::pols::{CoefficientList, UnivariatePolynomial};
+use algebra::utils::powers;
+use algebra::utils::{eq_extension, multilinear_point_from_univariate};
 use fiat_shamir::{FsError, FsVerifier};
 use merkle_tree::MultiPath;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use std::iter;
 
 use super::{Statement, parameters::WhirConfig};
-use crate::poly_utils::coeffs::CoefficientList;
 use crate::whir::fs_utils::get_challenge_stir_queries;
 
 pub struct Verifier<F: TwoAdicField, EF: ExtensionField<F>> {
@@ -95,7 +94,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
         let initial_combination_randomness;
         // Derive combination randomness and first sumcheck polynomial
         let combination_randomness_gen = fs_verifier.challenge_scalars::<EF>(1)[0];
-        initial_combination_randomness = expand_randomness(
+        initial_combination_randomness = powers(
             combination_randomness_gen,
             parsed_commitment.ood_points.len() + statement.points.len(),
         );
@@ -164,7 +163,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
             }
 
             let combination_randomness_gen = fs_verifier.challenge_scalars::<EF>(1)[0];
-            let combination_randomness = expand_randomness(
+            let combination_randomness = powers(
                 combination_randomness_gen,
                 stir_challenges_indexes.len() + round_params.ood_samples,
             );

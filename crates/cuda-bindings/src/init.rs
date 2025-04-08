@@ -7,6 +7,7 @@ use std::process::Command;
 use std::sync::{Arc, OnceLock};
 
 use algebra::pols::{CircuitComputation, CircuitOp, ComputationInput};
+use algebra::utils::powers_parallel;
 use cudarc::driver::sys::CUdevice_attribute;
 use cudarc::driver::{CudaContext, CudaFunction, CudaSlice, CudaStream, DriverError};
 use cudarc::nvrtc::Ptx;
@@ -15,10 +16,12 @@ use rayon::prelude::*;
 use tracing::instrument;
 
 pub struct CudaInfo {
-    pub dev: Arc<CudaContext>,
-    pub stream: Arc<CudaStream>,
-    twiddles: CudaSlice<u32>, // For now we restrain ourseleves to the 2-addic roots of unity in the prime fields, so each one is represented by a u32
-    pub two_adicity: usize,
+    pub(crate) _dev: Arc<CudaContext>,
+    pub(crate) stream: Arc<CudaStream>,
+    twiddles: CudaSlice<u32>, // We restrain ourseleves to the 2-addic roots of unity in the prime fields, so each one is represented by a u32
+    correction_twiddles: CudaSlice<u32>, // Same remark as above
+    pub(crate) whir_folding_factor: usize,
+    pub(crate) two_adicity: usize,
     functions: HashMap<String, HashMap<&'static str, CudaFunction>>, // module => function_name => cuda_function
 }
 
@@ -42,6 +45,12 @@ impl CudaInfo {
         // SAFETY: F should be the same field as the one used at initialization
         assert!(F::bits() <= 32);
         unsafe { std::mem::transmute(self.twiddles.clone()) }
+    }
+
+    pub fn correction_twiddles<F: Field>(&self) -> CudaSlice<F> {
+        // SAFETY: F should be the same field as the one used at initialization
+        assert!(F::bits() <= 32);
+        unsafe { std::mem::transmute(self.correction_twiddles.clone()) }
     }
 }
 
@@ -77,12 +86,16 @@ impl<F> SumcheckComputation<F> {
 }
 
 #[instrument(name = "CUDA initialization", skip_all)]
-pub fn init<F: TwoAdicField + PrimeField32>(sumcheck_computations: &[SumcheckComputation<F>]) {
-    let _ = CUDA_INFO.get_or_init(|| _init(sumcheck_computations));
+pub fn init<F: TwoAdicField + PrimeField32>(
+    sumcheck_computations: &[SumcheckComputation<F>],
+    whir_folding_factor: usize,
+) {
+    let _ = CUDA_INFO.get_or_init(|| _init(sumcheck_computations, whir_folding_factor));
 }
 
 fn _init<F: TwoAdicField + PrimeField32>(
     sumcheck_computations: &[SumcheckComputation<F>],
+    whir_folding_factor: usize,
 ) -> CudaInfo {
     let dev = CudaContext::new(0).unwrap();
 
@@ -109,7 +122,10 @@ fn _init<F: TwoAdicField + PrimeField32>(
 
     for (module, func_names) in [
         ("keccak", vec!["batch_keccak256"]),
-        ("ntt", vec!["expanded_ntt"]),
+        (
+            "ntt",
+            vec!["ntt_global", "expanded_ntt", "restructure_evaluations"],
+        ),
         (
             "sumcheck_folding",
             vec![
@@ -160,12 +176,17 @@ fn _init<F: TwoAdicField + PrimeField32>(
     let stream = dev.default_stream();
 
     let twiddles = unsafe { std::mem::transmute(store_twiddles::<F>(&stream).unwrap()) };
+    let correction_twiddles = unsafe {
+        std::mem::transmute(store_correction_twiddles::<F>(&stream, whir_folding_factor).unwrap())
+    };
 
     CudaInfo {
-        dev,
+        _dev: dev,
         stream,
         twiddles,
+        correction_twiddles,
         two_adicity: F::TWO_ADICITY,
+        whir_folding_factor,
         functions,
     }
 }
@@ -250,43 +271,46 @@ fn compile_module(
 #[instrument(name = "pre-processing twiddles for CUDA NTT", skip_all)]
 fn store_twiddles<F: TwoAdicField>(stream: &Arc<CudaStream>) -> Result<CudaSlice<F>, DriverError> {
     assert!(F::bits() <= 32);
-    let num_threads = rayon::current_num_threads().next_power_of_two();
     let mut all_twiddles = Vec::new();
     for i in 0..=F::TWO_ADICITY {
         // TODO only use the required twiddles (TWO_ADICITY may be larger than needed)
-        let root = F::two_adic_generator(i);
-        let twiddles = if (1 << i) <= num_threads {
-            (0..1 << i)
-                .into_iter()
-                .map(|j| root.exp_u64(j as u64))
-                .collect::<Vec<F>>()
-        } else {
-            let chunk_size = (1 << i) / num_threads;
-            (0..num_threads)
-                .into_par_iter()
-                .map(|j| {
-                    let mut start = root.exp_u64(j as u64 * chunk_size as u64);
-                    let mut chunck = Vec::new();
-                    for _ in 0..chunk_size {
-                        chunck.push(start);
-                        start = start * root;
-                    }
-                    chunck
-                })
-                .flatten()
-                .collect()
-        };
-        all_twiddles.extend(twiddles);
+        all_twiddles.extend(powers_parallel(F::two_adic_generator(i), 1 << i));
     }
-
     let mut all_twiddles_dev = unsafe { stream.alloc::<F>(all_twiddles.len()).unwrap() };
-
     stream
         .memcpy_htod(&all_twiddles, &mut all_twiddles_dev)
         .unwrap();
     stream.synchronize().unwrap();
-
     Ok(all_twiddles_dev)
+}
+
+#[instrument(name = "pre-processing correction twiddles for CUDA NTT", skip_all)]
+fn store_correction_twiddles<F: TwoAdicField>(
+    stream: &Arc<CudaStream>,
+    whir_folding_factor: usize,
+) -> Result<CudaSlice<F>, DriverError> {
+    assert!(F::bits() <= 32);
+    let folding_size = 1 << whir_folding_factor;
+    let size_inv = F::from_u64(folding_size).inverse();
+    // TODO only use the required twiddles (TWO_ADICITY may be larger than needed)
+    let mut all_correction_twiddles = Vec::new();
+    for i in 0..=F::TWO_ADICITY - whir_folding_factor {
+        // TODO only use the required twiddles (TWO_ADICITY may be larger than needed)
+        let inv_root = F::two_adic_generator(i + whir_folding_factor).inverse();
+        let inv_powers = powers_parallel(inv_root, 1 << (i + whir_folding_factor));
+        let correction_twiddles = (0..1 << (i + whir_folding_factor))
+            .into_par_iter()
+            .map(|j| size_inv * inv_powers[((j % folding_size) * (j / folding_size)) as usize])
+            .collect::<Vec<_>>();
+        all_correction_twiddles.extend(correction_twiddles);
+    }
+    let mut all_correction_twiddles_dev =
+        unsafe { stream.alloc::<F>(all_correction_twiddles.len()).unwrap() };
+    stream
+        .memcpy_htod(&all_correction_twiddles, &mut all_correction_twiddles_dev)
+        .unwrap();
+    stream.synchronize().unwrap();
+    Ok(all_correction_twiddles_dev)
 }
 
 fn cuda_compute_capacity() -> Result<(i32, i32), Box<dyn Error>> {
@@ -317,31 +341,6 @@ fn get_specialized_sumcheck_cuda<F: TwoAdicField + PrimeField32>(
 fn get_specialized_sumcheck_generic_instructions<F: TwoAdicField + PrimeField32>(
     sumcheck_computation: &SumcheckComputation<F>,
 ) -> String {
-    /*
-
-    Example:
-
-    regs[0] = multilinears[0][thread_index];
-    mul_prime_and_ext_field(&regs[0], to_monty(11), &regs[0]);
-    ext_field_mul(&regs[0], &cached_batching_scalars[0], &regs[1]);
-    regs[2] = regs[1];
-
-    regs[0] = multilinears[1][thread_index];
-    mul_prime_and_ext_field(&regs[0], to_monty(22), &regs[0]);
-    ext_field_mul(&regs[0], &cached_batching_scalars[1], &regs[1]);
-
-    ext_field_add(&regs[1], &regs[2], &regs[2]);
-
-    regs[0] = multilinears[2][thread_index];
-    mul_prime_and_ext_field(&regs[0], to_monty(33), &regs[0]);
-    ext_field_mul(&regs[0], &cached_batching_scalars[2], &regs[1]);
-
-    ext_field_add(&regs[1], &regs[2], &regs[2]);
-
-    ext_field_mul(&regs[2], &multilinears[3][thread_index], &regs[3]);
-
-     */
-
     let mut res = String::new();
     let blank = "            ";
     let total_stack_size = sumcheck_computation.stack_size();

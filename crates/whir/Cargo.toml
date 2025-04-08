@@ -5,7 +5,6 @@ edition.workspace = true
 
 [dependencies]
 serde.workspace = true
-rayon.workspace = true
 fiat-shamir.workspace = true
 algebra.workspace = true
 merkle-tree.workspace = true

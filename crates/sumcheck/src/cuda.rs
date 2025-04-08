@@ -1,12 +1,12 @@
 use algebra::{
-    field_utils::eq_extension,
     pols::{CircuitComputation, MultilinearPolynomial, UnivariatePolynomial},
+    utils::eq_extension,
 };
 use p3_field::{ExtensionField, Field};
 
 use cuda_bindings::{
-    CudaSlice, SumcheckComputation, cuda_info, cuda_sum_over_hypercube, cuda_sync, fold_ext_by_ext,
-    fold_ext_by_prime, memcpy_htod,
+    CudaSlice, SumcheckComputation, cuda_sum_over_hypercube, cuda_sync, fold_ext_by_ext,
+    fold_ext_by_prime, memcpy_dtoh, memcpy_htod,
 };
 use fiat_shamir::FsProver;
 use rayon::prelude::*;
@@ -50,7 +50,6 @@ pub fn prove_with_cuda<
         );
     }
 
-    let cuda = cuda_info();
     let sumcheck_computation = SumcheckComputation {
         inner: exprs.to_vec(),
         n_multilinears: multilinears.len() + eq_factor.is_some() as usize,
@@ -102,15 +101,9 @@ pub fn prove_with_cuda<
     }
     let mut folded_multilinears = folded_multilinears_dev
         .into_iter()
-        .map(|multilinear_dev| {
-            let mut dst = MultilinearPolynomial::zero(n_vars);
-            cuda.stream
-                .memcpy_dtoh(&multilinear_dev, &mut dst.evals)
-                .unwrap();
-            dst
-        })
+        .map(|multilinear_dev| MultilinearPolynomial::new(memcpy_dtoh(&multilinear_dev)))
         .collect::<Vec<_>>();
-    cuda.stream.synchronize().unwrap();
+    cuda_sync();
     (challenges, folded_multilinears) = super::prove_with_initial_rounds(
         folded_multilinears,
         exprs,

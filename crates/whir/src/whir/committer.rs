@@ -1,9 +1,7 @@
+use crate::utils::expand_from_coeff_and_restructure;
+
 use super::parameters::WhirConfig;
-use crate::{
-    poly_utils::{coeffs::CoefficientList, fold::restructure_evaluations},
-    utils::expand_from_coeff_maybe_with_cuda,
-};
-use algebra::field_utils::multilinear_point_from_univariate;
+use algebra::{pols::CoefficientList, utils::multilinear_point_from_univariate};
 use fiat_shamir::FsProver;
 use merkle_tree::MerkleTree;
 
@@ -33,14 +31,13 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Committer<F, EF> {
     ) -> Option<Witness<EF>> {
         let base_domain = self.0.starting_domain.base_domain.as_ref().unwrap();
         let expansion = base_domain.size() / polynomial.num_coeffs();
-        let evals =
-            expand_from_coeff_maybe_with_cuda::<F, EF>(polynomial.coeffs(), expansion, self.0.cuda);
-        // TODO: `stack_evaluations` and `restructure_evaluations` are really in-place algorithms.
-        // They also partially overlap and undo one another. We should merge them.
-        let folded_evals = restructure_evaluations(
-            evals,
+
+        let folded_evals = expand_from_coeff_and_restructure(
+            polynomial.coeffs(),
+            expansion,
             base_domain.group_gen_inv(),
             self.0.folding_factor.at_round(0),
+            self.0.cuda,
         );
 
         // Group folds together as a leaf.

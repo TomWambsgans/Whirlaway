@@ -1,6 +1,6 @@
-use algebra::field_utils::dot_product;
 use algebra::pols::{Evaluation, MultilinearPolynomial, TransparentPolynomial};
 use algebra::tensor_algebra::TensorAlgebra;
+use algebra::utils::dot_product;
 use fiat_shamir::{FsError, FsProver, FsVerifier};
 use p3_field::{BasedVectorSpace, ExtensionField, Field};
 use sumcheck::SumcheckError;

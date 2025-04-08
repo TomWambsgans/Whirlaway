@@ -1,8 +1,8 @@
-use cudarc::driver::{CudaSlice, DevicePtr, LaunchConfig, PushKernelArg};
+use cudarc::driver::{CudaSlice, LaunchConfig, PushKernelArg};
 
 use p3_field::{ExtensionField, Field};
 
-use crate::{MAX_LOG_N_BLOCKS, SumcheckComputation, cuda_info};
+use crate::{MAX_LOG_N_BLOCKS, SumcheckComputation, concat_pointers, cuda_info, memcpy_htod};
 
 // TODO avoid hardcoding
 const SUMCHECK_LOG_N_THREADS_PER_BLOCK: u32 = 8;
@@ -29,17 +29,7 @@ pub fn cuda_sum_over_hypercube<F: Field, EF: ExtensionField<F>>(
         shared_mem_bytes: batching_scalars.len() as u32 * ext_degree * 4, // cf: __shared__ ExtField cached_batching_scalars[N_BATCHING_SCALARS];
     };
 
-    let mut multilinears_ptrs_dev =
-        unsafe { cuda.stream.alloc::<u64>(multilinears.len()).unwrap() }; // TODO avoid hardcoding u64 (this is platform dependent)
-    cuda.stream
-        .memcpy_htod(
-            &multilinears
-                .iter()
-                .map(|slice_dev| slice_dev.device_ptr(&cuda.stream).0)
-                .collect::<Vec<_>>(),
-            &mut multilinears_ptrs_dev,
-        )
-        .unwrap();
+    let multilinears_ptrs_dev = concat_pointers(multilinears);
 
     let mut sums_dev = unsafe { cuda.stream.alloc::<EF>(1 << n_vars).unwrap() };
 
@@ -72,29 +62,11 @@ pub fn fold_ext_by_prime<F: Field, EF: ExtensionField<F>>(
     assert!(slices.iter().all(|s| s.len() == 1 << log_slice_len));
     let cuda = cuda_info();
 
-    let mut slices_ptrs_dev = unsafe { cuda.stream.alloc::<u64>(slices.len()).unwrap() }; // TODO avoid hardcoding u64 (this is platform dependent)
-    cuda.stream
-        .memcpy_htod(
-            &slices
-                .iter()
-                .map(|slice_dev| slice_dev.device_ptr(&cuda.stream).0)
-                .collect::<Vec<_>>(),
-            &mut slices_ptrs_dev,
-        )
-        .unwrap();
-
+    let slices_ptrs_dev = concat_pointers(slices);
     let res = (0..slices.len())
         .map(|_| unsafe { cuda.stream.alloc::<EF>(1 << (log_slice_len - 1)).unwrap() })
         .collect::<Vec<_>>();
-    let mut res_ptrs_dev = unsafe { cuda.stream.alloc::<u64>(res.len()).unwrap() }; // TODO avoid hardcoding u64 (this is platform dependent)
-    cuda.stream
-        .memcpy_htod(
-            &res.iter()
-                .map(|res_dev| res_dev.device_ptr(&cuda.stream).0)
-                .collect::<Vec<_>>(),
-            &mut res_ptrs_dev,
-        )
-        .unwrap();
+    let mut res_ptrs_dev = concat_pointers(&res);
 
     let log_n_blocks = ((log_slice_len - 1).saturating_sub(SUMCHECK_LOG_N_THREADS_PER_BLOCK))
         .min(MAX_LOG_N_BLOCKS);
@@ -124,29 +96,12 @@ pub fn fold_ext_by_ext<EF: Field>(slices: &[CudaSlice<EF>], scalar: EF) -> Vec<C
     assert!(slices.iter().all(|s| s.len() == 1 << log_slice_len));
     let cuda = cuda_info();
 
-    let mut slices_ptrs_dev = unsafe { cuda.stream.alloc::<u64>(slices.len()).unwrap() }; // TODO avoid hardcoding u64 (this is platform dependent)
-    cuda.stream
-        .memcpy_htod(
-            &slices
-                .iter()
-                .map(|slice_dev| slice_dev.device_ptr(&cuda.stream).0)
-                .collect::<Vec<_>>(),
-            &mut slices_ptrs_dev,
-        )
-        .unwrap();
+    let slices_ptrs_dev = concat_pointers(slices);
 
     let res = (0..slices.len())
         .map(|_| unsafe { cuda.stream.alloc::<EF>(1 << (log_slice_len - 1)).unwrap() })
         .collect::<Vec<_>>();
-    let mut res_ptrs_dev = unsafe { cuda.stream.alloc::<u64>(res.len()).unwrap() }; // TODO avoid hardcoding u64 (this is platform dependent)
-    cuda.stream
-        .memcpy_htod(
-            &res.iter()
-                .map(|slice_dev| slice_dev.device_ptr(&cuda.stream).0)
-                .collect::<Vec<_>>(),
-            &mut res_ptrs_dev,
-        )
-        .unwrap();
+    let mut res_ptrs_dev = concat_pointers(&res);
 
     let log_n_blocks = ((log_slice_len - 1).saturating_sub(SUMCHECK_LOG_N_THREADS_PER_BLOCK))
         .min(MAX_LOG_N_BLOCKS);
@@ -157,9 +112,8 @@ pub fn fold_ext_by_ext<EF: Field>(slices: &[CudaSlice<EF>], scalar: EF) -> Vec<C
         shared_mem_bytes: 0,
     };
 
-    let mut scalar_dev = unsafe { cuda.stream.alloc::<EF>(1).unwrap() };
-    cuda.stream.memcpy_htod(&[scalar], &mut scalar_dev).unwrap();
     let n_slices = slices.len() as u32;
+    let scalar_dev = memcpy_htod(&[scalar]);
 
     let f = cuda.get_function(&"sumcheck_folding", "fold_ext_by_ext");
     let mut launch_args = cuda.stream.launch_builder(&f);

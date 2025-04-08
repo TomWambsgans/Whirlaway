@@ -1,9 +1,8 @@
-use algebra::pols::{Evaluation, MultilinearPolynomial};
+use algebra::pols::{CoefficientList, Evaluation, MultilinearPolynomial};
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use whir::{
     parameters::MultivariateParameters,
-    poly_utils::coeffs::CoefficientList,
     whir::{
         Statement,
         committer::Committer,

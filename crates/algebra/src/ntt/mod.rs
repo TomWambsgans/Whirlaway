@@ -1,5 +1,6 @@
 //! NTT and related algorithms.
 
+mod fold;
 mod matrix;
 mod ntt;
 mod transpose;
@@ -10,7 +11,6 @@ use self::matrix::MatrixMut;
 use p3_field::{ExtensionField, TwoAdicField};
 
 use rayon::prelude::*;
-use tracing::instrument;
 
 pub use self::{
     ntt::{intt, intt_batch, ntt, ntt_batch},
@@ -18,8 +18,9 @@ pub use self::{
     wavelet::wavelet_transform,
 };
 
+pub use fold::restructure_evaluations;
+
 /// RS encode at a rate 1/`expansion`.
-#[instrument(name = "cpu: expand_from_coeff", skip_all)]
 pub fn expand_from_coeff<F: TwoAdicField, EF: ExtensionField<F>>(
     coeffs: &[EF],
     expansion: usize,

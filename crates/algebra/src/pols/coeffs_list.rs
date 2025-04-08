@@ -1,4 +1,4 @@
-use algebra::{
+use crate::{
     ntt::wavelet_transform,
     pols::{MultilinearPolynomial, UnivariatePolynomial},
 };

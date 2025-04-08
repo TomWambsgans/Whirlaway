@@ -83,6 +83,13 @@ impl FoldingFactor {
         }
     }
 
+    pub fn as_constant(&self) -> Option<usize> {
+        match self {
+            FoldingFactor::Constant(factor) => Some(*factor),
+            FoldingFactor::ConstantFromSecondRound(_, _) => None,
+        }
+    }
+
     pub fn check_validity(&self, num_variables: usize) -> Result<(), String> {
         match self {
             FoldingFactor::Constant(factor) => {

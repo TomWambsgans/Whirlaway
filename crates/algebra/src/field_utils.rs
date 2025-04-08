@@ -1,6 +1,6 @@
 // TODO REMOVE THIS HORRIBLE FILE
 
-use p3_field::{ExtensionField, Field, PrimeField};
+use p3_field::{Field, PrimeField};
 
 fn prime_field_to_bytes<F: PrimeField>(f: F) -> Vec<u8> {
     if F::bits() <= 16 {
@@ -87,39 +87,4 @@ pub fn deserialize_field<F: Field>(bytes: &[u8]) -> Option<F> {
         let ptr = subfields.as_ptr() as *const F;
         Some(std::ptr::read(ptr))
     }
-}
-
-pub fn eq_extension<F: Field>(s1: &[F], s2: &[F]) -> F {
-    assert_eq!(s1.len(), s2.len());
-    if s1.len() == 0 {
-        return F::ONE;
-    }
-    (0..s1.len())
-        .map(|i| s1[i] * s2[i] + (F::ONE - s1[i]) * (F::ONE - s2[i]))
-        .product()
-}
-
-pub fn hadamard_product<F: Field>(a: &[F], b: &[F]) -> Vec<F> {
-    assert_eq!(a.len(), b.len());
-    a.iter().zip(b.iter()).map(|(x, y)| *x * *y).collect()
-}
-
-pub fn dot_product<F: Field, EF: ExtensionField<F>>(a: &[F], b: &[EF]) -> EF {
-    assert_eq!(a.len(), b.len());
-    a.iter().zip(b.iter()).map(|(x, y)| *y * *x).sum()
-}
-
-// TODO find a better name
-pub fn multilinear_point_from_univariate<F: Field>(point: F, num_variables: usize) -> Vec<F> {
-    let mut res = Vec::with_capacity(num_variables);
-    let mut cur = point;
-    for _ in 0..num_variables {
-        res.push(cur);
-        cur = cur * cur;
-    }
-
-    // Reverse so higher power is first
-    res.reverse();
-
-    res
 }

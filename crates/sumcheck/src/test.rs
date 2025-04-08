@@ -1,6 +1,6 @@
 use algebra::{
     pols::{MultilinearPolynomial, TransparentPolynomial},
-    utils::expand_randomness,
+    utils::powers,
 };
 use cuda_bindings::SumcheckComputation;
 use fiat_shamir::{FsProver, FsVerifier};
@@ -25,7 +25,7 @@ fn test_sumcheck() {
         .map(|_| TransparentPolynomial::random(rng, n_multilinears, 1).fix_computation(true))
         .collect::<Vec<_>>();
     let batching_scalar: EF = rng.random();
-    let batching_scalars = expand_randomness(batching_scalar, n_exprs);
+    let batching_scalars = powers(batching_scalar, n_exprs);
     let mut fs_prover = FsProver::new();
     let sum = sum_batched_exprs_over_hypercube(&multilinears, n_vars, &exprs, &batching_scalars);
 
@@ -76,13 +76,16 @@ fn test_cuda_sumcheck() {
         .map(|_| TransparentPolynomial::random(rng, n_multilinears, 1).fix_computation(true))
         .collect::<Vec<_>>();
     let batching_scalar: EF = rng.random();
-    let batching_scalars = expand_randomness(batching_scalar, n_exprs);
+    let batching_scalars = powers(batching_scalar, n_exprs);
 
-    cuda_bindings::init(&[SumcheckComputation {
-        n_multilinears,
-        inner: exprs.clone(),
-        eq_mle_multiplier: false,
-    }]);
+    cuda_bindings::init(
+        &[SumcheckComputation {
+            n_multilinears,
+            inner: exprs.clone(),
+            eq_mle_multiplier: false,
+        }],
+        0,
+    );
 
     let mut fs_prover = FsProver::new();
     let sum = sum_batched_exprs_over_hypercube(&multilinears, n_vars, &exprs, &batching_scalars);

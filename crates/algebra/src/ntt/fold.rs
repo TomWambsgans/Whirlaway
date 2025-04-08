@@ -1,11 +1,7 @@
-use algebra::ntt::intt_batch;
-use p3_field::{ExtensionField, TwoAdicField};
+use crate::ntt::{intt_batch, transpose};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use rayon::prelude::*;
-use tracing::instrument;
 
-use crate::utils::stack_evaluations;
-
-#[instrument(name = "restructure_evaluations", skip_all)]
 pub fn restructure_evaluations<F: TwoAdicField, EF: ExtensionField<F>>(
     mut evals: Vec<EF>,
     domain_gen_inv: F,
@@ -41,5 +37,20 @@ pub fn restructure_evaluations<F: TwoAdicField, EF: ExtensionField<F>>(
             }
         });
 
+    evals
+}
+
+// FIXME(Gotti): comment does not match what function does (due to mismatch between folding_factor and folding_factor_exp)
+// Also, k should be defined: k = evals.len() / 2^{folding_factor}, I guess.
+
+/// Takes the vector of evaluations (assume that evals[i] = f(omega^i))
+/// and folds them into a vector of such that folded_evals[i] = [f(omega^(i + k * j)) for j in 0..folding_factor]
+pub fn stack_evaluations<F: Field>(mut evals: Vec<F>, folding_factor: usize) -> Vec<F> {
+    let folding_factor_exp = 1 << folding_factor;
+    assert!(evals.len() % folding_factor_exp == 0);
+    let size_of_new_domain = evals.len() / folding_factor_exp;
+
+    // interpret evals as (folding_factor_exp x size_of_new_domain)-matrix and transpose in-place
+    transpose(&mut evals, folding_factor_exp, size_of_new_domain);
     evals
 }

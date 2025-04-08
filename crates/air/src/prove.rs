@@ -1,7 +1,7 @@
 use algebra::{
-    field_utils::dot_product,
     pols::{ArithmeticCircuit, Evaluation, MultilinearPolynomial},
-    utils::expand_randomness,
+    utils::dot_product,
+    utils::powers,
 };
 use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};
@@ -44,7 +44,7 @@ impl<F: Field> AirTable<F> {
 
         let constraints_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
         let constraints_batching_scalars =
-            expand_randomness(constraints_batching_scalar, self.constraints.len());
+            powers(constraints_batching_scalar, self.constraints.len());
 
         let zerocheck_challenges = fs_prover.challenge_scalars::<EF>(log_length);
 
@@ -120,7 +120,7 @@ impl<F: Field> AirTable<F> {
 
         let inner_sum = dot_product(
             &inner_sums,
-            &expand_randomness(inner_sumcheck_batching_scalar, self.n_witness_columns() * 2),
+            &powers(inner_sumcheck_batching_scalar, self.n_witness_columns() * 2),
         );
         let (inner_challenges, _) = sumcheck::prove(
             mles_for_inner_sumcheck,

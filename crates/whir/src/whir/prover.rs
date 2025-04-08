@@ -1,13 +1,8 @@
 use super::{Statement, committer::Witness, parameters::WhirConfig};
-use crate::{
-    domain::Domain,
-    poly_utils::{coeffs::CoefficientList, fold::restructure_evaluations},
-    utils::expand_from_coeff_maybe_with_cuda,
-};
+use crate::{domain::Domain, utils::expand_from_coeff_and_restructure};
 use algebra::{
-    field_utils::{dot_product, multilinear_point_from_univariate},
-    pols::{MultilinearPolynomial, TransparentPolynomial},
-    utils::expand_randomness,
+    pols::{CoefficientList, MultilinearPolynomial, TransparentPolynomial},
+    utils::{dot_product, multilinear_point_from_univariate, powers},
 };
 use fiat_shamir::FsProver;
 use merkle_tree::MerkleTree;
@@ -73,8 +68,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
             // If there is initial statement, then we run the sum-check for
             // this initial statement.
             let combination_randomness_gen = fs_prover.challenge_scalars::<EF>(1)[0];
-            let combination_randomness =
-                expand_randomness(combination_randomness_gen, initial_claims.len());
+            let combination_randomness = powers(combination_randomness_gen, initial_claims.len());
 
             let nodes = vec![
                 witness.polynomial.clone().reverse_vars().into_evals(), // TODO: Avoid clone
@@ -188,15 +182,13 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
         // Fold the coefficients, and compute fft of polynomial (and commit)
         let new_domain = round_state.domain.scale(2);
         let expansion = new_domain.size() / folded_coefficients.num_coeffs();
-        let evals = expand_from_coeff_maybe_with_cuda::<F, EF>(
+
+        let folded_evals = expand_from_coeff_and_restructure(
             folded_coefficients.coeffs(),
             expansion,
-            self.0.cuda,
-        );
-        let folded_evals = restructure_evaluations::<F, EF>(
-            evals,
             new_domain.backing_domain.group_gen_inv(),
             self.0.folding_factor.at_round(round_state.round + 1),
+            self.0.cuda,
         );
 
         let merkle_tree = MerkleTree::new(
@@ -269,8 +261,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
 
         // Randomness for combination
         let combination_randomness_gen = fs_prover.challenge_scalars::<EF>(1)[0];
-        let combination_randomness =
-            expand_randomness(combination_randomness_gen, stir_challenges.len());
+        let combination_randomness = powers(combination_randomness_gen, stir_challenges.len());
 
         round_state.sumcheck_mles[1] +=
             randomized_eq_extensions(&stir_challenges, &combination_randomness).into();

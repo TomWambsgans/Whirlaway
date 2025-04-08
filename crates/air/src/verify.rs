@@ -1,7 +1,7 @@
 use algebra::{
-    field_utils::{dot_product, eq_extension},
     pols::{Evaluation, MultilinearPolynomial},
-    utils::expand_randomness,
+    utils::powers,
+    utils::{dot_product, eq_extension},
 };
 use fiat_shamir::{FsError, FsVerifier};
 use p3_field::{ExtensionField, Field};
@@ -90,10 +90,9 @@ impl<F: Field> AirTable<F> {
         .concat();
 
         let mut global_constraint_eval = EF::ZERO;
-        for (scalar, constraint) in
-            expand_randomness(constraints_batching_scalar, self.constraints.len())
-                .into_iter()
-                .zip(&self.constraints)
+        for (scalar, constraint) in powers(constraints_batching_scalar, self.constraints.len())
+            .into_iter()
+            .zip(&self.constraints)
         {
             global_constraint_eval += scalar * constraint.eval(&global_point);
         }
@@ -112,7 +111,7 @@ impl<F: Field> AirTable<F> {
         if batched_inner_sum
             != dot_product(
                 &witness_shifted_evals,
-                &expand_randomness(inner_sumcheck_batching_scalar, self.n_witness_columns() * 2),
+                &powers(inner_sumcheck_batching_scalar, self.n_witness_columns() * 2),
             )
         {
             return Err(AirVerifError::SumMismatch);

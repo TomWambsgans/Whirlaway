@@ -847,7 +847,6 @@ dependencies = [
  "fiat-shamir",
  "merkle-tree",
  "p3-field",
- "rayon",
  "serde",
  "sumcheck",
  "tracing",

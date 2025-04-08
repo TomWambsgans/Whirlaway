@@ -1,6 +1,6 @@
 use cudarc::driver::{DriverError, LaunchConfig, PushKernelArg};
 
-use crate::cuda_info;
+use crate::{cuda_info, memcpy_htod};
 
 const NUM_THREADS: u32 = 256;
 
@@ -16,8 +16,7 @@ pub fn cuda_batch_keccak(
     let f = cuda.get_function("keccak", "batch_keccak256");
 
     let n_inputs: u32 = buff.len() as u32 / input_packed_length;
-    let mut src_bytes_dev = unsafe { cuda.stream.alloc::<u8>(buff.len())? };
-    cuda.stream.memcpy_htod(buff, &mut src_bytes_dev)?;
+    let src_bytes_dev = memcpy_htod(buff);
     let mut dest_dev = unsafe { cuda.stream.alloc::<u8>(32 * n_inputs as usize)? };
 
     let num_blocks = (n_inputs as u32).div_ceil(NUM_THREADS);

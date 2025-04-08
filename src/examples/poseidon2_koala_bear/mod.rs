@@ -116,9 +116,11 @@ pub fn prove_poseidon2(log_n_rows: usize, security_bits: usize, log_inv_rate: us
             n_multilinears: table.n_columns * 2 + 1,
             eq_mle_multiplier: true,
         };
-        cuda_bindings::init(&[sumcheck_computations]);
+        cuda_bindings::init(
+            &[sumcheck_computations],
+            whir_params.folding_factor.as_constant().unwrap(), // TODO handle ConstantFromSecondRound
+        );
     }
-
 
     let pcs = RingSwitch::<F, EF, WhirPCS<F, EF>>::new(
         log_n_rows + table.log_n_witness_columns(),
