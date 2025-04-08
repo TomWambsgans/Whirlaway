@@ -7,9 +7,6 @@ use p3_field::{ExtensionField, Field};
 mod whir;
 pub use whir::*;
 
-mod batch;
-pub use batch::*;
-
 mod ring_switch;
 pub use ring_switch::*;
 

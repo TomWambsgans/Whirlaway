@@ -1,28 +1,27 @@
-mod air;
-mod columns;
-mod constants;
-mod generation;
-
 use ::air::{AirBuilder, AirExpr};
 use algebra::pols::MultilinearPolynomial;
+use cuda_bindings::SumcheckComputation;
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear};
 use p3_matrix::Matrix;
-use pcs::{BatchSettings, RingSwitch, WhirPCS, WhirParameters};
+use pcs::{PCS, RingSwitch, WhirPCS, WhirParameters};
 use rand::{Rng, SeedableRng, rngs::StdRng};
+use std::{borrow::Borrow, time::Instant};
 use tracing::level_filters::LevelFilter;
 use tracing_forest::ForestLayer;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
-
-use std::{borrow::Borrow, time::Instant};
-
 use {
     air::{Poseidon2Air, write_constraints},
     columns::{Poseidon2Cols, num_cols},
     constants::RoundConstants,
     generation::generate_trace_rows,
 };
+
+mod air;
+mod columns;
+mod constants;
+mod generation;
 
 const WIDTH: usize = 16;
 const SBOX_DEGREE: u64 = 3;
@@ -37,11 +36,10 @@ type EF = BinomialExtensionField<KoalaBear, 8>;
 
 #[test]
 fn test_poseidon2() {
-    prove_poseidon2(4, WhirParameters::standard(100, 2));
+    prove_poseidon2(4, 100, 2, false);
 }
 
-pub fn prove_poseidon2(log_n_rows: usize, whir_params: WhirParameters) {
-    let n_rows = 1 << log_n_rows;
+pub fn prove_poseidon2(log_n_rows: usize, security_bits: usize, log_inv_rate: usize, cuda: bool) {
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy();
@@ -51,7 +49,8 @@ pub fn prove_poseidon2(log_n_rows: usize, whir_params: WhirParameters) {
         .with(ForestLayer::default())
         .init();
 
-    let t = Instant::now();
+    let whir_params = WhirParameters::standard(security_bits, log_inv_rate, cuda);
+    let n_rows = 1 << log_n_rows;
 
     let rng = &mut StdRng::seed_from_u64(0);
     let constants = RoundConstants::<F, WIDTH, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>::from_rng(rng);
@@ -65,7 +64,7 @@ pub fn prove_poseidon2(log_n_rows: usize, whir_params: WhirParameters) {
         PARTIAL_ROUNDS,
     >::new(constants.clone());
 
-    let mut air_builder = AirBuilder::<F, COLS>::new();
+    let mut air_builder = AirBuilder::<F, COLS>::new(log_n_rows);
     let (up, down) = air_builder.vars();
 
     type Columns = Poseidon2Cols<
@@ -108,31 +107,36 @@ pub fn prove_poseidon2(log_n_rows: usize, whir_params: WhirParameters) {
         .collect::<Vec<_>>();
 
     let table = air_builder.build();
+    // println!("Constraints degree: {}", table.constraint_degree());
     // table.check_validity(&witness);
 
-    let batch =
-        BatchSettings::<F, EF, RingSwitch<F, EF, WhirPCS<EF>>>::new(COLS, log_n_rows, &whir_params);
+    if cuda {
+        let sumcheck_computations = SumcheckComputation {
+            inner: table.constraints.clone(),
+            n_multilinears: table.n_columns * 2 + 1,
+            eq_mle_multiplier: true,
+        };
+        cuda_bindings::init(
+            &[sumcheck_computations],
+            whir_params.folding_factor.as_constant().unwrap(), // TODO handle ConstantFromSecondRound
+        );
+    }
 
-    let mut batch_prover = batch.clone();
+    let pcs = RingSwitch::<F, EF, WhirPCS<F, EF>>::new(
+        log_n_rows + table.log_n_witness_columns(),
+        &whir_params,
+    );
 
+    let t = Instant::now();
     let mut fs_prover = FsProver::new();
-    let batch_witness = batch_prover.commit(&mut fs_prover, witness);
-    table.prove(&mut fs_prover, &mut batch_prover, &batch_witness.polys);
-    batch_prover.prove(batch_witness, &mut fs_prover);
+    table.prove(&mut fs_prover, &pcs, &witness, cuda);
     let proof_size = fs_prover.transcript_len();
 
     let prover_time = t.elapsed();
     let time = Instant::now();
 
     let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
-    let mut batch_verifier = batch.clone();
-    let commitment = batch_verifier.parse_commitment(&mut fs_verifier).unwrap();
-    table
-        .verify(&mut fs_verifier, &mut batch_verifier, log_n_rows)
-        .unwrap();
-    batch_verifier
-        .verify(&mut fs_verifier, &commitment)
-        .unwrap();
+    table.verify(&mut fs_verifier, &pcs, log_n_rows).unwrap();
     let verifier_time = time.elapsed();
 
     println!();
@@ -140,7 +144,12 @@ pub fn prove_poseidon2(log_n_rows: usize, whir_params: WhirParameters) {
         "Security level: {} bits ({})",
         whir_params.security_level, whir_params.soundness_type
     );
-    println!("Proved {} poseidon2 hashes in {:?}", n_rows, prover_time);
+    println!(
+        "Proved {} poseidon2 hashes in {:?} ({} / s)",
+        n_rows,
+        prover_time,
+        (n_rows as f64 / prover_time.as_secs_f64()).round() as usize
+    );
     println!("Proof size: {:.1} KiB", proof_size as f64 / 1024.0);
     println!("Verification: {:?}", verifier_time);
 }

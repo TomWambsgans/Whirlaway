@@ -1,9 +1,7 @@
-use std::{borrow::Borrow, collections::BTreeMap};
-
-use algebra::pols::{ArithmeticCircuit, GenericTransparentMultivariatePolynomial};
+use algebra::pols::{ArithmeticCircuit, MultilinearPolynomial};
 use p3_field::Field;
 
-use super::table::{AirConstraint, AirTable, BoundaryCondition};
+use super::table::AirTable;
 
 pub type ColIndex = usize;
 pub type RowIndex = usize;
@@ -23,29 +21,41 @@ pub struct ConstraintVariable {
 pub type AirExpr<F> = ArithmeticCircuit<F, ConstraintVariable>;
 
 pub struct AirBuilder<F: Field, const COLS: usize> {
-    constraints: Vec<(String, AirExpr<F>)>, // every expr should equal to zero
-    fixd_values: BTreeMap<(ColIndex, RowIndex), F>,
+    log_length: usize,
+    constraints: Vec<AirExpr<F>>, // every expr should equal to zero
+    preprocessed_columns: Vec<Vec<F>>,
 }
 
 impl<F: Field, const COLS: usize> AirBuilder<F, COLS> {
-    pub fn new() -> Self {
+    pub fn new(log_length: usize) -> Self {
         Self {
+            log_length,
             constraints: Vec::new(),
-            fixd_values: BTreeMap::new(),
+            preprocessed_columns: Vec::new(),
         }
     }
 
-    pub fn assert_zero(&mut self, name: &str, expr: AirExpr<F>) {
-        self.constraints
-            .push((name.to_string(), expr.borrow().clone()));
+    pub fn assert_zero(&mut self, expr: AirExpr<F>) {
+        self.constraints.push(expr);
     }
 
-    pub fn assert_eq(&mut self, name: &str, expr_1: AirExpr<F>, expr_2: AirExpr<F>) {
-        self.assert_zero(name, expr_1 - expr_2);
+    pub fn assert_eq(&mut self, expr_1: AirExpr<F>, expr_2: AirExpr<F>) {
+        self.assert_zero(expr_1 - expr_2);
     }
 
-    pub fn set_fixed_value(&mut self, col_index: ColIndex, row_index: RowIndex, value: F) {
-        self.fixd_values.insert((col_index, row_index), value);
+    /// Assumes condition is 0 or 1
+    pub fn assert_eq_if(&mut self, expr_1: AirExpr<F>, expr_2: AirExpr<F>, condition: AirExpr<F>) {
+        self.assert_zero_if(expr_1 - expr_2, condition);
+    }
+
+    /// Assumes condition is 0 or 1
+    pub fn assert_zero_if(&mut self, expr: AirExpr<F>, condition: AirExpr<F>) {
+        self.assert_zero(expr * condition);
+    }
+
+    pub fn add_preprocess_column(&mut self, col: Vec<F>) {
+        assert_eq!(col.len(), 1 << self.log_length);
+        self.preprocessed_columns.push(col);
     }
 
     pub fn vars(
@@ -76,29 +86,24 @@ impl<F: Field, const COLS: usize> AirBuilder<F, COLS> {
     pub fn build(mut self) -> AirTable<F> {
         let constraints = std::mem::take(&mut self.constraints)
             .into_iter()
-            .map(|(name, expr)| AirConstraint {
-                name,
-                expr: GenericTransparentMultivariatePolynomial::new(
-                    expr.map_node(&|var| match var.alignment {
-                        Alignment::Up => ArithmeticCircuit::Node(var.col_index),
-                        Alignment::Down => ArithmeticCircuit::Node(var.col_index + COLS),
-                    }),
-                    COLS * 2,
-                ),
+            .map(|expr| {
+                expr.map_node(&|var| match var.alignment {
+                    Alignment::Up => ArithmeticCircuit::Node(var.col_index),
+                    Alignment::Down => ArithmeticCircuit::Node(var.col_index + COLS),
+                })
+                .fix_computation(true)
             })
             .collect();
-        let boundary_conditions = std::mem::take(&mut self.fixd_values)
-            .into_iter()
-            .map(|((col_index, row_index), value)| BoundaryCondition {
-                col: col_index,
-                row: row_index,
-                value,
-            })
-            .collect();
+
         AirTable {
+            log_length: self.log_length,
             n_columns: COLS,
             constraints,
-            boundary_conditions,
+            preprocessed_columns: self
+                .preprocessed_columns
+                .into_iter()
+                .map(MultilinearPolynomial::new)
+                .collect(),
         }
     }
 }

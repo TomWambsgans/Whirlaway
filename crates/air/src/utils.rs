@@ -1,18 +1,8 @@
-use algebra::{
-    pols::{
-        ArithmeticCircuit, CustomTransparentMultivariatePolynomial,
-        GenericTransparentMultivariatePolynomial,
-    },
-    utils::expand_randomness,
-};
+use algebra::pols::{ArithmeticCircuit, MultilinearPolynomial, TransparentPolynomial};
+use p3_field::Field;
+use rayon::prelude::*;
 
-use p3_field::{ExtensionField, Field};
-
-use crate::table::{AirConstraint, AirTable};
-
-pub(crate) fn matrix_up_lde<F: Field>(
-    log_length: usize,
-) -> GenericTransparentMultivariatePolynomial<F> {
+pub(crate) fn matrix_up_lde<F: Field>(log_length: usize) -> TransparentPolynomial<F> {
     /*
         Matrix UP:
 
@@ -31,23 +21,13 @@ pub(crate) fn matrix_up_lde<F: Field>(
        - self.n_columns last variables -> encoding the column index
     */
 
-    GenericTransparentMultivariatePolynomial::new(
-        GenericTransparentMultivariatePolynomial::eq_extension_2n_vars(log_length).coefs
-            + GenericTransparentMultivariatePolynomial::eq_extension_n_scalars(&vec![
-                F::ONE;
-                log_length * 2
-                    - 1
-            ])
-            .coefs
-                * (ArithmeticCircuit::Scalar(F::ONE)
-                    - ArithmeticCircuit::Node(log_length * 2 - 1) * F::TWO),
-        log_length * 2,
-    )
+    TransparentPolynomial::eq_extension_2n_vars(log_length)
+        + TransparentPolynomial::eq_extension_n_scalars(&vec![F::ONE; log_length * 2 - 1])
+            * (ArithmeticCircuit::Scalar(F::ONE)
+                - ArithmeticCircuit::Node(log_length * 2 - 1) * F::TWO)
 }
 
-pub(crate) fn matrix_down_lde<F: Field>(
-    log_length: usize,
-) -> GenericTransparentMultivariatePolynomial<F> {
+pub(crate) fn matrix_down_lde<F: Field>(log_length: usize) -> TransparentPolynomial<F> {
     /*
         Matrix DOWN:
 
@@ -72,44 +52,28 @@ pub(crate) fn matrix_down_lde<F: Field>(
 
     */
 
-    GenericTransparentMultivariatePolynomial::new(
-        GenericTransparentMultivariatePolynomial::next(log_length).coefs
-            + GenericTransparentMultivariatePolynomial::eq_extension_n_scalars(&vec![
-                F::ONE;
-                log_length * 2
-            ])
-            .coefs, // bottom right corner
-        log_length * 2,
-    )
+    TransparentPolynomial::next(log_length)
+        + TransparentPolynomial::eq_extension_n_scalars(&vec![F::ONE; log_length * 2])
+    // bottom right corner
 }
 
-pub(crate) fn global_constraint_degree<F: Field>(constraints: &Vec<AirConstraint<F>>) -> usize {
-    constraints
-        .iter()
-        .map(|cst| {
-            GenericTransparentMultivariatePolynomial::new(
-                cst.expr
-                    .coefs
-                    .map_node(&|_| ArithmeticCircuit::<F, _>::Node(0)),
-                1,
-            )
-            .max_degree_per_vars()[0]
-        })
-        .max_by_key(|x| *x)
-        .unwrap()
+pub(crate) fn columns_up_and_down<F: Field>(
+    columns: &[&MultilinearPolynomial<F>],
+) -> Vec<MultilinearPolynomial<F>> {
+    let mut res = Vec::with_capacity(columns.len() * 2);
+    res.par_extend(columns.par_iter().map(|c| column_up(c)));
+    res.par_extend(columns.par_iter().map(|c| column_down(c)));
+    res
 }
-impl<F: Field> AirTable<F> {
-    pub(crate) fn global_constraint<EF: ExtensionField<F>>(
-        &self,
-        batching_scalar: EF,
-    ) -> CustomTransparentMultivariatePolynomial<F, EF> {
-        let mut batched_constraints = Vec::new();
-        for (scalar, constraint) in expand_randomness(batching_scalar, self.constraints.len())
-            .into_iter()
-            .zip(&self.constraints)
-        {
-            batched_constraints.push((scalar, constraint.expr.coefs.clone()));
-        }
-        CustomTransparentMultivariatePolynomial::new(self.n_columns * 2, batched_constraints)
-    }
+
+pub(crate) fn column_up<F: Field>(column: &MultilinearPolynomial<F>) -> MultilinearPolynomial<F> {
+    let mut up = column.clone();
+    up.evals[column.n_coefs() - 1] = up.evals[column.n_coefs() - 2];
+    up
+}
+
+pub(crate) fn column_down<F: Field>(column: &MultilinearPolynomial<F>) -> MultilinearPolynomial<F> {
+    let mut down = column.evals[1..].to_vec();
+    down.push(*down.last().unwrap());
+    MultilinearPolynomial::new(down)
 }

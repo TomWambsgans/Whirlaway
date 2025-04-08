@@ -1,11 +1,7 @@
-use crate::ntt::transpose;
-use p3_field::Field;
+use algebra::ntt::{expand_from_coeff, restructure_evaluations};
+use p3_field::{ExtensionField, TwoAdicField};
 use std::collections::BTreeSet;
-
-// checks whether the given number n is a power of two.
-pub fn is_power_of_two(n: usize) -> bool {
-    n != 0 && (n & (n - 1) == 0)
-}
+use tracing::instrument;
 
 /// performs big-endian binary decomposition of `value` and returns the result.
 ///
@@ -26,17 +22,24 @@ pub fn dedup<T: Ord>(v: impl IntoIterator<Item = T>) -> Vec<T> {
     Vec::from_iter(BTreeSet::from_iter(v))
 }
 
-// FIXME(Gotti): comment does not match what function does (due to mismatch between folding_factor and folding_factor_exp)
-// Also, k should be defined: k = evals.len() / 2^{folding_factor}, I guess.
-
-/// Takes the vector of evaluations (assume that evals[i] = f(omega^i))
-/// and folds them into a vector of such that folded_evals[i] = [f(omega^(i + k * j)) for j in 0..folding_factor]
-pub fn stack_evaluations<F: Field>(mut evals: Vec<F>, folding_factor: usize) -> Vec<F> {
-    let folding_factor_exp = 1 << folding_factor;
-    assert!(evals.len() % folding_factor_exp == 0);
-    let size_of_new_domain = evals.len() / folding_factor_exp;
-
-    // interpret evals as (folding_factor_exp x size_of_new_domain)-matrix and transpose in-place
-    transpose(&mut evals, folding_factor_exp, size_of_new_domain);
-    evals
+#[instrument(name = "whir: expand_from_coeff_and_restructure", skip_all)]
+pub fn expand_from_coeff_and_restructure<F: TwoAdicField, EF: ExtensionField<F>>(
+    coeffs: &[EF],
+    expansion: usize,
+    domain_gen_inv: F,
+    folding_factor: usize,
+    cuda: bool,
+) -> Vec<EF> {
+    if cuda && coeffs.len() >= 1024 {
+        let evals = cuda_bindings::cuda_expanded_ntt(coeffs, expansion);
+        let folded_evals_dev = cuda_bindings::cuda_restructure_evaluations(&evals, folding_factor);
+        let folded_evals = cuda_bindings::memcpy_dtoh(&folded_evals_dev);
+        cuda_bindings::cuda_sync();
+        folded_evals
+    } else {
+        // TODO: `stack_evaluations` and `restructure_evaluations` are really in-place algorithms.
+        // They also partially overlap and undo one another. We should merge them.
+        let evals = expand_from_coeff::<F, EF>(coeffs, expansion);
+        restructure_evaluations(evals, domain_gen_inv, folding_factor)
+    }
 }

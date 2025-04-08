@@ -1,32 +1,25 @@
 use super::{Statement, committer::Witness, parameters::WhirConfig};
-use crate::{
-    domain::Domain,
-    ntt::expand_from_coeff,
-    poly_utils::{coeffs::CoefficientList, fold::restructure_evaluations},
-    utils::{self},
-};
+use crate::{domain::Domain, utils::expand_from_coeff_and_restructure};
 use algebra::{
-    field_utils::{dot_product, multilinear_point_from_univariate},
-    pols::{ComposedPolynomial, MultilinearPolynomial},
-    utils::expand_randomness,
+    pols::{CoefficientList, MultilinearPolynomial, TransparentPolynomial},
+    utils::{dot_product, multilinear_point_from_univariate, powers},
 };
 use fiat_shamir::FsProver;
-use merkle_tree::{KeccakDigest, MerkleTree};
-use p3_field::{Field, TwoAdicField};
+use merkle_tree::MerkleTree;
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use tracing::instrument;
 
 use crate::whir::fs_utils::get_challenge_stir_queries;
-use rayon::prelude::*;
 
-pub struct Prover<F: TwoAdicField>(pub WhirConfig<F>);
+pub struct Prover<F: TwoAdicField, EF: ExtensionField<F>>(pub WhirConfig<F, EF>);
 
-impl<F: TwoAdicField> Prover<F> {
+impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
     fn validate_parameters(&self) -> bool {
         self.0.mv_parameters.num_variables
             == self.0.folding_factor.total_number(self.0.n_rounds()) + self.0.final_sumcheck_rounds
     }
 
-    fn validate_statement(&self, statement: &Statement<F>) -> bool {
+    fn validate_statement(&self, statement: &Statement<EF>) -> bool {
         if statement.points.len() != statement.evaluations.len() {
             return false;
         }
@@ -40,7 +33,7 @@ impl<F: TwoAdicField> Prover<F> {
         true
     }
 
-    fn validate_witness(&self, witness: &Witness<F>) -> bool {
+    fn validate_witness(&self, witness: &Witness<EF>) -> bool {
         assert_eq!(witness.ood_points.len(), witness.ood_answers.len());
         witness.polynomial.num_variables() == self.0.mv_parameters.num_variables
     }
@@ -49,8 +42,8 @@ impl<F: TwoAdicField> Prover<F> {
     pub fn prove(
         &self,
         fs_prover: &mut FsProver,
-        statement: Statement<F>,
-        witness: Witness<F>,
+        statement: Statement<EF>,
+        witness: Witness<EF>,
     ) -> Option<()> {
         assert!(self.validate_parameters());
         assert!(self.validate_statement(&statement));
@@ -70,26 +63,28 @@ impl<F: TwoAdicField> Prover<F> {
             .chain(statement.evaluations)
             .collect();
 
-        let mut sumcheck_pol;
+        let sumcheck_mles;
         let folding_randomness = {
             // If there is initial statement, then we run the sum-check for
             // this initial statement.
-            let combination_randomness_gen = fs_prover.challenge_scalars(1)[0];
-            let combination_randomness =
-                expand_randomness(combination_randomness_gen, initial_claims.len());
+            let combination_randomness_gen = fs_prover.challenge_scalars::<EF>(1)[0];
+            let combination_randomness = powers(combination_randomness_gen, initial_claims.len());
 
-            let n_vars = witness.polynomial.num_variables();
             let nodes = vec![
                 witness.polynomial.clone().reverse_vars().into_evals(), // TODO: Avoid clone
                 randomized_eq_extensions(&initial_claims, &combination_randomness),
             ];
-            sumcheck_pol = ComposedPolynomial::new_product(n_vars, nodes);
             let n_rounds = Some(self.0.folding_factor.at_round(0));
             let pow_bits = self.0.starting_folding_pow_bits;
             let sum = dot_product(&initial_answers, &combination_randomness);
             let mut folding_randomness;
-            (folding_randomness, sumcheck_pol) = sumcheck::prove(
-                sumcheck_pol,
+            (folding_randomness, sumcheck_mles) = sumcheck::prove(
+                nodes,
+                &[
+                    (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
+                        .fix_computation(false),
+                ],
+                &[EF::ONE],
                 None,
                 false,
                 fs_prover,
@@ -104,7 +99,7 @@ impl<F: TwoAdicField> Prover<F> {
         let round_state = RoundState {
             domain: self.0.starting_domain.clone(),
             round: 0,
-            sumcheck_pol,
+            sumcheck_mles,
             folding_randomness,
             coefficients: witness.polynomial,
             prev_merkle: witness.merkle_tree,
@@ -114,7 +109,7 @@ impl<F: TwoAdicField> Prover<F> {
         self.round(fs_prover, round_state)
     }
 
-    fn round(&self, fs_prover: &mut FsProver, mut round_state: RoundState<F>) -> Option<()> {
+    fn round(&self, fs_prover: &mut FsProver, mut round_state: RoundState<F, EF>) -> Option<()> {
         // Fold the coefficients
         let folded_coefficients = round_state
             .coefficients
@@ -163,8 +158,13 @@ impl<F: TwoAdicField> Prover<F> {
             if self.0.final_sumcheck_rounds > 0 {
                 let n_rounds = Some(self.0.final_sumcheck_rounds);
                 let pow_bits = self.0.final_folding_pow_bits;
-                (_, round_state.sumcheck_pol) = sumcheck::prove(
-                    round_state.sumcheck_pol,
+                (_, round_state.sumcheck_mles) = sumcheck::prove(
+                    round_state.sumcheck_mles,
+                    &[
+                        (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
+                            .fix_computation(false),
+                    ],
+                    &[EF::ONE],
                     None,
                     false,
                     fs_prover,
@@ -182,33 +182,27 @@ impl<F: TwoAdicField> Prover<F> {
         // Fold the coefficients, and compute fft of polynomial (and commit)
         let new_domain = round_state.domain.scale(2);
         let expansion = new_domain.size() / folded_coefficients.num_coeffs();
-        let evals = expand_from_coeff(folded_coefficients.coeffs(), expansion);
-        // Group the evaluations into leaves by the *next* round folding factor
-        // TODO: `stack_evaluations` and `restructure_evaluations` are really in-place algorithms.
-        // They also partially overlap and undo one another. We should merge them.
-        let folded_evals = utils::stack_evaluations(
-            evals,
-            self.0.folding_factor.at_round(round_state.round + 1), // Next round fold factor
-        );
-        let folded_evals = restructure_evaluations(
-            folded_evals,
-            new_domain.backing_domain.group_gen(),
+
+        let folded_evals = expand_from_coeff_and_restructure(
+            folded_coefficients.coeffs(),
+            expansion,
             new_domain.backing_domain.group_gen_inv(),
             self.0.folding_factor.at_round(round_state.round + 1),
+            self.0.cuda,
         );
 
-        let leafs_iter = folded_evals
-            .par_chunks_exact(1 << self.0.folding_factor.at_round(round_state.round + 1));
-        let merkle_tree = MerkleTree::new(leafs_iter);
+        let merkle_tree = MerkleTree::new(
+            &folded_evals,
+            1 << self.0.folding_factor.at_round(round_state.round + 1),
+        );
 
-        let root: KeccakDigest = merkle_tree.root();
-        fs_prover.add_bytes(&root.0);
+        fs_prover.add_bytes(&merkle_tree.root().0);
 
         // OOD Samples
-        let mut ood_points = vec![F::ZERO; round_params.ood_samples];
+        let mut ood_points = vec![EF::ZERO; round_params.ood_samples];
         let mut ood_answers = Vec::with_capacity(round_params.ood_samples);
         if round_params.ood_samples > 0 {
-            ood_points = fs_prover.challenge_scalars(round_params.ood_samples);
+            ood_points = fs_prover.challenge_scalars::<EF>(round_params.ood_samples);
             ood_answers.extend(ood_points.iter().map(|ood_point| {
                 folded_coefficients.evaluate(&multilinear_point_from_univariate(
                     *ood_point,
@@ -235,7 +229,7 @@ impl<F: TwoAdicField> Prover<F> {
             .chain(
                 stir_challenges_indexes
                     .iter()
-                    .map(|i| domain_scaled_gen.exp_u64(*i as u64)),
+                    .map(|i| EF::from(domain_scaled_gen.exp_u64(*i as u64))),
             )
             .map(|univariate| multilinear_point_from_univariate(univariate, num_variables))
             .collect();
@@ -266,16 +260,20 @@ impl<F: TwoAdicField> Prover<F> {
         }
 
         // Randomness for combination
-        let combination_randomness_gen = fs_prover.challenge_scalars(1)[0];
-        let combination_randomness =
-            expand_randomness(combination_randomness_gen, stir_challenges.len());
+        let combination_randomness_gen = fs_prover.challenge_scalars::<EF>(1)[0];
+        let combination_randomness = powers(combination_randomness_gen, stir_challenges.len());
 
-        round_state.sumcheck_pol.nodes_mut()[1] +=
+        round_state.sumcheck_mles[1] +=
             randomized_eq_extensions(&stir_challenges, &combination_randomness).into();
 
         let mut folding_randomness;
-        (folding_randomness, round_state.sumcheck_pol) = sumcheck::prove(
-            round_state.sumcheck_pol,
+        (folding_randomness, round_state.sumcheck_mles) = sumcheck::prove(
+            round_state.sumcheck_mles,
+            &[
+                (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
+                    .fix_computation(false),
+            ],
+            &[EF::ONE],
             None,
             false,
             fs_prover,
@@ -288,7 +286,7 @@ impl<F: TwoAdicField> Prover<F> {
         let round_state = RoundState {
             round: round_state.round + 1,
             domain: new_domain,
-            sumcheck_pol: round_state.sumcheck_pol,
+            sumcheck_mles: round_state.sumcheck_mles,
             folding_randomness,
             coefficients: folded_coefficients, // TODO: Is this redundant with `sumcheck_prover.coeff` ?
             prev_merkle: merkle_tree,
@@ -299,14 +297,14 @@ impl<F: TwoAdicField> Prover<F> {
     }
 }
 
-struct RoundState<F: TwoAdicField> {
+struct RoundState<F: TwoAdicField, EF: ExtensionField<F>> {
     round: usize,
     domain: Domain<F>,
-    sumcheck_pol: ComposedPolynomial<F, F>,
-    folding_randomness: Vec<F>,
-    coefficients: CoefficientList<F>,
-    prev_merkle: MerkleTree<F>,
-    prev_merkle_answers: Vec<F>,
+    sumcheck_mles: Vec<MultilinearPolynomial<EF>>,
+    folding_randomness: Vec<EF>,
+    coefficients: CoefficientList<EF>,
+    prev_merkle: MerkleTree<EF>,
+    prev_merkle_answers: Vec<EF>,
 }
 
 fn randomized_eq_extensions<F: Field>(

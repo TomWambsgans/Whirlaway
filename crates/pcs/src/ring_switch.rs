@@ -1,6 +1,6 @@
-use algebra::field_utils::dot_product;
-use algebra::pols::{ComposedPolynomial, Evaluation, MultilinearPolynomial};
+use algebra::pols::{Evaluation, MultilinearPolynomial, TransparentPolynomial};
 use algebra::tensor_algebra::TensorAlgebra;
+use algebra::utils::dot_product;
 use fiat_shamir::{FsError, FsProver, FsVerifier};
 use p3_field::{BasedVectorSpace, ExtensionField, Field};
 use sumcheck::SumcheckError;
@@ -86,6 +86,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
 
     #[allow(non_snake_case)]
     fn open(&self, witness: Self::Witness, eval: &Evaluation<EF>, fs_prover: &mut FsProver) {
+        let _span = tracing::info_span!("RingSwitch::open").entered();
         let two_pow_kappa = <EF as BasedVectorSpace<F>>::DIMENSION;
         assert!(two_pow_kappa.is_power_of_two());
         let kappa = two_pow_kappa.ilog2() as usize;
@@ -115,13 +116,22 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
             }
             MultilinearPolynomial::new(A_basis)
         };
-        let h = ComposedPolynomial::<EF, EF>::new_product(
-            packed_pol.n_vars,
-            vec![packed_pol.clone(), A_pol],
-        );
 
         let s0 = dot_product(&s_hat.rows(), &lagranged_r_pp);
-        let (r_p, _) = sumcheck::prove::<EF, EF, EF>(h, None, false, fs_prover, Some(s0), None, 0);
+        let (r_p, _) = sumcheck::prove::<EF, EF, EF>(
+            vec![packed_pol.clone(), A_pol],
+            &[
+                (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
+                    .fix_computation(false),
+            ],
+            &[EF::ONE],
+            None,
+            false,
+            fs_prover,
+            Some(s0),
+            None,
+            0,
+        );
 
         let packed_value = witness.inner_witness.pol().eval(&r_p);
         let packed_eval = Evaluation {
@@ -129,7 +139,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
             value: packed_value,
         };
         fs_prover.add_scalars(&[packed_value]);
-
+        std::mem::drop(_span);
         self.inner
             .open(witness.inner_witness, &packed_eval, fs_prover)
     }
@@ -214,9 +224,9 @@ mod test {
         let log_inv_rate = 4;
 
         let rng = &mut StdRng::seed_from_u64(0);
-        let ring_switch = RingSwitch::<F, EF, WhirPCS<EF>>::new(
+        let ring_switch = RingSwitch::<F, EF, WhirPCS<F, EF>>::new(
             n_vars,
-            &WhirParameters::standard(security_bits, log_inv_rate),
+            &WhirParameters::standard(security_bits, log_inv_rate, false),
         );
         let pol = MultilinearPolynomial::<F>::random(rng, n_vars);
         let mut fs_prover = FsProver::new();

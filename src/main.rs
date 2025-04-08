@@ -5,8 +5,9 @@ mod bench_field;
 mod examples;
 
 use examples::poseidon2_koala_bear::prove_poseidon2;
-use pcs::WhirParameters;
+
+const USE_CUDA: bool = true;
 
 fn main() {
-    prove_poseidon2(12, WhirParameters::standard(128, 4));
+    prove_poseidon2(15, 128, 3, USE_CUDA);
 }

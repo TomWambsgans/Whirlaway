@@ -1,19 +1,25 @@
-use algebra::{field_utils::dot_product, utils::expand_randomness};
+use algebra::{
+    pols::{Evaluation, MultilinearPolynomial},
+    utils::powers,
+    utils::{dot_product, eq_extension},
+};
 use fiat_shamir::{FsError, FsVerifier};
 use p3_field::{ExtensionField, Field};
-use pcs::{BatchSettings, PCS};
+use pcs::PCS;
 use sumcheck::SumcheckError;
 use tracing::instrument;
 
-use crate::N;
+use crate::utils::{column_down, column_up};
 
 use super::{
     table::AirTable,
-    utils::{global_constraint_degree, matrix_down_lde, matrix_up_lde},
+    utils::{matrix_down_lde, matrix_up_lde},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AirVerifError {
+    InvalidPcsCommitment,
+    InvalidPcsOpening,
     Fs(FsError),
     Sumcheck(SumcheckError),
     InvalidBoundaryCondition,
@@ -37,50 +43,75 @@ impl<F: Field> AirTable<F> {
     pub fn verify<EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
         &self,
         fs_verifier: &mut FsVerifier,
-        batching: &mut BatchSettings<F, EF, Pcs>,
+        pcs: &Pcs,
         log_length: usize,
     ) -> Result<(), AirVerifError> {
-        for boundary_condition in &self.boundary_conditions {
-            if batching
-                .receive_claim(
-                    fs_verifier,
-                    boundary_condition.col,
-                    &boundary_condition.encode::<EF>(log_length).point,
-                )
-                .unwrap()
-                != EF::from(boundary_condition.value)
-            {
-                return Err(AirVerifError::InvalidBoundaryCondition);
-            }
-        }
+        let pcs_commitment = pcs
+            .parse_commitment(fs_verifier)
+            .map_err(|_| AirVerifError::InvalidPcsCommitment)?;
 
         let constraints_batching_scalar = fs_verifier.challenge_scalars::<EF>(1)[0];
 
         // tau_0, ..., tau_{log_m - 1}
         let zerocheck_challenges = fs_verifier.challenge_scalars::<EF>(log_length);
 
-        let (sc_sum, outer_sumcheck_challenge, outer_sub_evals) =
-            sumcheck::verify_zerocheck_with_univariate_skip::<F, EF>(
-                fs_verifier,
-                &zerocheck_challenges,
-                global_constraint_degree(&self.constraints),
-                log_length,
-                &self.global_constraint(constraints_batching_scalar).into(),
-                N,
-            )?;
+        let max_degree_per_vars = self
+            .constraints
+            .iter()
+            .map(|c| c.composition_degree)
+            .max_by_key(|d| *d)
+            .unwrap();
+        let (sc_sum, outer_sumcheck_challenge) =
+            sumcheck::verify::<EF>(fs_verifier, &vec![max_degree_per_vars + 1; log_length], 0)?;
         if sc_sum != EF::ZERO {
             return Err(AirVerifError::SumMismatch);
         }
 
-        let batching_scalar = fs_verifier.challenge_scalars::<EF>(1)[0];
+        let witness_shifted_evals = fs_verifier.next_scalars::<EF>(2 * self.n_witness_columns())?;
+        let witness_up = &witness_shifted_evals[..self.n_witness_columns()];
+        let witness_down = &witness_shifted_evals[self.n_witness_columns()..];
+        let preprocessed_up = self
+            .preprocessed_columns
+            .iter()
+            .map(|c| column_up(c).eval(&outer_sumcheck_challenge.point))
+            .collect::<Vec<_>>();
+        let preprocessed_down = self
+            .preprocessed_columns
+            .iter()
+            .map(|c| column_down(c).eval(&outer_sumcheck_challenge.point))
+            .collect::<Vec<_>>();
+
+        let global_point = [
+            preprocessed_up,
+            witness_up.to_vec(),
+            preprocessed_down,
+            witness_down.to_vec(),
+        ]
+        .concat();
+
+        let mut global_constraint_eval = EF::ZERO;
+        for (scalar, constraint) in powers(constraints_batching_scalar, self.constraints.len())
+            .into_iter()
+            .zip(&self.constraints)
+        {
+            global_constraint_eval += scalar * constraint.eval(&global_point);
+        }
+        if eq_extension(&zerocheck_challenges, &outer_sumcheck_challenge.point)
+            * global_constraint_eval
+            != outer_sumcheck_challenge.value
+        {
+            return Err(AirVerifError::SumMismatch);
+        }
+
+        let inner_sumcheck_batching_scalar = fs_verifier.challenge_scalars::<EF>(1)[0];
 
         let (batched_inner_sum, inner_sumcheck_challenge) =
             sumcheck::verify::<EF>(fs_verifier, &vec![2; log_length], 0)?;
 
         if batched_inner_sum
             != dot_product(
-                &outer_sub_evals,
-                &expand_randomness(batching_scalar, self.n_columns * 2),
+                &witness_shifted_evals,
+                &powers(inner_sumcheck_batching_scalar, self.n_witness_columns() * 2),
             )
         {
             return Err(AirVerifError::SumMismatch);
@@ -91,22 +122,45 @@ impl<F: Field> AirTable<F> {
 
         let mut batched_inner_value = EF::ZERO;
         let matrix_lde_point = [
-            outer_sumcheck_challenge.clone(),
+            outer_sumcheck_challenge.point.clone(),
             inner_sumcheck_challenge.point.clone(),
         ]
         .concat();
         let up = lde_matrix_up.eval(&matrix_lde_point);
         let down = lde_matrix_down.eval(&matrix_lde_point);
-        for u in 0..self.n_columns {
-            let inner_value =
-                batching.receive_claim(fs_verifier, u, &inner_sumcheck_challenge.point)?;
-            batched_inner_value += inner_value
-                * (batching_scalar.exp_u64(u as u64) * up
-                    + batching_scalar.exp_u64((u + self.n_columns) as u64) * down);
+
+        let final_inner_claims = fs_verifier.next_scalars::<EF>(self.n_witness_columns())?;
+
+        for u in 0..self.n_witness_columns() {
+            batched_inner_value += final_inner_claims[u]
+                * (inner_sumcheck_batching_scalar.exp_u64(u as u64) * up
+                    + inner_sumcheck_batching_scalar
+                        .exp_u64((u + self.n_witness_columns()) as u64)
+                        * down);
         }
         if batched_inner_value != inner_sumcheck_challenge.value {
             return Err(AirVerifError::SumMismatch);
         }
+
+        let final_random_scalars =
+            fs_verifier.challenge_scalars::<EF>(self.log_n_witness_columns());
+        let final_point = [final_random_scalars.clone(), inner_sumcheck_challenge.point].concat();
+
+        let packed_value = MultilinearPolynomial::new(
+            [
+                final_inner_claims,
+                vec![EF::ZERO; (1 << self.log_n_witness_columns()) - self.n_witness_columns()],
+            ]
+            .concat(),
+        )
+        .eval(&final_random_scalars);
+        let packed_eval = Evaluation {
+            point: final_point,
+            value: packed_value,
+        };
+
+        pcs.verify(&pcs_commitment, &packed_eval, fs_verifier)
+            .map_err(|_| AirVerifError::InvalidPcsOpening)?;
 
         Ok(())
     }

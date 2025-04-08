@@ -134,7 +134,7 @@ fn eval_full_round<
     }
     LinearLayers::external_linear_layer(state);
     for (state_i, post_i) in state.iter_mut().zip(&full_round.post) {
-        builder.assert_eq("eval_full_round", state_i.clone(), post_i.clone());
+        builder.assert_eq(state_i.clone(), post_i.clone());
         *state_i = post_i.clone();
     }
 }
@@ -156,11 +156,7 @@ fn eval_partial_round<
     state[0] += round_constant;
     eval_sbox(&partial_round.sbox, &mut state[0], builder);
 
-    builder.assert_eq(
-        "eval_partial_round",
-        state[0].clone(),
-        partial_round.post_sbox.clone(),
-    );
+    builder.assert_eq(state[0].clone(), partial_round.post_sbox.clone());
     state[0] = partial_round.post_sbox.clone();
 
     LinearLayers::internal_linear_layer(state);
@@ -186,20 +182,20 @@ fn eval_sbox<F: Field, const COLS: usize, const DEGREE: u64, const REGISTERS: us
         (5, 1) => {
             let committed_x3 = sbox.0[0].clone();
             let x2 = x.square();
-            builder.assert_eq("eval_sbox", committed_x3.clone(), x2.clone() * x.clone());
+            builder.assert_eq(committed_x3.clone(), x2.clone() * x.clone());
             committed_x3 * x2
         }
         (7, 1) => {
             let committed_x3 = sbox.0[0].clone();
-            builder.assert_eq("eval_sbox", committed_x3.clone(), x.cube());
+            builder.assert_eq(committed_x3.clone(), x.cube());
             committed_x3.square() * x.clone()
         }
         (11, 2) => {
             let committed_x3 = sbox.0[0].clone();
             let committed_x9 = sbox.0[1].clone();
             let x2 = x.square();
-            builder.assert_eq("eval_sbox 1", committed_x3.clone(), x2.clone() * x.clone());
-            builder.assert_eq("eval_sbox 2", committed_x9.clone(), committed_x3.cube());
+            builder.assert_eq(committed_x3.clone(), x2.clone() * x.clone());
+            builder.assert_eq(committed_x9.clone(), committed_x3.cube());
             committed_x9 * x2
         }
         _ => panic!(

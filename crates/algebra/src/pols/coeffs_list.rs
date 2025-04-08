@@ -1,5 +1,7 @@
-use crate::ntt::wavelet_transform;
-use algebra::pols::{MultilinearPolynomial, UnivariatePolynomial};
+use crate::{
+    ntt::wavelet_transform,
+    pols::{MultilinearPolynomial, UnivariatePolynomial},
+};
 use p3_field::Field;
 use {
     rayon::{join, prelude::*},
@@ -68,10 +70,10 @@ impl<F: Field> CoefficientList<F> {
 
     pub fn reverse_vars(&self) -> Self {
         let mut coeffs = vec![F::ZERO; self.coeffs.len()];
-        for (i, coeff) in self.coeffs.iter().enumerate() {
+        coeffs.par_iter_mut().enumerate().for_each(|(i, coeff)| {
             let j = switch_endianness(i, self.num_variables);
-            coeffs[j] = *coeff;
-        }
+            *coeff = self.coeffs[j];
+        });
         CoefficientList {
             coeffs,
             num_variables: self.num_variables,

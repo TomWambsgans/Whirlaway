@@ -5,7 +5,7 @@ edition.workspace = true
 
 [dependencies]
 algebra.workspace = true
-p3_field.workspace = true
+p3-field.workspace = true
 sumcheck.workspace = true
 fiat-shamir.workspace = true
 tracing.workspace = true
@@ -14,5 +14,5 @@ whir.workspace = true
 rayon.workspace = true
 
 [dev-dependencies]
-p3_koala_bear.workspace = true
+p3-koala-bear.workspace = true
 rand.workspace = true

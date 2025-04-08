@@ -170,6 +170,14 @@ impl<F: Field> MultilinearPolynomial<F> {
     }
 
     pub fn eq_mle(scalars: &[F]) -> Self {
+        if scalars.len() <= 8 {
+            Self::eq_mle_single_threaded(scalars)
+        } else {
+            Self::eq_mle_parallel(scalars)
+        }
+    }
+
+    fn eq_mle_single_threaded(scalars: &[F]) -> Self {
         let mut evals = vec![F::ZERO; 1 << scalars.len()];
         evals[0] = F::ONE;
         for (i, &s) in scalars.iter().rev().enumerate() {
@@ -182,26 +190,24 @@ impl<F: Field> MultilinearPolynomial<F> {
         Self::new(evals)
     }
 
-    // parallel version:
-
-    // pub fn eq_mle(scalars: &[F]) -> Self {
-    //     let mut evals = vec![F::ZERO; 1 << scalars.len()];
-    //     evals[0] = F::ONE;
-    //     for (i, &s) in scalars.iter().rev().enumerate() {
-    //         let one_minus_s = F::ONE - s;
-    //         let chunk_size = 1 << i;
-    //         let (left, rest) = evals.split_at_mut(chunk_size);
-    //         let right = &mut rest[..chunk_size];
-    //         left.par_iter_mut()
-    //             .zip(right.par_iter_mut())
-    //             .for_each(|(l, r)| {
-    //                 let tmp = *l * s;
-    //                 *l = *l * one_minus_s;
-    //                 *r = tmp;
-    //             });
-    //     }
-    //     Self::new(evals)
-    // }
+    fn eq_mle_parallel(scalars: &[F]) -> Self {
+        let mut evals = vec![F::ZERO; 1 << scalars.len()];
+        evals[0] = F::ONE;
+        for (i, &s) in scalars.iter().rev().enumerate() {
+            let one_minus_s = F::ONE - s;
+            let chunk_size = 1 << i;
+            let (left, rest) = evals.split_at_mut(chunk_size);
+            let right = &mut rest[..chunk_size];
+            left.par_iter_mut()
+                .zip(right.par_iter_mut())
+                .for_each(|(l, r)| {
+                    let tmp = *l * s;
+                    *l = *l * one_minus_s;
+                    *r = tmp;
+                });
+        }
+        Self::new(evals)
+    }
 }
 
 impl<F: Field> AddAssign<MultilinearPolynomial<F>> for MultilinearPolynomial<F> {

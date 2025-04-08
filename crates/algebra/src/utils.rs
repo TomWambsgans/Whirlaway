@@ -1,10 +1,13 @@
 use std::cmp::max;
 
-use p3_field::Field;
+use cudarc::driver::DeviceRepr;
+use p3_field::{ExtensionField, Field};
 use rayon::prelude::*;
+use sha3::{Digest, Keccak256};
 
 #[inline(always)]
 pub const fn log2(x: usize) -> u32 {
+    // rounded up
     if x == 0 {
         0
     } else if x.is_power_of_two() {
@@ -77,9 +80,13 @@ pub fn field_bytes_in_memory<F: Field>() -> usize {
     let ext_degree: usize = F::bits().div_ceil(F::PrimeSubfield::bits()); // TODO very bad
     (F::PrimeSubfield::bits().div_ceil(8)) * ext_degree
 }
+// checks whether the given number n is a power of two.
+pub fn is_power_of_two(n: usize) -> bool {
+    n != 0 && (n & (n - 1) == 0)
+}
 
-/// expand_randomness outputs the vector [1, base, base^2, base^3, ...] of length len.
-pub fn expand_randomness<F: Field>(base: F, len: usize) -> Vec<F> {
+/// outputs the vector [1, base, base^2, base^3, ...] of length len.
+pub fn powers<F: Field>(base: F, len: usize) -> Vec<F> {
     let mut res = Vec::with_capacity(len);
     let mut acc = F::ONE;
     for _ in 0..len {
@@ -88,4 +95,100 @@ pub fn expand_randomness<F: Field>(base: F, len: usize) -> Vec<F> {
     }
 
     res
+}
+
+/// outputs the vector [1, base, base^2, base^3, ...] of length len.
+pub fn powers_parallel<F: Field>(base: F, len: usize) -> Vec<F> {
+    let num_threads = rayon::current_num_threads().next_power_of_two();
+
+    if len <= num_threads * log2(num_threads) as usize {
+        powers(base, len)
+    } else {
+        let chunk_size = (len + num_threads - 1) / num_threads;
+        (0..num_threads)
+            .into_par_iter()
+            .map(|j| {
+                let mut start = base.exp_u64(j as u64 * chunk_size as u64);
+                let mut chunck = Vec::new();
+                let chunk_size = if j == num_threads - 1 {
+                    len - j * chunk_size
+                } else {
+                    chunk_size
+                };
+                for _ in 0..chunk_size {
+                    chunck.push(start);
+                    start = start * base;
+                }
+                chunck
+            })
+            .flatten()
+            .collect()
+    }
+}
+
+pub fn eq_extension<F: Field>(s1: &[F], s2: &[F]) -> F {
+    assert_eq!(s1.len(), s2.len());
+    if s1.len() == 0 {
+        return F::ONE;
+    }
+    (0..s1.len())
+        .map(|i| s1[i] * s2[i] + (F::ONE - s1[i]) * (F::ONE - s2[i]))
+        .product()
+}
+
+pub fn hadamard_product<F: Field>(a: &[F], b: &[F]) -> Vec<F> {
+    assert_eq!(a.len(), b.len());
+    a.iter().zip(b.iter()).map(|(x, y)| *x * *y).collect()
+}
+
+pub fn dot_product<F: Field, EF: ExtensionField<F>>(a: &[F], b: &[EF]) -> EF {
+    assert_eq!(a.len(), b.len());
+    a.iter().zip(b.iter()).map(|(x, y)| *y * *x).sum()
+}
+
+// TODO find a better name
+pub fn multilinear_point_from_univariate<F: Field>(point: F, num_variables: usize) -> Vec<F> {
+    let mut res = Vec::with_capacity(num_variables);
+    let mut cur = point;
+    for _ in 0..num_variables {
+        res.push(cur);
+        cur = cur * cur;
+    }
+
+    // Reverse so higher power is first
+    res.reverse();
+
+    res
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct KeccakDigest(pub [u8; 32]);
+
+unsafe impl DeviceRepr for KeccakDigest {}
+
+impl KeccakDigest {
+    pub fn to_string(&self) -> String {
+        self.0.iter().map(|b| format!("{:02x}", b)).collect()
+    }
+}
+
+pub fn keccak256(data: &[u8]) -> KeccakDigest {
+    let mut hasher = Keccak256::new();
+    hasher.update(data);
+    let result = hasher.finalize();
+    let mut output = [0u8; 32];
+    output.copy_from_slice(&result);
+    KeccakDigest(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_powers() {
+        let base = p3_koala_bear::KoalaBear::new(185);
+        let len = 1478;
+        assert_eq!(powers(base, len), powers_parallel(base, len));
+    }
 }

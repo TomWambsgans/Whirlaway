@@ -1,18 +1,15 @@
 use algebra::{
-    field_utils::dot_product,
-    pols::{
-        ArithmeticCircuit, ComposedPolynomial, Evaluation,
-        GenericTransparentMultivariatePolynomial, MultilinearPolynomial,
-    },
-    utils::expand_randomness,
+    pols::{ArithmeticCircuit, Evaluation, MultilinearPolynomial},
+    utils::dot_product,
+    utils::powers,
 };
 use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};
-use pcs::{BatchSettings, PCS};
+use pcs::PCS;
 use rayon::prelude::*;
 use tracing::{Level, instrument, span};
 
-use crate::N;
+use crate::utils::columns_up_and_down;
 
 use super::table::AirTable;
 
@@ -27,127 +24,141 @@ impl<F: Field> AirTable<F> {
     pub fn prove<EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
         &self,
         fs_prover: &mut FsProver,
-        batching: &mut BatchSettings<F, EF, Pcs>,
+        pcs: &Pcs,
         witness: &[MultilinearPolynomial<F>],
+        cuda: bool,
     ) {
-        let log_length = witness[0].n_vars;
+        let log_length = self.log_length;
         assert!(witness.iter().all(|w| w.n_vars == log_length));
 
-        for boundary_condition in &self.boundary_conditions {
-            // TODO: no need to send scalar to transcript, verifier already knows it
-            batching.register_claim(
-                boundary_condition.col,
-                boundary_condition.encode::<EF>(log_length),
-                fs_prover,
-            );
+        // 1) Commit to the witness columns
+
+        // TODO avoid cloning (use a row major matrix for the witness)
+        let mut batch_evals = vec![F::ZERO; 1 << (log_length + self.log_n_witness_columns())];
+        for (i, poly) in witness.iter().enumerate() {
+            batch_evals[i << log_length..(i + 1) << log_length].copy_from_slice(&poly.evals);
         }
+        let packed_pol = MultilinearPolynomial::new(batch_evals);
+
+        let packed_pol_witness = pcs.commit(packed_pol, fs_prover);
 
         let constraints_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
+        let constraints_batching_scalars =
+            powers(constraints_batching_scalar, self.constraints.len());
 
         let zerocheck_challenges = fs_prover.challenge_scalars::<EF>(log_length);
 
-        let zeroed_pol = ComposedPolynomial::new(
-            log_length,
-            witnesses_up_and_down(witness),
-            self.global_constraint(constraints_batching_scalar),
-        );
+        let preprocessed_and_witness = self
+            .preprocessed_columns
+            .iter()
+            .chain(witness)
+            .collect::<Vec<_>>();
 
-        let (outer_challenges, inner_sums) = {
+        let (outer_challenges, all_inner_sums) = {
             let _span = span!(Level::INFO, "outer sumcheck").entered();
-            sumcheck::prove_zerocheck_with_univariate_skip::<F, F, EF>(
-                zeroed_pol,
-                &zerocheck_challenges,
-                fs_prover,
-                N,
-            )
+            if cuda {
+                sumcheck::prove_with_cuda(
+                    columns_up_and_down(&preprocessed_and_witness),
+                    &self.constraints,
+                    &constraints_batching_scalars,
+                    Some(&zerocheck_challenges),
+                    true,
+                    fs_prover,
+                    Some(EF::ZERO),
+                    None,
+                    0,
+                )
+            } else {
+                sumcheck::prove::<F, F, EF>(
+                    columns_up_and_down(&preprocessed_and_witness),
+                    &self.constraints,
+                    &constraints_batching_scalars,
+                    Some(&zerocheck_challenges),
+                    true,
+                    fs_prover,
+                    Some(EF::ZERO),
+                    None,
+                    0,
+                )
+            }
         };
 
         let _span = span!(Level::INFO, "inner sumchecks").entered();
-        let initial_transcript_len = fs_prover.transcript_len();
 
-        let batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
+        let inner_sums_up = &all_inner_sums[self.n_preprocessed_columns()..self.n_columns];
+        let inner_sums_down = &all_inner_sums[self.n_columns + self.n_preprocessed_columns()..];
+        let inner_sums = inner_sums_up
+            .into_iter()
+            .chain(inner_sums_down)
+            .map(|s| s.eval::<EF>(&[]))
+            .collect::<Vec<_>>();
+        fs_prover.add_scalars(&inner_sums);
 
-        let batch_pol = {
-            let mut nodes = Vec::<MultilinearPolynomial<EF>>::with_capacity(self.n_columns * 2 + 2);
+        let inner_sumcheck_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
+
+        let mles_for_inner_sumcheck = {
+            let mut nodes =
+                Vec::<MultilinearPolynomial<EF>>::with_capacity(self.n_witness_columns() * 2 + 2);
             let mut scalar = EF::ONE;
             for _ in 0..2 {
                 // up and down
                 let mut sum = MultilinearPolynomial::<EF>::zero(log_length);
                 for w in witness {
                     sum += w.scale(scalar);
-                    scalar *= batching_scalar;
+                    scalar *= inner_sumcheck_batching_scalar;
                 }
                 nodes.push(sum);
             }
             nodes.push(matrix_up_folded(&outer_challenges));
             nodes.push(matrix_down_folded(&outer_challenges));
 
-            let circuit = (ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
-                + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3));
-
-            let structure = GenericTransparentMultivariatePolynomial::new(circuit, 4);
-
-            ComposedPolynomial::new(log_length, nodes, structure)
+            nodes
         };
+
+        let inner_sumcheck_circuit = (ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
+            + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3));
 
         let inner_sum = dot_product(
             &inner_sums,
-            &expand_randomness(batching_scalar, self.n_columns * 2),
+            &powers(inner_sumcheck_batching_scalar, self.n_witness_columns() * 2),
         );
-        let (inner_challenges, _) =
-            sumcheck::prove(batch_pol, None, false, fs_prover, Some(inner_sum), None, 0);
+        let (inner_challenges, _) = sumcheck::prove(
+            mles_for_inner_sumcheck,
+            &[inner_sumcheck_circuit.fix_computation(false)],
+            &[EF::ONE],
+            None,
+            false,
+            fs_prover,
+            Some(inner_sum),
+            None,
+            0,
+        );
 
         let values = witness
             .par_iter()
             .map(|w| w.eval(&inner_challenges))
             .collect::<Vec<_>>();
-        for u in 0..self.n_columns {
-            batching.register_claim(
-                u,
-                Evaluation {
-                    point: inner_challenges.clone(),
-                    value: values[u],
-                },
-                fs_prover,
-            );
-        }
+        fs_prover.add_scalars(&values);
 
-        tracing::info!(
-            "inner sumchecks transcript length: {:.1}Kib",
-            (fs_prover.transcript_len() - initial_transcript_len) as f64 / 1024.
-        );
+        let final_random_scalars = fs_prover.challenge_scalars::<EF>(self.log_n_witness_columns());
+        let final_point = [final_random_scalars.clone(), inner_challenges].concat();
+        let packed_value = MultilinearPolynomial::new(
+            [
+                values,
+                vec![EF::ZERO; (1 << self.log_n_witness_columns()) - self.n_witness_columns()],
+            ]
+            .concat(),
+        )
+        .eval(&final_random_scalars);
+        let packed_eval = Evaluation {
+            point: final_point,
+            value: packed_value,
+        };
+
+        std::mem::drop(_span);
+
+        pcs.open(packed_pol_witness, &packed_eval, fs_prover);
     }
-}
-
-fn witnesses_up_and_down<F: Field>(
-    witnesses: &[MultilinearPolynomial<F>],
-) -> Vec<MultilinearPolynomial<F>> {
-    let mut res = Vec::with_capacity(witnesses.len() * 2);
-    res.extend(witnesses_up(witnesses));
-    res.extend(witnesses_down(witnesses));
-    res
-}
-
-fn witnesses_up<F: Field>(witnesses: &[MultilinearPolynomial<F>]) -> Vec<MultilinearPolynomial<F>> {
-    let mut res = Vec::with_capacity(witnesses.len());
-    for w in witnesses {
-        let mut up = w.clone();
-        up.evals[w.n_coefs() - 1] = up.evals[w.n_coefs() - 2];
-        res.push(up);
-    }
-    res
-}
-
-fn witnesses_down<F: Field>(
-    witnesses: &[MultilinearPolynomial<F>],
-) -> Vec<MultilinearPolynomial<F>> {
-    let mut res = Vec::with_capacity(witnesses.len());
-    for w in witnesses {
-        let mut down = w.evals[1..].to_vec();
-        down.push(*down.last().unwrap());
-        res.push(MultilinearPolynomial::new(down));
-    }
-    res
 }
 
 fn matrix_up_folded<F: Field>(outer_challenges: &[F]) -> MultilinearPolynomial<F> {

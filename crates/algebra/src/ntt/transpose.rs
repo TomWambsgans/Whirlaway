@@ -36,23 +36,8 @@ pub fn transpose<F: Sized + Copy + Send>(matrix: &mut [F], rows: usize, cols: us
     }
 }
 
-// The following function have both a parallel and a non-parallel implementation.
-// We fuly split those in a parallel and a non-parallel functions (rather than using #[cfg] within a single function)
-// and have main entry point fun that just calls the appropriate version (either fun_parallel or fun_not_parallel).
-// The sole reason is that this simplifies unit tests: We otherwise would need to build twice to cover both cases.
-// For effiency, we assume the compiler inlines away the extra "indirection" that we add to the entry point function.
-
-// NOTE: We could lift the Send constraints on non-parallel build.
-
-fn transpose_copy<F: Sized + Copy + Send>(src: MatrixMut<F>, dst: MatrixMut<F>) {
-    transpose_copy_parallel(src, dst);
-}
-
 /// Sets `dst` to the transpose of `src`. This will panic if the sizes of `src` and `dst` are not compatible.
-fn transpose_copy_parallel<F: Sized + Copy + Send>(
-    src: MatrixMut<'_, F>,
-    mut dst: MatrixMut<'_, F>,
-) {
+fn transpose_copy<F: Sized + Copy + Send>(src: MatrixMut<'_, F>, mut dst: MatrixMut<'_, F>) {
     assert_eq!(src.rows(), dst.cols());
     assert_eq!(src.cols(), dst.rows());
     if src.rows() * src.cols() > workload_size::<F>() {
@@ -65,10 +50,7 @@ fn transpose_copy_parallel<F: Sized + Copy + Send>(
             let n = src.cols() / 2;
             (src.split_horizontal(n), dst.split_vertical(n))
         };
-        join(
-            || transpose_copy_parallel(a, x),
-            || transpose_copy_parallel(b, y),
-        );
+        join(|| transpose_copy(a, x), || transpose_copy(b, y));
     } else {
         for i in 0..src.rows() {
             for j in 0..src.cols() {
@@ -79,13 +61,7 @@ fn transpose_copy_parallel<F: Sized + Copy + Send>(
 }
 
 /// Transpose a square matrix in-place. Asserts that the size of the matrix is a power of two.
-fn transpose_square<F: Sized + Send>(m: MatrixMut<F>) {
-    transpose_square_parallel(m);
-}
-
-/// Transpose a square matrix in-place. Asserts that the size of the matrix is a power of two.
-/// This is the parallel version.
-fn transpose_square_parallel<F: Sized + Send>(mut m: MatrixMut<F>) {
+fn transpose_square<F: Sized + Send>(mut m: MatrixMut<F>) {
     debug_assert!(m.is_square());
     debug_assert!(m.rows().is_power_of_two());
     let size = m.rows();
@@ -96,13 +72,8 @@ fn transpose_square_parallel<F: Sized + Send>(mut m: MatrixMut<F>) {
         let (a, b, c, d) = m.split_quadrants(n, n);
 
         join(
-            || transpose_square_swap_parallel(b, c),
-            || {
-                join(
-                    || transpose_square_parallel(a),
-                    || transpose_square_parallel(d),
-                )
-            },
+            || transpose_square_swap(b, c),
+            || join(|| transpose_square(a), || transpose_square(d)),
         );
     } else {
         for i in 0..size {
@@ -117,7 +88,7 @@ fn transpose_square_parallel<F: Sized + Send>(mut m: MatrixMut<F>) {
 }
 
 /// Transpose and swap two square size matrices (parallel version). The size must be a power of two.
-fn transpose_square_swap_parallel<F: Sized + Send>(mut a: MatrixMut<F>, mut b: MatrixMut<F>) {
+fn transpose_square_swap<F: Sized + Send>(mut a: MatrixMut<F>, mut b: MatrixMut<F>) {
     debug_assert!(a.is_square());
     debug_assert_eq!(a.rows(), b.cols());
     debug_assert_eq!(a.cols(), b.rows());
@@ -134,14 +105,14 @@ fn transpose_square_swap_parallel<F: Sized + Send>(mut a: MatrixMut<F>, mut b: M
         join(
             || {
                 join(
-                    || transpose_square_swap_parallel(aa, ba),
-                    || transpose_square_swap_parallel(ab, bc),
+                    || transpose_square_swap(aa, ba),
+                    || transpose_square_swap(ab, bc),
                 )
             },
             || {
                 join(
-                    || transpose_square_swap_parallel(ac, bb),
-                    || transpose_square_swap_parallel(ad, bd),
+                    || transpose_square_swap(ac, bb),
+                    || transpose_square_swap(ad, bd),
                 )
             },
         );

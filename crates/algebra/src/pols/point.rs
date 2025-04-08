@@ -1,5 +1,6 @@
 use p3_field::Field;
 use rand::Rng;
+use rayon::prelude::*;
 use std::fmt::{self, Debug, Formatter};
 
 #[derive(Clone, PartialEq, Eq)]
@@ -36,6 +37,12 @@ impl HypercubePoint {
 
     pub fn iter(n_vars: usize) -> impl Iterator<Item = Self> {
         (0..(1 << n_vars)).map(move |val| Self { val, n_vars })
+    }
+
+    pub fn par_iter(n_vars: usize) -> impl ParallelIterator<Item = Self> {
+        (0..(1 << n_vars))
+            .into_par_iter()
+            .map(move |val| Self { val, n_vars })
     }
 
     pub fn new(n_vars: usize, val: usize) -> Self {

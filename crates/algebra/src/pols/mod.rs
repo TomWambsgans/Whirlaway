@@ -4,16 +4,13 @@ pub use multilinear::*;
 pub mod circuit;
 pub use circuit::*;
 
-mod transparent;
-pub use transparent::*;
-
 mod point;
 pub use point::*;
 
-mod composed;
-pub use composed::*;
-
 mod univariate;
 pub use univariate::*;
+
+mod coeffs_list;
+pub use coeffs_list::*;
 
 pub mod utils;

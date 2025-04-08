@@ -1,5 +1,6 @@
 //! NTT and related algorithms.
 
+mod fold;
 mod matrix;
 mod ntt;
 mod transpose;
@@ -7,7 +8,7 @@ mod utils;
 mod wavelet;
 
 use self::matrix::MatrixMut;
-use p3_field::TwoAdicField;
+use p3_field::{ExtensionField, TwoAdicField};
 
 use rayon::prelude::*;
 
@@ -17,9 +18,14 @@ pub use self::{
     wavelet::wavelet_transform,
 };
 
+pub use fold::restructure_evaluations;
+
 /// RS encode at a rate 1/`expansion`.
-pub fn expand_from_coeff<F: TwoAdicField>(coeffs: &[F], expansion: usize) -> Vec<F> {
-    let engine = ntt::NttEngine::<F>::new_from_cache();
+pub fn expand_from_coeff<F: TwoAdicField, EF: ExtensionField<F>>(
+    coeffs: &[EF],
+    expansion: usize,
+) -> Vec<EF> {
+    let engine = ntt::NttEngine::<F, EF>::new_from_cache();
     let expanded_size = coeffs.len() * expansion;
     let mut result = Vec::with_capacity(expanded_size);
     // Note: We can also zero-extend the coefficients and do a larger NTT.
