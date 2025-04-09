@@ -22,11 +22,13 @@ fn bench_field<F: Field>(name: &str) {
         v = v + F::from_u64(i)
     }
     assert!(v != F::ZERO);
+    let duration = time.elapsed();
+    let avg_addition = duration.as_nanos() / n_adds as u128;
     println!(
-        "- {} additions in {:?} ({:?} per addition)",
+        "- {} additions in {:?} ({} ns per addition)",
         n_adds,
-        time.elapsed(),
-        time.elapsed() / n_adds as u32
+        duration,
+        avg_addition
     );
 
     let n_muls = 10_000_000;
@@ -36,11 +38,13 @@ fn bench_field<F: Field>(name: &str) {
         v = v * F::from_u64(i)
     }
     assert!(v != F::ZERO);
+    let duration = time.elapsed();
+    let avg_multiplication = duration.as_nanos() / n_muls as u128;
     println!(
-        "- {} multiplications in {:?} ({:?} per multiplication)",
+        "- {} multiplications in {:?} ({} ns per multiplication)",
         n_muls,
-        time.elapsed(),
-        time.elapsed() / n_muls as u32
+        duration,
+        avg_multiplication
     );
     println!();
 }
