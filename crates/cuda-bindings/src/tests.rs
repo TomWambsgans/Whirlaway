@@ -1,5 +1,5 @@
 use crate::{
-    SumcheckComputation, cuda_expanded_ntt, cuda_info, cuda_keccak256, cuda_ntt,
+    SumcheckComputation, cuda_alloc, cuda_expanded_ntt, cuda_info, cuda_keccak256, cuda_ntt,
     cuda_restructure_evaluations, cuda_sum_over_hypercube, cuda_sync, memcpy_dtoh, memcpy_htod,
 };
 use algebra::{
@@ -119,38 +119,36 @@ fn test_cuda_keccak() {
     super::init::<KoalaBear>(&[], 0);
     println!("CUDA initialized in {} ms", t.elapsed().as_millis());
 
-    let n_inputs = 5_000_000;
-    let input_length = 200;
-    let input_packed_length = 211;
-    let src_bytes = (0..n_inputs * input_packed_length)
+    let n_inputs = 10_000;
+    let batch_size = 501;
+    let input = (0..n_inputs * batch_size)
         .map(|i| (i % 256) as u8)
         .collect::<Vec<u8>>();
 
     let time = std::time::Instant::now();
     let expected_result = (0..n_inputs)
         .into_par_iter()
-        .map(|i| {
-            keccak256(&src_bytes[i * input_packed_length..i * input_packed_length + input_length])
-        })
+        .map(|i| keccak256(&input[i * batch_size..(i + 1) * batch_size]))
         .collect::<Vec<KeccakDigest>>();
     println!("CPU keccak took {} ms", time.elapsed().as_millis());
 
     let time = std::time::Instant::now();
-    let src_bytes_dev = memcpy_htod(&src_bytes);
+    let input_dev = memcpy_htod(&input);
     cuda_sync();
     println!("CUDA memcpy_htod took {} ms", time.elapsed().as_millis());
 
     let time = std::time::Instant::now();
-    let res_dev = cuda_keccak256(
-        &src_bytes_dev,
-        input_length as u32,
-        input_packed_length as u32,
+    let output_dev = cuda_alloc::<KeccakDigest>(n_inputs as usize);
+    cuda_keccak256(
+        &input_dev.as_view(),
+        batch_size,
+        &mut output_dev.as_view_mut(),
     );
     cuda_sync();
     println!("CUDA keccak took {} ms", time.elapsed().as_millis());
 
     let time = std::time::Instant::now();
-    let dest = memcpy_dtoh(&res_dev);
+    let dest = memcpy_dtoh(&output_dev);
     cuda_sync();
     println!("CUDA memcpy_dtoh took {} ms", time.elapsed().as_millis());
     assert!(dest == expected_result);
@@ -168,7 +166,7 @@ fn test_cuda_keccak() {
         cuda_info()
             .stream
             .memcpy_dtoh(
-                &res_dev.slice(particular_indexes[i]..1 + particular_indexes[i]),
+                &output_dev.slice(particular_indexes[i]..1 + particular_indexes[i]),
                 &mut particular_hashes[i],
             )
             .unwrap();

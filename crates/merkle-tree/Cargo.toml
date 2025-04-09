@@ -8,6 +8,8 @@ algebra.workspace = true
 rayon.workspace = true
 sha3.workspace = true
 tracing.workspace = true
+cuda-bindings.workspace = true
 
 [dev-dependencies]
 rand.workspace = true
+p3-koala-bear.workspace = true

@@ -3,6 +3,13 @@
 use algebra::utils::KeccakDigest;
 use algebra::utils::keccak256;
 use algebra::utils::log2;
+use cuda_bindings::CudaSlice;
+use cuda_bindings::DeviceRepr;
+use cuda_bindings::VecOrCudaSlice;
+use cuda_bindings::cuda_alloc;
+use cuda_bindings::cuda_index;
+use cuda_bindings::cuda_keccak256;
+use cuda_bindings::cuda_sync;
 use rayon::prelude::*;
 use sha3::Digest;
 use std::collections::BTreeSet;
@@ -169,17 +176,28 @@ impl<F: Default + Debug> MultiPath<F> {
 pub struct MerkleTree<F> {
     /// The ith nodes (starting at 1st) children are at indices `2*i`, `2*i+1`
     /// (The first element is the root, and the last elements are the leaves)
-    nodes: Vec<KeccakDigest>,
+    nodes: VecOrCudaSlice<KeccakDigest>,
     /// Stores the height of the MerkleTree
     height: usize,
+    root: KeccakDigest,
 
     _field: std::marker::PhantomData<F>,
 }
 
 impl<F: Sync> MerkleTree<F> {
-    /// `leaves.len()` should be power of two.
-    #[instrument(name = "merkle tree creation", skip_all)]
-    pub fn new(leaves: &[F], batch_size: usize) -> Self {
+    /// // `leaves.len()` should be power of two.
+    pub fn new(leaves: &VecOrCudaSlice<F>, batch_size: usize) -> Self
+    where
+        F: DeviceRepr,
+    {
+        match leaves {
+            VecOrCudaSlice::Vec(leaves) => Self::new_cpu(leaves, batch_size),
+            VecOrCudaSlice::Cuda(leaves) => Self::new_gpu(leaves, batch_size),
+        }
+    }
+    /// // `leaves.len()` should be power of two.
+    #[instrument(name = "merkle tree creation in ram", skip_all)]
+    pub fn new_cpu(leaves: &[F], batch_size: usize) -> Self {
         assert!(leaves.len() % batch_size == 0);
         let leaf_digests = leaves
             .par_chunks_exact(batch_size)
@@ -187,37 +205,74 @@ impl<F: Sync> MerkleTree<F> {
             .collect::<Vec<_>>();
 
         let leaf_nodes_size = leaf_digests.len();
-        assert!(leaf_nodes_size.is_power_of_two() && leaf_nodes_size > 1,);
+        assert!(leaf_nodes_size.is_power_of_two() && leaf_nodes_size > 1);
         let height = log2(leaf_nodes_size) as usize;
 
         // initialize the merkle tree as array of nodes in level order
-        let mut nodes = vec![KeccakDigest::default(); (1 << height + 1) - 1];
+        let mut nodes = vec![KeccakDigest::default(); (1 << (height + 1)) - 1];
         nodes[(1 << height) - 1..].clone_from_slice(&leaf_digests);
 
         for level in (1..=height).rev() {
             let start = (1 << level) - 1;
             let (left, right) = nodes.split_at_mut(start);
-            let right = &*right;
             let left = &mut left[(1 << (level - 1)) - 1..];
             left.par_iter_mut().enumerate().for_each(|(i, l)| {
                 *l = two_to_one_hash(&right[2 * i], &right[2 * i + 1]);
             });
         }
+        let root = nodes[0].clone();
         MerkleTree {
-            nodes,
+            nodes: VecOrCudaSlice::Vec(nodes),
             height,
+            root,
             _field: std::marker::PhantomData,
         }
     }
 
-    /// Returns the root of the Merkle tree.
-    pub fn root(&self) -> KeccakDigest {
-        self.nodes[0].clone()
+    #[instrument(name = "merkle tree creation in cuda", skip_all)]
+    pub fn new_gpu(leaves: &CudaSlice<F>, batch_size: usize) -> Self
+    where
+        F: DeviceRepr,
+    {
+        assert!(leaves.len() % batch_size == 0);
+        let leaf_nodes_size = leaves.len() / batch_size;
+        assert!(leaf_nodes_size.is_power_of_two() && leaf_nodes_size > 1);
+        let height = log2(leaf_nodes_size) as usize;
+        let mut nodes = cuda_alloc::<KeccakDigest>((1 << (height + 1)) - 1);
+        cuda_keccak256(
+            &leaves.as_view(),
+            batch_size,
+            &mut nodes.slice_mut((1 << height) - 1..),
+        );
+        for level in (1..=height).rev() {
+            let start = (1 << level) - 1;
+            let (mut left, right) = nodes.split_at_mut(start);
+            cuda_keccak256(
+                &right.slice(..1 << level),
+                2,
+                &mut left.slice_mut((1 << (level - 1)) - 1..),
+            );
+        }
+        let root = cuda_index(&nodes, 0);
+        cuda_sync();
+        MerkleTree {
+            nodes: VecOrCudaSlice::Cuda(nodes),
+            height,
+            root,
+            _field: std::marker::PhantomData,
+        }
     }
 
-    /// Returns the height of the Merkle tree.
-    pub fn height(&self) -> usize {
-        self.height
+    pub fn root(&self) -> &KeccakDigest {
+        &self.root
+    }
+
+    pub fn is_gpu(&self) -> bool {
+        matches!(self.nodes, VecOrCudaSlice::Cuda(_))
+    }
+
+    pub fn is_cpu(&self) -> bool {
+        matches!(self.nodes, VecOrCudaSlice::Vec(_))
     }
 
     /// Returns the authentication path from leaf at `index` to root, as a Vec of digests
@@ -234,12 +289,14 @@ impl<F: Sync> MerkleTree<F> {
             } else {
                 current_node - 1
             };
-            path.push(self.nodes[sibling_node].clone());
+            path.push(self.nodes.index(sibling_node));
             current_node = (current_node - 1) >> 1;
         }
-
         assert_eq!(path.len(), self.height);
 
+        if self.is_gpu() {
+            cuda_sync();
+        }
         // we want to make path from root to bottom
         path.reverse();
         path

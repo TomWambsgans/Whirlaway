@@ -255,6 +255,8 @@ name = "merkle-tree"
 version = "0.1.0"
 dependencies = [
  "algebra",
+ "cuda-bindings",
+ "p3-koala-bear",
  "rand",
  "rayon",
  "sha3",

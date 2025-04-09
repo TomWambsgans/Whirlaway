@@ -2,6 +2,7 @@ use crate::utils::expand_from_coeff_and_restructure;
 
 use super::parameters::WhirConfig;
 use algebra::{pols::CoefficientList, utils::multilinear_point_from_univariate};
+use cuda_bindings::VecOrCudaSlice;
 use fiat_shamir::FsProver;
 use merkle_tree::MerkleTree;
 
@@ -11,7 +12,7 @@ use tracing::instrument;
 pub struct Witness<EF: Field> {
     pub(crate) polynomial: CoefficientList<EF>,
     pub(crate) merkle_tree: MerkleTree<EF>,
-    pub(crate) merkle_leaves: Vec<EF>,
+    pub(crate) merkle_leaves: VecOrCudaSlice<EF>,
     pub(crate) ood_points: Vec<EF>,
     pub(crate) ood_answers: Vec<EF>,
 }

@@ -1,4 +1,5 @@
 use algebra::ntt::{expand_from_coeff, restructure_evaluations};
+use cuda_bindings::VecOrCudaSlice;
 use p3_field::{ExtensionField, TwoAdicField};
 use std::collections::BTreeSet;
 use tracing::instrument;
@@ -22,24 +23,26 @@ pub fn dedup<T: Ord>(v: impl IntoIterator<Item = T>) -> Vec<T> {
     Vec::from_iter(BTreeSet::from_iter(v))
 }
 
-#[instrument(name = "whir: expand_from_coeff_and_restructure", skip_all)]
+#[instrument(name = "whir: expand_from_coeff_and_restructure", 
+             skip_all,
+             fields(cuda = %cuda))]
 pub fn expand_from_coeff_and_restructure<F: TwoAdicField, EF: ExtensionField<F>>(
     coeffs: &[EF],
     expansion: usize,
     domain_gen_inv: F,
     folding_factor: usize,
     cuda: bool,
-) -> Vec<EF> {
+) -> VecOrCudaSlice<EF> {
     if cuda && coeffs.len() >= 1024 {
         let evals = cuda_bindings::cuda_expanded_ntt(coeffs, expansion);
-        let folded_evals_dev = cuda_bindings::cuda_restructure_evaluations(&evals, folding_factor);
-        let folded_evals = cuda_bindings::memcpy_dtoh(&folded_evals_dev);
+        let folded_evals = cuda_bindings::cuda_restructure_evaluations(&evals, folding_factor);
         cuda_bindings::cuda_sync();
-        folded_evals
+        VecOrCudaSlice::Cuda(folded_evals)
     } else {
         // TODO: `stack_evaluations` and `restructure_evaluations` are really in-place algorithms.
         // They also partially overlap and undo one another. We should merge them.
         let evals = expand_from_coeff::<F, EF>(coeffs, expansion);
-        restructure_evaluations(evals, domain_gen_inv, folding_factor)
+        let folded_evals = restructure_evaluations(evals, domain_gen_inv, folding_factor);
+        VecOrCudaSlice::Vec(folded_evals)
     }
 }

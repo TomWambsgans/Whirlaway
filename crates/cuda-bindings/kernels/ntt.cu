@@ -154,8 +154,6 @@ __device__ void ntt(ExtField *buff, const int log_len, const int log_chunk_size,
     grid.sync();
 }
 
-// TODO use only one buffer, but I don't know how to fill it "partially" with cudarc, since the crate asserts dest size = src size when copying data
-// This can now be done with cudarc 0.14 -> TODO
 extern "C" __global__ void expanded_ntt(ExtField *input, ExtField *buff, ExtField *result, const uint32_t log_len, const uint32_t log_extension_factor, const uint32_t *twiddles)
 {
     // twiddles = 1

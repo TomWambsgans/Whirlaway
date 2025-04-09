@@ -4,6 +4,7 @@ use algebra::{
     pols::{CoefficientList, MultilinearPolynomial, TransparentPolynomial},
     utils::{dot_product, multilinear_point_from_univariate, powers},
 };
+use cuda_bindings::{VecOrCudaSlice, cuda_sync};
 use fiat_shamir::FsProver;
 use merkle_tree::MerkleTree;
 use p3_field::{ExtensionField, Field, TwoAdicField};
@@ -142,10 +143,14 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
             let answers = final_challenge_indexes
                 .into_iter()
                 .map(|i| {
-                    round_state.prev_merkle_answers[i * fold_size..(i + 1) * fold_size].to_vec()
+                    round_state
+                        .prev_merkle_answers
+                        .slice(i * fold_size..(i + 1) * fold_size)
                 })
                 .collect::<Vec<_>>();
-
+            if self.0.cuda {
+                cuda_sync();
+            }
             fs_prover.add_variable_bytes(&merkle_proof.to_bytes());
             fs_prover.add_scalar_matrix(&answers, false);
 
@@ -240,8 +245,15 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
         let fold_size = 1 << self.0.folding_factor.at_round(round_state.round);
         let answers: Vec<_> = stir_challenges_indexes
             .iter()
-            .map(|i| round_state.prev_merkle_answers[i * fold_size..(i + 1) * fold_size].to_vec())
+            .map(|i| {
+                round_state
+                    .prev_merkle_answers
+                    .slice(i * fold_size..(i + 1) * fold_size)
+            })
             .collect();
+        if self.0.cuda {
+            cuda_sync();
+        }
         // Evaluate answers in the folding randomness.
         let mut stir_evaluations = ood_answers.clone();
         stir_evaluations.extend(answers.iter().map(|answers| {
@@ -304,7 +316,7 @@ struct RoundState<F: TwoAdicField, EF: ExtensionField<F>> {
     folding_randomness: Vec<EF>,
     coefficients: CoefficientList<EF>,
     prev_merkle: MerkleTree<EF>,
-    prev_merkle_answers: Vec<EF>,
+    prev_merkle_answers: VecOrCudaSlice<EF>,
 }
 
 fn randomized_eq_extensions<F: Field>(
