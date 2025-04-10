@@ -1,10 +1,9 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
+
+use rand::{SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
-use algebra::{
-    field_utils::{deserialize_field, serialize_field},
-    utils::field_bytes_in_memory,
-};
+use utils::{deserialize_field, serialize_field};
 
 use p3_field::Field;
 use sha3::{Digest, Keccak256};
@@ -61,7 +60,7 @@ impl FsProver {
 
     pub fn add_scalars<F: Field>(&mut self, scalars: &[F]) {
         for scalar in scalars {
-            self.add_bytes(&serialize_field(*scalar));
+            self.add_bytes(&serialize_field(scalar));
         }
     }
 
@@ -75,18 +74,14 @@ impl FsProver {
         }
         for row in scalars {
             for scalar in row {
-                self.add_bytes(&serialize_field(*scalar));
+                self.add_bytes(&serialize_field(scalar));
             }
         }
     }
 
     pub fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F> {
-        let mut res = Vec::new();
-        for _ in 0..len {
-            let bytes = self.challenge_bytes(field_bytes_in_memory::<F>());
-            res.push(deserialize_field(&bytes).unwrap());
-        }
-        res
+        let mut rng = StdRng::from_seed(self.challenge_bytes(32).try_into().unwrap());
+        (0..len).map(|_| F::random(&mut rng)).collect::<Vec<_>>()
     }
 
     pub fn challenge_pow(&mut self, bits: usize) {
@@ -146,7 +141,7 @@ impl FsVerifier {
     pub fn next_scalars<F: Field>(&mut self, len: usize) -> Result<Vec<F>, FsError> {
         let mut res = Vec::new();
         for _ in 0..len {
-            let bytes = self.next_bytes(field_bytes_in_memory::<F>())?;
+            let bytes = self.next_bytes(std::mem::size_of::<F>())?;
             res.push(deserialize_field(&bytes).ok_or(FsError {})?);
         }
         Ok(res)
@@ -168,7 +163,7 @@ impl FsVerifier {
         for _ in 0..n {
             let mut row = Vec::new();
             for _ in 0..m {
-                let bytes = self.next_bytes(field_bytes_in_memory::<F>())?;
+                let bytes = self.next_bytes(std::mem::size_of::<F>())?;
                 row.push(deserialize_field(&bytes).ok_or(FsError {})?);
             }
             res.push(row);
@@ -177,12 +172,8 @@ impl FsVerifier {
     }
 
     pub fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F> {
-        let mut res = Vec::new();
-        for _ in 0..len {
-            let bytes = self.challenge_bytes(field_bytes_in_memory::<F>());
-            res.push(deserialize_field(&bytes).unwrap());
-        }
-        res
+        let mut rng = StdRng::from_seed(self.challenge_bytes(32).try_into().unwrap());
+        (0..len).map(|_| F::random(&mut rng)).collect::<Vec<_>>()
     }
 
     pub fn challenge_pow(&mut self, bits: usize) -> Result<(), FsError> {

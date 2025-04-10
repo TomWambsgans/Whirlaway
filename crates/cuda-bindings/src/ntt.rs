@@ -1,9 +1,10 @@
+use cuda_engine::{cuda_info, memcpy_dtoh, memcpy_htod};
 use cudarc::driver::{CudaSlice, LaunchConfig, PushKernelArg};
 
 use p3_field::Field;
 use tracing::instrument;
 
-use crate::{MAX_LOG_N_BLOCKS, cuda_info, memcpy_dtoh, memcpy_htod};
+use crate::MAX_LOG_N_BLOCKS;
 
 // TODO this value is also hardcoded in ntt.cuda, this is ugly
 const NTT_LOG_N_THREADS_PER_BLOCK: u32 = 8;

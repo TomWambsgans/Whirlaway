@@ -1,4 +1,5 @@
-use algebra::pols::{ArithmeticCircuit, MultilinearPolynomial};
+use algebra::pols::MultilinearHost;
+use arithmetic_circuit::ArithmeticCircuit;
 use p3_field::Field;
 
 use super::table::AirTable;
@@ -102,7 +103,7 @@ impl<F: Field, const COLS: usize> AirBuilder<F, COLS> {
             preprocessed_columns: self
                 .preprocessed_columns
                 .into_iter()
-                .map(MultilinearPolynomial::new)
+                .map(MultilinearHost::new)
                 .collect(),
         }
     }

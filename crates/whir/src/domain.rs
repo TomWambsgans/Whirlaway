@@ -1,4 +1,4 @@
-use algebra::radix2::Radix2EvaluationDomain;
+use algebra::ntt::Radix2EvaluationDomain;
 use p3_field::TwoAdicField;
 
 #[derive(Debug, Clone)]

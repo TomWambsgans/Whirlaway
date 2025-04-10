@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use cuda_bindings::memcpy_htod;
+use cuda_engine::memcpy_htod;
 use p3_koala_bear::KoalaBear;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
@@ -9,7 +9,7 @@ use crate::MerkleTree;
 #[test]
 #[ignore]
 fn test_merkle_tree() {
-    cuda_bindings::init::<KoalaBear>(&[], 0);
+    cuda_engine::init::<KoalaBear>(&[], 0);
     let rand = &mut StdRng::seed_from_u64(0);
     let height = 9;
     let batch_size = 3;

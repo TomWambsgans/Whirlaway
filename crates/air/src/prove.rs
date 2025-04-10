@@ -1,14 +1,15 @@
 use algebra::{
-    pols::{ArithmeticCircuit, Evaluation, MultilinearPolynomial},
-    utils::dot_product,
-    utils::powers,
+    pols::MultilinearHost,
+    pols::{Multilinear, MultilinearDevice},
 };
-use cuda_bindings::{MultilinearPolynomialCuda, MultilinearPolynomialMaybeCuda, memcpy_htod};
+use arithmetic_circuit::ArithmeticCircuit;
+use cuda_engine::memcpy_htod;
 use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};
 use pcs::PCS;
 use rayon::prelude::*;
 use tracing::{Level, instrument, span};
+use utils::{Evaluation, dot_product, powers};
 
 use crate::utils::columns_up_and_down;
 
@@ -26,7 +27,7 @@ impl<F: Field> AirTable<F> {
         &self,
         fs_prover: &mut FsProver,
         pcs: &Pcs,
-        witness: &[MultilinearPolynomial<F>],
+        witness: &[MultilinearHost<F>],
         cuda: bool,
     ) {
         let log_length = self.log_length;
@@ -39,10 +40,10 @@ impl<F: Field> AirTable<F> {
         for (i, poly) in witness.iter().enumerate() {
             batch_evals[i << log_length..(i + 1) << log_length].copy_from_slice(&poly.evals);
         }
-        let packed_pol: MultilinearPolynomialMaybeCuda<F> = if cuda {
-            MultilinearPolynomialCuda::new(memcpy_htod(&batch_evals)).into()
+        let packed_pol: Multilinear<F> = if cuda {
+            MultilinearDevice::new(memcpy_htod(&batch_evals)).into()
         } else {
-            MultilinearPolynomial::new(batch_evals).into()
+            MultilinearHost::new(batch_evals).into()
         };
 
         let packed_pol_witness = pcs.commit(packed_pol, fs_prover);
@@ -65,7 +66,7 @@ impl<F: Field> AirTable<F> {
                 // TODO do this directly in the GPU
                 let columns_up_and_down_dev = columns_up_and_down(&preprocessed_and_witness)
                     .par_iter()
-                    .map(|w| MultilinearPolynomialCuda::new(memcpy_htod(&w.embed::<EF>().evals))) // TODO avoid embedding
+                    .map(|w| MultilinearDevice::new(memcpy_htod(&w.embed::<EF>().evals))) // TODO avoid embedding
                     .collect::<Vec<_>>();
                 sumcheck::prove_with_cuda(
                     &columns_up_and_down_dev,
@@ -100,7 +101,7 @@ impl<F: Field> AirTable<F> {
         let inner_sums = inner_sums_up
             .into_iter()
             .chain(inner_sums_down)
-            .map(|s| s.eval::<EF>(&[]))
+            .map(|s| s.evaluate::<EF>(&[]))
             .collect::<Vec<_>>();
         fs_prover.add_scalars(&inner_sums);
 
@@ -108,11 +109,11 @@ impl<F: Field> AirTable<F> {
 
         let mles_for_inner_sumcheck = {
             let mut nodes =
-                Vec::<MultilinearPolynomial<EF>>::with_capacity(self.n_witness_columns() * 2 + 2);
+                Vec::<MultilinearHost<EF>>::with_capacity(self.n_witness_columns() * 2 + 2);
             let mut scalar = EF::ONE;
             for _ in 0..2 {
                 // up and down
-                let mut sum = MultilinearPolynomial::<EF>::zero(log_length);
+                let mut sum = MultilinearHost::<EF>::zero(log_length);
                 for w in witness {
                     sum += w.scale(scalar);
                     scalar *= inner_sumcheck_batching_scalar;
@@ -146,20 +147,20 @@ impl<F: Field> AirTable<F> {
 
         let values = witness
             .par_iter()
-            .map(|w| w.eval(&inner_challenges))
+            .map(|w| w.evaluate(&inner_challenges))
             .collect::<Vec<_>>();
         fs_prover.add_scalars(&values);
 
         let final_random_scalars = fs_prover.challenge_scalars::<EF>(self.log_n_witness_columns());
         let final_point = [final_random_scalars.clone(), inner_challenges].concat();
-        let packed_value = MultilinearPolynomial::new(
+        let packed_value = MultilinearHost::new(
             [
                 values,
                 vec![EF::ZERO; (1 << self.log_n_witness_columns()) - self.n_witness_columns()],
             ]
             .concat(),
         )
-        .eval(&final_random_scalars);
+        .evaluate(&final_random_scalars);
         let packed_eval = Evaluation {
             point: final_point,
             value: packed_value,
@@ -171,22 +172,22 @@ impl<F: Field> AirTable<F> {
     }
 }
 
-fn matrix_up_folded<F: Field>(outer_challenges: &[F]) -> MultilinearPolynomial<F> {
+fn matrix_up_folded<F: Field>(outer_challenges: &[F]) -> MultilinearHost<F> {
     let n = outer_challenges.len();
-    let mut folded = MultilinearPolynomial::eq_mle(&outer_challenges);
+    let mut folded = MultilinearHost::eq_mle(&outer_challenges);
     let outer_challenges_prod: F = outer_challenges.iter().copied().product();
     folded.evals[(1 << n) - 1] -= outer_challenges_prod;
     folded.evals[(1 << n) - 2] += outer_challenges_prod;
     folded
 }
 
-fn matrix_down_folded<F: Field>(outer_challenges: &[F]) -> MultilinearPolynomial<F> {
+fn matrix_down_folded<F: Field>(outer_challenges: &[F]) -> MultilinearHost<F> {
     let n = outer_challenges.len();
     let mut folded = vec![F::ZERO; 1 << n];
     for k in 0..n {
         let outer_challenges_prod = (F::ONE - outer_challenges[n - k - 1])
             * outer_challenges[n - k..].iter().copied().product::<F>();
-        let mut eq_mle = MultilinearPolynomial::eq_mle(&outer_challenges[0..n - k - 1]);
+        let mut eq_mle = MultilinearHost::eq_mle(&outer_challenges[0..n - k - 1]);
         eq_mle = eq_mle.scale(outer_challenges_prod);
         for (mut i, v) in eq_mle.evals.into_iter().enumerate() {
             i <<= k + 1;
@@ -197,5 +198,5 @@ fn matrix_down_folded<F: Field>(outer_challenges: &[F]) -> MultilinearPolynomial
     // bottom left corner:
     folded[(1 << n) - 1] += outer_challenges.iter().copied().product::<F>();
 
-    MultilinearPolynomial::new(folded)
+    MultilinearHost::new(folded)
 }

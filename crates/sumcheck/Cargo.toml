@@ -10,6 +10,9 @@ p3-field.workspace = true
 rayon.workspace = true
 tracing.workspace = true
 cuda-bindings.workspace = true
+arithmetic-circuit.workspace = true
+cuda-engine.workspace = true
+utils.workspace = true
 
 [dev-dependencies]
 p3-koala-bear.workspace = true

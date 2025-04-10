@@ -1,6 +1,7 @@
-use algebra::pols::{Evaluation, UnivariatePolynomial};
+use algebra::pols::UnivariatePolynomial;
 use fiat_shamir::{FsError, FsVerifier};
 use p3_field::Field;
+use utils::Evaluation;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum SumcheckError {

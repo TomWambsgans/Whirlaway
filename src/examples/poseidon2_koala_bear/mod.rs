@@ -1,6 +1,7 @@
 use ::air::{AirBuilder, AirExpr};
-use algebra::pols::{ArithmeticCircuit, MultilinearPolynomial};
-use cuda_bindings::SumcheckComputation;
+use algebra::pols::MultilinearHost;
+use arithmetic_circuit::ArithmeticCircuit;
+use cuda_engine::SumcheckComputation;
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear};
@@ -103,7 +104,7 @@ pub fn prove_poseidon2(log_n_rows: usize, security_bits: usize, log_inv_rate: us
 
     let witness = witness_matrix
         .rows()
-        .map(|col| MultilinearPolynomial::new(col.collect()))
+        .map(|col| MultilinearHost::new(col.collect()))
         .collect::<Vec<_>>();
 
     let table = air_builder.build();
@@ -116,7 +117,7 @@ pub fn prove_poseidon2(log_n_rows: usize, security_bits: usize, log_inv_rate: us
             n_multilinears: table.n_columns * 2 + 1,
             eq_mle_multiplier: true,
         };
-        let prod_sumcheck = cuda_bindings::SumcheckComputation {
+        let prod_sumcheck = SumcheckComputation {
             inner: vec![
                 (ArithmeticCircuit::<F, _>::Node(0) * ArithmeticCircuit::Node(1))
                     .fix_computation(false),
@@ -124,7 +125,7 @@ pub fn prove_poseidon2(log_n_rows: usize, security_bits: usize, log_inv_rate: us
             n_multilinears: 2,
             eq_mle_multiplier: false,
         };
-        cuda_bindings::init(
+        cuda_engine::init(
             &[constraint_sumcheck_computations, prod_sumcheck],
             whir_params.folding_factor.as_constant().unwrap(), // TODO handle ConstantFromSecondRound
         );

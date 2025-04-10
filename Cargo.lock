@@ -16,7 +16,8 @@ name = "air"
 version = "0.1.0"
 dependencies = [
  "algebra",
- "cuda-bindings",
+ "arithmetic-circuit",
+ "cuda-engine",
  "fiat-shamir",
  "p3-field",
  "p3-koala-bear",
@@ -24,19 +25,23 @@ dependencies = [
  "rayon",
  "sumcheck",
  "tracing",
+ "utils",
 ]
 
 [[package]]
 name = "algebra"
 version = "0.1.0"
 dependencies = [
+ "arithmetic-circuit",
+ "cuda-bindings",
+ "cuda-engine",
  "cudarc",
  "p3-field",
  "p3-koala-bear",
  "rand",
  "rayon",
- "sha3",
  "tracing",
+ "utils",
 ]
 
 [[package]]
@@ -46,6 +51,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d52a9bb7ec0cf484c551830a7ce27bd20d67eac647e1befb56b0be4ee39a55d2"
 dependencies = [
  "winapi",
+]
+
+[[package]]
+name = "arithmetic-circuit"
+version = "0.1.0"
+dependencies = [
+ "p3-field",
+ "p3-koala-bear",
+ "rand",
+ "tracing",
+ "utils",
 ]
 
 [[package]]
@@ -123,14 +139,25 @@ dependencies = [
 name = "cuda-bindings"
 version = "0.1.0"
 dependencies = [
- "algebra",
+ "cuda-engine",
  "cudarc",
  "p3-field",
  "p3-koala-bear",
- "rand",
  "rayon",
- "sha3",
  "tracing",
+ "utils",
+]
+
+[[package]]
+name = "cuda-engine"
+version = "0.1.0"
+dependencies = [
+ "arithmetic-circuit",
+ "cudarc",
+ "p3-field",
+ "rayon",
+ "tracing",
+ "utils",
 ]
 
 [[package]]
@@ -162,10 +189,11 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 name = "fiat-shamir"
 version = "0.1.0"
 dependencies = [
- "algebra",
  "p3-field",
+ "rand",
  "rayon",
  "sha3",
+ "utils",
 ]
 
 [[package]]
@@ -255,13 +283,15 @@ checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 name = "merkle-tree"
 version = "0.1.0"
 dependencies = [
- "algebra",
  "cuda-bindings",
+ "cuda-engine",
+ "cudarc",
  "p3-koala-bear",
  "rand",
  "rayon",
  "sha3",
  "tracing",
+ "utils",
 ]
 
 [[package]]
@@ -317,7 +347,7 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 [[package]]
 name = "p3-dft"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#c4721449af7c0f06c628a68aaa526215045abd60"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#acd879050a83f97be0651ac2c71958c2b6ae602a"
 dependencies = [
  "itertools",
  "p3-field",
@@ -330,7 +360,7 @@ dependencies = [
 [[package]]
 name = "p3-field"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#c4721449af7c0f06c628a68aaa526215045abd60"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#acd879050a83f97be0651ac2c71958c2b6ae602a"
 dependencies = [
  "cudarc",
  "itertools",
@@ -347,7 +377,7 @@ dependencies = [
 [[package]]
 name = "p3-koala-bear"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#c4721449af7c0f06c628a68aaa526215045abd60"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#acd879050a83f97be0651ac2c71958c2b6ae602a"
 dependencies = [
  "p3-field",
  "p3-mds",
@@ -361,7 +391,7 @@ dependencies = [
 [[package]]
 name = "p3-matrix"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#c4721449af7c0f06c628a68aaa526215045abd60"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#acd879050a83f97be0651ac2c71958c2b6ae602a"
 dependencies = [
  "itertools",
  "p3-field",
@@ -376,12 +406,12 @@ dependencies = [
 [[package]]
 name = "p3-maybe-rayon"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#c4721449af7c0f06c628a68aaa526215045abd60"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#acd879050a83f97be0651ac2c71958c2b6ae602a"
 
 [[package]]
 name = "p3-mds"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#c4721449af7c0f06c628a68aaa526215045abd60"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#acd879050a83f97be0651ac2c71958c2b6ae602a"
 dependencies = [
  "itertools",
  "p3-dft",
@@ -395,7 +425,7 @@ dependencies = [
 [[package]]
 name = "p3-monty-31"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#c4721449af7c0f06c628a68aaa526215045abd60"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#acd879050a83f97be0651ac2c71958c2b6ae602a"
 dependencies = [
  "cudarc",
  "itertools",
@@ -418,7 +448,7 @@ dependencies = [
 [[package]]
 name = "p3-poseidon2"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#c4721449af7c0f06c628a68aaa526215045abd60"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#acd879050a83f97be0651ac2c71958c2b6ae602a"
 dependencies = [
  "p3-field",
  "p3-mds",
@@ -430,7 +460,7 @@ dependencies = [
 [[package]]
 name = "p3-symmetric"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#c4721449af7c0f06c628a68aaa526215045abd60"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#acd879050a83f97be0651ac2c71958c2b6ae602a"
 dependencies = [
  "itertools",
  "p3-field",
@@ -440,7 +470,7 @@ dependencies = [
 [[package]]
 name = "p3-util"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#c4721449af7c0f06c628a68aaa526215045abd60"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#acd879050a83f97be0651ac2c71958c2b6ae602a"
 dependencies = [
  "serde",
 ]
@@ -456,7 +486,9 @@ name = "pcs"
 version = "0.1.0"
 dependencies = [
  "algebra",
+ "arithmetic-circuit",
  "cuda-bindings",
+ "cuda-engine",
  "fiat-shamir",
  "merkle-tree",
  "p3-field",
@@ -467,6 +499,7 @@ dependencies = [
  "tracing",
  "tracing-forest",
  "tracing-subscriber",
+ "utils",
  "whir",
 ]
 
@@ -659,13 +692,16 @@ name = "sumcheck"
 version = "0.1.0"
 dependencies = [
  "algebra",
+ "arithmetic-circuit",
  "cuda-bindings",
+ "cuda-engine",
  "fiat-shamir",
  "p3-field",
  "p3-koala-bear",
  "rand",
  "rayon",
  "tracing",
+ "utils",
 ]
 
 [[package]]
@@ -806,6 +842,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a5f39404a5da50712a4c1eecf25e90dd62b613502b7e925fd4e4d19b5c96512"
 
 [[package]]
+name = "utils"
+version = "0.1.0"
+dependencies = [
+ "cudarc",
+ "p3-field",
+ "p3-koala-bear",
+ "rand",
+ "rayon",
+ "sha3",
+]
+
+[[package]]
 name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -831,13 +879,15 @@ name = "whir"
 version = "0.1.0"
 dependencies = [
  "algebra",
- "cuda-bindings",
+ "arithmetic-circuit",
+ "cuda-engine",
  "fiat-shamir",
  "merkle-tree",
  "p3-field",
  "serde",
  "sumcheck",
  "tracing",
+ "utils",
 ]
 
 [[package]]
@@ -846,7 +896,8 @@ version = "0.1.0"
 dependencies = [
  "air",
  "algebra",
- "cuda-bindings",
+ "arithmetic-circuit",
+ "cuda-engine",
  "fiat-shamir",
  "p3-field",
  "p3-koala-bear",

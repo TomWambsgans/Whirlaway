@@ -1,4 +1,5 @@
-use algebra::pols::{ArithmeticCircuit, MultilinearPolynomial, TransparentPolynomial};
+use algebra::pols::MultilinearHost;
+use arithmetic_circuit::{ArithmeticCircuit, TransparentPolynomial};
 use p3_field::Field;
 use rayon::prelude::*;
 
@@ -58,22 +59,22 @@ pub(crate) fn matrix_down_lde<F: Field>(log_length: usize) -> TransparentPolynom
 }
 
 pub(crate) fn columns_up_and_down<F: Field>(
-    columns: &[&MultilinearPolynomial<F>],
-) -> Vec<MultilinearPolynomial<F>> {
+    columns: &[&MultilinearHost<F>],
+) -> Vec<MultilinearHost<F>> {
     let mut res = Vec::with_capacity(columns.len() * 2);
     res.par_extend(columns.par_iter().map(|c| column_up(c)));
     res.par_extend(columns.par_iter().map(|c| column_down(c)));
     res
 }
 
-pub(crate) fn column_up<F: Field>(column: &MultilinearPolynomial<F>) -> MultilinearPolynomial<F> {
+pub(crate) fn column_up<F: Field>(column: &MultilinearHost<F>) -> MultilinearHost<F> {
     let mut up = column.clone();
     up.evals[column.n_coefs() - 1] = up.evals[column.n_coefs() - 2];
     up
 }
 
-pub(crate) fn column_down<F: Field>(column: &MultilinearPolynomial<F>) -> MultilinearPolynomial<F> {
+pub(crate) fn column_down<F: Field>(column: &MultilinearHost<F>) -> MultilinearHost<F> {
     let mut down = column.evals[1..].to_vec();
     down.push(*down.last().unwrap());
-    MultilinearPolynomial::new(down)
+    MultilinearHost::new(down)
 }

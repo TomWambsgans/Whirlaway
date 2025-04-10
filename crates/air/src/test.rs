@@ -4,7 +4,7 @@ use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::KoalaBear;
 use pcs::{PCS, RingSwitch, WhirPCS, WhirParameters};
 
-use algebra::pols::MultilinearPolynomial;
+use algebra::pols::MultilinearHost;
 
 use crate::AirBuilder;
 
@@ -54,10 +54,7 @@ fn test_air_fibonacci() {
         col_2.push(col_1[i - 1] + col_2[i - 1]);
     }
 
-    let witnesses = vec![
-        MultilinearPolynomial::new(col_1),
-        MultilinearPolynomial::new(col_2),
-    ];
+    let witnesses = vec![MultilinearHost::new(col_1), MultilinearHost::new(col_2)];
 
     table.check_validity(&witnesses);
 
@@ -165,11 +162,11 @@ fn test_air_complex() {
     }
 
     let witnesses = vec![
-        MultilinearPolynomial::new(col_0),
-        MultilinearPolynomial::new(col_1),
-        MultilinearPolynomial::new(col_2),
-        MultilinearPolynomial::new(col_3),
-        MultilinearPolynomial::new(col_4),
+        MultilinearHost::new(col_0),
+        MultilinearHost::new(col_1),
+        MultilinearHost::new(col_2),
+        MultilinearHost::new(col_3),
+        MultilinearHost::new(col_4),
     ];
 
     table.check_validity(&witnesses);

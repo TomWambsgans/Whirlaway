@@ -1,15 +1,8 @@
-use crate::{
-    CoefficientListCuda, MultilinearPolynomialCuda, SumcheckComputation, cuda_alloc, cuda_eq_mle,
-    cuda_eval_multilinear_in_lagrange_basis, cuda_eval_multilinear_in_monomial_basis,
-    cuda_expanded_ntt, cuda_info, cuda_keccak256, cuda_lagrange_to_monomial_basis,
-    cuda_monomial_to_lagrange_basis, cuda_ntt, cuda_restructure_evaluations,
-    cuda_sum_over_hypercube, cuda_sync, cuda_whir_fold, memcpy_dtoh, memcpy_htod,
-};
-use algebra::{
-    ntt::{expand_from_coeff, ntt_batch, restructure_evaluations},
-    pols::{ArithmeticCircuit, CoefficientList, MultilinearPolynomial},
-    utils::{KeccakDigest, keccak256},
-};
+use crate::ntt::*;
+use crate::pols::*;
+use arithmetic_circuit::ArithmeticCircuit;
+use cuda_bindings::*;
+use cuda_engine::*;
 use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
 use p3_field::TwoAdicField;
@@ -22,7 +15,7 @@ use rayon::prelude::*;
 To run all the tests here:
 
 for test in test_cuda_hypercube_sum test_cuda_whir_fold test_cuda_eq_mle test_cuda_eval_multilinear_in_lagrange_basis test_cuda_eval_multilinear_in_monomial_basis test_cuda_keccak test_cuda_expanded_ntt test_cuda_expanded_ntt test_cuda_lagrange_to_monomial_basis test_cuda_monomial_to_lagrange_basis test_cuda_ntt test_cuda_restructure_evaluations; do
-  cargo test --release --package cuda-bindings --lib -- "tests::$test" --exact --nocapture --ignored
+  cargo test --release --package algebra --lib -- "tests::$test" --exact --nocapture --ignored
 done
 
 (TODO make `cargo test` work (the issue is that tests dont have the same cuda_init config))
@@ -50,14 +43,14 @@ fn test_cuda_hypercube_sum() {
         eq_mle_multiplier: false,
     };
     let time = std::time::Instant::now();
-    super::init(&[sumcheck_computation.clone()], 0);
+    cuda_engine::init(&[sumcheck_computation.clone()], 0);
     println!("CUDA initialized in {} ms", time.elapsed().as_millis());
     let cuda = cuda_info();
 
     let rng = &mut StdRng::seed_from_u64(0);
 
     let multilinears = (0..n_multilinears)
-        .map(|_| MultilinearPolynomial::<EF>::random(rng, n_vars))
+        .map(|_| MultilinearHost::<EF>::random(rng, n_vars))
         .collect::<Vec<_>>();
 
     let batching_scalar: EF = rng.random();
@@ -94,7 +87,7 @@ fn test_cuda_hypercube_sum() {
             cuda.stream
                 .memcpy_htod(&multilinear.evals, &mut multiliner_dev)
                 .unwrap();
-            MultilinearPolynomialCuda::new(multiliner_dev)
+            MultilinearDevice::new(multiliner_dev)
         })
         .collect::<Vec<_>>();
     let copy_duration = time.elapsed();
@@ -117,82 +110,8 @@ fn test_cuda_hypercube_sum() {
 
 #[test]
 #[ignore]
-fn test_cuda_keccak() {
-    let t = std::time::Instant::now();
-    super::init::<KoalaBear>(&[], 0);
-    println!("CUDA initialized in {} ms", t.elapsed().as_millis());
-
-    let n_inputs = 10_000;
-    let batch_size = 501;
-    let input = (0..n_inputs * batch_size)
-        .map(|i| (i % 256) as u8)
-        .collect::<Vec<u8>>();
-
-    let time = std::time::Instant::now();
-    let expected_result = (0..n_inputs)
-        .into_par_iter()
-        .map(|i| keccak256(&input[i * batch_size..(i + 1) * batch_size]))
-        .collect::<Vec<KeccakDigest>>();
-    println!("CPU keccak took {} ms", time.elapsed().as_millis());
-
-    let time = std::time::Instant::now();
-    let input_dev = memcpy_htod(&input);
-    cuda_sync();
-    println!("CUDA memcpy_htod took {} ms", time.elapsed().as_millis());
-
-    let time = std::time::Instant::now();
-    let output_dev = cuda_alloc::<KeccakDigest>(n_inputs as usize);
-    cuda_keccak256(
-        &input_dev.as_view(),
-        batch_size,
-        &mut output_dev.as_view_mut(),
-    );
-    cuda_sync();
-    println!("CUDA keccak took {} ms", time.elapsed().as_millis());
-
-    let time = std::time::Instant::now();
-    let dest = memcpy_dtoh(&output_dev);
-    cuda_sync();
-    println!("CUDA memcpy_dtoh took {} ms", time.elapsed().as_millis());
-    assert!(dest == expected_result);
-
-    let n_particular_hashes = 300;
-    let particular_indexes = (0..n_particular_hashes)
-        .map(|i| (i * i * 3 + i + 78) % n_inputs)
-        .collect::<Vec<_>>();
-    let mut particular_hashes = (0..n_particular_hashes)
-        .map(|_| [KeccakDigest::default()])
-        .collect::<Vec<_>>();
-
-    let time = std::time::Instant::now();
-    for i in 0..n_particular_hashes {
-        cuda_info()
-            .stream
-            .memcpy_dtoh(
-                &output_dev.slice(particular_indexes[i]..1 + particular_indexes[i]),
-                &mut particular_hashes[i],
-            )
-            .unwrap();
-    }
-    cuda_sync();
-    println!(
-        "CUDA transfer of {} hashes from gpu to cpu took {} ms",
-        n_particular_hashes,
-        time.elapsed().as_millis()
-    );
-
-    for i in 0..n_particular_hashes {
-        assert_eq!(
-            particular_hashes[i][0],
-            expected_result[particular_indexes[i]]
-        );
-    }
-}
-
-#[test]
-#[ignore]
 pub fn test_cuda_expanded_ntt() {
-    super::init::<KoalaBear>(&[], 0);
+    cuda_engine::init::<KoalaBear>(&[], 0);
 
     const EXT_DEGREE: usize = 8;
 
@@ -241,7 +160,7 @@ pub fn test_cuda_ntt() {
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, EXT_DEGREE>;
 
-    super::init::<F>(&[], 0);
+    cuda_engine::init::<F>(&[], 0);
 
     let rng = &mut StdRng::seed_from_u64(0);
     let log_len = 15;
@@ -262,7 +181,7 @@ pub fn test_cuda_monomial_to_lagrange_basis() {
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, EXT_DEGREE>;
 
-    super::init::<F>(&[], 0);
+    cuda_engine::init::<F>(&[], 0);
 
     let rng = &mut StdRng::seed_from_u64(0);
     let n_vars = 20;
@@ -270,7 +189,7 @@ pub fn test_cuda_monomial_to_lagrange_basis() {
     let coeffs_dev = memcpy_htod(&coeffs);
     cuda_sync();
     let time = std::time::Instant::now();
-    let cuda_result_dev = cuda_monomial_to_lagrange_basis(&coeffs_dev);
+    let cuda_result_dev = cuda_monomial_to_lagrange_basis_rev(&coeffs_dev);
     cuda_sync();
     println!(
         "CUDA lagrange_to_monomial_basis transform took {} ms",
@@ -279,9 +198,9 @@ pub fn test_cuda_monomial_to_lagrange_basis() {
     let cuda_result = memcpy_dtoh(&cuda_result_dev);
     cuda_sync();
     let time = std::time::Instant::now();
-    let expected_result = CoefficientList::new(coeffs)
+    let expected_result = CoefficientListHost::new(coeffs)
         .reverse_vars()
-        .into_evals()
+        .to_lagrange_basis()
         .evals;
     println!(
         "CPU lagrange_to_monomial_basis transform took {} ms",
@@ -298,7 +217,7 @@ pub fn test_cuda_lagrange_to_monomial_basis() {
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, EXT_DEGREE>;
 
-    super::init::<F>(&[], 0);
+    cuda_engine::init::<F>(&[], 0);
 
     let rng = &mut StdRng::seed_from_u64(0);
     let n_vars = 20;
@@ -315,7 +234,7 @@ pub fn test_cuda_lagrange_to_monomial_basis() {
     let cuda_result = memcpy_dtoh(&cuda_result_dev);
     cuda_sync();
     let time = std::time::Instant::now();
-    let expected_result = MultilinearPolynomial::new(evals).as_coefs().take_coeffs();
+    let expected_result = MultilinearHost::new(evals).to_monomial_basis().coeffs;
     println!(
         "CPU lagrange_to_monomial_basis transform took {} ms",
         time.elapsed().as_millis()
@@ -331,7 +250,7 @@ pub fn test_cuda_restructure_evaluations() {
     type EF = BinomialExtensionField<F, EXT_DEGREE>;
     let whir_folding_factor = 4;
 
-    super::init::<F>(&[], whir_folding_factor);
+    cuda_engine::init::<F>(&[], whir_folding_factor);
 
     let rng = &mut StdRng::seed_from_u64(0);
     let log_len = 24;
@@ -371,7 +290,7 @@ pub fn test_cuda_eval_multilinear_in_monomial_basis() {
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, EXT_DEGREE>;
-    super::init::<F>(&[], 0);
+    cuda_engine::init::<F>(&[], 0);
 
     let rng = &mut StdRng::seed_from_u64(0);
     let n_vars = 20;
@@ -390,7 +309,7 @@ pub fn test_cuda_eval_multilinear_in_monomial_basis() {
         time.elapsed().as_millis()
     );
     let time = std::time::Instant::now();
-    let expected_result = CoefficientList::new(coeffs).evaluate(&point);
+    let expected_result = CoefficientListHost::new(coeffs).evaluate(&point);
     println!("CPU took {} ms", time.elapsed().as_millis());
 
     assert_eq!(cuda_result, expected_result);
@@ -403,7 +322,7 @@ pub fn test_cuda_eval_multilinear_in_lagrange_basis() {
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, EXT_DEGREE>;
-    super::init::<F>(&[], 0);
+    cuda_engine::init::<F>(&[], 0);
 
     let rng = &mut StdRng::seed_from_u64(0);
     let n_vars = 20;
@@ -422,7 +341,7 @@ pub fn test_cuda_eval_multilinear_in_lagrange_basis() {
         time.elapsed().as_millis()
     );
     let time = std::time::Instant::now();
-    let expected_result = MultilinearPolynomial::new(coeffs).eval(&point);
+    let expected_result = MultilinearHost::new(coeffs).evaluate(&point);
     println!("CPU took {} ms", time.elapsed().as_millis());
 
     assert_eq!(cuda_result, expected_result);
@@ -435,7 +354,7 @@ pub fn test_cuda_eq_mle() {
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, EXT_DEGREE>;
-    super::init::<F>(&[], 0);
+    cuda_engine::init::<F>(&[], 0);
 
     let rng = &mut StdRng::seed_from_u64(0);
     let n_vars = 18;
@@ -448,7 +367,7 @@ pub fn test_cuda_eq_mle() {
     let cuda_result = memcpy_dtoh(&cuda_result);
     cuda_sync();
     let time = std::time::Instant::now();
-    let expected_result = MultilinearPolynomial::eq_mle(&point).evals;
+    let expected_result = MultilinearHost::eq_mle(&point).evals;
     println!("CPU took {} ms", time.elapsed().as_millis());
 
     assert_eq!(cuda_result, expected_result);
@@ -461,7 +380,7 @@ pub fn test_cuda_whir_fold() {
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, EXT_DEGREE>;
-    super::init::<F>(&[], 0);
+    cuda_engine::init::<F>(&[], 0);
 
     let rng = &mut StdRng::seed_from_u64(0);
     let n_vars = 23;
@@ -471,17 +390,17 @@ pub fn test_cuda_whir_fold() {
         .collect::<Vec<EF>>();
     let coeffs = (0..1 << n_vars).map(|_| rng.random()).collect::<Vec<EF>>();
     let coeffs_dev = memcpy_htod(&coeffs);
-    let coeffs_dev = CoefficientListCuda::new(coeffs_dev);
+    let coeffs_dev = CoefficientListDevice::new(coeffs_dev);
     cuda_sync();
 
     let time = std::time::Instant::now();
-    let cuda_result = cuda_whir_fold(&coeffs_dev, &folding_randomness);
+    let cuda_result = cuda_whir_fold(&coeffs_dev.coeffs, &folding_randomness);
     cuda_sync();
     println!("CUDA whir folding took {} ms", time.elapsed().as_millis());
-    let cuda_result = CoefficientList::new(memcpy_dtoh(cuda_result.coeffs()));
+    let cuda_result = CoefficientListHost::new(memcpy_dtoh(&cuda_result));
     cuda_sync();
     let time = std::time::Instant::now();
-    let expected_result = CoefficientList::new(coeffs).fold(&folding_randomness);
+    let expected_result = CoefficientListHost::new(coeffs).fold(&folding_randomness);
     println!("CPU took {} ms", time.elapsed().as_millis());
 
     assert!(cuda_result == expected_result);

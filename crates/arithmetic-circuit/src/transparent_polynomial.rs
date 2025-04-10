@@ -1,5 +1,3 @@
-use crate::pols::utils::{max_degree_per_vars_prod, max_degree_per_vars_sum};
-
 use super::ArithmeticCircuit;
 use p3_field::{Algebra, ExtensionField, Field, PrimeCharacteristicRing};
 use rand::{
@@ -303,8 +301,7 @@ mod tests {
     use std::collections::HashSet;
 
     use p3_koala_bear::KoalaBear;
-
-    use crate::pols::HypercubePoint;
+    use utils::HypercubePoint;
 
     use super::*;
     use p3_field::PrimeCharacteristicRing;
@@ -338,4 +335,26 @@ mod tests {
             }
         }
     }
+}
+
+pub fn max_degree_per_vars_prod(subs: &[Vec<usize>]) -> Vec<usize> {
+    let n_vars = subs.iter().map(|s| s.len()).max().unwrap_or_default();
+    let mut res = vec![0; n_vars];
+    for i in 0..subs.len() {
+        for j in 0..subs[i].len() {
+            res[j] += subs[i][j];
+        }
+    }
+    res
+}
+
+pub fn max_degree_per_vars_sum(subs: &[Vec<usize>]) -> Vec<usize> {
+    let n_vars = subs.iter().map(|s| s.len()).max().unwrap();
+    let mut res = vec![0; n_vars];
+    for i in 0..subs.len() {
+        for j in 0..subs[i].len() {
+            res[j] = res[j].max(subs[i][j]);
+        }
+    }
+    res
 }

@@ -6,22 +6,22 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, OnceLock};
 
-use algebra::pols::{CircuitComputation, CircuitOp, ComputationInput};
-use algebra::utils::powers_parallel;
+use arithmetic_circuit::{CircuitComputation, CircuitOp, ComputationInput};
 use cudarc::driver::sys::CUdevice_attribute;
 use cudarc::driver::{CudaContext, CudaFunction, CudaSlice, CudaStream, DriverError};
 use cudarc::nvrtc::Ptx;
 use p3_field::{Field, PrimeField32, TwoAdicField};
 use rayon::prelude::*;
 use tracing::instrument;
+use utils::powers_parallel;
 
 pub struct CudaInfo {
     pub(crate) _dev: Arc<CudaContext>,
-    pub(crate) stream: Arc<CudaStream>,
+    pub stream: Arc<CudaStream>,
     twiddles: CudaSlice<u32>, // We restrain ourseleves to the 2-addic roots of unity in the prime fields, so each one is represented by a u32
     correction_twiddles: CudaSlice<u32>, // Same remark as above
-    pub(crate) whir_folding_factor: usize,
-    pub(crate) two_adicity: usize,
+    pub whir_folding_factor: usize,
+    pub two_adicity: usize,
     functions: HashMap<String, HashMap<&'static str, CudaFunction>>, // module => function_name => cuda_function
 }
 
@@ -102,10 +102,10 @@ fn _init<F: TwoAdicField + PrimeField32>(
     // TODO avoid this ugly trick
     let mut kernels_folder = Path::new("kernels");
     if !kernels_folder.exists() {
-        kernels_folder = Path::new("crates/cuda-bindings/kernels")
+        kernels_folder = Path::new("crates/cuda-engine/kernels")
     };
     if !kernels_folder.exists() {
-        kernels_folder = Path::new("../cuda-bindings/kernels")
+        kernels_folder = Path::new("../cuda-engine/kernels")
     }
     assert!(kernels_folder.exists());
 

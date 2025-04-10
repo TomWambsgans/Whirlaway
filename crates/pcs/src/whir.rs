@@ -1,7 +1,7 @@
-use algebra::{pols::Evaluation, utils::KeccakDigest};
-use cuda_bindings::MultilinearPolynomialMaybeCuda;
+use algebra::pols::Multilinear;
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::{ExtensionField, Field, TwoAdicField};
+use utils::{Evaluation, KeccakDigest};
 use whir::{
     parameters::MultivariateParameters,
     whir::{
@@ -24,12 +24,12 @@ pub struct WhirPCS<F: TwoAdicField, EF: ExtensionField<F>> {
 
 pub struct WhirWitness<F: Field> {
     // TODO avoid duplication
-    pub pol: MultilinearPolynomialMaybeCuda<F>,
+    pub pol: Multilinear<F>,
     pub inner: whir::whir::committer::Witness<F>,
 }
 
 impl<EF: Field> PcsWitness<EF> for WhirWitness<EF> {
-    fn pol(&self) -> &MultilinearPolynomialMaybeCuda<EF> {
+    fn pol(&self) -> &Multilinear<EF> {
         &self.pol
     }
 }
@@ -47,14 +47,12 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> PCS<EF, EF> for WhirPCS<F, EF> {
         Self { config }
     }
 
-    fn commit(
-        &self,
-        pol: impl Into<MultilinearPolynomialMaybeCuda<EF>>,
-        fs_prover: &mut FsProver,
-    ) -> Self::Witness {
+    fn commit(&self, pol: impl Into<Multilinear<EF>>, fs_prover: &mut FsProver) -> Self::Witness {
         let committer = Committer::new(self.config.clone());
-        let pol: MultilinearPolynomialMaybeCuda<EF> = pol.into();
-        let inner = committer.commit(fs_prover, pol.as_coefs()).unwrap();
+        let pol: Multilinear<EF> = pol.into();
+        let inner = committer
+            .commit(fs_prover, pol.to_monomial_basis())
+            .unwrap();
         WhirWitness { pol, inner }
     }
 
@@ -92,7 +90,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> PCS<EF, EF> for WhirPCS<F, EF> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use algebra::pols::MultilinearPolynomial;
+    use algebra::pols::MultilinearHost;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_koala_bear::KoalaBear;
     use tracing_forest::{ForestLayer, util::LevelFilter};
@@ -125,11 +123,11 @@ mod test {
         let evals = (0..1 << n_vars)
             .map(|x| EF::from_u64(x as u64))
             .collect::<Vec<_>>();
-        let pol = MultilinearPolynomial::new(evals);
+        let pol = MultilinearHost::new(evals);
         let point = (0..n_vars)
             .map(|x| EF::from_u64(x as u64))
             .collect::<Vec<_>>();
-        let value = pol.eval(&point);
+        let value = pol.evaluate(&point);
         let eval = Evaluation { point, value };
         let witness = pcs.commit(pol, &mut fs_prover);
         pcs.open(witness, &eval, &mut fs_prover);

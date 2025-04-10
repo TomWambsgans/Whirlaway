@@ -13,6 +13,7 @@ members = ["crates/*"]
 [workspace.dependencies]
 # Local
 cuda-bindings = { path = "crates/cuda-bindings" }
+cuda-engine = { path = "crates/cuda-engine" }
 whir = { path = "crates/whir" }
 fiat-shamir = { path = "crates/fiat-shamir" }
 algebra = { path = "crates/algebra" }
@@ -20,6 +21,8 @@ merkle-tree = { path = "crates/merkle-tree" }
 pcs = { path = "crates/pcs" }
 air = { path = "crates/air" }
 sumcheck = { path = "crates/sumcheck" }
+arithmetic-circuit = { path = "crates/arithmetic-circuit" }
+utils = { path = "crates/utils" }
 
 # External
 rand = "0.9.0"
@@ -40,7 +43,6 @@ p3-matrix = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "koa
 cudarc = { version = "0.14.0", features = ["cuda-12040", "std", "cublas", "cublaslt", "curand", "driver", "runtime", "nvrtc"] }
 
 [dependencies]
-cuda-bindings.workspace = true
 pcs.workspace = true
 fiat-shamir.workspace = true
 algebra.workspace = true
@@ -54,3 +56,5 @@ rayon.workspace = true
 p3-matrix.workspace = true
 tracing-forest.workspace = true
 tracing-subscriber.workspace = true
+arithmetic-circuit.workspace = true
+cuda-engine.workspace = true

@@ -1,18 +1,17 @@
-use cuda_bindings::CoefficientListMaybeCuda;
-
 use super::parameters::WhirConfig;
-use algebra::utils::multilinear_point_from_univariate;
-use cuda_bindings::{VecOrCudaSlice, cuda_sync};
+use algebra::pols::CoefficientList;
+use cuda_engine::{HostOrDeviceBuffer, cuda_sync};
 use fiat_shamir::FsProver;
 use merkle_tree::MerkleTree;
 
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use tracing::instrument;
+use utils::multilinear_point_from_univariate;
 
 pub struct Witness<EF: Field> {
-    pub(crate) polynomial: CoefficientListMaybeCuda<EF>,
+    pub(crate) polynomial: CoefficientList<EF>,
     pub(crate) merkle_tree: MerkleTree<EF>,
-    pub(crate) merkle_leaves: VecOrCudaSlice<EF>,
+    pub(crate) merkle_leaves: HostOrDeviceBuffer<EF>,
     pub(crate) ood_points: Vec<EF>,
     pub(crate) ood_answers: Vec<EF>,
 }
@@ -28,7 +27,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Committer<F, EF> {
     pub fn commit(
         &self,
         fs_prover: &mut FsProver,
-        polynomial: CoefficientListMaybeCuda<EF>,
+        polynomial: CoefficientList<EF>,
     ) -> Option<Witness<EF>> {
         let base_domain = self.0.starting_domain.base_domain.as_ref().unwrap();
         let expansion = base_domain.size() / polynomial.n_coefs();

@@ -1,11 +1,11 @@
-use algebra::pols::{CoefficientList, UnivariatePolynomial};
-use algebra::utils::{KeccakDigest, powers};
-use algebra::utils::{eq_extension, multilinear_point_from_univariate};
+use algebra::pols::{CoefficientListHost, UnivariatePolynomial};
 use fiat_shamir::{FsError, FsVerifier};
 use merkle_tree::MultiPath;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use std::iter;
 use tracing::instrument;
+use utils::{KeccakDigest, powers};
+use utils::{eq_extension, multilinear_point_from_univariate};
 
 use super::{Statement, parameters::WhirConfig};
 use crate::whir::fs_utils::get_challenge_stir_queries;
@@ -45,7 +45,7 @@ struct ParsedProof<F: Field> {
     final_folding_randomness: Vec<F>,
     final_sumcheck_rounds: Vec<(UnivariatePolynomial<F>, F)>,
     final_sumcheck_randomness: Vec<F>,
-    final_coefficients: CoefficientList<F>,
+    final_coefficients: CoefficientListHost<F>,
 }
 
 #[derive(Debug, Clone)]
@@ -207,7 +207,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
 
         let final_coefficients =
             fs_verifier.next_scalars(1 << self.params.final_sumcheck_rounds)?;
-        let final_coefficients = CoefficientList::new(final_coefficients);
+        let final_coefficients = CoefficientListHost::new(final_coefficients);
 
         // Final queries verify
         let final_randomness_indexes = get_challenge_stir_queries(
@@ -330,7 +330,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
                 .stir_challenges_answers
                 .iter()
                 .map(|answers| {
-                    CoefficientList::new(answers.to_vec()).evaluate(&round.folding_randomness)
+                    CoefficientListHost::new(answers.to_vec()).evaluate(&round.folding_randomness)
                 })
                 .collect();
             result.push(evaluations);
@@ -341,7 +341,8 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
             .final_randomness_answers
             .iter()
             .map(|answers| {
-                CoefficientList::new(answers.to_vec()).evaluate(&parsed.final_folding_randomness)
+                CoefficientListHost::new(answers.to_vec())
+                    .evaluate(&parsed.final_folding_randomness)
             })
             .collect();
         result.push(evaluations);
@@ -429,7 +430,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
         for point in &parsed.final_randomness_points {
             // interpret the coeffs as a univariate polynomial
             final_evaluations.push(UnivariatePolynomial::horner_evaluate(
-                parsed.final_coefficients.coeffs(),
+                &parsed.final_coefficients.coeffs,
                 point,
             ));
         }

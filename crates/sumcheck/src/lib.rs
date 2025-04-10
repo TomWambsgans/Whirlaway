@@ -2,9 +2,8 @@
 
 use std::borrow::Borrow;
 
-use algebra::pols::{
-    CircuitComputation, HypercubePoint, MultilinearPolynomial, PartialHypercubePoint,
-};
+use algebra::pols::MultilinearHost;
+use arithmetic_circuit::CircuitComputation;
 use p3_field::{ExtensionField, Field};
 use rayon::prelude::*;
 
@@ -12,6 +11,7 @@ mod prove;
 pub use prove::*;
 
 mod verify;
+use utils::{HypercubePoint, PartialHypercubePoint};
 pub use verify::*;
 
 mod cuda;
@@ -24,7 +24,7 @@ pub fn sum_batched_exprs_over_hypercube<
     F: Field,
     NF: ExtensionField<F>,
     EF: ExtensionField<NF> + ExtensionField<F>,
-    ML: Borrow<MultilinearPolynomial<NF>> + Sync,
+    ML: Borrow<MultilinearHost<NF>> + Sync,
 >(
     multilinears: &[ML],
     n_vars: usize,
@@ -69,14 +69,14 @@ pub fn eval_batched_exprs_mle<
     NF: ExtensionField<F>,
     EF: ExtensionField<NF> + ExtensionField<F>,
 >(
-    multilinears: &[MultilinearPolynomial<NF>],
+    multilinears: &[MultilinearHost<NF>],
     exprs: &[CircuitComputation<F>],
     batching_scalars: &[EF],
     point: &[EF],
 ) -> EF {
     let inner_evals = multilinears
         .iter()
-        .map(|pol| pol.eval(point))
+        .map(|pol| pol.evaluate(point))
         .collect::<Vec<_>>();
     eval_batched_exprs(exprs, batching_scalars, &inner_evals)
 }
@@ -85,7 +85,7 @@ pub fn eval_batched_exprs_on_partial_hypercube<
     F: Field,
     NF: ExtensionField<F>,
     EF: ExtensionField<NF> + ExtensionField<F>,
-    ML: Borrow<MultilinearPolynomial<NF>>,
+    ML: Borrow<MultilinearHost<NF>>,
 >(
     multilinears: &[ML],
     exprs: &[CircuitComputation<F>],

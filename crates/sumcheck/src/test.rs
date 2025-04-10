@@ -1,11 +1,10 @@
-use algebra::{
-    pols::{MultilinearPolynomial, TransparentPolynomial},
-    utils::powers,
-};
-use cuda_bindings::{MultilinearPolynomialCuda, SumcheckComputation, memcpy_htod};
+use algebra::pols::MultilinearDevice;
+use arithmetic_circuit::TransparentPolynomial;
+use cuda_engine::{SumcheckComputation, memcpy_htod};
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::extension::BinomialExtensionField;
 use rand::{Rng, SeedableRng, rngs::StdRng};
+use utils::powers;
 
 use super::*;
 
@@ -19,7 +18,7 @@ fn test_sumcheck() {
     let n_multilinears = 20;
     let rng = &mut StdRng::seed_from_u64(0);
     let multilinears = (0..n_multilinears)
-        .map(|_| MultilinearPolynomial::<F>::random(rng, n_vars))
+        .map(|_| MultilinearHost::<F>::random(rng, n_vars))
         .collect::<Vec<_>>();
     let exprs = (0..n_exprs)
         .map(|_| TransparentPolynomial::random(rng, n_multilinears, 1).fix_computation(true))
@@ -70,7 +69,7 @@ fn test_cuda_sumcheck() {
     let n_multilinears = 20;
     let rng = &mut StdRng::seed_from_u64(0);
     let multilinears = (0..n_multilinears)
-        .map(|_| MultilinearPolynomial::<F>::random(rng, n_vars))
+        .map(|_| MultilinearHost::<F>::random(rng, n_vars))
         .collect::<Vec<_>>();
     let exprs = (0..n_exprs)
         .map(|_| TransparentPolynomial::random(rng, n_multilinears, 1).fix_computation(true))
@@ -78,7 +77,7 @@ fn test_cuda_sumcheck() {
     let batching_scalar: EF = rng.random();
     let batching_scalars = powers(batching_scalar, n_exprs);
 
-    cuda_bindings::init(
+    cuda_engine::init(
         &[SumcheckComputation {
             n_multilinears,
             inner: exprs.clone(),
@@ -93,7 +92,7 @@ fn test_cuda_sumcheck() {
     let _multilinears_dev = multilinears.iter().map(|m| m.embed()).collect::<Vec<_>>();
     let multilinears_dev = _multilinears_dev
         .iter()
-        .map(|m| MultilinearPolynomialCuda::new(memcpy_htod(&m.evals)))
+        .map(|m| MultilinearDevice::new(memcpy_htod(&m.evals)))
         .collect::<Vec<_>>();
 
     let time = std::time::Instant::now();

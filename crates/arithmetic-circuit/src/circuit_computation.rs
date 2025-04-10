@@ -318,8 +318,6 @@ mod test {
     use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
 
-    use crate::pols::TransparentPolynomial;
-
     use super::*;
 
     #[test]

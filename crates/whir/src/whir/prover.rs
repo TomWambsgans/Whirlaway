@@ -1,15 +1,17 @@
 use super::{Statement, committer::Witness, parameters::WhirConfig};
 use crate::{domain::Domain, utils::sumcheck_prove_with_cuda_or_cpu};
 use algebra::{
-    pols::{CoefficientList, TransparentPolynomial},
-    utils::{dot_product, multilinear_point_from_univariate, powers},
+    pols::CoefficientListHost,
+    pols::{CoefficientList, Multilinear},
 };
-use cuda_bindings::{CoefficientListMaybeCuda, MultilinearPolynomialMaybeCuda};
-use cuda_bindings::{VecOrCudaSlice, cuda_sync};
+use arithmetic_circuit::TransparentPolynomial;
+use cuda_engine::{HostOrDeviceBuffer, cuda_sync};
 use fiat_shamir::FsProver;
 use merkle_tree::MerkleTree;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use tracing::instrument;
+use utils::powers;
+use utils::{dot_product, multilinear_point_from_univariate};
 
 use crate::whir::fs_utils::get_challenge_stir_queries;
 
@@ -73,7 +75,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
             let combination_randomness = powers(combination_randomness_gen, initial_claims.len());
 
             let nodes = vec![
-                witness.polynomial.reverse_vars_and_get_evals(),
+                witness.polynomial.to_lagrange_basis_rev(),
                 randomized_eq_extensions(&initial_claims, &combination_randomness, self.0.cuda),
             ];
             let n_rounds = Some(self.0.folding_factor.at_round(0));
@@ -126,7 +128,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
         // Base case
         if round_state.round == self.0.n_rounds() {
             // Directly send coefficients of the polynomial to the verifier.
-            fs_prover.add_scalars(folded_coefficients.convert_to_cpu_sync().coeffs());
+            fs_prover.add_scalars(&folded_coefficients.transfer_to_host().coeffs);
 
             // Final verifier queries and answers. The indices are over the
             // *folded* domain.
@@ -262,7 +264,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
             // transformed such that they are exactly the coefficients of the
             // multilinear polynomial whose evaluation at the folding randomness
             // is just the folding of f evaluated at the folded point.
-            CoefficientList::new(answers.to_vec()).evaluate(&round_state.folding_randomness)
+            CoefficientListHost::new(answers.to_vec()).evaluate(&round_state.folding_randomness)
         }));
 
         fs_prover.add_variable_bytes(&merkle_proof.to_bytes());
@@ -314,30 +316,29 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
 struct RoundState<F: TwoAdicField, EF: ExtensionField<F>> {
     round: usize,
     domain: Domain<F>,
-    sumcheck_mles: Vec<MultilinearPolynomialMaybeCuda<EF>>,
+    sumcheck_mles: Vec<Multilinear<EF>>,
     folding_randomness: Vec<EF>,
-    coefficients: CoefficientListMaybeCuda<EF>,
+    coefficients: CoefficientList<EF>,
     prev_merkle: MerkleTree<EF>,
-    prev_merkle_answers: VecOrCudaSlice<EF>,
+    prev_merkle_answers: HostOrDeviceBuffer<EF>,
 }
 
 fn randomized_eq_extensions<F: Field>(
     eq_points: &[Vec<F>],
     randomized_coefs: &[F],
     cuda: bool,
-) -> MultilinearPolynomialMaybeCuda<F> {
+) -> Multilinear<F> {
     assert_eq!(eq_points.len(), randomized_coefs.len());
     assert!(
         eq_points
             .iter()
             .all(|point| point.len() == eq_points[0].len())
     );
-    let mut res: MultilinearPolynomialMaybeCuda<F> =
-        MultilinearPolynomialMaybeCuda::zero(eq_points[0].len(), cuda);
+    let mut res: Multilinear<F> = Multilinear::zero(eq_points[0].len(), cuda);
     for (initial_claim, randomness_coef) in eq_points.iter().zip(randomized_coefs) {
         let mut initial_claim = initial_claim.clone();
         initial_claim.reverse();
-        let mut eq_mle = MultilinearPolynomialMaybeCuda::eq_mle(&initial_claim, cuda);
+        let mut eq_mle = Multilinear::eq_mle(&initial_claim, cuda);
         eq_mle.scale_in_place(*randomness_coef);
         res += eq_mle;
     }

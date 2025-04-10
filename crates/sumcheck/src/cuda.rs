@@ -1,24 +1,20 @@
 use std::borrow::Borrow;
 
 use algebra::{
-    pols::{CircuitComputation, MultilinearPolynomial, UnivariatePolynomial},
-    utils::eq_extension,
+    pols::MultilinearDevice,
+    pols::{MultilinearHost, UnivariatePolynomial},
 };
+use arithmetic_circuit::CircuitComputation;
+use cuda_engine::{SumcheckComputation, cuda_sync, memcpy_dtoh, memcpy_htod};
 use p3_field::{ExtensionField, Field};
 
-use cuda_bindings::{
-    CudaSlice, MultilinearPolynomialCuda, SumcheckComputation, cuda_sum_over_hypercube, cuda_sync,
-    fold_ext_by_ext, fold_ext_by_prime, memcpy_dtoh, memcpy_htod,
-};
+use cuda_bindings::{CudaSlice, cuda_sum_over_hypercube, fold_ext_by_ext, fold_ext_by_prime};
 use fiat_shamir::FsProver;
+use utils::eq_extension;
 
 const MIN_VARS_FOR_GPU: usize = 9;
 
-pub fn prove_with_cuda<
-    F: Field,
-    EF: ExtensionField<F>,
-    ML: Borrow<MultilinearPolynomialCuda<EF>>,
->(
+pub fn prove_with_cuda<F: Field, EF: ExtensionField<F>, ML: Borrow<MultilinearDevice<EF>>>(
     multilinears: &[ML],
     exprs: &[CircuitComputation<F>],
     batching_scalars: &[EF],
@@ -28,8 +24,8 @@ pub fn prove_with_cuda<
     sum: Option<EF>,
     n_rounds: Option<usize>,
     pow_bits: usize,
-) -> (Vec<EF>, Vec<MultilinearPolynomial<EF>>) {
-    let multilinears: Vec<&MultilinearPolynomialCuda<EF>> =
+) -> (Vec<EF>, Vec<MultilinearHost<EF>>) {
+    let multilinears: Vec<&MultilinearDevice<EF>> =
         multilinears.iter().map(|m| m.borrow()).collect::<Vec<_>>();
     let mut n_vars = multilinears[0].n_vars;
     assert!(multilinears.iter().all(|m| m.n_vars == n_vars));
@@ -40,7 +36,7 @@ pub fn prove_with_cuda<
     if n_rounds < MIN_VARS_FOR_GPU {
         let multilinears = multilinears
             .into_iter()
-            .map(|m| MultilinearPolynomial::new(memcpy_dtoh(&m.evals)))
+            .map(|m| MultilinearHost::new(memcpy_dtoh(&m.evals)))
             .collect::<Vec<_>>();
         cuda_sync();
         return super::prove(
@@ -109,7 +105,7 @@ pub fn prove_with_cuda<
     }
     let mut folded_multilinears = folded_multilinears_dev
         .into_iter()
-        .map(|multilinear_dev| MultilinearPolynomial::new(memcpy_dtoh(&multilinear_dev.evals)))
+        .map(|multilinear_dev| MultilinearHost::new(memcpy_dtoh(&multilinear_dev.evals)))
         .collect::<Vec<_>>();
     cuda_sync();
     (challenges, folded_multilinears) = super::prove_with_initial_rounds(
@@ -127,7 +123,7 @@ pub fn prove_with_cuda<
     (challenges, folded_multilinears)
 }
 
-fn sc_round<F: Field, EF: ExtensionField<F>, ML: Borrow<MultilinearPolynomialCuda<EF>>>(
+fn sc_round<F: Field, EF: ExtensionField<F>, ML: Borrow<MultilinearDevice<EF>>>(
     multilinears: &[ML],
     n_vars: &mut usize,
     batching_scalars_dev: &CudaSlice<EF>,
@@ -140,11 +136,12 @@ fn sc_round<F: Field, EF: ExtensionField<F>, ML: Borrow<MultilinearPolynomialCud
     challenges: &mut Vec<EF>,
     round: usize,
     sumcheck_computation: &SumcheckComputation<F>,
-) -> Vec<MultilinearPolynomialCuda<EF>> {
+) -> Vec<MultilinearDevice<EF>> {
+    let multilinears: Vec<&MultilinearDevice<EF>> =
+        multilinears.iter().map(|m| m.borrow()).collect::<Vec<_>>();
     let _span = tracing::span!(tracing::Level::INFO, "Cuda sumcheck round").entered();
     let mut p_evals = Vec::<(EF, EF)>::new();
-    let eq_mle =
-        eq_factor.map(|eq_factor| MultilinearPolynomialCuda::eq_mle(&eq_factor[1 + round..]));
+    let eq_mle = eq_factor.map(|eq_factor| MultilinearDevice::eq_mle(&eq_factor[1 + round..]));
 
     let start = if is_zerofier && round == 0 {
         p_evals.push((EF::ZERO, EF::ZERO));
@@ -165,7 +162,7 @@ fn sc_round<F: Field, EF: ExtensionField<F>, ML: Borrow<MultilinearPolynomialCud
         } else {
             let mut folded = fold_ext_by_prime(&multilinears, F::from_u32(z as u32));
             if let Some(eq_mle) = &eq_mle {
-                folded.push(eq_mle.clone());
+                folded.push(eq_mle.evals.clone()); // TODO avoid clone
             }
             cuda_sum_over_hypercube(sumcheck_computation, &folded, batching_scalars_dev)
         };
@@ -195,4 +192,7 @@ fn sc_round<F: Field, EF: ExtensionField<F>, ML: Borrow<MultilinearPolynomialCud
     }
 
     fold_ext_by_ext(&multilinears, challenge)
+        .into_iter()
+        .map(MultilinearDevice::new)
+        .collect::<Vec<_>>()
 }

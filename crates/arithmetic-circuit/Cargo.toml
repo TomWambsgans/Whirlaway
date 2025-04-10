@@ -1,15 +1,13 @@
 [package]
-name = "cuda-bindings"
+name = "arithmetic-circuit"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-cudarc.workspace = true
-tracing.workspace = true
 p3-field.workspace = true
-utils.workspace = true
-cuda-engine.workspace = true
+rand.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 p3-koala-bear.workspace = true
-rayon.workspace = true
+utils.workspace = true

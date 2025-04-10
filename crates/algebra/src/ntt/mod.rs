@@ -1,24 +1,24 @@
 //! NTT and related algorithms.
 
+use matrix::MatrixMut;
+use p3_field::{ExtensionField, TwoAdicField};
+use rayon::prelude::*;
+
 mod fold;
 mod matrix;
 mod ntt;
+mod radix2;
 mod transpose;
 mod utils;
 mod wavelet;
 
-use self::matrix::MatrixMut;
-use p3_field::{ExtensionField, TwoAdicField};
-
-use rayon::prelude::*;
-
-pub use self::{
+pub use {
+    fold::restructure_evaluations,
     ntt::{intt, intt_batch, ntt, ntt_batch},
+    radix2::Radix2EvaluationDomain,
     transpose::transpose,
     wavelet::wavelet_transform,
 };
-
-pub use fold::restructure_evaluations;
 
 /// RS encode at a rate 1/`expansion`.
 pub fn expand_from_coeff<F: TwoAdicField, EF: ExtensionField<F>>(

@@ -2,32 +2,27 @@ use std::borrow::Borrow;
 
 use cudarc::driver::{CudaSlice, LaunchConfig, PushKernelArg};
 
+use cuda_engine::{SumcheckComputation, concat_pointers, cuda_info, memcpy_htod};
 use p3_field::{ExtensionField, Field};
 
-use crate::{
-    MAX_LOG_N_BLOCKS, MultilinearPolynomialCuda, SumcheckComputation, concat_pointers, cuda_info,
-    memcpy_htod,
-};
+use crate::MAX_LOG_N_BLOCKS;
 
 // TODO avoid hardcoding
 const SUMCHECK_LOG_N_THREADS_PER_BLOCK: u32 = 8;
 const SUMCHECK_N_THREADS_PER_BLOCK: u32 = 1 << SUMCHECK_LOG_N_THREADS_PER_BLOCK;
 
-pub fn cuda_sum_over_hypercube<
-    F: Field,
-    EF: ExtensionField<F>,
-    ML: Borrow<MultilinearPolynomialCuda<EF>>,
->(
+pub fn cuda_sum_over_hypercube<F: Field, EF: ExtensionField<F>, ML: Borrow<CudaSlice<EF>>>(
     sumcheck_computation: &SumcheckComputation<F>,
-    multilinears: &[ML],
+    multilinears: &[ML], // in lagrange basis
     batching_scalars: &CudaSlice<EF>,
 ) -> EF {
-    let multilinears: Vec<&MultilinearPolynomialCuda<EF>> =
+    let multilinears: Vec<&CudaSlice<EF>> =
         multilinears.iter().map(|m| m.borrow()).collect::<Vec<_>>();
     assert_eq!(batching_scalars.len(), sumcheck_computation.inner.len());
     let cuda = cuda_info();
-    let n_vars = multilinears[0].n_vars as u32;
-    assert!(multilinears.iter().all(|m| m.n_vars == n_vars as usize));
+    assert!(multilinears[0].len().is_power_of_two());
+    let n_vars = multilinears[0].len().ilog2() as u32;
+    assert!(multilinears.iter().all(|m| m.len() == 1 << n_vars as usize));
 
     let log_n_blocks =
         (n_vars.saturating_sub(SUMCHECK_LOG_N_THREADS_PER_BLOCK)).min(MAX_LOG_N_BLOCKS);
@@ -40,8 +35,7 @@ pub fn cuda_sum_over_hypercube<
         shared_mem_bytes: batching_scalars.len() as u32 * ext_degree * 4, // cf: __shared__ ExtField cached_batching_scalars[N_BATCHING_SCALARS];
     };
 
-    let multilinears_ptrs_dev =
-        concat_pointers(&multilinears.iter().map(|m| &m.evals).collect::<Vec<_>>());
+    let multilinears_ptrs_dev = concat_pointers(&multilinears);
 
     let mut sums_dev = unsafe { cuda.stream.alloc::<EF>(1 << n_vars).unwrap() };
 
@@ -65,22 +59,18 @@ pub fn cuda_sum_over_hypercube<
     res[0]
 }
 
-pub fn fold_ext_by_prime<
-    F: Field,
-    EF: ExtensionField<F>,
-    ML: Borrow<MultilinearPolynomialCuda<EF>>,
->(
+pub fn fold_ext_by_prime<F: Field, EF: ExtensionField<F>, ML: Borrow<CudaSlice<EF>>>(
     slices: &[ML],
     scalar: F,
-) -> Vec<MultilinearPolynomialCuda<EF>> {
-    let slices: Vec<&MultilinearPolynomialCuda<EF>> =
-        slices.iter().map(|m| m.borrow()).collect::<Vec<_>>();
-    let n_vars = slices[0].n_vars as u32;
+) -> Vec<CudaSlice<EF>> {
+    let slices: Vec<&CudaSlice<EF>> = slices.iter().map(|m| m.borrow()).collect::<Vec<_>>();
+    assert!(slices[0].len().is_power_of_two());
+    let n_vars = slices[0].len().ilog2() as u32;
     assert!(n_vars >= 1);
-    assert!(slices.iter().all(|s| s.n_vars == n_vars as usize));
+    assert!(slices.iter().all(|s| s.len() == 1 << n_vars as usize));
     let cuda = cuda_info();
 
-    let slices_ptrs_dev = concat_pointers(&slices.iter().map(|s| &s.evals).collect::<Vec<_>>());
+    let slices_ptrs_dev = concat_pointers(&slices);
     let res = (0..slices.len())
         .map(|_| unsafe { cuda.stream.alloc::<EF>(1 << (n_vars - 1)).unwrap() })
         .collect::<Vec<_>>();
@@ -105,23 +95,20 @@ pub fn fold_ext_by_prime<
     launch_args.arg(&n_vars);
     unsafe { launch_args.launch_cooperative(cfg) }.unwrap();
 
-    res.into_iter()
-        .map(MultilinearPolynomialCuda::new)
-        .collect()
+    res
 }
 
-pub fn fold_ext_by_ext<EF: Field, ML: Borrow<MultilinearPolynomialCuda<EF>>>(
+pub fn fold_ext_by_ext<EF: Field, ML: Borrow<CudaSlice<EF>>>(
     slices: &[ML],
     scalar: EF,
-) -> Vec<MultilinearPolynomialCuda<EF>> {
-    let slices: Vec<&MultilinearPolynomialCuda<EF>> =
-        slices.iter().map(|m| m.borrow()).collect::<Vec<_>>();
-    let n_vars = slices[0].n_vars as u32;
+) -> Vec<CudaSlice<EF>> {
+    let slices: Vec<&CudaSlice<EF>> = slices.iter().map(|m| m.borrow()).collect::<Vec<_>>();
+    assert!(slices[0].len().is_power_of_two());
+    let n_vars = slices[0].len().ilog2() as u32;
     assert!(n_vars >= 1);
-    assert!(slices.iter().all(|s| s.n_vars == n_vars as usize));
+    assert!(slices.iter().all(|s| s.len() == 1 << n_vars as usize));
     let cuda = cuda_info();
-
-    let slices_ptrs_dev = concat_pointers(&slices.iter().map(|s| &s.evals).collect::<Vec<_>>());
+    let slices_ptrs_dev = concat_pointers(&slices);
 
     let res = (0..slices.len())
         .map(|_| unsafe { cuda.stream.alloc::<EF>(1 << (n_vars - 1)).unwrap() })
@@ -149,7 +136,5 @@ pub fn fold_ext_by_ext<EF: Field, ML: Borrow<MultilinearPolynomialCuda<EF>>>(
     launch_args.arg(&n_vars);
     unsafe { launch_args.launch_cooperative(cfg) }.unwrap();
 
-    res.into_iter()
-        .map(MultilinearPolynomialCuda::new)
-        .collect()
+    res
 }

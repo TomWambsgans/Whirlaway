@@ -1,15 +1,11 @@
 use std::borrow::Borrow;
 
-use algebra::{
-    pols::{
-        CircuitComputation, HypercubePoint, MultilinearPolynomial, PartialHypercubePoint,
-        UnivariatePolynomial,
-    },
-    utils::eq_extension,
-};
+use algebra::pols::{MultilinearHost, UnivariatePolynomial};
+use arithmetic_circuit::CircuitComputation;
 use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};
 use rayon::prelude::*;
+use utils::{HypercubePoint, PartialHypercubePoint, eq_extension};
 
 use crate::{eval_batched_exprs_on_partial_hypercube, sum_batched_exprs_over_hypercube};
 
@@ -17,7 +13,7 @@ pub fn prove<
     F: Field,
     NF: ExtensionField<F>,
     EF: ExtensionField<NF> + ExtensionField<F>,
-    ML: Borrow<MultilinearPolynomial<NF>>,
+    ML: Borrow<MultilinearHost<NF>>,
 >(
     multilinears: &[ML],
     exprs: &[CircuitComputation<F>],
@@ -28,7 +24,7 @@ pub fn prove<
     sum: Option<EF>,
     n_rounds: Option<usize>,
     pow_bits: usize,
-) -> (Vec<EF>, Vec<MultilinearPolynomial<EF>>) {
+) -> (Vec<EF>, Vec<MultilinearHost<EF>>) {
     prove_with_initial_rounds(
         multilinears,
         exprs,
@@ -47,7 +43,7 @@ pub fn prove_with_initial_rounds<
     F: Field,
     NF: ExtensionField<F>,
     EF: ExtensionField<NF> + ExtensionField<F>,
-    ML: Borrow<MultilinearPolynomial<NF>>,
+    ML: Borrow<MultilinearHost<NF>>,
 >(
     multilinears: &[ML],
     exprs: &[CircuitComputation<F>],
@@ -59,8 +55,8 @@ pub fn prove_with_initial_rounds<
     sum: Option<EF>,
     n_rounds: Option<usize>,
     pow_bits: usize,
-) -> (Vec<EF>, Vec<MultilinearPolynomial<EF>>) {
-    let multilinears: Vec<&MultilinearPolynomial<NF>> =
+) -> (Vec<EF>, Vec<MultilinearHost<EF>>) {
+    let multilinears: Vec<&MultilinearHost<NF>> =
         multilinears.iter().map(|m| m.borrow()).collect::<Vec<_>>();
     let mut n_vars = multilinears[0].n_vars;
     assert!(multilinears.iter().all(|m| m.n_vars == n_vars));
@@ -119,7 +115,7 @@ fn sc_round<
     F: Field,
     NF: ExtensionField<F>,
     EF: ExtensionField<NF> + ExtensionField<F>,
-    ML: Borrow<MultilinearPolynomial<NF>> + Sync,
+    ML: Borrow<MultilinearHost<NF>> + Sync,
 >(
     multilinears: &[ML],
     n_vars: &mut usize,
@@ -133,7 +129,7 @@ fn sc_round<
     pow_bits: usize,
     challenges: &mut Vec<EF>,
     round: usize,
-) -> Vec<MultilinearPolynomial<EF>> {
+) -> Vec<MultilinearHost<EF>> {
     let _span = if *n_vars >= 6 {
         Some(tracing::span!(tracing::Level::INFO, "Sumcheck round").entered())
     } else {
@@ -141,9 +137,9 @@ fn sc_round<
     };
     let mut p_evals = Vec::<(EF, EF)>::new();
     let eq_mle = if let Some(eq_factor) = &eq_factor {
-        MultilinearPolynomial::eq_mle(&eq_factor[1 + round..])
+        MultilinearHost::eq_mle(&eq_factor[1 + round..])
     } else {
-        MultilinearPolynomial::zero(0)
+        MultilinearHost::zero(0)
     };
 
     let start = if is_zerofier && round == 0 {

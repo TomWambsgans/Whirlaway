@@ -1,12 +1,10 @@
 use std::collections::BTreeSet;
 
-use algebra::pols::CircuitComputation;
+use algebra::pols::{Multilinear, MultilinearDevice};
+use arithmetic_circuit::CircuitComputation;
+use cuda_engine::{cuda_sync, memcpy_htod};
 use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};
-
-use cuda_bindings::{
-    MultilinearPolynomialCuda, MultilinearPolynomialMaybeCuda, cuda_sync, memcpy_htod,
-};
 
 /// performs big-endian binary decomposition of `value` and returns the result.
 ///
@@ -29,7 +27,7 @@ pub fn dedup<T: Ord>(v: impl IntoIterator<Item = T>) -> Vec<T> {
 
 // Sync
 pub fn sumcheck_prove_with_cuda_or_cpu<F: Field, EF: ExtensionField<F>>(
-    multilinears: &[MultilinearPolynomialMaybeCuda<EF>],
+    multilinears: &[Multilinear<EF>],
     exprs: &[CircuitComputation<F>],
     batching_scalars: &[EF],
     eq_factor: Option<&[EF]>,
@@ -39,12 +37,12 @@ pub fn sumcheck_prove_with_cuda_or_cpu<F: Field, EF: ExtensionField<F>>(
     n_rounds: Option<usize>,
     pow_bits: usize,
     cuda: bool,
-) -> (Vec<EF>, Vec<MultilinearPolynomialMaybeCuda<EF>>) {
+) -> (Vec<EF>, Vec<Multilinear<EF>>) {
     let (challenges, folded_multilinears) = if cuda {
-        assert!(multilinears.iter().all(|m| m.is_cuda()));
+        assert!(multilinears.iter().all(|m| m.is_device()));
         let multilinears = multilinears
             .into_iter()
-            .map(|m| m.as_cuda())
+            .map(|m| m.as_device())
             .collect::<Vec<_>>();
         sumcheck::prove_with_cuda(
             &multilinears,
@@ -58,10 +56,10 @@ pub fn sumcheck_prove_with_cuda_or_cpu<F: Field, EF: ExtensionField<F>>(
             pow_bits,
         )
     } else {
-        assert!(multilinears.iter().all(|m| m.is_cpu()));
+        assert!(multilinears.iter().all(|m| m.is_host()));
         let multilinears = multilinears
             .into_iter()
-            .map(|m| m.as_cpu())
+            .map(|m| m.as_host())
             .collect::<Vec<_>>();
         sumcheck::prove(
             &multilinears,
@@ -80,11 +78,9 @@ pub fn sumcheck_prove_with_cuda_or_cpu<F: Field, EF: ExtensionField<F>>(
         .into_iter()
         .map(|m| {
             if cuda {
-                MultilinearPolynomialMaybeCuda::Cuda(MultilinearPolynomialCuda::new(memcpy_htod(
-                    &m.evals,
-                ))) // TODO Avoid, the cuda sumcheck should return a cuda slice
+                Multilinear::Device(MultilinearDevice::new(memcpy_htod(&m.evals))) // TODO Avoid, the cuda sumcheck should return a cuda slice
             } else {
-                MultilinearPolynomialMaybeCuda::Cpu(m)
+                Multilinear::Host(m)
             }
         })
         .collect::<Vec<_>>();
