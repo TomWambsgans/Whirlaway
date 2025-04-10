@@ -5,6 +5,7 @@ use fiat_shamir::{FsError, FsVerifier};
 use merkle_tree::MultiPath;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use std::iter;
+use tracing::instrument;
 
 use super::{Statement, parameters::WhirConfig};
 use crate::whir::fs_utils::get_challenge_stir_queries;
@@ -348,6 +349,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
         result
     }
 
+    #[instrument(name = "whir: verify", skip_all)]
     pub fn verify(
         &self,
         fs_verifier: &mut FsVerifier,
@@ -423,9 +425,15 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
 
         // Check the foldings computed from the proof match the evaluations of the polynomial
         let final_folds = &computed_folds[computed_folds.len() - 1];
-        let final_evaluations = parsed
-            .final_coefficients
-            .evaluate_at_univariate(&parsed.final_randomness_points);
+        let mut final_evaluations = Vec::new();
+        for point in &parsed.final_randomness_points {
+            // interpret the coeffs as a univariate polynomial
+            final_evaluations.push(UnivariatePolynomial::horner_evaluate(
+                parsed.final_coefficients.coeffs(),
+                point,
+            ));
+        }
+
         if !final_folds
             .iter()
             .zip(final_evaluations)

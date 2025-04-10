@@ -2,7 +2,7 @@ use algebra::{
     pols::{MultilinearPolynomial, TransparentPolynomial},
     utils::powers,
 };
-use cuda_bindings::SumcheckComputation;
+use cuda_bindings::{MultilinearPolynomialCuda, SumcheckComputation, memcpy_htod};
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::extension::BinomialExtensionField;
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -31,7 +31,7 @@ fn test_sumcheck() {
 
     let time = std::time::Instant::now();
     prove(
-        multilinears.clone(),
+        &multilinears,
         &exprs,
         &batching_scalars,
         None,
@@ -90,9 +90,15 @@ fn test_cuda_sumcheck() {
     let mut fs_prover = FsProver::new();
     let sum = sum_batched_exprs_over_hypercube(&multilinears, n_vars, &exprs, &batching_scalars);
 
+    let _multilinears_dev = multilinears.iter().map(|m| m.embed()).collect::<Vec<_>>();
+    let multilinears_dev = _multilinears_dev
+        .iter()
+        .map(|m| MultilinearPolynomialCuda::new(memcpy_htod(&m.evals)))
+        .collect::<Vec<_>>();
+
     let time = std::time::Instant::now();
     prove_with_cuda(
-        multilinears.clone(),
+        &multilinears_dev,
         &exprs,
         &batching_scalars,
         None,

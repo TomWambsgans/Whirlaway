@@ -9,7 +9,7 @@ use crate::{MAX_LOG_N_BLOCKS, cuda_info, memcpy_dtoh, memcpy_htod};
 const NTT_LOG_N_THREADS_PER_BLOCK: u32 = 8;
 const NTT_N_THREADS_PER_BLOCK: u32 = 1 << NTT_LOG_N_THREADS_PER_BLOCK;
 
-pub fn cuda_expanded_ntt<F: Field>(coeffs: &[F], expansion_factor: usize) -> CudaSlice<F> {
+pub fn cuda_expanded_ntt<F: Field>(coeffs: &CudaSlice<F>, expansion_factor: usize) -> CudaSlice<F> {
     // SAFETY: one should have called init_cuda::<F::PrimeSubfield>() before
 
     let cuda = cuda_info();
@@ -32,11 +32,6 @@ pub fn cuda_expanded_ntt<F: Field>(coeffs: &[F], expansion_factor: usize) -> Cud
 
     assert_eq!(std::mem::size_of::<F>() % std::mem::size_of::<u32>(), 0);
 
-    // let t1 = std::time::Instant::now();
-    let coeffs_dev = memcpy_htod(coeffs);
-    // cuda.stream.synchronize().unwrap();
-    // let elapsed = t1.elapsed().as_millis();
-    // println!("CUDA memcpy_htod took {} ms", elapsed);
     let mut buff_dev = unsafe { cuda.stream.alloc::<F>(expanded_len).unwrap() };
     let mut result_dev = unsafe { cuda.stream.alloc::<F>(expanded_len).unwrap() };
 
@@ -49,7 +44,7 @@ pub fn cuda_expanded_ntt<F: Field>(coeffs: &[F], expansion_factor: usize) -> Cud
 
     let f = cuda.get_function("ntt", "expanded_ntt");
     let mut launch_args = cuda.stream.launch_builder(&f);
-    launch_args.arg(&coeffs_dev);
+    launch_args.arg(coeffs);
     launch_args.arg(&mut buff_dev);
     launch_args.arg(&mut result_dev);
     launch_args.arg(&log_len);

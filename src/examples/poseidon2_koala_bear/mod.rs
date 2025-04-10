@@ -1,5 +1,5 @@
 use ::air::{AirBuilder, AirExpr};
-use algebra::pols::MultilinearPolynomial;
+use algebra::pols::{ArithmeticCircuit, MultilinearPolynomial};
 use cuda_bindings::SumcheckComputation;
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::extension::BinomialExtensionField;
@@ -111,13 +111,21 @@ pub fn prove_poseidon2(log_n_rows: usize, security_bits: usize, log_inv_rate: us
     // table.check_validity(&witness);
 
     if cuda {
-        let sumcheck_computations = SumcheckComputation {
+        let constraint_sumcheck_computations = SumcheckComputation {
             inner: table.constraints.clone(),
             n_multilinears: table.n_columns * 2 + 1,
             eq_mle_multiplier: true,
         };
+        let prod_sumcheck = cuda_bindings::SumcheckComputation {
+            inner: vec![
+                (ArithmeticCircuit::<F, _>::Node(0) * ArithmeticCircuit::Node(1))
+                    .fix_computation(false),
+            ],
+            n_multilinears: 2,
+            eq_mle_multiplier: false,
+        };
         cuda_bindings::init(
-            &[sumcheck_computations],
+            &[constraint_sumcheck_computations, prod_sumcheck],
             whir_params.folding_factor.as_constant().unwrap(), // TODO handle ConstantFromSecondRound
         );
     }

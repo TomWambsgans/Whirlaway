@@ -3,6 +3,7 @@ use algebra::{
     utils::dot_product,
     utils::powers,
 };
+use cuda_bindings::{MultilinearPolynomialCuda, MultilinearPolynomialMaybeCuda, memcpy_htod};
 use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};
 use pcs::PCS;
@@ -38,7 +39,11 @@ impl<F: Field> AirTable<F> {
         for (i, poly) in witness.iter().enumerate() {
             batch_evals[i << log_length..(i + 1) << log_length].copy_from_slice(&poly.evals);
         }
-        let packed_pol = MultilinearPolynomial::new(batch_evals);
+        let packed_pol: MultilinearPolynomialMaybeCuda<F> = if cuda {
+            MultilinearPolynomialCuda::new(memcpy_htod(&batch_evals)).into()
+        } else {
+            MultilinearPolynomial::new(batch_evals).into()
+        };
 
         let packed_pol_witness = pcs.commit(packed_pol, fs_prover);
 
@@ -57,8 +62,13 @@ impl<F: Field> AirTable<F> {
         let (outer_challenges, all_inner_sums) = {
             let _span = span!(Level::INFO, "outer sumcheck").entered();
             if cuda {
+                // TODO do this directly in the GPU
+                let columns_up_and_down_dev = columns_up_and_down(&preprocessed_and_witness)
+                    .par_iter()
+                    .map(|w| MultilinearPolynomialCuda::new(memcpy_htod(&w.embed::<EF>().evals))) // TODO avoid embedding
+                    .collect::<Vec<_>>();
                 sumcheck::prove_with_cuda(
-                    columns_up_and_down(&preprocessed_and_witness),
+                    &columns_up_and_down_dev,
                     &self.constraints,
                     &constraints_batching_scalars,
                     Some(&zerocheck_challenges),
@@ -69,8 +79,8 @@ impl<F: Field> AirTable<F> {
                     0,
                 )
             } else {
-                sumcheck::prove::<F, F, EF>(
-                    columns_up_and_down(&preprocessed_and_witness),
+                sumcheck::prove::<F, F, EF, _>(
+                    &columns_up_and_down(&preprocessed_and_witness),
                     &self.constraints,
                     &constraints_batching_scalars,
                     Some(&zerocheck_challenges),
@@ -123,7 +133,7 @@ impl<F: Field> AirTable<F> {
             &powers(inner_sumcheck_batching_scalar, self.n_witness_columns() * 2),
         );
         let (inner_challenges, _) = sumcheck::prove(
-            mles_for_inner_sumcheck,
+            &mles_for_inner_sumcheck,
             &[inner_sumcheck_circuit.fix_computation(false)],
             &[EF::ONE],
             None,

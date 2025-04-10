@@ -1,6 +1,7 @@
 use algebra::pols::{Evaluation, MultilinearPolynomial, TransparentPolynomial};
 use algebra::tensor_algebra::TensorAlgebra;
 use algebra::utils::dot_product;
+use cuda_bindings::{MultilinearPolynomialCuda, MultilinearPolynomialMaybeCuda, memcpy_htod};
 use fiat_shamir::{FsError, FsProver, FsVerifier};
 use p3_field::{BasedVectorSpace, ExtensionField, Field};
 use sumcheck::SumcheckError;
@@ -17,12 +18,12 @@ pub struct RingSwitch<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> {
 }
 
 pub struct RingSwitchWitness<F: Field, InnerWitness> {
-    pol: MultilinearPolynomial<F>,
+    pol: MultilinearPolynomialMaybeCuda<F>,
     inner_witness: InnerWitness,
 }
 
 impl<F: Field, InnerWitness> PcsWitness<F> for RingSwitchWitness<F, InnerWitness> {
-    fn pol(&self) -> &MultilinearPolynomial<F> {
+    fn pol(&self) -> &MultilinearPolynomialMaybeCuda<F> {
         &self.pol
     }
 }
@@ -66,13 +67,14 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
         }
     }
 
-    fn commit(&self, pol: MultilinearPolynomial<F>, fs_prover: &mut FsProver) -> Self::Witness {
-        let pol_clone = pol.clone(); // TODO avoid
+    fn commit(
+        &self,
+        pol: impl Into<MultilinearPolynomialMaybeCuda<F>>,
+        fs_prover: &mut FsProver,
+    ) -> Self::Witness {
+        let pol: MultilinearPolynomialMaybeCuda<F> = pol.into();
         let inner_witness = self.inner.commit(pol.packed::<EF>(), fs_prover);
-        RingSwitchWitness {
-            pol: pol_clone,
-            inner_witness,
-        }
+        RingSwitchWitness { pol, inner_witness }
     }
 
     fn parse_commitment(
@@ -117,21 +119,42 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
             MultilinearPolynomial::new(A_basis)
         };
 
+        // TODO A_pol in cuda
+
         let s0 = dot_product(&s_hat.rows(), &lagranged_r_pp);
-        let (r_p, _) = sumcheck::prove::<EF, EF, EF>(
-            vec![packed_pol.clone(), A_pol],
-            &[
-                (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
-                    .fix_computation(false),
-            ],
-            &[EF::ONE],
-            None,
-            false,
-            fs_prover,
-            Some(s0),
-            None,
-            0,
-        );
+        let (r_p, _) = match packed_pol {
+            MultilinearPolynomialMaybeCuda::Cpu(packed_pol) => sumcheck::prove::<EF, EF, EF, _>(
+                &[packed_pol, &A_pol],
+                &[
+                    (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
+                        .fix_computation(false),
+                ],
+                &[EF::ONE],
+                None,
+                false,
+                fs_prover,
+                Some(s0),
+                None,
+                0,
+            ),
+            MultilinearPolynomialMaybeCuda::Cuda(packed_pol) => {
+                let A_pol_dev = MultilinearPolynomialCuda::new(memcpy_htod(&A_pol.evals)); // TODO bad (A pol should be constructed in cuda)
+                sumcheck::prove_with_cuda::<EF, EF, _>(
+                    &[packed_pol, &A_pol_dev],
+                    &[
+                        (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
+                            .fix_computation(false),
+                    ],
+                    &[EF::ONE],
+                    None,
+                    false,
+                    fs_prover,
+                    Some(s0),
+                    None,
+                    0,
+                )
+            }
+        };
 
         let packed_value = witness.inner_witness.pol().eval(&r_p);
         let packed_eval = Evaluation {

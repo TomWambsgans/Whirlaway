@@ -1,3 +1,5 @@
+use std::borrow::Borrow;
+
 use algebra::{
     pols::{
         CircuitComputation, HypercubePoint, MultilinearPolynomial, PartialHypercubePoint,
@@ -11,8 +13,13 @@ use rayon::prelude::*;
 
 use crate::{eval_batched_exprs_on_partial_hypercube, sum_batched_exprs_over_hypercube};
 
-pub fn prove<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionField<F>>(
-    multilinears: Vec<MultilinearPolynomial<NF>>,
+pub fn prove<
+    F: Field,
+    NF: ExtensionField<F>,
+    EF: ExtensionField<NF> + ExtensionField<F>,
+    ML: Borrow<MultilinearPolynomial<NF>>,
+>(
+    multilinears: &[ML],
     exprs: &[CircuitComputation<F>],
     batching_scalars: &[EF],
     eq_factor: Option<&[EF]>,
@@ -40,8 +47,9 @@ pub fn prove_with_initial_rounds<
     F: Field,
     NF: ExtensionField<F>,
     EF: ExtensionField<NF> + ExtensionField<F>,
+    ML: Borrow<MultilinearPolynomial<NF>>,
 >(
-    multilinears: Vec<MultilinearPolynomial<NF>>,
+    multilinears: &[ML],
     exprs: &[CircuitComputation<F>],
     batching_scalars: &[EF],
     eq_factor: Option<&[EF]>,
@@ -52,6 +60,8 @@ pub fn prove_with_initial_rounds<
     n_rounds: Option<usize>,
     pow_bits: usize,
 ) -> (Vec<EF>, Vec<MultilinearPolynomial<EF>>) {
+    let multilinears: Vec<&MultilinearPolynomial<NF>> =
+        multilinears.iter().map(|m| m.borrow()).collect::<Vec<_>>();
     let mut n_vars = multilinears[0].n_vars;
     assert!(multilinears.iter().all(|m| m.n_vars == n_vars));
     assert_eq!(exprs.len(), batching_scalars.len());
@@ -73,7 +83,7 @@ pub fn prove_with_initial_rounds<
     let mut folded_multilinears;
 
     folded_multilinears = sc_round(
-        multilinears,
+        &multilinears,
         &mut n_vars,
         exprs,
         batching_scalars,
@@ -88,7 +98,7 @@ pub fn prove_with_initial_rounds<
     );
     for i in starting_round + 1..n_rounds {
         folded_multilinears = sc_round(
-            folded_multilinears,
+            &folded_multilinears,
             &mut n_vars,
             exprs,
             batching_scalars,
@@ -105,8 +115,13 @@ pub fn prove_with_initial_rounds<
     (challenges, folded_multilinears)
 }
 
-fn sc_round<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionField<F>>(
-    multilinears: Vec<MultilinearPolynomial<NF>>,
+fn sc_round<
+    F: Field,
+    NF: ExtensionField<F>,
+    EF: ExtensionField<NF> + ExtensionField<F>,
+    ML: Borrow<MultilinearPolynomial<NF>> + Sync,
+>(
+    multilinears: &[ML],
     n_vars: &mut usize,
     exprs: &[CircuitComputation<F>],
     batching_scalars: &[EF],
@@ -201,6 +216,6 @@ fn sc_round<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionF
 
     multilinears
         .into_iter()
-        .map(|pol| pol.fix_variable(challenge))
+        .map(|pol| pol.borrow().fix_variable(challenge))
         .collect()
 }

@@ -1,8 +1,8 @@
-use crate::utils::expand_from_coeff_and_restructure;
+use cuda_bindings::CoefficientListMaybeCuda;
 
 use super::parameters::WhirConfig;
-use algebra::{pols::CoefficientList, utils::multilinear_point_from_univariate};
-use cuda_bindings::VecOrCudaSlice;
+use algebra::utils::multilinear_point_from_univariate;
+use cuda_bindings::{VecOrCudaSlice, cuda_sync};
 use fiat_shamir::FsProver;
 use merkle_tree::MerkleTree;
 
@@ -10,7 +10,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use tracing::instrument;
 
 pub struct Witness<EF: Field> {
-    pub(crate) polynomial: CoefficientList<EF>,
+    pub(crate) polynomial: CoefficientListMaybeCuda<EF>,
     pub(crate) merkle_tree: MerkleTree<EF>,
     pub(crate) merkle_leaves: VecOrCudaSlice<EF>,
     pub(crate) ood_points: Vec<EF>,
@@ -28,17 +28,15 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Committer<F, EF> {
     pub fn commit(
         &self,
         fs_prover: &mut FsProver,
-        polynomial: CoefficientList<EF>,
+        polynomial: CoefficientListMaybeCuda<EF>,
     ) -> Option<Witness<EF>> {
         let base_domain = self.0.starting_domain.base_domain.as_ref().unwrap();
-        let expansion = base_domain.size() / polynomial.num_coeffs();
+        let expansion = base_domain.size() / polynomial.n_coefs();
 
-        let folded_evals = expand_from_coeff_and_restructure(
-            polynomial.coeffs(),
+        let folded_evals = polynomial.expand_from_coeff_and_restructure(
             expansion,
             base_domain.group_gen_inv(),
             self.0.folding_factor.at_round(0),
-            self.0.cuda,
         );
 
         // Group folds together as a leaf.
@@ -60,6 +58,9 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Committer<F, EF> {
                     self.0.mv_parameters.num_variables,
                 ))
             }));
+            if self.0.cuda {
+                cuda_sync();
+            }
             fs_prover.add_scalars(&ood_answers);
         }
 

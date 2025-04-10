@@ -7,7 +7,7 @@ use cuda_bindings::CudaSlice;
 use cuda_bindings::DeviceRepr;
 use cuda_bindings::VecOrCudaSlice;
 use cuda_bindings::cuda_alloc;
-use cuda_bindings::cuda_index;
+use cuda_bindings::cuda_get_at_index;
 use cuda_bindings::cuda_keccak256;
 use cuda_bindings::cuda_sync;
 use rayon::prelude::*;
@@ -253,7 +253,7 @@ impl<F: Sync> MerkleTree<F> {
                 &mut left.slice_mut((1 << (level - 1)) - 1..),
             );
         }
-        let root = cuda_index(&nodes, 0);
+        let root = cuda_get_at_index(&nodes, 0);
         cuda_sync();
         MerkleTree {
             nodes: VecOrCudaSlice::Cuda(nodes),

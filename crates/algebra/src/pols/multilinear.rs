@@ -8,9 +8,9 @@ use rand::{
 };
 use rayon::prelude::*;
 
-use super::{HypercubePoint, PartialHypercubePoint, UnivariatePolynomial};
+use super::{CoefficientList, HypercubePoint, PartialHypercubePoint, UnivariatePolynomial};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MultilinearPolynomial<F: Field> {
     pub n_vars: usize,
     pub evals: Vec<F>, // [f(0, 0, ..., 0), f(0, 0, ..., 0, 1), f(0, 0, ..., 0, 1, 0), f(0, 0, ..., 0, 1, 1), ...]
@@ -56,15 +56,16 @@ impl<F: Field> MultilinearPolynomial<F> {
         buff[0]
     }
 
-    pub fn packed<EF: ExtensionField<F>>(self) -> MultilinearPolynomial<EF> {
-        assert!(<EF as BasedVectorSpace<F>>::DIMENSION.is_power_of_two());
-        assert!(1 << self.n_vars > <EF as BasedVectorSpace<F>>::DIMENSION);
-        let evals = self
+    pub fn packed<EF: ExtensionField<F>>(&self) -> MultilinearPolynomial<EF> {
+        let ext_degree = <EF as BasedVectorSpace<F>>::DIMENSION;
+        assert!(ext_degree.is_power_of_two());
+        assert!(self.n_coefs() >= ext_degree);
+        let packed_evals = self
             .evals
-            .chunks(<EF as BasedVectorSpace<F>>::DIMENSION)
+            .chunks(ext_degree)
             .map(|chunk| EF::from_basis_coefficients_slice(chunk))
             .collect();
-        MultilinearPolynomial::new(evals)
+        MultilinearPolynomial::new(packed_evals)
     }
 
     /// fix first variables
@@ -94,27 +95,26 @@ impl<F: Field> MultilinearPolynomial<F> {
             .sum()
     }
 
-    pub fn as_coefs(self) -> Vec<F> {
+    pub fn as_coefs(self) -> CoefficientList<F> {
         let mut coeffs = self.evals;
         let n = self.n_vars;
 
-        // Apply Möbius transform
+        // TODO parallelize
         for i in 0..n {
             let step = 1 << i;
             for j in 0..(1 << n) {
                 if (j & step) == 0 {
-                    let k = j | step;
                     let temp = coeffs[j];
-                    coeffs[k] -= temp;
+                    coeffs[j | step] -= temp;
                 }
             }
         }
 
-        coeffs
+        CoefficientList::new(coeffs)
     }
 
     pub fn as_univariate(self) -> UnivariatePolynomial<F> {
-        UnivariatePolynomial::new(self.as_coefs())
+        UnivariatePolynomial::new(self.as_coefs().take_coeffs())
     }
 
     /// Interprets self as a univariate polynomial (with coefficients of X^i in order of ascending i) and evaluates it at each point in `points`.

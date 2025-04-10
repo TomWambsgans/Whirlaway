@@ -135,6 +135,20 @@ fn _init<F: TwoAdicField + PrimeField32>(
                 "fold_ext_by_ext",
             ],
         ),
+        (
+            "multilinear",
+            vec![
+                "monomial_to_lagrange_basis",
+                "lagrange_to_monomial_basis",
+                "eq_mle",
+                "scale_slice_in_place",
+                "add_slices",
+                "add_assign_slices",
+                "whir_fold",
+                "eval_multilinear_in_lagrange_basis",
+                "eval_multilinear_in_monomial_basis",
+            ],
+        ),
     ] {
         compile_module(
             dev.clone(),

@@ -1,6 +1,6 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-use std::ops::Range;
+use std::{borrow::Borrow, ops::Range};
 
 use cudarc::driver::DevicePtr;
 
@@ -19,6 +19,12 @@ pub use sumcheck::*;
 mod init;
 pub use init::*;
 
+mod multilinear;
+pub use multilinear::*;
+
+pub mod cuda_pols;
+pub use cuda_pols::*;
+
 pub use cudarc::driver::{CudaSlice, DeviceRepr};
 
 // Should not be too big to avoid CUDA_ERROR_COOPERATIVE_LAUNCH_TOO_LARGE
@@ -34,7 +40,7 @@ impl<T: DeviceRepr + Clone + Default> VecOrCudaSlice<T> {
         // This function is Async !
         match self {
             VecOrCudaSlice::Vec(v) => v[idx].clone(),
-            VecOrCudaSlice::Cuda(slice) => cuda_index(slice, idx),
+            VecOrCudaSlice::Cuda(slice) => cuda_get_at_index(slice, idx),
         }
     }
 
@@ -72,12 +78,12 @@ pub fn memcpy_dtoh<T: DeviceRepr + Default + Clone>(src: &CudaSlice<T>) -> Vec<T
     dst
 }
 
-pub fn concat_pointers<T: DeviceRepr>(slices: &[CudaSlice<T>]) -> CudaSlice<u64> {
+pub fn concat_pointers<T: DeviceRepr, S: Borrow<CudaSlice<T>>>(slices: &[S]) -> CudaSlice<u64> {
     let cuda = cuda_info();
     memcpy_htod(
         &slices
             .iter()
-            .map(|slice_dev| slice_dev.device_ptr(&cuda.stream).0)
+            .map(|slice_dev| slice_dev.borrow().device_ptr(&cuda.stream).0)
             .collect::<Vec<u64>>(), // TODO avoid hardcoding u64 (this is platform dependent)
     )
 }
@@ -86,7 +92,7 @@ pub fn cuda_alloc<T: DeviceRepr>(size: usize) -> CudaSlice<T> {
     unsafe { cuda_info().stream.alloc(size).unwrap() }
 }
 
-pub fn cuda_index<T: DeviceRepr + Default>(slice: &CudaSlice<T>, idx: usize) -> T {
+pub fn cuda_get_at_index<T: DeviceRepr + Default>(slice: &CudaSlice<T>, idx: usize) -> T {
     let cuda = cuda_info();
     let mut dst = [T::default()];
     cuda.stream

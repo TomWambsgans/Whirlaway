@@ -1,7 +1,4 @@
-use crate::{
-    ntt::wavelet_transform,
-    pols::{MultilinearPolynomial, UnivariatePolynomial},
-};
+use crate::{ntt::wavelet_transform, pols::MultilinearPolynomial};
 use p3_field::Field;
 use {
     rayon::{join, prelude::*},
@@ -19,7 +16,7 @@ use {
 ///  - coeffs[1] is the coefficient of X_2
 ///  - coeffs[2] is the coefficient of X_1
 ///  - coeffs[4] is the coefficient of X_0
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoefficientList<F> {
     coeffs: Vec<F>, // list of coefficients. For multilinear polynomials, we have coeffs.len() == 1 << num_variables.
     num_variables: usize, // number of variables
@@ -30,19 +27,6 @@ impl<F: Field> CoefficientList<F> {
     pub fn evaluate(&self, point: &[F]) -> F {
         assert_eq!(self.num_variables, point.len());
         eval_multivariate(&self.coeffs, point)
-    }
-
-    /// Interprets self as a univariate polynomial (with coefficients of X^i in order of ascending i) and evaluates it at each point in `points`.
-    /// We return the vector of evaluations.
-    ///
-    /// NOTE: For the `usual` mapping between univariate and multilinear polynomials, the coefficient ordering is such that
-    /// for a single point x, we have (extending notation to a single point)
-    /// self.evaluate_at_univariate(x) == self.evaluate([x^(2^n), x^(2^{n-1}), ..., x^2, x])
-    pub fn evaluate_at_univariate(&self, points: &[F]) -> Vec<F> {
-        // DensePolynomial::from_coefficients_slice converts to a dense univariate polynomial.
-        // The coefficient order is "coefficient of 1 first".
-        let univariate = UnivariatePolynomial::new(self.coeffs.clone()); // TODO: Avoid clone
-        points.iter().map(|point| univariate.eval(point)).collect()
     }
 
     pub fn new(coeffs: Vec<F>) -> Self {
@@ -60,11 +44,15 @@ impl<F: Field> CoefficientList<F> {
         &self.coeffs
     }
 
-    pub fn num_variables(&self) -> usize {
+    pub fn take_coeffs(self) -> Vec<F> {
+        self.coeffs
+    }
+
+    pub fn n_vars(&self) -> usize {
         self.num_variables
     }
 
-    pub fn num_coeffs(&self) -> usize {
+    pub fn n_coefs(&self) -> usize {
         self.coeffs.len()
     }
 
@@ -77,6 +65,54 @@ impl<F: Field> CoefficientList<F> {
         CoefficientList {
             coeffs,
             num_variables: self.num_variables,
+        }
+    }
+
+    pub fn into_evals(self) -> MultilinearPolynomial<F> {
+        let mut evals = self.coeffs;
+        wavelet_transform(&mut evals);
+        MultilinearPolynomial::new(evals)
+    }
+
+    // pub fn reverse_vars_and_get_evals(self) -> MultilinearPolynomial<F> {
+    //     // reverse_vars_and_get_evals() is the same as reverse_vars().into_evals()
+    //     let mut evals = self.coeffs;
+    //     let n_vars = self.num_variables;
+    //     for step in 0..n_vars {
+    //         let new_evals = vec![F::ZERO; 1 << n_vars];
+    //         let half_size = 1 << (n_vars - step - 1);
+    //         (0..1 << (n_vars - 1)).into_par_iter().for_each(|i| {
+    //             let x = (i / half_size) * 2 * half_size;
+    //             let y = i % half_size;
+    //             let left = evals[x + 2 * y];
+    //             let right = evals[x + 2 * y + 1];
+    //             unsafe {
+    //                 *(new_evals.as_ptr().add(x + y) as *mut F) = left;
+    //                 *(new_evals.as_ptr().add(x + y + half_size) as *mut F) = left + right;
+    //             }
+    //         });
+    //         evals = new_evals;
+    //     }
+
+    //     MultilinearPolynomial::new(evals)
+    // }
+
+    /// fold folds the polynomial at the provided folding_randomness.
+    ///
+    /// Namely, when self is interpreted as a multi-linear polynomial f in X_0, ..., X_{n-1},
+    /// it partially evaluates f at the provided `folding_randomness`.
+    /// Our ordering convention is to evaluate at the higher indices, i.e. we return f(X_0,X_1,..., folding_randomness[0], folding_randomness[1],...)
+    pub fn fold(&self, folding_randomness: &[F]) -> Self {
+        let folding_factor = folding_randomness.len();
+        let coeffs = self
+            .coeffs
+            .par_chunks_exact(1 << folding_factor)
+            .map(|coeffs| eval_multivariate(coeffs, &folding_randomness))
+            .collect();
+
+        CoefficientList {
+            coeffs,
+            num_variables: self.n_vars() - folding_factor,
         }
     }
 }
@@ -142,32 +178,5 @@ fn eval_multivariate<F: Field>(coeffs: &[F], point: &[F]) -> F {
             };
             b0t + b1t * *x
         }
-    }
-}
-
-impl<F: Field> CoefficientList<F> {
-    /// fold folds the polynomial at the provided folding_randomness.
-    ///
-    /// Namely, when self is interpreted as a multi-linear polynomial f in X_0, ..., X_{n-1},
-    /// it partially evaluates f at the provided `folding_randomness`.
-    /// Our ordering convention is to evaluate at the higher indices, i.e. we return f(X_0,X_1,..., folding_randomness[0], folding_randomness[1],...)
-    pub fn fold(&self, folding_randomness: &[F]) -> Self {
-        let folding_factor = folding_randomness.len();
-        let coeffs = self
-            .coeffs
-            .par_chunks_exact(1 << folding_factor)
-            .map(|coeffs| eval_multivariate(coeffs, &folding_randomness))
-            .collect();
-
-        CoefficientList {
-            coeffs,
-            num_variables: self.num_variables() - folding_factor,
-        }
-    }
-
-    pub fn into_evals(self) -> MultilinearPolynomial<F> {
-        let mut evals = self.coeffs;
-        wavelet_transform(&mut evals);
-        MultilinearPolynomial::new(evals)
     }
 }

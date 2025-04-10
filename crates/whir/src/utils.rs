@@ -1,8 +1,12 @@
-use algebra::ntt::{expand_from_coeff, restructure_evaluations};
-use cuda_bindings::VecOrCudaSlice;
-use p3_field::{ExtensionField, TwoAdicField};
 use std::collections::BTreeSet;
-use tracing::instrument;
+
+use algebra::pols::CircuitComputation;
+use fiat_shamir::FsProver;
+use p3_field::{ExtensionField, Field};
+
+use cuda_bindings::{
+    MultilinearPolynomialCuda, MultilinearPolynomialMaybeCuda, cuda_sync, memcpy_htod,
+};
 
 /// performs big-endian binary decomposition of `value` and returns the result.
 ///
@@ -23,26 +27,70 @@ pub fn dedup<T: Ord>(v: impl IntoIterator<Item = T>) -> Vec<T> {
     Vec::from_iter(BTreeSet::from_iter(v))
 }
 
-#[instrument(name = "whir: expand_from_coeff_and_restructure", 
-             skip_all,
-             fields(cuda = %cuda))]
-pub fn expand_from_coeff_and_restructure<F: TwoAdicField, EF: ExtensionField<F>>(
-    coeffs: &[EF],
-    expansion: usize,
-    domain_gen_inv: F,
-    folding_factor: usize,
+// Sync
+pub fn sumcheck_prove_with_cuda_or_cpu<F: Field, EF: ExtensionField<F>>(
+    multilinears: &[MultilinearPolynomialMaybeCuda<EF>],
+    exprs: &[CircuitComputation<F>],
+    batching_scalars: &[EF],
+    eq_factor: Option<&[EF]>,
+    is_zerofier: bool,
+    fs_prover: &mut FsProver,
+    sum: Option<EF>,
+    n_rounds: Option<usize>,
+    pow_bits: usize,
     cuda: bool,
-) -> VecOrCudaSlice<EF> {
-    if cuda && coeffs.len() >= 1024 {
-        let evals = cuda_bindings::cuda_expanded_ntt(coeffs, expansion);
-        let folded_evals = cuda_bindings::cuda_restructure_evaluations(&evals, folding_factor);
-        cuda_bindings::cuda_sync();
-        VecOrCudaSlice::Cuda(folded_evals)
+) -> (Vec<EF>, Vec<MultilinearPolynomialMaybeCuda<EF>>) {
+    let (challenges, folded_multilinears) = if cuda {
+        assert!(multilinears.iter().all(|m| m.is_cuda()));
+        let multilinears = multilinears
+            .into_iter()
+            .map(|m| m.as_cuda())
+            .collect::<Vec<_>>();
+        sumcheck::prove_with_cuda(
+            &multilinears,
+            exprs,
+            batching_scalars,
+            eq_factor,
+            is_zerofier,
+            fs_prover,
+            sum,
+            n_rounds,
+            pow_bits,
+        )
     } else {
-        // TODO: `stack_evaluations` and `restructure_evaluations` are really in-place algorithms.
-        // They also partially overlap and undo one another. We should merge them.
-        let evals = expand_from_coeff::<F, EF>(coeffs, expansion);
-        let folded_evals = restructure_evaluations(evals, domain_gen_inv, folding_factor);
-        VecOrCudaSlice::Vec(folded_evals)
+        assert!(multilinears.iter().all(|m| m.is_cpu()));
+        let multilinears = multilinears
+            .into_iter()
+            .map(|m| m.as_cpu())
+            .collect::<Vec<_>>();
+        sumcheck::prove(
+            &multilinears,
+            exprs,
+            batching_scalars,
+            eq_factor,
+            is_zerofier,
+            fs_prover,
+            sum,
+            n_rounds,
+            pow_bits,
+        )
+    };
+
+    let folded_multilinears = folded_multilinears
+        .into_iter()
+        .map(|m| {
+            if cuda {
+                MultilinearPolynomialMaybeCuda::Cuda(MultilinearPolynomialCuda::new(memcpy_htod(
+                    &m.evals,
+                ))) // TODO Avoid, the cuda sumcheck should return a cuda slice
+            } else {
+                MultilinearPolynomialMaybeCuda::Cpu(m)
+            }
+        })
+        .collect::<Vec<_>>();
+    if cuda {
+        cuda_sync();
     }
+
+    (challenges, folded_multilinears)
 }
