@@ -7,7 +7,9 @@ use cuda_bindings::{
     cuda_scale_slice_in_place,
 };
 use cuda_bindings::{cuda_fix_variable_in_small_field, cuda_sum_over_hypercube_of_computation};
-use cuda_engine::{SumcheckComputation, cuda_info, cuda_sync, memcpy_dtoh, memcpy_htod};
+use cuda_engine::{
+    SumcheckComputation, clone_dtod, cuda_alloc, cuda_sync, memcpy_dtod, memcpy_dtoh, memcpy_htod,
+};
 use cudarc::driver::CudaSlice;
 use p3_field::{BasedVectorSpace, ExtensionField, Field};
 use rand::{
@@ -307,14 +309,11 @@ impl<F: Field> MultilinearDevice<F> {
         let ext_degree = <EF as BasedVectorSpace<F>>::DIMENSION;
         assert!(ext_degree.is_power_of_two());
         assert!(self.n_coefs() >= ext_degree);
-        let packed_evals = cuda_info()
-            .stream
-            .clone_dtod(&unsafe {
-                self.evals
-                    .transmute::<EF>(self.n_coefs() / ext_degree)
-                    .unwrap()
-            })
-            .unwrap();
+        let packed_evals = clone_dtod(&unsafe {
+            self.evals
+                .transmute::<EF>(self.n_coefs() / ext_degree)
+                .unwrap()
+        });
         cuda_sync();
         MultilinearDevice::new(packed_evals)
     }
@@ -667,16 +666,13 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
         let packed_len = (self.len() << self.n_vars()).next_power_of_two();
         match self {
             Self::Device(pols) => {
-                let cuda = cuda_info();
-                let mut dst = unsafe { cuda.stream.alloc(packed_len).unwrap() };
+                let mut dst = cuda_alloc(packed_len);
                 let mut offset = 0;
                 for pol in pols {
-                    cuda.stream
-                        .memcpy_dtod(
-                            &pol.evals,
-                            &mut dst.slice_mut(offset..offset + pol.n_coefs()),
-                        )
-                        .unwrap();
+                    memcpy_dtod(
+                        &pol.evals,
+                        &mut dst.slice_mut(offset..offset + pol.n_coefs()),
+                    );
                     offset += pol.n_coefs();
                 }
                 MultilinearDevice::new(dst).into()

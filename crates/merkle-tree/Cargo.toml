@@ -14,4 +14,3 @@ cudarc.workspace = true
 
 [dev-dependencies]
 rand.workspace = true
-p3-koala-bear.workspace = true

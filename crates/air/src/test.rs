@@ -1,5 +1,8 @@
 use arithmetic_circuit::ArithmeticCircuit;
-use cuda_engine::SumcheckComputation;
+use cuda_engine::{
+    SumcheckComputation, cuda_init, cuda_preprocess_all_twiddles,
+    cuda_preprocess_sumcheck_computation,
+};
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::PrimeCharacteristicRing;
 use p3_field::extension::BinomialExtensionField;
@@ -51,19 +54,19 @@ fn test_air_fibonacci() {
     let table = builder.build();
 
     if cuda {
-        let constraint_sumcheck_computations = SumcheckComputation {
+        let constraint_sumcheck_computations = SumcheckComputation::<F> {
             exprs: &table.constraints,
             n_multilinears: table.n_columns * 2 + 1,
             eq_mle_multiplier: true,
         };
-        let prod_sumcheck = SumcheckComputation {
+        let prod_sumcheck = SumcheckComputation::<F> {
             exprs: &[
                 (ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(1)).fix_computation(false)
             ],
             n_multilinears: 2,
             eq_mle_multiplier: false,
         };
-        let inner_air_sumcheck = SumcheckComputation {
+        let inner_air_sumcheck = SumcheckComputation::<F> {
             exprs: &[((ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
                 + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3)))
             .fix_computation(false)],
@@ -71,14 +74,11 @@ fn test_air_fibonacci() {
             eq_mle_multiplier: false,
         };
 
-        cuda_engine::init(
-            &[
-                constraint_sumcheck_computations,
-                prod_sumcheck,
-                inner_air_sumcheck,
-            ],
-            4,
-        );
+        cuda_init();
+        cuda_preprocess_sumcheck_computation(&constraint_sumcheck_computations);
+        cuda_preprocess_sumcheck_computation(&prod_sumcheck);
+        cuda_preprocess_sumcheck_computation(&inner_air_sumcheck);
+        cuda_preprocess_all_twiddles::<F>(4);
     }
 
     let mut col_1 = vec![F::ZERO];
@@ -176,19 +176,19 @@ fn test_air_complex() {
     let table = builder.build();
 
     if cuda {
-        let constraint_sumcheck_computations = SumcheckComputation {
+        let constraint_sumcheck_computations = SumcheckComputation::<F> {
             exprs: &table.constraints,
             n_multilinears: table.n_columns * 2 + 1,
             eq_mle_multiplier: true,
         };
-        let prod_sumcheck = SumcheckComputation {
+        let prod_sumcheck = SumcheckComputation::<F> {
             exprs: &[
                 (ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(1)).fix_computation(false)
             ],
             n_multilinears: 2,
             eq_mle_multiplier: false,
         };
-        let inner_air_sumcheck = SumcheckComputation {
+        let inner_air_sumcheck = SumcheckComputation::<F> {
             exprs: &[((ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
                 + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3)))
             .fix_computation(false)],
@@ -196,14 +196,11 @@ fn test_air_complex() {
             eq_mle_multiplier: false,
         };
 
-        cuda_engine::init(
-            &[
-                constraint_sumcheck_computations,
-                prod_sumcheck,
-                inner_air_sumcheck,
-            ],
-            4,
-        );
+        cuda_init();
+        cuda_preprocess_sumcheck_computation(&constraint_sumcheck_computations);
+        cuda_preprocess_sumcheck_computation(&prod_sumcheck);
+        cuda_preprocess_sumcheck_computation(&inner_air_sumcheck);
+        cuda_preprocess_all_twiddles::<F>(4);
     }
     let mut col_0 = vec![F::ZERO];
     let mut col_1 = vec![F::ONE];

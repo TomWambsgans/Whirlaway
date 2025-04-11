@@ -51,13 +51,9 @@ extern "C" __global__ void sum_over_hypercube_ext(const ExtField **multilinears,
         if (thread_index < 1 << n_vars)
         {
             // AUTOMATICALLY GENERATED
-
 COMPOSITION_PLACEHOLDER
-
             sums[thread_index] = regs[N_REGISTERS - 1];
         }
-
-
     }
 
     grid.sync();

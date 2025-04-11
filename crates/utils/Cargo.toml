@@ -8,6 +8,7 @@ p3-field.workspace = true
 rand.workspace = true
 rayon.workspace = true
 sha3.workspace = true
+regex.workspace = true
 cudarc.workspace = true
 
 [dev-dependencies]

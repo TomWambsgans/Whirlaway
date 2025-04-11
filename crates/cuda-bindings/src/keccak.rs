@@ -1,5 +1,5 @@
-use cuda_engine::cuda_info;
-use cudarc::driver::{CudaView, CudaViewMut, DeviceRepr, LaunchConfig, PushKernelArg};
+use cuda_engine::CudaCall;
+use cudarc::driver::{CudaView, CudaViewMut, DeviceRepr, PushKernelArg};
 use utils::KeccakDigest;
 
 const NUM_THREADS: u32 = 256;
@@ -9,44 +9,36 @@ pub fn cuda_keccak256<T: DeviceRepr>(
     batch_size: usize,
     output: &mut CudaViewMut<KeccakDigest>,
 ) {
+    // TODO cap block number
     assert!(input.len() % batch_size == 0);
     let n_inputs = input.len() / batch_size;
     assert_eq!(n_inputs, output.len());
     let input_length = (batch_size * std::mem::size_of::<T>()) as u32;
     let input_packed_length = input_length;
-
-    let cuda = &cuda_info();
-    let f = cuda.get_function("keccak", "batch_keccak256");
-
     let num_blocks = (n_inputs as u32).div_ceil(NUM_THREADS);
-    let cfg = LaunchConfig {
-        grid_dim: (num_blocks, 1, 1),
-        block_dim: (NUM_THREADS, 1, 1),
-        shared_mem_bytes: 0,
-    };
-    let mut launch_args = cuda.stream.launch_builder(&f);
+    let mut launch_args = CudaCall::new("keccak", "batch_keccak256")
+        .blocks(num_blocks)
+        .threads_per_block(NUM_THREADS);
     launch_args.arg(input);
     launch_args.arg(&n_inputs);
     launch_args.arg(&input_length);
     launch_args.arg(&input_packed_length);
     launch_args.arg(output);
-    unsafe { launch_args.launch(cfg) }.unwrap();
+    launch_args.launch();
 }
 
 #[cfg(test)]
 mod tests {
-    use cuda_engine::{cuda_alloc, cuda_info, cuda_sync, memcpy_dtoh, memcpy_htod};
-    use p3_koala_bear::KoalaBear;
+    use cuda_engine::{cuda_alloc, cuda_init, cuda_sync, memcpy_dtoh, memcpy_htod};
     use rayon::prelude::*;
     use utils::{KeccakDigest, keccak256};
 
     use crate::cuda_keccak256;
 
     #[test]
-    #[ignore]
     fn test_cuda_keccak() {
         let t = std::time::Instant::now();
-        cuda_engine::init::<KoalaBear>(&[], 0);
+        cuda_init();
         println!("CUDA initialized in {} ms", t.elapsed().as_millis());
 
         let n_inputs = 10_000;
@@ -93,13 +85,10 @@ mod tests {
 
         let time = std::time::Instant::now();
         for i in 0..n_particular_hashes {
-            cuda_info()
-                .stream
-                .memcpy_dtoh(
-                    &output_dev.slice(particular_indexes[i]..1 + particular_indexes[i]),
-                    &mut particular_hashes[i],
-                )
-                .unwrap();
+            particular_hashes[i] =
+                memcpy_dtoh(&output_dev.slice(particular_indexes[i]..1 + particular_indexes[i]))
+                    .try_into()
+                    .unwrap();
         }
         cuda_sync();
         println!(

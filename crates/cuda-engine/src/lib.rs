@@ -3,5 +3,11 @@
 mod init;
 pub use init::*;
 
-mod utils;
-pub use utils::*;
+mod wrapper;
+pub use wrapper::*;
+
+mod ntt_preprocessing;
+pub use ntt_preprocessing::*;
+
+mod sumcheck_preprocessing;
+pub use sumcheck_preprocessing::*;

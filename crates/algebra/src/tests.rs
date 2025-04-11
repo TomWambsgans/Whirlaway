@@ -11,17 +11,8 @@ use p3_koala_bear::KoalaBear;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
-/*
-To run all the tests here:
-
-for test in test_cuda_hypercube_sum test_cuda_whir_fold test_cuda_eq_mle test_cuda_eval_multilinear_in_lagrange_basis test_cuda_eval_multilinear_in_monomial_basis test_cuda_keccak test_cuda_expanded_ntt test_cuda_expanded_ntt test_cuda_lagrange_to_monomial_basis test_cuda_monomial_to_lagrange_basis test_cuda_ntt test_cuda_restructure_evaluations; do
-  cargo test --release --package algebra --lib -- "tests::$test" --exact --nocapture --ignored
-done
-
-(TODO make `cargo test` work (the issue is that tests dont have the same cuda_init config))
-*/
 #[test]
-#[ignore]
+
 fn test_cuda_hypercube_sum() {
     type F = KoalaBear;
     const EXT_DEGREE: usize = 8;
@@ -43,9 +34,9 @@ fn test_cuda_hypercube_sum() {
         eq_mle_multiplier: false,
     };
     let time = std::time::Instant::now();
-    cuda_engine::init(&[sumcheck_computation.clone()], 0);
+    cuda_init();
+    cuda_preprocess_sumcheck_computation(&sumcheck_computation);
     println!("CUDA initialized in {} ms", time.elapsed().as_millis());
-    let cuda = cuda_info();
 
     let rng = &mut StdRng::seed_from_u64(0);
 
@@ -76,13 +67,7 @@ fn test_cuda_hypercube_sum() {
     let time = std::time::Instant::now();
     let multilinears_dev = multilinears
         .iter()
-        .map(|multilinear| {
-            let mut multiliner_dev = unsafe { cuda.stream.alloc::<EF>(1 << n_vars).unwrap() };
-            cuda.stream
-                .memcpy_htod(&multilinear.evals, &mut multiliner_dev)
-                .unwrap();
-            MultilinearDevice::new(multiliner_dev)
-        })
+        .map(|multilinear| MultilinearDevice::new(memcpy_htod(&multilinear.evals)))
         .collect::<Vec<_>>();
     let copy_duration = time.elapsed();
 
@@ -103,10 +88,9 @@ fn test_cuda_hypercube_sum() {
 }
 
 #[test]
-#[ignore]
-pub fn test_cuda_expanded_ntt() {
-    cuda_engine::init::<KoalaBear>(&[], 0);
 
+pub fn test_cuda_expanded_ntt() {
+    cuda_init();
     const EXT_DEGREE: usize = 8;
 
     type F = KoalaBear;
@@ -147,14 +131,14 @@ pub fn test_cuda_expanded_ntt() {
 }
 
 #[test]
-#[ignore]
+
 pub fn test_cuda_ntt() {
     const EXT_DEGREE: usize = 8;
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, EXT_DEGREE>;
 
-    cuda_engine::init::<F>(&[], 0);
+    cuda_init();
 
     let rng = &mut StdRng::seed_from_u64(0);
     let log_len = 15;
@@ -168,14 +152,14 @@ pub fn test_cuda_ntt() {
 }
 
 #[test]
-#[ignore]
+
 pub fn test_cuda_monomial_to_lagrange_basis() {
     const EXT_DEGREE: usize = 8;
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, EXT_DEGREE>;
 
-    cuda_engine::init::<F>(&[], 0);
+    cuda_init();
 
     let rng = &mut StdRng::seed_from_u64(0);
     let n_vars = 20;
@@ -204,14 +188,14 @@ pub fn test_cuda_monomial_to_lagrange_basis() {
 }
 
 #[test]
-#[ignore]
+
 pub fn test_cuda_lagrange_to_monomial_basis() {
     const EXT_DEGREE: usize = 8;
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, EXT_DEGREE>;
 
-    cuda_engine::init::<F>(&[], 0);
+    cuda_init();
 
     let rng = &mut StdRng::seed_from_u64(0);
     let n_vars = 20;
@@ -236,7 +220,7 @@ pub fn test_cuda_lagrange_to_monomial_basis() {
     assert_eq!(cuda_result, expected_result);
 }
 #[test]
-#[ignore]
+
 pub fn test_cuda_restructure_evaluations() {
     const EXT_DEGREE: usize = 8;
 
@@ -244,7 +228,8 @@ pub fn test_cuda_restructure_evaluations() {
     type EF = BinomialExtensionField<F, EXT_DEGREE>;
     let whir_folding_factor = 4;
 
-    cuda_engine::init::<F>(&[], whir_folding_factor);
+    cuda_init();
+    cuda_preprocess_all_twiddles::<F>(whir_folding_factor);
 
     let rng = &mut StdRng::seed_from_u64(0);
     let log_len = 24;
@@ -278,13 +263,13 @@ pub fn test_cuda_restructure_evaluations() {
 }
 
 #[test]
-#[ignore]
+
 pub fn test_cuda_eval_multilinear_in_monomial_basis() {
     const EXT_DEGREE: usize = 8;
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, EXT_DEGREE>;
-    cuda_engine::init::<F>(&[], 0);
+    cuda_init();
 
     let rng = &mut StdRng::seed_from_u64(0);
     let n_vars = 20;
@@ -310,13 +295,13 @@ pub fn test_cuda_eval_multilinear_in_monomial_basis() {
 }
 
 #[test]
-#[ignore]
+
 pub fn test_cuda_eval_multilinear_in_lagrange_basis() {
     const EXT_DEGREE: usize = 8;
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, EXT_DEGREE>;
-    cuda_engine::init::<F>(&[], 0);
+    cuda_init();
 
     let rng = &mut StdRng::seed_from_u64(0);
     let n_vars = 20;
@@ -342,13 +327,13 @@ pub fn test_cuda_eval_multilinear_in_lagrange_basis() {
 }
 
 #[test]
-#[ignore]
+
 pub fn test_cuda_eq_mle() {
     const EXT_DEGREE: usize = 8;
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, EXT_DEGREE>;
-    cuda_engine::init::<F>(&[], 0);
+    cuda_init();
 
     let rng = &mut StdRng::seed_from_u64(0);
     let n_vars = 3;
@@ -368,13 +353,13 @@ pub fn test_cuda_eq_mle() {
 }
 
 #[test]
-#[ignore]
+
 pub fn test_cuda_whir_fold() {
     const EXT_DEGREE: usize = 8;
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, EXT_DEGREE>;
-    cuda_engine::init::<F>(&[], 0);
+    cuda_init();
 
     let rng = &mut StdRng::seed_from_u64(0);
     let n_vars = 23;
@@ -401,13 +386,13 @@ pub fn test_cuda_whir_fold() {
 }
 
 #[test]
-#[ignore]
+
 fn test_cuda_fix_variable_in_small_field() {
     const EXT_DEGREE: usize = 8;
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, EXT_DEGREE>;
-    cuda_engine::init::<F>(&[], 0);
+    cuda_init();
 
     let rng = &mut StdRng::seed_from_u64(0);
     let n_vars = 5;

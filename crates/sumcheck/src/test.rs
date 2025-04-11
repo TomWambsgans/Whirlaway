@@ -1,6 +1,8 @@
 use algebra::pols::{Multilinear, MultilinearDevice, MultilinearHost, MultilinearsSlice};
 use arithmetic_circuit::{CircuitComputation, TransparentPolynomial};
-use cuda_engine::{SumcheckComputation, memcpy_htod};
+use cuda_engine::{
+    SumcheckComputation, cuda_init, cuda_preprocess_sumcheck_computation, memcpy_htod,
+};
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::{ExtensionField, Field, extension::BinomialExtensionField};
 use p3_koala_bear::KoalaBear;
@@ -9,32 +11,33 @@ use utils::powers;
 
 use super::*;
 
-// TODO make it work with F = KoalaBear
-type F = BinomialExtensionField<KoalaBear, 8>;
+// type F = KoalaBear;
 type EF = BinomialExtensionField<KoalaBear, 8>;
+
+// TODO make it work with multilinears in the prime field
 
 #[test]
 fn test_sumcheck() {
-    let n_vars = 15;
+    let n_vars = 10;
     let n_exprs = 10;
     let n_multilinears = 20;
     let rng = &mut StdRng::seed_from_u64(0);
     let exprs = (0..n_exprs)
-        .map(|_| TransparentPolynomial::random(rng, n_multilinears, 1).fix_computation(true))
+        .map(|_| {
+            TransparentPolynomial::<KoalaBear>::random(rng, n_multilinears, 1).fix_computation(true)
+        })
         .collect::<Vec<_>>();
 
-    cuda_engine::init::<KoalaBear>(
-        &[SumcheckComputation {
-            exprs: &exprs,
-            n_multilinears,
-            eq_mle_multiplier: false,
-        }],
-        0,
-    );
+    cuda_init();
+    cuda_preprocess_sumcheck_computation(&SumcheckComputation {
+        exprs: &exprs,
+        n_multilinears,
+        eq_mle_multiplier: false,
+    });
 
     for gpu in [true, false] {
         let multilinears_host = (0..n_multilinears)
-            .map(|_| MultilinearHost::<F>::random(rng, n_vars))
+            .map(|_| MultilinearHost::<EF>::random(rng, n_vars))
             .collect::<Vec<_>>();
         let batching_scalar: EF = rng.random();
         let batching_scalars = powers(batching_scalar, n_exprs);
