@@ -113,20 +113,31 @@ pub fn prove_poseidon2(log_n_rows: usize, security_bits: usize, log_inv_rate: us
 
     if cuda {
         let constraint_sumcheck_computations = SumcheckComputation {
-            inner: table.constraints.clone(),
+            exprs: &table.constraints,
             n_multilinears: table.n_columns * 2 + 1,
             eq_mle_multiplier: true,
         };
         let prod_sumcheck = SumcheckComputation {
-            inner: vec![
-                (ArithmeticCircuit::<F, _>::Node(0) * ArithmeticCircuit::Node(1))
-                    .fix_computation(false),
+            exprs: &[
+                (ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(1)).fix_computation(false)
             ],
             n_multilinears: 2,
             eq_mle_multiplier: false,
         };
+        let inner_air_sumcheck = SumcheckComputation {
+            exprs: &[((ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
+                + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3)))
+            .fix_computation(false)],
+            n_multilinears: 4,
+            eq_mle_multiplier: false,
+        };
+
         cuda_engine::init(
-            &[constraint_sumcheck_computations, prod_sumcheck],
+            &[
+                constraint_sumcheck_computations,
+                prod_sumcheck,
+                inner_air_sumcheck,
+            ],
             whir_params.folding_factor.as_constant().unwrap(), // TODO handle ConstantFromSecondRound
         );
     }
@@ -138,7 +149,7 @@ pub fn prove_poseidon2(log_n_rows: usize, security_bits: usize, log_inv_rate: us
 
     let t = Instant::now();
     let mut fs_prover = FsProver::new();
-    table.prove(&mut fs_prover, &pcs, &witness, cuda);
+    table.prove(&mut fs_prover, &pcs, witness, cuda);
     let proof_size = fs_prover.transcript_len();
 
     let prover_time = t.elapsed();

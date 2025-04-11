@@ -57,9 +57,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Committer<F, EF> {
                     self.0.mv_parameters.num_variables,
                 ))
             }));
-            if self.0.cuda {
-                cuda_sync();
-            }
+            cuda_sync();
             fs_prover.add_scalars(&ood_answers);
         }
 

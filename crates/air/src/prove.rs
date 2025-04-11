@@ -1,9 +1,6 @@
-use algebra::{
-    pols::MultilinearHost,
-    pols::{Multilinear, MultilinearDevice},
-};
+use algebra::pols::{Multilinear, MultilinearDevice, MultilinearHost, MultilinearsVec};
 use arithmetic_circuit::ArithmeticCircuit;
-use cuda_engine::memcpy_htod;
+use cuda_engine::{cuda_sync, memcpy_htod};
 use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};
 use pcs::PCS;
@@ -27,26 +24,37 @@ impl<F: Field> AirTable<F> {
         &self,
         fs_prover: &mut FsProver,
         pcs: &Pcs,
-        witness: &[MultilinearHost<F>],
+        witness_: Vec<MultilinearHost<F>>,
         cuda: bool,
     ) {
         let log_length = self.log_length;
-        assert!(witness.iter().all(|w| w.n_vars == log_length));
+        assert!(witness_.iter().all(|w| w.n_vars == log_length));
 
         // 1) Commit to the witness columns
 
-        // TODO avoid cloning (use a row major matrix for the witness)
-        let mut batch_evals = vec![F::ZERO; 1 << (log_length + self.log_n_witness_columns())];
-        for (i, poly) in witness.iter().enumerate() {
-            batch_evals[i << log_length..(i + 1) << log_length].copy_from_slice(&poly.evals);
-        }
-        let packed_pol: Multilinear<F> = if cuda {
-            MultilinearDevice::new(memcpy_htod(&batch_evals)).into()
+        let witness = if cuda {
+            MultilinearsVec::Device(
+                witness_
+                    .iter()
+                    .map(|w| MultilinearDevice::new(memcpy_htod(&w.evals)))
+                    .collect(),
+            )
         } else {
-            MultilinearHost::new(batch_evals).into()
+            MultilinearsVec::Host(witness_)
         };
 
+        // TODO avoid cloning (use a row major matrix for the witness)
+
+        let packed_pol = witness.as_ref().packed();
+        cuda_sync();
+
+        // let rng = &mut StdRng::seed_from_u64(0);
+        // dbg!(packed_pol.embed::<EF>().evaluate(&(0..packed_pol.n_vars()).map(|_| EF::random( rng)).collect::<Vec<EF>>()));
+
+        // dbg!(fs_prover.state_hex());
+
         let packed_pol_witness = pcs.commit(packed_pol, fs_prover);
+        // dbg!(fs_prover.state_hex());
 
         let constraints_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
         let constraints_batching_scalars =
@@ -54,44 +62,34 @@ impl<F: Field> AirTable<F> {
 
         let zerocheck_challenges = fs_prover.challenge_scalars::<EF>(log_length);
 
-        let preprocessed_and_witness = self
-            .preprocessed_columns
-            .iter()
-            .chain(witness)
-            .collect::<Vec<_>>();
+        let preprocessed_columns = if cuda {
+            MultilinearsVec::Device(
+                self.preprocessed_columns
+                    .iter()
+                    .map(|w| MultilinearDevice::new(memcpy_htod(&w.evals)))
+                    .collect(),
+            )
+        } else {
+            MultilinearsVec::Host(self.preprocessed_columns.clone())
+        };
+        let preprocessed_and_witness = preprocessed_columns.as_ref().chain(&witness.as_ref());
 
         let (outer_challenges, all_inner_sums) = {
             let _span = span!(Level::INFO, "outer sumcheck").entered();
-            if cuda {
-                // TODO do this directly in the GPU
-                let columns_up_and_down_dev = columns_up_and_down(&preprocessed_and_witness)
-                    .par_iter()
-                    .map(|w| MultilinearDevice::new(memcpy_htod(&w.embed::<EF>().evals))) // TODO avoid embedding
-                    .collect::<Vec<_>>();
-                sumcheck::prove_with_cuda(
-                    &columns_up_and_down_dev,
-                    &self.constraints,
-                    &constraints_batching_scalars,
-                    Some(&zerocheck_challenges),
-                    true,
-                    fs_prover,
-                    Some(EF::ZERO),
-                    None,
-                    0,
-                )
-            } else {
-                sumcheck::prove::<F, F, EF, _>(
-                    &columns_up_and_down(&preprocessed_and_witness),
-                    &self.constraints,
-                    &constraints_batching_scalars,
-                    Some(&zerocheck_challenges),
-                    true,
-                    fs_prover,
-                    Some(EF::ZERO),
-                    None,
-                    0,
-                )
-            }
+            sumcheck::prove(
+                columns_up_and_down(&preprocessed_and_witness)
+                    .as_ref()
+                    .embed::<EF>()
+                    .as_ref(), // TODO avoid this embedding
+                &self.constraints,
+                &constraints_batching_scalars,
+                Some(&zerocheck_challenges),
+                true,
+                fs_prover,
+                Some(EF::ZERO),
+                None,
+                0,
+            )
         };
 
         let _span = span!(Level::INFO, "inner sumchecks").entered();
@@ -103,25 +101,26 @@ impl<F: Field> AirTable<F> {
             .chain(inner_sums_down)
             .map(|s| s.evaluate::<EF>(&[]))
             .collect::<Vec<_>>();
+        cuda_sync();
         fs_prover.add_scalars(&inner_sums);
 
         let inner_sumcheck_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
 
+        let witness = witness.decompose();
         let mles_for_inner_sumcheck = {
-            let mut nodes =
-                Vec::<MultilinearHost<EF>>::with_capacity(self.n_witness_columns() * 2 + 2);
+            let mut nodes = Vec::<Multilinear<EF>>::with_capacity(self.n_witness_columns() * 2 + 2);
             let mut scalar = EF::ONE;
             for _ in 0..2 {
                 // up and down
-                let mut sum = MultilinearHost::<EF>::zero(log_length);
-                for w in witness {
+                let mut sum = Multilinear::<EF>::zero(log_length, cuda);
+                for w in &witness {
                     sum += w.scale(scalar);
                     scalar *= inner_sumcheck_batching_scalar;
                 }
                 nodes.push(sum);
             }
-            nodes.push(matrix_up_folded(&outer_challenges));
-            nodes.push(matrix_down_folded(&outer_challenges));
+            nodes.push(matrix_up_folded(&outer_challenges, cuda));
+            nodes.push(matrix_down_folded(&outer_challenges, cuda));
 
             nodes
         };
@@ -133,6 +132,7 @@ impl<F: Field> AirTable<F> {
             &inner_sums,
             &powers(inner_sumcheck_batching_scalar, self.n_witness_columns() * 2),
         );
+
         let (inner_challenges, _) = sumcheck::prove(
             &mles_for_inner_sumcheck,
             &[inner_sumcheck_circuit.fix_computation(false)],
@@ -147,8 +147,9 @@ impl<F: Field> AirTable<F> {
 
         let values = witness
             .par_iter()
-            .map(|w| w.evaluate(&inner_challenges))
+            .map(|w| w.embed::<EF>().evaluate(&inner_challenges)) // TODO avoid this embedding
             .collect::<Vec<_>>();
+        cuda_sync();
         fs_prover.add_scalars(&values);
 
         let final_random_scalars = fs_prover.challenge_scalars::<EF>(self.log_n_witness_columns());
@@ -172,16 +173,23 @@ impl<F: Field> AirTable<F> {
     }
 }
 
-fn matrix_up_folded<F: Field>(outer_challenges: &[F]) -> MultilinearHost<F> {
+/// Async
+fn matrix_up_folded<F: Field>(outer_challenges: &[F], on_device: bool) -> Multilinear<F> {
     let n = outer_challenges.len();
     let mut folded = MultilinearHost::eq_mle(&outer_challenges);
     let outer_challenges_prod: F = outer_challenges.iter().copied().product();
     folded.evals[(1 << n) - 1] -= outer_challenges_prod;
     folded.evals[(1 << n) - 2] += outer_challenges_prod;
-    folded
+
+    // TODO do it on the device directly
+    if on_device {
+        MultilinearDevice::new(memcpy_htod(&folded.evals)).into()
+    } else {
+        folded.into()
+    }
 }
 
-fn matrix_down_folded<F: Field>(outer_challenges: &[F]) -> MultilinearHost<F> {
+fn matrix_down_folded<F: Field>(outer_challenges: &[F], on_device: bool) -> Multilinear<F> {
     let n = outer_challenges.len();
     let mut folded = vec![F::ZERO; 1 << n];
     for k in 0..n {
@@ -198,5 +206,10 @@ fn matrix_down_folded<F: Field>(outer_challenges: &[F]) -> MultilinearHost<F> {
     // bottom left corner:
     folded[(1 << n) - 1] += outer_challenges.iter().copied().product::<F>();
 
-    MultilinearHost::new(folded)
+    // TODO do it on the device directly
+    if on_device {
+        MultilinearDevice::new(memcpy_htod(&folded)).into()
+    } else {
+        MultilinearHost::new(folded).into()
+    }
 }

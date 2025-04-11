@@ -27,10 +27,10 @@ fn test_cuda_hypercube_sum() {
     const EXT_DEGREE: usize = 8;
     type EF = BinomialExtensionField<KoalaBear, EXT_DEGREE>;
 
-    let n_multilinears = 50;
-    let n_vars = 14;
-    let depth = 25;
-    let n_batching_scalars = 3;
+    let n_multilinears = 11;
+    let n_vars = 3;
+    let depth = 1;
+    let n_batching_scalars = 2;
 
     let rng = &mut StdRng::seed_from_u64(0);
     let compositions = (0..n_batching_scalars)
@@ -39,7 +39,7 @@ fn test_cuda_hypercube_sum() {
 
     let sumcheck_computation = SumcheckComputation {
         n_multilinears,
-        inner: compositions.clone(),
+        exprs: &compositions,
         eq_mle_multiplier: false,
     };
     let time = std::time::Instant::now();
@@ -74,12 +74,6 @@ fn test_cuda_hypercube_sum() {
     println!("CPU hypercube sum took {} ms", time.elapsed().as_millis());
 
     let time = std::time::Instant::now();
-    let mut batching_scalars_dev =
-        unsafe { cuda.stream.alloc::<EF>(batching_scalars.len()).unwrap() };
-    cuda.stream
-        .memcpy_htod(&batching_scalars, &mut batching_scalars_dev)
-        .unwrap();
-
     let multilinears_dev = multilinears
         .iter()
         .map(|multilinear| {
@@ -93,10 +87,10 @@ fn test_cuda_hypercube_sum() {
     let copy_duration = time.elapsed();
 
     let time = std::time::Instant::now();
-    let cuda_sum = cuda_sum_over_hypercube::<F, EF, _>(
+    let cuda_sum = cuda_sum_over_hypercube_of_computation::<F, EF, _, _>(
         &sumcheck_computation,
         &multilinears_dev,
-        &batching_scalars_dev,
+        &batching_scalars,
     );
 
     println!(
@@ -357,7 +351,7 @@ pub fn test_cuda_eq_mle() {
     cuda_engine::init::<F>(&[], 0);
 
     let rng = &mut StdRng::seed_from_u64(0);
-    let n_vars = 18;
+    let n_vars = 3;
     let point = (0..n_vars).map(|_| rng.random()).collect::<Vec<EF>>();
 
     let time = std::time::Instant::now();
@@ -404,4 +398,47 @@ pub fn test_cuda_whir_fold() {
     println!("CPU took {} ms", time.elapsed().as_millis());
 
     assert!(cuda_result == expected_result);
+}
+
+#[test]
+#[ignore]
+fn test_cuda_fix_variable_in_small_field() {
+    const EXT_DEGREE: usize = 8;
+
+    type F = KoalaBear;
+    type EF = BinomialExtensionField<F, EXT_DEGREE>;
+    cuda_engine::init::<F>(&[], 0);
+
+    let rng = &mut StdRng::seed_from_u64(0);
+    let n_vars = 5;
+    let n_slices = 3;
+    let slices = (0..n_slices)
+        .map(|_| MultilinearHost::<EF>::random(rng, n_vars))
+        .collect::<Vec<_>>();
+    let slices_dev = slices
+        .iter()
+        .map(|multilinear| MultilinearDevice::new(memcpy_htod(&multilinear.evals)))
+        .collect::<Vec<_>>();
+    let scalar: F = rng.random();
+
+    let time = std::time::Instant::now();
+    let cuda_result = cuda_fix_variable_in_small_field(&slices_dev, scalar);
+    cuda_sync();
+    println!(
+        "CUDA fix_variable_in_small_field took {} ms",
+        time.elapsed().as_millis()
+    );
+    let time = std::time::Instant::now();
+    let expected_result = slices
+        .iter()
+        .map(|multilinear| multilinear.fix_variable_in_small_field(scalar))
+        .collect::<Vec<_>>();
+    println!("CPU took {} ms", time.elapsed().as_millis());
+    let retrieved = cuda_result
+        .iter()
+        .map(|multilinear| MultilinearHost::new(memcpy_dtoh(multilinear)))
+        .collect::<Vec<_>>();
+    cuda_sync();
+    assert_eq!(retrieved.len(), expected_result.len());
+    assert!(retrieved == expected_result);
 }

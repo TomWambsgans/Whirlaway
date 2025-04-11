@@ -58,7 +58,7 @@ impl<F: Field> TransparentPolynomial<F> {
         let build_instruction =
             |op: CircuitOp, left: ComputationInput<F>, right: ComputationInput<F>| {
                 if left.is_scalar() && right.is_scalar() {
-                    tracing::warn!("Instruction with more than one scalar input -> useless work");
+                    panic!("Instruction with more than one scalar input -> useless work");
                 }
                 let mut stack_size_guard = stack_size.borrow_mut();
                 instructions.borrow_mut().push(CircuitInstruction {

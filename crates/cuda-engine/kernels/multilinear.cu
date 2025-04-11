@@ -226,7 +226,7 @@ extern "C" __global__ void eq_mle(ExtField *point, const uint32_t n_vars, ExtFie
     }
 }
 
-extern "C" __global__ void scale_slice_in_place(ExtField *slice, const uint32_t len, ExtField *scalar)
+extern "C" __global__ void scale_ext_slice_in_place(ExtField *slice, const uint32_t len, ExtField *scalar)
 {
     const int total_n_threads = blockDim.x * gridDim.x;
 
@@ -239,6 +239,21 @@ extern "C" __global__ void scale_slice_in_place(ExtField *slice, const uint32_t 
             ExtField prod;
             ext_field_mul(&slice[threadIndex], scalar, &prod);
             slice[threadIndex] = prod;
+        }
+    }
+}
+
+extern "C" __global__ void scale_prime_slice_by_ext(uint32_t *slice, const uint32_t len, ExtField *scalar, ExtField *res)
+{
+    const int total_n_threads = blockDim.x * gridDim.x;
+
+    const int n_repetitions = (len + total_n_threads - 1) / total_n_threads;
+    for (int rep = 0; rep < n_repetitions; rep++)
+    {
+        const int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
+        if (threadIndex < len)
+        {
+            mul_prime_and_ext_field(scalar, slice[threadIndex], &res[threadIndex]);
         }
     }
 }
@@ -329,5 +344,45 @@ extern "C" __global__ void whir_fold(ExtField *coeffs, const uint32_t n_vars, co
             }
         }
         grid.sync();
+    }
+}
+
+// for the AIR columns
+extern "C" __global__ void multilinears_up(const uint32_t **columns, const uint32_t n_columns, const int n_vars, uint32_t **result)
+{
+    const int total_n_threads = blockDim.x * gridDim.x;
+    const int total = n_columns * (1 << n_vars);
+    const int n_repetitions = (total + total_n_threads - 1) / total_n_threads;
+    for (int rep = 0; rep < n_repetitions; rep++)
+    {
+        const int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
+        if (threadIndex < total)
+        {
+            const int column_index = threadIndex / (1 << n_vars);
+            int coeff_index = threadIndex % (1 << n_vars);
+            result[column_index][coeff_index] = coeff_index == (1 << n_vars) - 1
+                                                    ? columns[column_index][coeff_index - 1]
+                                                    : columns[column_index][coeff_index];
+        }
+    }
+}
+
+// for the AIR columns
+extern "C" __global__ void multilinears_down(uint32_t **columns, const uint32_t n_columns, const int n_vars, uint32_t **result)
+{
+    const int total_n_threads = blockDim.x * gridDim.x;
+    const int total = n_columns * (1 << n_vars);
+    const int n_repetitions = (total + total_n_threads - 1) / total_n_threads;
+    for (int rep = 0; rep < n_repetitions; rep++)
+    {
+        const int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
+        if (threadIndex < total)
+        {
+            const int column_index = threadIndex / (1 << n_vars);
+            int coeff_index = threadIndex % (1 << n_vars);
+            result[column_index][coeff_index] = coeff_index == (1 << n_vars) - 1
+                                                    ? columns[column_index][coeff_index]
+                                                    : columns[column_index][coeff_index + 1];
+        }
     }
 }

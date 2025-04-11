@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 #[inline(always)]
 pub const fn log2_up(x: usize) -> u32 {
     // rounded up
@@ -17,4 +19,9 @@ pub fn switch_endianness(mut x: usize, n: usize) -> usize {
         x >>= 1;
     }
     y
+}
+
+/// Deduplicates AND orders a vector
+pub fn dedup<T: Ord>(v: impl IntoIterator<Item = T>) -> Vec<T> {
+    Vec::from_iter(BTreeSet::from_iter(v))
 }

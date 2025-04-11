@@ -33,6 +33,10 @@ pub fn cuda_info() -> &'static CudaInfo {
     CUDA_INFO.get().expect("CUDA not initialized")
 }
 
+pub fn try_cuda_info() -> Option<&'static CudaInfo> {
+    CUDA_INFO.get()
+}
+
 impl CudaInfo {
     pub fn get_function(&self, module: &str, func_name: &str) -> &CudaFunction {
         self.functions
@@ -55,22 +59,22 @@ impl CudaInfo {
 }
 
 #[derive(Clone, Debug, Hash)]
-pub struct SumcheckComputation<F> {
-    pub inner: Vec<CircuitComputation<F>>, // each one is multiplied by a 'batching scalar'. We assume the first batching scalar is always 1.
-    pub n_multilinears: usize,             // including the eq_mle multiplier (if any)
+pub struct SumcheckComputation<'a, F> {
+    pub exprs: &'a [CircuitComputation<F>], // each one is multiplied by a 'batching scalar'. We assume the first batching scalar is always 1.
+    pub n_multilinears: usize,              // including the eq_mle multiplier (if any)
     pub eq_mle_multiplier: bool,
 }
 
-impl<F> SumcheckComputation<F> {
+impl<'a, F> SumcheckComputation<'a, F> {
     pub fn total_n_instructions(&self) -> usize {
-        self.inner.iter().map(|c| c.instructions.len()).sum()
+        self.exprs.iter().map(|c| c.instructions.len()).sum()
     }
 
     pub fn stack_size(&self) -> usize {
-        if self.inner.len() == 1 {
-            self.inner[0].stack_size
+        if self.exprs.len() == 1 {
+            self.exprs[0].stack_size
         } else {
-            2 + self.inner.iter().map(|c| c.stack_size).max().unwrap()
+            2 + self.exprs.iter().map(|c| c.stack_size).max().unwrap()
         }
     }
 
@@ -129,8 +133,8 @@ fn _init<F: TwoAdicField + PrimeField32>(
         (
             "sumcheck_folding",
             vec![
-                "fold_prime_by_prime",
-                "fold_prime_by_ext",
+                // "fold_prime_by_prime",
+                // "fold_prime_by_ext",
                 "fold_ext_by_prime",
                 "fold_ext_by_ext",
             ],
@@ -141,12 +145,15 @@ fn _init<F: TwoAdicField + PrimeField32>(
                 "monomial_to_lagrange_basis",
                 "lagrange_to_monomial_basis",
                 "eq_mle",
-                "scale_slice_in_place",
+                "scale_ext_slice_in_place",
+                "scale_prime_slice_by_ext",
                 "add_slices",
                 "add_assign_slices",
                 "whir_fold",
                 "eval_multilinear_in_lagrange_basis",
                 "eval_multilinear_in_monomial_basis",
+                "multilinears_up",
+                "multilinears_down",
             ],
         ),
     ] {
@@ -347,7 +354,7 @@ fn get_specialized_sumcheck_cuda<F: TwoAdicField + PrimeField32>(
         )
         .replace(
             "N_BATCHING_SCALARS_PLACEHOLDER",
-            &composition.inner.len().to_string(),
+            &composition.exprs.len().to_string(),
         )
         .replace("COMPOSITION_PLACEHOLDER", &composition_instructions)
 }
@@ -359,11 +366,11 @@ fn get_specialized_sumcheck_generic_instructions<F: TwoAdicField + PrimeField32>
     let blank = "            ";
     let total_stack_size = sumcheck_computation.stack_size();
 
-    for (i, inner) in sumcheck_computation.inner.iter().enumerate() {
+    for (i, inner) in sumcheck_computation.exprs.iter().enumerate() {
         res += &format!(
             "\n{blank}// computation {}/{}\n\n",
             i + 1,
-            sumcheck_computation.inner.len()
+            sumcheck_computation.exprs.len()
         );
         for instr in &inner.instructions {
             let op_str = match instr.op {
@@ -417,7 +424,7 @@ fn get_specialized_sumcheck_generic_instructions<F: TwoAdicField + PrimeField32>
             }
         }
 
-        if sumcheck_computation.inner.len() > 1 {
+        if sumcheck_computation.exprs.len() > 1 {
             if i == 0 {
                 res += &format!(
                     "{}regs[{}] = regs[{}];\n",

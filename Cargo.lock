@@ -17,11 +17,13 @@ version = "0.1.0"
 dependencies = [
  "algebra",
  "arithmetic-circuit",
+ "cuda-bindings",
  "cuda-engine",
  "fiat-shamir",
  "p3-field",
  "p3-koala-bear",
  "pcs",
+ "rand",
  "rayon",
  "sumcheck",
  "tracing",
@@ -60,7 +62,6 @@ dependencies = [
  "p3-field",
  "p3-koala-bear",
  "rand",
- "tracing",
  "utils",
 ]
 
@@ -693,13 +694,11 @@ version = "0.1.0"
 dependencies = [
  "algebra",
  "arithmetic-circuit",
- "cuda-bindings",
  "cuda-engine",
  "fiat-shamir",
  "p3-field",
  "p3-koala-bear",
  "rand",
- "rayon",
  "tracing",
  "utils",
 ]

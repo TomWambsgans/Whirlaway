@@ -1,7 +1,7 @@
 use algebra::pols::{Multilinear, MultilinearDevice};
 use algebra::{pols::MultilinearHost, tensor_algebra::TensorAlgebra};
 use arithmetic_circuit::TransparentPolynomial;
-use cuda_engine::memcpy_htod;
+use cuda_engine::{cuda_sync, memcpy_htod};
 use fiat_shamir::{FsError, FsProver, FsVerifier};
 use p3_field::{BasedVectorSpace, ExtensionField, Field};
 use sumcheck::SumcheckError;
@@ -95,6 +95,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
         let packed_point = &point[..point.len() - kappa];
 
         let s_hat = packed_pol.eval_mixed_tensor(&packed_point);
+        cuda_sync();
         fs_prover.add_scalar_matrix(&s_hat.data, true);
 
         let r_pp = fs_prover.challenge_scalars::<EF>(kappa);
@@ -119,42 +120,30 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
 
         // TODO A_pol in cuda
 
-        let s0 = dot_product(&s_hat.rows(), &lagranged_r_pp);
-        let (r_p, _) = match packed_pol {
-            Multilinear::Host(packed_pol) => sumcheck::prove::<EF, EF, EF, _>(
-                &[packed_pol, &A_pol],
-                &[
-                    (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
-                        .fix_computation(false),
-                ],
-                &[EF::ONE],
-                None,
-                false,
-                fs_prover,
-                Some(s0),
-                None,
-                0,
-            ),
-            Multilinear::Device(packed_pol) => {
-                let A_pol_dev = MultilinearDevice::new(memcpy_htod(&A_pol.evals)); // TODO bad (A pol should be constructed in cuda)
-                sumcheck::prove_with_cuda::<EF, EF, _>(
-                    &[packed_pol, &A_pol_dev],
-                    &[
-                        (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
-                            .fix_computation(false),
-                    ],
-                    &[EF::ONE],
-                    None,
-                    false,
-                    fs_prover,
-                    Some(s0),
-                    None,
-                    0,
-                )
-            }
+        let A_pol: Multilinear<EF> = if packed_pol.is_device() {
+            MultilinearDevice::new(memcpy_htod(&A_pol.evals)).into() // TODO bad (A pol should be constructed in cuda)
+        } else {
+            A_pol.into()
         };
 
+        let s0 = dot_product(&s_hat.rows(), &lagranged_r_pp);
+        let (r_p, _) = sumcheck::prove::<F, EF, EF, _>(
+            &vec![packed_pol, &A_pol],
+            &[
+                (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
+                    .fix_computation(false),
+            ],
+            &[EF::ONE],
+            None,
+            false,
+            fs_prover,
+            Some(s0),
+            None,
+            0,
+        );
+
         let packed_value = witness.inner_witness.pol().evaluate(&r_p);
+        cuda_sync();
         let packed_eval = Evaluation {
             point: r_p.clone(),
             value: packed_value,

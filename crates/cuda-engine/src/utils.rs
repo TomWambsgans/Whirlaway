@@ -1,6 +1,6 @@
 use std::{borrow::Borrow, ops::Range};
 
-use crate::cuda_info;
+use crate::{cuda_info, try_cuda_info};
 use cudarc::driver::DevicePtr;
 use cudarc::driver::{CudaSlice, DeviceRepr};
 
@@ -34,8 +34,9 @@ impl<T: DeviceRepr + Clone + Default> HostOrDeviceBuffer<T> {
     }
 }
 
+/// Does nothing if cuda has not been initialized
 pub fn cuda_sync() {
-    cuda_info().stream.synchronize().unwrap();
+    try_cuda_info().map(|cuda| cuda.stream.synchronize().unwrap());
 }
 
 /// Async
@@ -72,6 +73,7 @@ pub fn cuda_alloc<T: DeviceRepr>(size: usize) -> CudaSlice<T> {
 
 /// Async
 pub fn cuda_get_at_index<T: DeviceRepr + Default>(slice: &CudaSlice<T>, idx: usize) -> T {
+    assert!(idx < slice.len());
     let cuda = cuda_info();
     let mut dst = [T::default()];
     cuda.stream

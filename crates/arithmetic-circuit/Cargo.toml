@@ -6,7 +6,6 @@ edition.workspace = true
 [dependencies]
 p3-field.workspace = true
 rand.workspace = true
-tracing.workspace = true
 
 [dev-dependencies]
 p3-koala-bear.workspace = true

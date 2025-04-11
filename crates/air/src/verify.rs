@@ -6,7 +6,7 @@ use sumcheck::SumcheckError;
 use tracing::instrument;
 use utils::{Evaluation, dot_product, eq_extension, powers};
 
-use crate::utils::{column_down, column_up};
+use crate::utils::{column_down_host, column_up_host};
 
 use super::{
     table::AirTable,
@@ -70,12 +70,12 @@ impl<F: Field> AirTable<F> {
         let preprocessed_up = self
             .preprocessed_columns
             .iter()
-            .map(|c| column_up(c).evaluate(&outer_sumcheck_challenge.point))
+            .map(|c| column_up_host(c).evaluate(&outer_sumcheck_challenge.point))
             .collect::<Vec<_>>();
         let preprocessed_down = self
             .preprocessed_columns
             .iter()
-            .map(|c| column_down(c).evaluate(&outer_sumcheck_challenge.point))
+            .map(|c| column_down_host(c).evaluate(&outer_sumcheck_challenge.point))
             .collect::<Vec<_>>();
 
         let global_point = [

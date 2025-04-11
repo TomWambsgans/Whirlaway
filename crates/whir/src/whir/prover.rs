@@ -1,5 +1,5 @@
 use super::{Statement, committer::Witness, parameters::WhirConfig};
-use crate::{domain::Domain, utils::sumcheck_prove_with_cuda_or_cpu};
+use crate::domain::Domain;
 use algebra::{
     pols::CoefficientListHost,
     pols::{CoefficientList, Multilinear},
@@ -82,7 +82,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
             let pow_bits = self.0.starting_folding_pow_bits;
             let sum = dot_product(&initial_answers, &combination_randomness);
             let mut folding_randomness;
-            (folding_randomness, sumcheck_mles) = sumcheck_prove_with_cuda_or_cpu(
+            (folding_randomness, sumcheck_mles) = sumcheck::prove(
                 &nodes,
                 &[
                     (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
@@ -95,7 +95,6 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
                 Some(sum),
                 n_rounds,
                 pow_bits,
-                self.0.cuda,
             );
             folding_randomness.reverse();
             folding_randomness
@@ -152,9 +151,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
                         .slice(i * fold_size..(i + 1) * fold_size)
                 })
                 .collect::<Vec<_>>();
-            if self.0.cuda {
-                cuda_sync();
-            }
+            cuda_sync();
             fs_prover.add_variable_bytes(&merkle_proof.to_bytes());
             fs_prover.add_scalar_matrix(&answers, false);
 
@@ -167,7 +164,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
             if self.0.final_sumcheck_rounds > 0 {
                 let n_rounds = Some(self.0.final_sumcheck_rounds);
                 let pow_bits = self.0.final_folding_pow_bits;
-                (_, round_state.sumcheck_mles) = sumcheck_prove_with_cuda_or_cpu(
+                (_, round_state.sumcheck_mles) = sumcheck::prove(
                     &round_state.sumcheck_mles,
                     &[
                         (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
@@ -180,7 +177,6 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
                     None,
                     n_rounds,
                     pow_bits,
-                    self.0.cuda,
                 ); // TODO sum could be known, currently it is recomputed
             }
 
@@ -254,9 +250,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
                     .slice(i * fold_size..(i + 1) * fold_size)
             })
             .collect();
-        if self.0.cuda {
-            cuda_sync();
-        }
+        cuda_sync();
         // Evaluate answers in the folding randomness.
         let mut stir_evaluations = ood_answers.clone();
         stir_evaluations.extend(answers.iter().map(|answers| {
@@ -282,7 +276,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
             randomized_eq_extensions(&stir_challenges, &combination_randomness, self.0.cuda);
 
         let mut folding_randomness;
-        (folding_randomness, round_state.sumcheck_mles) = sumcheck_prove_with_cuda_or_cpu(
+        (folding_randomness, round_state.sumcheck_mles) = sumcheck::prove(
             &round_state.sumcheck_mles,
             &[
                 (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
@@ -295,7 +289,6 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
             None, // TODO sum could be known, currently it is recomputed
             Some(self.0.folding_factor.at_round(round_state.round + 1)),
             round_params.folding_pow_bits,
-            self.0.cuda,
         );
         folding_randomness.reverse();
 
@@ -342,8 +335,6 @@ fn randomized_eq_extensions<F: Field>(
         eq_mle.scale_in_place(*randomness_coef);
         res += eq_mle;
     }
-    if cuda {
-        cuda_sync();
-    }
+    cuda_sync();
     res
 }

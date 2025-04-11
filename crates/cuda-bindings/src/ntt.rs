@@ -4,7 +4,7 @@ use cudarc::driver::{CudaSlice, LaunchConfig, PushKernelArg};
 use p3_field::Field;
 use tracing::instrument;
 
-use crate::MAX_LOG_N_BLOCKS;
+use crate::MAX_LOG_N_COOPERATIVE_BLOCKS;
 
 // TODO this value is also hardcoded in ntt.cuda, this is ugly
 const NTT_LOG_N_THREADS_PER_BLOCK: u32 = 8;
@@ -22,8 +22,9 @@ pub fn cuda_expanded_ntt<F: Field>(coeffs: &CudaSlice<F>, expansion_factor: usiz
     let log_len = coeffs.len().trailing_zeros() as u32;
     let log_expension_factor = expansion_factor.trailing_zeros() as u32;
 
-    let log_n_blocks =
-        (log_len + log_expension_factor - NTT_LOG_N_THREADS_PER_BLOCK - 1).min(MAX_LOG_N_BLOCKS);
+    let log_n_blocks = ((log_len + log_expension_factor)
+        .saturating_sub(NTT_LOG_N_THREADS_PER_BLOCK + 1))
+    .min(MAX_LOG_N_COOPERATIVE_BLOCKS);
     let n_blocks = 1 << log_n_blocks;
 
     assert!(
@@ -66,7 +67,8 @@ pub fn cuda_ntt<F: Field>(coeffs: &[F], log_chunck_size: usize) -> Vec<F> {
 
     let log_len = coeffs.len().trailing_zeros() as u32;
 
-    let log_n_blocks = (log_len - NTT_LOG_N_THREADS_PER_BLOCK - 1).min(MAX_LOG_N_BLOCKS);
+    let log_n_blocks =
+        (log_len - NTT_LOG_N_THREADS_PER_BLOCK - 1).min(MAX_LOG_N_COOPERATIVE_BLOCKS);
     let n_blocks = 1 << log_n_blocks;
 
     assert!(log_len <= cuda.two_adicity as u32, "NTT to big");
@@ -109,7 +111,8 @@ pub fn cuda_restructure_evaluations<F: Field>(
 
     let log_len = coeffs.len().trailing_zeros() as u32;
 
-    let log_n_blocks = (log_len - NTT_LOG_N_THREADS_PER_BLOCK - 1).min(MAX_LOG_N_BLOCKS);
+    let log_n_blocks =
+        (log_len.saturating_sub(NTT_LOG_N_THREADS_PER_BLOCK + 1)).min(MAX_LOG_N_COOPERATIVE_BLOCKS);
     let n_blocks = 1 << log_n_blocks;
 
     assert!(log_len <= cuda.two_adicity as u32, "NTT to big");
