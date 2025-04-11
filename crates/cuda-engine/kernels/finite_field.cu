@@ -66,7 +66,7 @@ __device__ void print_ext_field(const ExtField *a)
 {
     for (int i = 0; i < EXT_DEGREE; i++)
     {
-        printf("%u ", a->coeffs[i]);
+        printf("%u ", monty_reduce(a->coeffs[i]));
     }
     printf("\n");
 }

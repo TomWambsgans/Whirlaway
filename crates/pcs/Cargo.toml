@@ -12,7 +12,13 @@ tracing.workspace = true
 merkle-tree.workspace = true
 whir.workspace = true
 rayon.workspace = true
+utils.workspace = true
+cuda-bindings.workspace = true
+cuda-engine.workspace = true
+arithmetic-circuit.workspace = true
 
 [dev-dependencies]
 p3-koala-bear.workspace = true
 rand.workspace = true
+tracing-subscriber.workspace = true
+tracing-forest.workspace = true

@@ -1,4 +1,3 @@
-use super::super::utils::is_power_of_two;
 use super::{MatrixMut, utils::workload_size};
 use std::mem::swap;
 
@@ -11,9 +10,9 @@ use rayon::join;
 /// Will batch transpose multiple matrices if the length of the slice is a multiple of rows * cols.
 /// This algorithm assumes that both rows and cols are powers of two.
 pub fn transpose<F: Sized + Copy + Send>(matrix: &mut [F], rows: usize, cols: usize) {
-    debug_assert_eq!(matrix.len() % (rows * cols), 0);
-    debug_assert!(is_power_of_two(rows));
-    debug_assert!(is_power_of_two(cols));
+    assert_eq!(matrix.len() % (rows * cols), 0);
+    assert!(rows.is_power_of_two());
+    assert!(cols.is_power_of_two());
     // eprintln!(
     //     "Transpose {} x {rows} x {cols} matrix.",
     //     matrix.len() / (rows * cols)
@@ -92,7 +91,7 @@ fn transpose_square_swap<F: Sized + Send>(mut a: MatrixMut<F>, mut b: MatrixMut<
     debug_assert!(a.is_square());
     debug_assert_eq!(a.rows(), b.cols());
     debug_assert_eq!(a.cols(), b.rows());
-    debug_assert!(is_power_of_two(a.rows()));
+    debug_assert!(a.rows().is_power_of_two());
     debug_assert!(workload_size::<F>() >= 2); // otherwise, we would recurse even if size == 1.
     let size = a.rows();
     if 2 * size * size > workload_size::<F>() {

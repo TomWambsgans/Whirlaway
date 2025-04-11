@@ -1,63 +1,36 @@
-use algebra::{
-    pols::{
-        CircuitComputation, HypercubePoint, MultilinearPolynomial, PartialHypercubePoint,
-        UnivariatePolynomial,
-    },
-    utils::eq_extension,
-};
+use std::any::TypeId;
+
+use algebra::pols::{Multilinear, MultilinearsSlice, MultilinearsVec, UnivariatePolynomial};
+use arithmetic_circuit::CircuitComputation;
+use cuda_engine::{SumcheckComputation, cuda_sync};
 use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};
-use rayon::prelude::*;
+use utils::eq_extension;
 
-use crate::{eval_batched_exprs_on_partial_hypercube, sum_batched_exprs_over_hypercube};
+const MIN_VARS_FOR_GPU: usize = 9; // When there are a small number of variables, it's not worth using GPU
 
-pub fn prove<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionField<F>>(
-    multilinears: Vec<MultilinearPolynomial<NF>>,
-    exprs: &[CircuitComputation<F>],
-    batching_scalars: &[EF],
-    eq_factor: Option<&[EF]>,
-    is_zerofier: bool,
-    fs_prover: &mut FsProver,
-    sum: Option<EF>,
-    n_rounds: Option<usize>,
-    pow_bits: usize,
-) -> (Vec<EF>, Vec<MultilinearPolynomial<EF>>) {
-    prove_with_initial_rounds(
-        multilinears,
-        exprs,
-        batching_scalars,
-        eq_factor,
-        Vec::new(),
-        is_zerofier,
-        fs_prover,
-        sum,
-        n_rounds,
-        pow_bits,
-    )
-}
-
-pub fn prove_with_initial_rounds<
+pub fn prove<
+    'a,
     F: Field,
     NF: ExtensionField<F>,
     EF: ExtensionField<NF> + ExtensionField<F>,
+    ML: Into<MultilinearsSlice<'a, NF>>,
 >(
-    multilinears: Vec<MultilinearPolynomial<NF>>,
+    multilinears: ML,
     exprs: &[CircuitComputation<F>],
     batching_scalars: &[EF],
     eq_factor: Option<&[EF]>,
-    mut challenges: Vec<EF>,
     is_zerofier: bool,
     fs_prover: &mut FsProver,
     sum: Option<EF>,
     n_rounds: Option<usize>,
     pow_bits: usize,
-) -> (Vec<EF>, Vec<MultilinearPolynomial<EF>>) {
-    let mut n_vars = multilinears[0].n_vars;
-    assert!(multilinears.iter().all(|m| m.n_vars == n_vars));
-    assert_eq!(exprs.len(), batching_scalars.len());
-    assert!(batching_scalars[0].is_one());
+) -> (Vec<EF>, Vec<Multilinear<EF>>) {
+    let multilinears: MultilinearsSlice<'_, _> = multilinears.into();
+    let on_device = multilinears.is_device();
+    let mut n_vars = multilinears.n_vars();
 
-    let starting_round = challenges.len();
+    let mut challenges = Vec::new();
     let n_rounds = n_rounds.unwrap_or(n_vars);
     let max_degree_per_vars = exprs
         .iter()
@@ -65,17 +38,24 @@ pub fn prove_with_initial_rounds<
         .max_by_key(|d| *d)
         .unwrap();
     if let Some(eq_factor) = &eq_factor {
-        assert_eq!(eq_factor.len(), n_vars + starting_round);
+        assert_eq!(eq_factor.len(), n_vars);
     }
+
+    let sumcheck_computation = SumcheckComputation {
+        exprs: &exprs,
+        n_multilinears: multilinears.len() + eq_factor.is_some() as usize,
+        eq_mle_multiplier: eq_factor.is_some(),
+    };
+
     let mut sum = sum.unwrap_or_else(|| {
-        sum_batched_exprs_over_hypercube(&multilinears, n_vars, exprs, batching_scalars)
+        multilinears.sum_over_hypercube_of_computation(&sumcheck_computation, batching_scalars)
     });
     let mut folded_multilinears;
 
     folded_multilinears = sc_round(
-        multilinears,
+        &multilinears,
         &mut n_vars,
-        exprs,
+        &sumcheck_computation,
         batching_scalars,
         eq_factor,
         is_zerofier,
@@ -84,13 +64,21 @@ pub fn prove_with_initial_rounds<
         &mut sum,
         pow_bits,
         &mut challenges,
-        starting_round,
+        0,
     );
-    for i in starting_round + 1..n_rounds {
+
+    let mut need_to_transfer_back_to_device = false;
+    for i in 1..n_rounds {
+        if on_device && n_vars < MIN_VARS_FOR_GPU {
+            // transfer GPU -> CPU
+            folded_multilinears = folded_multilinears.transfer_to_host();
+            need_to_transfer_back_to_device = true;
+        }
+
         folded_multilinears = sc_round(
-            folded_multilinears,
+            &folded_multilinears.as_ref(),
             &mut n_vars,
-            exprs,
+            &sumcheck_computation,
             batching_scalars,
             eq_factor,
             is_zerofier,
@@ -101,14 +89,18 @@ pub fn prove_with_initial_rounds<
             &mut challenges,
             i,
         );
+
+        if need_to_transfer_back_to_device {
+            folded_multilinears = folded_multilinears.transfer_to_device();
+        }
     }
-    (challenges, folded_multilinears)
+    (challenges, folded_multilinears.decompose())
 }
 
-fn sc_round<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionField<F>>(
-    multilinears: Vec<MultilinearPolynomial<NF>>,
+fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionField<F>>(
+    multilinears: &MultilinearsSlice<'a, NF>,
     n_vars: &mut usize,
-    exprs: &[CircuitComputation<F>],
+    sumcheck_computation: &SumcheckComputation<F>,
     batching_scalars: &[EF],
     eq_factor: Option<&[EF]>,
     is_zerofier: bool,
@@ -118,18 +110,15 @@ fn sc_round<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionF
     pow_bits: usize,
     challenges: &mut Vec<EF>,
     round: usize,
-) -> Vec<MultilinearPolynomial<EF>> {
+) -> MultilinearsVec<EF> {
     let _span = if *n_vars >= 6 {
         Some(tracing::span!(tracing::Level::INFO, "Sumcheck round").entered())
     } else {
         None
     };
     let mut p_evals = Vec::<(EF, EF)>::new();
-    let eq_mle = if let Some(eq_factor) = &eq_factor {
-        MultilinearPolynomial::eq_mle(&eq_factor[1 + round..])
-    } else {
-        MultilinearPolynomial::zero(0)
-    };
+    let eq_mle = eq_factor
+        .map(|eq_factor| Multilinear::eq_mle(&eq_factor[1 + round..], multilinears.is_device()));
 
     let start = if is_zerofier && round == 0 {
         p_evals.push((EF::ZERO, EF::ZERO));
@@ -139,6 +128,7 @@ fn sc_round<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionF
         0
     };
     for z in start..=degree as u32 {
+        cuda_sync(); // I don't really understand why it is neccesary but it is
         let sum_z = if z == 1 {
             if let Some(eq_factor) = eq_factor {
                 let f = eq_extension(&eq_factor[..round], &challenges);
@@ -147,34 +137,26 @@ fn sc_round<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionF
                 *sum - p_evals[0].1
             }
         } else {
-            if eq_factor.is_some() {
-                (0..1 << (*n_vars - 1))
-                    .into_par_iter()
-                    .map(|x| {
-                        eval_batched_exprs_on_partial_hypercube(
-                            &multilinears,
-                            exprs,
-                            batching_scalars,
-                            &PartialHypercubePoint::new(z, *n_vars - 1, x),
-                        ) * eq_mle.eval_hypercube(&HypercubePoint::new(eq_mle.n_vars, x))
-                    })
-                    .sum::<EF>()
+            let folded = multilinears.fix_variable_in_small_field(F::from_u32(z as u32));
+
+            // TODO very bad
+            let mut folded = if TypeId::of::<NF>() == TypeId::of::<EF>() {
+                unsafe { std::mem::transmute::<_, MultilinearsVec<EF>>(folded) }
             } else {
-                (0..1 << (*n_vars - 1))
-                    .into_par_iter()
-                    .map(|x| {
-                        eval_batched_exprs_on_partial_hypercube(
-                            &multilinears,
-                            exprs,
-                            batching_scalars,
-                            &PartialHypercubePoint::new(z, *n_vars - 1, x),
-                        )
-                    })
-                    .sum::<EF>()
+                panic!()
+            };
+
+            if let Some(eq_mle) = &eq_mle {
+                folded.push(eq_mle.clone()); // TODO avoid clone
             }
+
+            folded
+                .as_ref()
+                .sum_over_hypercube_of_computation(sumcheck_computation, batching_scalars)
         };
         p_evals.push((EF::from_u32(z), sum_z));
     }
+    cuda_sync();
 
     let mut p = UnivariatePolynomial::lagrange_interpolation(&p_evals).unwrap();
 
@@ -199,8 +181,5 @@ fn sc_round<F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionF
         fs_prover.challenge_pow(pow_bits);
     }
 
-    multilinears
-        .into_iter()
-        .map(|pol| pol.fix_variable(challenge))
-        .collect()
+    multilinears.fix_variable_in_big_field(challenge)
 }

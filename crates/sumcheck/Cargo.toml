@@ -7,9 +7,10 @@ edition.workspace = true
 fiat-shamir.workspace = true
 algebra.workspace = true
 p3-field.workspace = true
-rayon.workspace = true
 tracing.workspace = true
-cuda-bindings.workspace = true
+arithmetic-circuit.workspace = true
+utils.workspace = true
+cuda-engine.workspace = true
 
 [dev-dependencies]
 p3-koala-bear.workspace = true

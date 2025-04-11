@@ -1,15 +1,12 @@
-use algebra::{
-    pols::{Evaluation, MultilinearPolynomial},
-    utils::powers,
-    utils::{dot_product, eq_extension},
-};
+use algebra::pols::MultilinearHost;
 use fiat_shamir::{FsError, FsVerifier};
 use p3_field::{ExtensionField, Field};
 use pcs::PCS;
 use sumcheck::SumcheckError;
 use tracing::instrument;
+use utils::{Evaluation, dot_product, eq_extension, powers};
 
-use crate::utils::{column_down, column_up};
+use crate::utils::{column_down_host, column_up_host};
 
 use super::{
     table::AirTable,
@@ -73,12 +70,12 @@ impl<F: Field> AirTable<F> {
         let preprocessed_up = self
             .preprocessed_columns
             .iter()
-            .map(|c| column_up(c).eval(&outer_sumcheck_challenge.point))
+            .map(|c| column_up_host(c).evaluate(&outer_sumcheck_challenge.point))
             .collect::<Vec<_>>();
         let preprocessed_down = self
             .preprocessed_columns
             .iter()
-            .map(|c| column_down(c).eval(&outer_sumcheck_challenge.point))
+            .map(|c| column_down_host(c).evaluate(&outer_sumcheck_challenge.point))
             .collect::<Vec<_>>();
 
         let global_point = [
@@ -146,14 +143,14 @@ impl<F: Field> AirTable<F> {
             fs_verifier.challenge_scalars::<EF>(self.log_n_witness_columns());
         let final_point = [final_random_scalars.clone(), inner_sumcheck_challenge.point].concat();
 
-        let packed_value = MultilinearPolynomial::new(
+        let packed_value = MultilinearHost::new(
             [
                 final_inner_claims,
                 vec![EF::ZERO; (1 << self.log_n_witness_columns()) - self.n_witness_columns()],
             ]
             .concat(),
         )
-        .eval(&final_random_scalars);
+        .evaluate(&final_random_scalars);
         let packed_eval = Evaluation {
             point: final_point,
             value: packed_value,

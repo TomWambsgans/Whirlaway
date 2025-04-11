@@ -1,6 +1,10 @@
 use ::air::{AirBuilder, AirExpr};
-use algebra::pols::MultilinearPolynomial;
-use cuda_bindings::SumcheckComputation;
+use algebra::pols::MultilinearHost;
+use arithmetic_circuit::ArithmeticCircuit;
+use cuda_engine::{
+    SumcheckComputation, cuda_init, cuda_preprocess_all_twiddles,
+    cuda_preprocess_sumcheck_computation,
+};
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear};
@@ -103,7 +107,7 @@ pub fn prove_poseidon2(log_n_rows: usize, security_bits: usize, log_inv_rate: us
 
     let witness = witness_matrix
         .rows()
-        .map(|col| MultilinearPolynomial::new(col.collect()))
+        .map(|col| MultilinearHost::new(col.collect()))
         .collect::<Vec<_>>();
 
     let table = air_builder.build();
@@ -111,15 +115,30 @@ pub fn prove_poseidon2(log_n_rows: usize, security_bits: usize, log_inv_rate: us
     // table.check_validity(&witness);
 
     if cuda {
-        let sumcheck_computations = SumcheckComputation {
-            inner: table.constraints.clone(),
+        let constraint_sumcheck_computations = SumcheckComputation::<F> {
+            exprs: &table.constraints,
             n_multilinears: table.n_columns * 2 + 1,
             eq_mle_multiplier: true,
         };
-        cuda_bindings::init(
-            &[sumcheck_computations],
-            whir_params.folding_factor.as_constant().unwrap(), // TODO handle ConstantFromSecondRound
-        );
+        let prod_sumcheck = SumcheckComputation::<F> {
+            exprs: &[
+                (ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(1)).fix_computation(false)
+            ],
+            n_multilinears: 2,
+            eq_mle_multiplier: false,
+        };
+        let inner_air_sumcheck = SumcheckComputation::<F> {
+            exprs: &[((ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
+                + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3)))
+            .fix_computation(false)],
+            n_multilinears: 4,
+            eq_mle_multiplier: false,
+        };
+        cuda_init();
+        cuda_preprocess_sumcheck_computation(&constraint_sumcheck_computations);
+        cuda_preprocess_sumcheck_computation(&prod_sumcheck);
+        cuda_preprocess_sumcheck_computation(&inner_air_sumcheck);
+        cuda_preprocess_all_twiddles::<F>(whir_params.folding_factor.as_constant().unwrap()); // TODO handle ConstantFromSecondRound
     }
 
     let pcs = RingSwitch::<F, EF, WhirPCS<F, EF>>::new(
@@ -129,7 +148,7 @@ pub fn prove_poseidon2(log_n_rows: usize, security_bits: usize, log_inv_rate: us
 
     let t = Instant::now();
     let mut fs_prover = FsProver::new();
-    table.prove(&mut fs_prover, &pcs, &witness, cuda);
+    table.prove(&mut fs_prover, &pcs, witness, cuda);
     let proof_size = fs_prover.transcript_len();
 
     let prover_time = t.elapsed();

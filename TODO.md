@@ -5,6 +5,9 @@
 - improve serialization / deserialization of field elements, improve fiat shamir
 - https://eprint.iacr.org/2024/108.pdf section 3
 - We can probably send less data in the first AIR sumcheck, with univariate skip, and the "current row" / "next row" reductions
+- eval_mixed_tensor in cuda
+- A_pol in cuda (in ring siwtch)
+- matrix_up_folded / matrix_down_folded in cuda
 
 - Univariate skip (done in rust (cf git history)), but the goal is to have it in cuda
 

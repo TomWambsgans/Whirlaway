@@ -13,6 +13,7 @@ members = ["crates/*"]
 [workspace.dependencies]
 # Local
 cuda-bindings = { path = "crates/cuda-bindings" }
+cuda-engine = { path = "crates/cuda-engine" }
 whir = { path = "crates/whir" }
 fiat-shamir = { path = "crates/fiat-shamir" }
 algebra = { path = "crates/algebra" }
@@ -20,6 +21,8 @@ merkle-tree = { path = "crates/merkle-tree" }
 pcs = { path = "crates/pcs" }
 air = { path = "crates/air" }
 sumcheck = { path = "crates/sumcheck" }
+arithmetic-circuit = { path = "crates/arithmetic-circuit" }
+utils = { path = "crates/utils" }
 
 # External
 rand = "0.9.0"
@@ -28,7 +31,7 @@ rayon = "1.5.1"
 ahash = { version = "0.8", default-features = false }
 fnv = { version = "1.0", default-features = false }
 serde = { version = "1.0.219", features = ["derive"] }
-# derive_more = { version = "2.0.1", features = ["full"] }
+derive_more = { version = "2.0.1", features = ["full"] }
 lazy_static = "1.4.0"
 tracing = "0.1.26"
 tracing-subscriber = { version = "0.3.19", features = ["std", "env-filter"] }
@@ -38,9 +41,9 @@ p3-field = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "koal
 p3-poseidon2 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "koala-bear-8" }
 p3-matrix = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "koala-bear-8" }
 cudarc = { version = "0.14.0", features = ["cuda-12040", "std", "cublas", "cublaslt", "curand", "driver", "runtime", "nvrtc"] }
+regex = { version = "1.11.1" }
 
 [dependencies]
-cuda-bindings.workspace = true
 pcs.workspace = true
 fiat-shamir.workspace = true
 algebra.workspace = true
@@ -54,3 +57,5 @@ rayon.workspace = true
 p3-matrix.workspace = true
 tracing-forest.workspace = true
 tracing-subscriber.workspace = true
+arithmetic-circuit.workspace = true
+cuda-engine.workspace = true

@@ -10,7 +10,12 @@ tracing.workspace = true
 fiat-shamir.workspace = true
 pcs.workspace = true
 sumcheck.workspace = true
+utils.workspace = true
 rayon.workspace = true
+cuda-bindings.workspace = true
+cuda-engine.workspace = true
+arithmetic-circuit.workspace = true
 
 [dev-dependencies]
 p3-koala-bear.workspace = true
+rand.workspace = true

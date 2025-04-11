@@ -1,9 +1,7 @@
-use algebra::{
-    pols::{CoefficientList, Evaluation, MultilinearPolynomial},
-    utils::KeccakDigest,
-};
+use algebra::pols::Multilinear;
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::{ExtensionField, Field, TwoAdicField};
+use utils::{Evaluation, KeccakDigest};
 use whir::{
     parameters::MultivariateParameters,
     whir::{
@@ -26,12 +24,12 @@ pub struct WhirPCS<F: TwoAdicField, EF: ExtensionField<F>> {
 
 pub struct WhirWitness<F: Field> {
     // TODO avoid duplication
-    pub pol: MultilinearPolynomial<F>,
+    pub pol: Multilinear<F>,
     pub inner: whir::whir::committer::Witness<F>,
 }
 
 impl<EF: Field> PcsWitness<EF> for WhirWitness<EF> {
-    fn pol(&self) -> &MultilinearPolynomial<EF> {
+    fn pol(&self) -> &Multilinear<EF> {
         &self.pol
     }
 }
@@ -49,10 +47,11 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> PCS<EF, EF> for WhirPCS<F, EF> {
         Self { config }
     }
 
-    fn commit(&self, pol: MultilinearPolynomial<EF>, fs_prover: &mut FsProver) -> Self::Witness {
+    fn commit(&self, pol: impl Into<Multilinear<EF>>, fs_prover: &mut FsProver) -> Self::Witness {
         let committer = Committer::new(self.config.clone());
+        let pol: Multilinear<EF> = pol.into();
         let inner = committer
-            .commit(fs_prover, CoefficientList::new(pol.clone().as_coefs()))
+            .commit(fs_prover, pol.to_monomial_basis())
             .unwrap();
         WhirWitness { pol, inner }
     }
@@ -91,16 +90,29 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> PCS<EF, EF> for WhirPCS<F, EF> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use algebra::pols::MultilinearHost;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_koala_bear::KoalaBear;
+    use tracing_forest::{ForestLayer, util::LevelFilter};
+    use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, 8>;
+
     #[test]
     fn test_whir_pcs() {
-        let n_vars = 10;
-        let security_bits = 100;
-        let log_inv_rate = 4;
+        let env_filter = EnvFilter::builder()
+            .with_default_directive(LevelFilter::INFO.into())
+            .from_env_lossy();
+
+        Registry::default()
+            .with(env_filter)
+            .with(ForestLayer::default())
+            .init();
+
+        let n_vars = 20;
+        let security_bits = 128;
+        let log_inv_rate = 3;
         let pcs = WhirPCS::<F, EF>::new(
             n_vars,
             &WhirParameters::standard(security_bits, log_inv_rate, false),
@@ -111,11 +123,11 @@ mod test {
         let evals = (0..1 << n_vars)
             .map(|x| EF::from_u64(x as u64))
             .collect::<Vec<_>>();
-        let pol = MultilinearPolynomial::new(evals);
+        let pol = MultilinearHost::new(evals);
         let point = (0..n_vars)
             .map(|x| EF::from_u64(x as u64))
             .collect::<Vec<_>>();
-        let value = pol.eval(&point);
+        let value = pol.evaluate(&point);
         let eval = Evaluation { point, value };
         let witness = pcs.commit(pol, &mut fs_prover);
         pcs.open(witness, &eval, &mut fs_prover);

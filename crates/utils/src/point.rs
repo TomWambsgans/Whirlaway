@@ -19,11 +19,9 @@ impl HypercubePoint {
     pub fn to_vec<F: Field>(&self) -> Vec<F> {
         let mut point = vec![F::ZERO; self.n_vars];
         for b in 0..self.n_vars {
-            point[self.n_vars - 1 - b] = if (self.val >> b) & 1 == 1 {
-                F::ONE
-            } else {
-                F::ZERO
-            };
+            if (self.val >> b) & 1 == 1 {
+                point[self.n_vars - 1 - b] = F::ONE;
+            }
         }
         point
     }

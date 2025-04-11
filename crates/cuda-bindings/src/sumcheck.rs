@@ -1,128 +1,144 @@
-use cudarc::driver::{CudaSlice, LaunchConfig, PushKernelArg};
+use std::{any::TypeId, borrow::Borrow};
 
-use p3_field::{ExtensionField, Field};
+use cudarc::driver::{CudaSlice, PushKernelArg};
 
-use crate::{MAX_LOG_N_BLOCKS, SumcheckComputation, concat_pointers, cuda_info, memcpy_htod};
+use cuda_engine::{
+    CudaCall, SumcheckComputation, concat_pointers, cuda_alloc, cuda_sync, memcpy_dtoh, memcpy_htod,
+};
+use p3_field::{BasedVectorSpace, ExtensionField, Field};
+
+use crate::{MAX_LOG_N_BLOCKS, MAX_LOG_N_COOPERATIVE_BLOCKS};
 
 // TODO avoid hardcoding
 const SUMCHECK_LOG_N_THREADS_PER_BLOCK: u32 = 8;
 const SUMCHECK_N_THREADS_PER_BLOCK: u32 = 1 << SUMCHECK_LOG_N_THREADS_PER_BLOCK;
 
-pub fn cuda_sum_over_hypercube<F: Field, EF: ExtensionField<F>>(
-    sumcheck_computation: &SumcheckComputation<F>,
-    multilinears: &[CudaSlice<EF>],
-    batching_scalars: &CudaSlice<EF>,
+/// Async
+pub fn cuda_sum_over_hypercube_of_computation<
+    F: Field,
+    NF: ExtensionField<F>,
+    EF: ExtensionField<NF> + ExtensionField<F>,
+    ML: Borrow<CudaSlice<NF>>,
+>(
+    comp: &SumcheckComputation<F>,
+    multilinears: &[ML], // in lagrange basis
+    batching_scalars: &[EF],
 ) -> EF {
-    assert_eq!(batching_scalars.len(), sumcheck_computation.inner.len());
-    let cuda = cuda_info();
-    let n_vars = multilinears[0].len().trailing_zeros();
-    assert!(multilinears.iter().all(|m| m.len() == 1 << n_vars),);
+    if TypeId::of::<EF>() != TypeId::of::<NF>() {
+        unimplemented!()
+    }
+
+    let multilinears: Vec<&CudaSlice<NF>> =
+        multilinears.iter().map(|m| m.borrow()).collect::<Vec<_>>();
+    assert_eq!(batching_scalars.len(), comp.exprs.len());
+    assert!(multilinears[0].len().is_power_of_two());
+    let n_vars = multilinears[0].len().ilog2() as u32;
+    assert!(multilinears.iter().all(|m| m.len() == 1 << n_vars as usize));
 
     let log_n_blocks =
-        (n_vars.saturating_sub(SUMCHECK_LOG_N_THREADS_PER_BLOCK)).min(MAX_LOG_N_BLOCKS);
+        (n_vars.saturating_sub(SUMCHECK_LOG_N_THREADS_PER_BLOCK)).min(MAX_LOG_N_COOPERATIVE_BLOCKS);
     let n_blocks = 1 << log_n_blocks;
-    let ext_degree = (size_of::<EF>() / F::PrimeSubfield::bits().div_ceil(8)) as u32; // TODO this is ugly
+    let ext_degree = <EF as BasedVectorSpace<F>>::DIMENSION as u32;
 
-    let cfg = LaunchConfig {
-        grid_dim: (n_blocks, 1, 1),
-        block_dim: (SUMCHECK_N_THREADS_PER_BLOCK, 1, 1),
-        shared_mem_bytes: batching_scalars.len() as u32 * ext_degree * 4, // cf: __shared__ ExtField cached_batching_scalars[N_BATCHING_SCALARS];
-    };
+    let multilinears_ptrs_dev = concat_pointers(&multilinears);
 
-    let multilinears_ptrs_dev = concat_pointers(multilinears);
+    let batching_scalars_dev = memcpy_htod(batching_scalars);
+    let mut sums_dev = cuda_alloc::<EF>(1 << n_vars);
 
-    let mut sums_dev = unsafe { cuda.stream.alloc::<EF>(1 << n_vars).unwrap() };
+    let mut res_dev = cuda_alloc::<EF>(1);
 
-    let mut res_dev = unsafe { cuda.stream.alloc::<EF>(1).unwrap() };
+    let module_name = format!("sumcheck_{:x}", comp.uuid());
+    let mut call = CudaCall::new(&module_name, "sum_over_hypercube_ext")
+        .blocks(n_blocks)
+        .threads_per_block(SUMCHECK_N_THREADS_PER_BLOCK)
+        .shared_mem_bytes(batching_scalars.len() as u32 * ext_degree * 4); // cf: __shared__ ExtField cached_batching_scalars[N_BATCHING_SCALARS];;
+    call.arg(&multilinears_ptrs_dev);
+    call.arg(&mut sums_dev);
+    call.arg(&batching_scalars_dev);
+    call.arg(&n_vars);
+    call.arg(&mut res_dev);
+    call.launch_cooperative();
 
-    let module_name = format!("sumcheck_{:x}", sumcheck_computation.uuid());
-    let f = cuda.get_function(&module_name, "sum_over_hypercube_ext");
-
-    let mut launch_args = cuda.stream.launch_builder(&f);
-    launch_args.arg(&multilinears_ptrs_dev);
-    launch_args.arg(&mut sums_dev);
-    launch_args.arg(batching_scalars);
-    launch_args.arg(&n_vars);
-    launch_args.arg(&mut res_dev);
-    unsafe { launch_args.launch_cooperative(cfg) }.unwrap();
-
-    let mut res = [EF::ZERO];
-    cuda.stream.memcpy_dtoh(&res_dev, &mut res).unwrap();
-    cuda.stream.synchronize().unwrap();
+    let res: [EF; 1] = memcpy_dtoh(&res_dev).try_into().unwrap();
+    cuda_sync();
 
     res[0]
 }
 
-pub fn fold_ext_by_prime<F: Field, EF: ExtensionField<F>>(
-    slices: &[CudaSlice<EF>],
+/// Async
+pub fn cuda_fix_variable_in_small_field<
+    F: Field,
+    EF: ExtensionField<F>,
+    ML: Borrow<CudaSlice<EF>>,
+>(
+    slices: &[ML],
     scalar: F,
 ) -> Vec<CudaSlice<EF>> {
-    let log_slice_len = slices[0].len().trailing_zeros();
-    assert!(log_slice_len >= 1);
-    assert!(slices.iter().all(|s| s.len() == 1 << log_slice_len));
-    let cuda = cuda_info();
+    assert!(TypeId::of::<EF>() != TypeId::of::<F>(), "TODO");
+    let slices: Vec<&CudaSlice<EF>> = slices.iter().map(|m| m.borrow()).collect::<Vec<_>>();
+    assert!(slices[0].len().is_power_of_two());
+    let n_vars = slices[0].len().ilog2() as u32;
+    assert!(n_vars >= 1);
+    assert!(slices.iter().all(|s| s.len() == 1 << n_vars as usize));
 
-    let slices_ptrs_dev = concat_pointers(slices);
+    let slices_ptrs_dev = concat_pointers(&slices);
     let res = (0..slices.len())
-        .map(|_| unsafe { cuda.stream.alloc::<EF>(1 << (log_slice_len - 1)).unwrap() })
+        .map(|_| cuda_alloc::<EF>(1 << (n_vars - 1)))
         .collect::<Vec<_>>();
     let mut res_ptrs_dev = concat_pointers(&res);
 
-    let log_n_blocks = ((log_slice_len - 1).saturating_sub(SUMCHECK_LOG_N_THREADS_PER_BLOCK))
-        .min(MAX_LOG_N_BLOCKS);
-    let n_blocks = 1 << log_n_blocks;
-    let cfg = LaunchConfig {
-        grid_dim: (n_blocks, 1, 1),
-        block_dim: (SUMCHECK_N_THREADS_PER_BLOCK, 1, 1),
-        shared_mem_bytes: 0,
-    };
-
-    let f = cuda.get_function(&"sumcheck_folding", "fold_ext_by_prime");
+    let n_reps = (slices.len() as u32) << (n_vars - 1);
+    let n_threads_per_block = n_reps.min(1 << SUMCHECK_LOG_N_THREADS_PER_BLOCK);
+    let n_blocks =
+        ((n_reps + n_threads_per_block - 1) / n_threads_per_block).min(1 << MAX_LOG_N_BLOCKS);
     let n_slices = slices.len() as u32;
-    let mut launch_args = cuda.stream.launch_builder(&f);
-    launch_args.arg(&slices_ptrs_dev);
-    launch_args.arg(&mut res_ptrs_dev);
-    launch_args.arg(&scalar);
-    launch_args.arg(&n_slices);
-    launch_args.arg(&log_slice_len);
-    unsafe { launch_args.launch_cooperative(cfg) }.unwrap();
+    let mut call = CudaCall::new("sumcheck_folding", "fold_ext_by_prime")
+        .blocks(n_blocks)
+        .threads_per_block(n_threads_per_block);
+    call.arg(&slices_ptrs_dev);
+    call.arg(&mut res_ptrs_dev);
+    call.arg(&scalar);
+    call.arg(&n_slices);
+    call.arg(&n_vars);
+    call.launch();
 
     res
 }
 
-pub fn fold_ext_by_ext<EF: Field>(slices: &[CudaSlice<EF>], scalar: EF) -> Vec<CudaSlice<EF>> {
-    let log_slice_len = slices[0].len().trailing_zeros();
-    assert!(log_slice_len >= 1);
-    assert!(slices.iter().all(|s| s.len() == 1 << log_slice_len));
-    let cuda = cuda_info();
-
-    let slices_ptrs_dev = concat_pointers(slices);
+/// Async
+pub fn cuda_fix_variable_in_big_field<F: Field, EF: ExtensionField<F>, ML: Borrow<CudaSlice<F>>>(
+    slices: &[ML],
+    scalar: EF,
+) -> Vec<CudaSlice<EF>> {
+    assert!(F::bits() > 32, "TODO");
+    let slices: Vec<&CudaSlice<F>> = slices.iter().map(|m| m.borrow()).collect::<Vec<_>>();
+    assert!(slices[0].len().is_power_of_two());
+    let n_vars = slices[0].len().ilog2() as u32;
+    assert!(n_vars >= 1);
+    assert!(slices.iter().all(|s| s.len() == 1 << n_vars as usize));
+    let slices_ptrs_dev = concat_pointers(&slices);
 
     let res = (0..slices.len())
-        .map(|_| unsafe { cuda.stream.alloc::<EF>(1 << (log_slice_len - 1)).unwrap() })
+        .map(|_| cuda_alloc::<EF>(1 << (n_vars - 1)))
         .collect::<Vec<_>>();
     let mut res_ptrs_dev = concat_pointers(&res);
 
-    let log_n_blocks = ((log_slice_len - 1).saturating_sub(SUMCHECK_LOG_N_THREADS_PER_BLOCK))
-        .min(MAX_LOG_N_BLOCKS);
-    let n_blocks = 1 << log_n_blocks;
-    let cfg = LaunchConfig {
-        grid_dim: (n_blocks, 1, 1),
-        block_dim: (SUMCHECK_N_THREADS_PER_BLOCK, 1, 1),
-        shared_mem_bytes: 0,
-    };
-
+    let n_reps = (slices.len() as u32) << (n_vars - 1);
+    let n_threads_per_block = n_reps.min(1 << SUMCHECK_LOG_N_THREADS_PER_BLOCK);
+    let n_blocks =
+        ((n_reps + n_threads_per_block - 1) / n_threads_per_block).min(1 << MAX_LOG_N_BLOCKS);
     let n_slices = slices.len() as u32;
     let scalar_dev = memcpy_htod(&[scalar]);
 
-    let f = cuda.get_function(&"sumcheck_folding", "fold_ext_by_ext");
-    let mut launch_args = cuda.stream.launch_builder(&f);
-    launch_args.arg(&slices_ptrs_dev);
-    launch_args.arg(&mut res_ptrs_dev);
-    launch_args.arg(&scalar_dev);
-    launch_args.arg(&n_slices);
-    launch_args.arg(&log_slice_len);
-    unsafe { launch_args.launch_cooperative(cfg) }.unwrap();
+    let mut call = CudaCall::new("sumcheck_folding", "fold_ext_by_ext")
+        .blocks(n_blocks)
+        .threads_per_block(n_threads_per_block);
+    call.arg(&slices_ptrs_dev);
+    call.arg(&mut res_ptrs_dev);
+    call.arg(&scalar_dev);
+    call.arg(&n_slices);
+    call.arg(&n_vars);
+    call.launch();
 
     res
 }

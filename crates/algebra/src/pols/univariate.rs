@@ -28,7 +28,7 @@ impl<F: Field> UnivariatePolynomial<F> {
 
     #[inline]
     // Horner's method for polynomial evaluation
-    fn horner_evaluate<EF: ExtensionField<F>>(poly_coeffs: &[F], point: &EF) -> EF {
+    pub fn horner_evaluate<EF: ExtensionField<F>>(poly_coeffs: &[F], point: &EF) -> EF {
         poly_coeffs
             .iter()
             .rfold(EF::ZERO, move |result, coeff| result * *point + *coeff)

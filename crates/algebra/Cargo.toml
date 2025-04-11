@@ -8,8 +8,12 @@ rayon.workspace = true
 rand.workspace = true
 tracing.workspace = true
 p3-field.workspace = true
-sha3.workspace = true
+cuda-bindings.workspace = true
 cudarc.workspace = true
+utils.workspace = true
+cuda-engine.workspace = true
 
 [dev-dependencies]
 p3-koala-bear.workspace = true
+arithmetic-circuit.workspace = true
+

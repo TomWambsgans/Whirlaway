@@ -1,20 +1,14 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-use algebra::utils::KeccakDigest;
-use algebra::utils::keccak256;
-use algebra::utils::log2;
-use cuda_bindings::CudaSlice;
-use cuda_bindings::DeviceRepr;
-use cuda_bindings::VecOrCudaSlice;
-use cuda_bindings::cuda_alloc;
-use cuda_bindings::cuda_index;
 use cuda_bindings::cuda_keccak256;
-use cuda_bindings::cuda_sync;
+use cuda_engine::{HostOrDeviceBuffer, cuda_alloc, cuda_get_at_index, cuda_sync};
+use cudarc::driver::{CudaSlice, DeviceRepr};
 use rayon::prelude::*;
 use sha3::Digest;
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 use tracing::instrument;
+use utils::{KeccakDigest, keccak256};
 
 #[cfg(test)]
 mod test;
@@ -176,7 +170,7 @@ impl<F: Default + Debug> MultiPath<F> {
 pub struct MerkleTree<F> {
     /// The ith nodes (starting at 1st) children are at indices `2*i`, `2*i+1`
     /// (The first element is the root, and the last elements are the leaves)
-    nodes: VecOrCudaSlice<KeccakDigest>,
+    nodes: HostOrDeviceBuffer<KeccakDigest>,
     /// Stores the height of the MerkleTree
     height: usize,
     root: KeccakDigest,
@@ -186,13 +180,13 @@ pub struct MerkleTree<F> {
 
 impl<F: Sync> MerkleTree<F> {
     /// // `leaves.len()` should be power of two.
-    pub fn new(leaves: &VecOrCudaSlice<F>, batch_size: usize) -> Self
+    pub fn new(leaves: &HostOrDeviceBuffer<F>, batch_size: usize) -> Self
     where
         F: DeviceRepr,
     {
         match leaves {
-            VecOrCudaSlice::Vec(leaves) => Self::new_cpu(leaves, batch_size),
-            VecOrCudaSlice::Cuda(leaves) => Self::new_gpu(leaves, batch_size),
+            HostOrDeviceBuffer::Host(leaves) => Self::new_cpu(leaves, batch_size),
+            HostOrDeviceBuffer::Device(leaves) => Self::new_gpu(leaves, batch_size),
         }
     }
     /// // `leaves.len()` should be power of two.
@@ -206,7 +200,7 @@ impl<F: Sync> MerkleTree<F> {
 
         let leaf_nodes_size = leaf_digests.len();
         assert!(leaf_nodes_size.is_power_of_two() && leaf_nodes_size > 1);
-        let height = log2(leaf_nodes_size) as usize;
+        let height = leaf_nodes_size.ilog2() as usize;
 
         // initialize the merkle tree as array of nodes in level order
         let mut nodes = vec![KeccakDigest::default(); (1 << (height + 1)) - 1];
@@ -222,7 +216,7 @@ impl<F: Sync> MerkleTree<F> {
         }
         let root = nodes[0].clone();
         MerkleTree {
-            nodes: VecOrCudaSlice::Vec(nodes),
+            nodes: HostOrDeviceBuffer::Host(nodes),
             height,
             root,
             _field: std::marker::PhantomData,
@@ -237,7 +231,7 @@ impl<F: Sync> MerkleTree<F> {
         assert!(leaves.len() % batch_size == 0);
         let leaf_nodes_size = leaves.len() / batch_size;
         assert!(leaf_nodes_size.is_power_of_two() && leaf_nodes_size > 1);
-        let height = log2(leaf_nodes_size) as usize;
+        let height = leaf_nodes_size.ilog2() as usize;
         let mut nodes = cuda_alloc::<KeccakDigest>((1 << (height + 1)) - 1);
         cuda_keccak256(
             &leaves.as_view(),
@@ -253,10 +247,10 @@ impl<F: Sync> MerkleTree<F> {
                 &mut left.slice_mut((1 << (level - 1)) - 1..),
             );
         }
-        let root = cuda_index(&nodes, 0);
+        let root = cuda_get_at_index(&nodes, 0);
         cuda_sync();
         MerkleTree {
-            nodes: VecOrCudaSlice::Cuda(nodes),
+            nodes: HostOrDeviceBuffer::Device(nodes),
             height,
             root,
             _field: std::marker::PhantomData,
@@ -268,11 +262,11 @@ impl<F: Sync> MerkleTree<F> {
     }
 
     pub fn is_gpu(&self) -> bool {
-        matches!(self.nodes, VecOrCudaSlice::Cuda(_))
+        matches!(self.nodes, HostOrDeviceBuffer::Device(_))
     }
 
     pub fn is_cpu(&self) -> bool {
-        matches!(self.nodes, VecOrCudaSlice::Vec(_))
+        matches!(self.nodes, HostOrDeviceBuffer::Host(_))
     }
 
     /// Returns the authentication path from leaf at `index` to root, as a Vec of digests

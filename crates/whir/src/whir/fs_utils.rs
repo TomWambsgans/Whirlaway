@@ -1,5 +1,5 @@
-use crate::utils::dedup;
 use fiat_shamir::FsParticipant;
+use utils::dedup;
 
 pub fn get_challenge_stir_queries(
     domain_size: usize,

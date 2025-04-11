@@ -1,17 +1,18 @@
 use std::fmt::Debug;
 
-use algebra::pols::{Evaluation, MultilinearPolynomial};
+use algebra::pols::Multilinear;
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::{ExtensionField, Field};
 
 mod whir;
+use utils::Evaluation;
 pub use whir::*;
 
 mod ring_switch;
 pub use ring_switch::*;
 
 pub trait PcsWitness<F: Field> {
-    fn pol(&self) -> &MultilinearPolynomial<F>;
+    fn pol(&self) -> &Multilinear<F>;
 }
 
 pub trait PCS<F: Field, EF: ExtensionField<F>> {
@@ -20,7 +21,7 @@ pub trait PCS<F: Field, EF: ExtensionField<F>> {
     type VerifError: Debug;
     type Params;
     fn new(n_vars: usize, params: &Self::Params) -> Self;
-    fn commit(&self, pol: MultilinearPolynomial<F>, fs_prover: &mut FsProver) -> Self::Witness;
+    fn commit(&self, pol: impl Into<Multilinear<F>>, fs_prover: &mut FsProver) -> Self::Witness;
     fn parse_commitment(
         &self,
         fs_verifier: &mut FsVerifier,
