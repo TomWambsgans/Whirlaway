@@ -34,7 +34,6 @@ dependencies = [
 name = "algebra"
 version = "0.1.0"
 dependencies = [
- "arithmetic-circuit",
  "cuda-bindings",
  "cuda-engine",
  "cudarc",
@@ -149,6 +148,8 @@ dependencies = [
 name = "cuda-bindings"
 version = "0.1.0"
 dependencies = [
+ "algebra",
+ "arithmetic-circuit",
  "cuda-engine",
  "cudarc",
  "p3-field",
@@ -380,7 +381,7 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 [[package]]
 name = "p3-dft"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#acd879050a83f97be0651ac2c71958c2b6ae602a"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#0b3b3d78cee46925b922f70b49023109e55af4a0"
 dependencies = [
  "itertools",
  "p3-field",
@@ -393,7 +394,7 @@ dependencies = [
 [[package]]
 name = "p3-field"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#acd879050a83f97be0651ac2c71958c2b6ae602a"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#0b3b3d78cee46925b922f70b49023109e55af4a0"
 dependencies = [
  "cudarc",
  "itertools",
@@ -410,7 +411,7 @@ dependencies = [
 [[package]]
 name = "p3-koala-bear"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#acd879050a83f97be0651ac2c71958c2b6ae602a"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#0b3b3d78cee46925b922f70b49023109e55af4a0"
 dependencies = [
  "p3-field",
  "p3-mds",
@@ -424,7 +425,7 @@ dependencies = [
 [[package]]
 name = "p3-matrix"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#acd879050a83f97be0651ac2c71958c2b6ae602a"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#0b3b3d78cee46925b922f70b49023109e55af4a0"
 dependencies = [
  "itertools",
  "p3-field",
@@ -439,12 +440,12 @@ dependencies = [
 [[package]]
 name = "p3-maybe-rayon"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#acd879050a83f97be0651ac2c71958c2b6ae602a"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#0b3b3d78cee46925b922f70b49023109e55af4a0"
 
 [[package]]
 name = "p3-mds"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#acd879050a83f97be0651ac2c71958c2b6ae602a"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#0b3b3d78cee46925b922f70b49023109e55af4a0"
 dependencies = [
  "itertools",
  "p3-dft",
@@ -458,7 +459,7 @@ dependencies = [
 [[package]]
 name = "p3-monty-31"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#acd879050a83f97be0651ac2c71958c2b6ae602a"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#0b3b3d78cee46925b922f70b49023109e55af4a0"
 dependencies = [
  "cudarc",
  "itertools",
@@ -481,7 +482,7 @@ dependencies = [
 [[package]]
 name = "p3-poseidon2"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#acd879050a83f97be0651ac2c71958c2b6ae602a"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#0b3b3d78cee46925b922f70b49023109e55af4a0"
 dependencies = [
  "p3-field",
  "p3-mds",
@@ -493,7 +494,7 @@ dependencies = [
 [[package]]
 name = "p3-symmetric"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#acd879050a83f97be0651ac2c71958c2b6ae602a"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#0b3b3d78cee46925b922f70b49023109e55af4a0"
 dependencies = [
  "itertools",
  "p3-field",
@@ -503,7 +504,7 @@ dependencies = [
 [[package]]
 name = "p3-util"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#acd879050a83f97be0651ac2c71958c2b6ae602a"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#0b3b3d78cee46925b922f70b49023109e55af4a0"
 dependencies = [
  "serde",
 ]

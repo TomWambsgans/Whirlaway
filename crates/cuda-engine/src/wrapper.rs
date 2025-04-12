@@ -2,7 +2,9 @@ use std::any::TypeId;
 use std::{borrow::Borrow, ops::Range};
 
 use crate::{cuda_engine, try_get_cuda_engine};
-use cudarc::driver::{CudaFunction, DevicePtr, DevicePtrMut, LaunchArgs, LaunchConfig};
+use cudarc::driver::{
+    CudaFunction, DevicePtr, DevicePtrMut, LaunchArgs, LaunchConfig, ValidAsZeroBits,
+};
 use cudarc::driver::{CudaSlice, DeviceRepr};
 use p3_field::Field;
 
@@ -81,6 +83,11 @@ pub fn concat_pointers<T: DeviceRepr, S: Borrow<CudaSlice<T>>>(slices: &[S]) -> 
 /// Async
 pub fn cuda_alloc<T: DeviceRepr>(size: usize) -> CudaSlice<T> {
     unsafe { cuda_engine().stream.alloc(size).unwrap() }
+}
+
+/// Async
+pub fn cuda_alloc_zeros<T: DeviceRepr + ValidAsZeroBits>(size: usize) -> CudaSlice<T> {
+    cuda_engine().stream.alloc_zeros(size).unwrap()
 }
 
 /// Async

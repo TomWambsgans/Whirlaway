@@ -69,3 +69,93 @@ pub fn cuda_sum_over_hypercube_of_computation<
         cuda_sum(hypercube_evals)
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::cuda_sum_over_hypercube_of_computation;
+    use algebra::pols::{MultilinearDevice, MultilinearHost};
+    use arithmetic_circuit::ArithmeticCircuit;
+    use cuda_engine::{
+        SumcheckComputation, cuda_init, cuda_preprocess_sumcheck_computation, memcpy_htod,
+    };
+    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_koala_bear::KoalaBear;
+    use rand::{Rng, SeedableRng, rngs::StdRng};
+    use rayon::prelude::*;
+
+    #[test]
+    fn test_cuda_sum_over_hypercube_of_computation() {
+        type F = KoalaBear;
+        const EXT_DEGREE: usize = 8;
+        type EF = BinomialExtensionField<KoalaBear, EXT_DEGREE>;
+
+        let n_multilinears = 11;
+        let n_vars = 12;
+        let depth = 1;
+        let n_batching_scalars = 17;
+
+        let rng = &mut StdRng::seed_from_u64(0);
+        let exprs = (0..n_batching_scalars)
+            .map(|_| ArithmeticCircuit::random(rng, n_multilinears, depth).fix_computation(true))
+            .collect::<Vec<_>>();
+
+        let sumcheck_computation = SumcheckComputation {
+            n_multilinears,
+            exprs: &exprs,
+            eq_mle_multiplier: false,
+        };
+        let time = std::time::Instant::now();
+        cuda_init();
+        cuda_preprocess_sumcheck_computation(&sumcheck_computation);
+        println!("CUDA initialized in {} ms", time.elapsed().as_millis());
+
+        let rng = &mut StdRng::seed_from_u64(0);
+
+        let multilinears = (0..n_multilinears)
+            .map(|_| MultilinearHost::<EF>::random(rng, n_vars))
+            .collect::<Vec<_>>();
+
+        let batching_scalar: EF = rng.random();
+        let batching_scalars = (0..n_batching_scalars)
+            .map(|e| batching_scalar.exp_u64(e))
+            .collect::<Vec<_>>();
+
+        let time = std::time::Instant::now();
+        let expected_sum = (0..1 << n_vars)
+            .into_par_iter()
+            .map(|i| {
+                exprs.iter().zip(&batching_scalars).map(|(comp, b)| {
+                comp.eval(
+                    &(0..n_multilinears)
+                        .map(|j| multilinears[j].evals[i])
+                        .collect::<Vec<_>>(),
+                )
+            } * *b).sum::<EF>()
+            })
+            .sum::<EF>();
+        println!("CPU hypercube sum took {} ms", time.elapsed().as_millis());
+
+        let time = std::time::Instant::now();
+        let multilinears_dev = multilinears
+            .iter()
+            .map(|multilinear| MultilinearDevice::new(memcpy_htod(&multilinear.evals)))
+            .collect::<Vec<_>>();
+        let copy_duration = time.elapsed();
+
+        let time = std::time::Instant::now();
+        let cuda_sum = cuda_sum_over_hypercube_of_computation::<F, EF, _, _>(
+            &sumcheck_computation,
+            &multilinears_dev,
+            &batching_scalars,
+            None,
+        );
+
+        println!(
+            "CUDA hypercube sum took {} ms (copy duration: {} ms)",
+            time.elapsed().as_millis(),
+            copy_duration.as_millis()
+        );
+
+        assert_eq!(cuda_sum, expected_sum);
+    }
+}

@@ -12,9 +12,6 @@ pub use sumcheck::*;
 mod multilinear;
 pub use multilinear::*;
 
-#[cfg(test)]
-mod tests;
-
 pub use cudarc::driver::{CudaSlice, DeviceRepr};
 
 // Should not be too big to avoid CUDA_ERROR_COOPERATIVE_LAUNCH_TOO_LARGE

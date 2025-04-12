@@ -8,7 +8,8 @@ use cuda_bindings::{
 };
 use cuda_bindings::{cuda_fix_variable_in_small_field, cuda_sum_over_hypercube_of_computation};
 use cuda_engine::{
-    SumcheckComputation, clone_dtod, cuda_alloc, cuda_sync, memcpy_dtod, memcpy_dtoh, memcpy_htod,
+    SumcheckComputation, clone_dtod, cuda_alloc_zeros, cuda_sync, memcpy_dtod, memcpy_dtoh,
+    memcpy_htod,
 };
 use cudarc::driver::CudaSlice;
 use p3_field::{BasedVectorSpace, ExtensionField, Field};
@@ -666,7 +667,7 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
             Self::Device(pols) => MultilinearsVec::Device(
                 cuda_fix_variable_in_big_field(pols, scalar)
                     .into_iter()
-                    .map(|p| MultilinearDevice::new(p))
+                    .map(|p: CudaSlice<EF>| MultilinearDevice::new(p))
                     .collect(),
             ),
         }
@@ -677,7 +678,7 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
         let packed_len = (self.len() << self.n_vars()).next_power_of_two();
         match self {
             Self::Device(pols) => {
-                let mut dst = cuda_alloc(packed_len);
+                let mut dst = cuda_alloc_zeros(packed_len);
                 let mut offset = 0;
                 for pol in pols {
                     memcpy_dtod(

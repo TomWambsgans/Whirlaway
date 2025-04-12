@@ -137,3 +137,118 @@ pub fn cuda_restructure_evaluations<F: Field>(
 
     result_dev
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use algebra::ntt::*;
+    use cuda_engine::*;
+    use p3_field::TwoAdicField;
+    use p3_field::extension::BinomialExtensionField;
+    use p3_koala_bear::KoalaBear;
+    use rand::{Rng, SeedableRng, rngs::StdRng};
+
+    #[test]
+    pub fn test_cuda_expanded_ntt() {
+        cuda_init();
+        const EXT_DEGREE: usize = 8;
+
+        type F = KoalaBear;
+        type EF = BinomialExtensionField<F, EXT_DEGREE>;
+
+        let rng = &mut StdRng::seed_from_u64(0);
+        let log_len = 19;
+        let len = 1 << log_len;
+        let log_expension_factor: usize = 3;
+        let expansion_factor = 1 << log_expension_factor;
+        let coeffs = (0..len).map(|_| rng.random()).collect::<Vec<EF>>();
+
+        println!(
+            "number of field elements: {}, expension factor: {}",
+            len, expansion_factor
+        );
+
+        let time = std::time::Instant::now();
+        let coeffs_dev = memcpy_htod(&coeffs);
+        cuda_sync();
+        println!("CUDA memcpy_htod took {} ms", time.elapsed().as_millis());
+
+        let time = std::time::Instant::now();
+        let cuda_result = cuda_expanded_ntt(&coeffs_dev, expansion_factor);
+        cuda_sync();
+        println!("CUDA NTT took {} ms", time.elapsed().as_millis());
+
+        let time = std::time::Instant::now();
+        let cuda_result = memcpy_dtoh(&cuda_result);
+        cuda_sync();
+        println!("CUDA memcpy_dtoh took {} ms", time.elapsed().as_millis());
+
+        let time = std::time::Instant::now();
+        let expected_result = expand_from_coeff::<F, EF>(&coeffs, expansion_factor);
+        println!("CPU NTT took {} ms", time.elapsed().as_millis());
+
+        assert!(cuda_result == expected_result);
+    }
+
+    #[test]
+    pub fn test_cuda_ntt() {
+        const EXT_DEGREE: usize = 8;
+
+        type F = KoalaBear;
+        type EF = BinomialExtensionField<F, EXT_DEGREE>;
+
+        cuda_init();
+
+        let rng = &mut StdRng::seed_from_u64(0);
+        let log_len = 15;
+        let len = 1 << log_len;
+        for log_chunck_size in [3, 11] {
+            let mut coeffs = (0..len).map(|_| rng.random()).collect::<Vec<EF>>();
+            let cuda_result = cuda_ntt(&coeffs, log_chunck_size);
+            ntt_batch::<F, EF>(&mut coeffs, 1 << log_chunck_size);
+            assert!(cuda_result == coeffs);
+        }
+    }
+
+    #[test]
+    pub fn test_cuda_restructure_evaluations() {
+        const EXT_DEGREE: usize = 8;
+
+        type F = KoalaBear;
+        type EF = BinomialExtensionField<F, EXT_DEGREE>;
+        let whir_folding_factor = 4;
+
+        cuda_init();
+        cuda_preprocess_all_twiddles::<F>(whir_folding_factor);
+
+        let rng = &mut StdRng::seed_from_u64(0);
+        let log_len = 24;
+        let len = 1 << log_len;
+        let coeffs = (0..len).map(|_| rng.random()).collect::<Vec<EF>>();
+        let coeffs_dev = memcpy_htod(&coeffs);
+        cuda_sync();
+
+        let time = std::time::Instant::now();
+        let cuda_result = cuda_restructure_evaluations(&coeffs_dev, whir_folding_factor);
+        cuda_sync();
+        println!(
+            "CUDA restructuraction took {} ms",
+            time.elapsed().as_millis()
+        );
+        let time = std::time::Instant::now();
+        let cuda_result = memcpy_dtoh(&cuda_result);
+        cuda_sync();
+        println!("CUDA memcpy_dtoh took {} ms", time.elapsed().as_millis());
+
+        let time = std::time::Instant::now();
+        let domain_gen_inv = F::two_adic_generator(log_len).inverse();
+        let expected_result =
+            restructure_evaluations::<F, EF>(coeffs, domain_gen_inv, whir_folding_factor);
+        println!(
+            "CPU restructuraction took {} ms",
+            time.elapsed().as_millis()
+        );
+
+        assert!(cuda_result == expected_result);
+    }
+}

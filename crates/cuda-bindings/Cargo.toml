@@ -14,3 +14,5 @@ cuda-engine.workspace = true
 p3-koala-bear.workspace = true
 rayon.workspace = true
 rand.workspace = true
+algebra.workspace = true
+arithmetic-circuit.workspace = true
