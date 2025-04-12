@@ -47,14 +47,7 @@ impl<F: Field> AirTable<F> {
 
         let packed_pol = witness.as_ref().packed();
         cuda_sync();
-
-        // let rng = &mut StdRng::seed_from_u64(0);
-        // dbg!(packed_pol.embed::<EF>().evaluate(&(0..packed_pol.n_vars()).map(|_| EF::random( rng)).collect::<Vec<EF>>()));
-
-        // dbg!(fs_prover.state_hex());
-
         let packed_pol_witness = pcs.commit(packed_pol, fs_prover);
-        // dbg!(fs_prover.state_hex());
 
         let constraints_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
         let constraints_batching_scalars =
@@ -73,7 +66,6 @@ impl<F: Field> AirTable<F> {
             MultilinearsVec::Host(self.preprocessed_columns.clone())
         };
         let preprocessed_and_witness = preprocessed_columns.as_ref().chain(&witness.as_ref());
-
         let (outer_challenges, all_inner_sums) = {
             let _span = span!(Level::INFO, "outer sumcheck").entered();
             sumcheck::prove(

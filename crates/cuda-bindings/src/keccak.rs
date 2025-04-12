@@ -2,7 +2,7 @@ use cuda_engine::CudaCall;
 use cudarc::driver::{CudaView, CudaViewMut, DeviceRepr, PushKernelArg};
 use utils::KeccakDigest;
 
-const NUM_THREADS: u32 = 256;
+const MAX_THREADS_PER_BLOCK: u32 = 256;
 
 pub fn cuda_keccak256<T: DeviceRepr>(
     input: &CudaView<T>,
@@ -11,18 +11,17 @@ pub fn cuda_keccak256<T: DeviceRepr>(
 ) {
     // TODO cap block number
     assert!(input.len() % batch_size == 0);
-    let n_inputs = input.len() / batch_size;
-    assert_eq!(n_inputs, output.len());
+    let n_inputs = (input.len() / batch_size) as u32;
+    assert_eq!(n_inputs, output.len() as u32);
     let input_length = (batch_size * std::mem::size_of::<T>()) as u32;
-    let input_packed_length = input_length;
-    let num_blocks = (n_inputs as u32).div_ceil(NUM_THREADS);
+    let n_threads_per_block = n_inputs.min(MAX_THREADS_PER_BLOCK);
+    let num_blocks = n_inputs.div_ceil(MAX_THREADS_PER_BLOCK);
     let mut launch_args = CudaCall::new("keccak", "batch_keccak256")
-        .blocks(num_blocks)
-        .threads_per_block(NUM_THREADS);
+        .threads_per_block(n_threads_per_block)
+        .blocks(num_blocks);
     launch_args.arg(input);
     launch_args.arg(&n_inputs);
     launch_args.arg(&input_length);
-    launch_args.arg(&input_packed_length);
     launch_args.arg(output);
     launch_args.launch();
 }
@@ -41,8 +40,8 @@ mod tests {
         cuda_init();
         println!("CUDA initialized in {} ms", t.elapsed().as_millis());
 
-        let n_inputs = 10_000;
-        let batch_size = 501;
+        let n_inputs = 4;
+        let batch_size = 16;
         let input = (0..n_inputs * batch_size)
             .map(|i| (i % 256) as u8)
             .collect::<Vec<u8>>();

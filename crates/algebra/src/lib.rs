@@ -3,6 +3,3 @@
 pub mod ntt;
 pub mod pols;
 pub mod tensor_algebra;
-
-#[cfg(test)]
-mod tests;

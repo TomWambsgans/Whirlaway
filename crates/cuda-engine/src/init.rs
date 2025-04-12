@@ -40,7 +40,7 @@ impl CudaEngine {
     fn new() -> Self {
         let dev = CudaContext::new(0).unwrap();
         let mut functions = HashMap::new();
-        for module in ["keccak", "ntt", "sumcheck_folding", "multilinear"] {
+        for module in ["keccak", "ntt", "multilinear"] {
             compile_module(dev.clone(), &kernel_folder(), module, false, &mut functions);
         }
         let stream = dev.default_stream();

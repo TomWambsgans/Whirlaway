@@ -223,6 +223,7 @@ impl<F: Sync> MerkleTree<F> {
         }
     }
 
+    // Sync
     #[instrument(name = "merkle tree creation in cuda", skip_all)]
     pub fn new_gpu(leaves: &CudaSlice<F>, batch_size: usize) -> Self
     where
