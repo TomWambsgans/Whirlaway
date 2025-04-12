@@ -9,8 +9,8 @@
 
 // we need: N_THREADS_PER_BLOCK * 2 * (EXT_DEGREE + 1) * 4 bytes <= shared memory
 // TODO avoid hardcoding
-#define LOG_N_THREADS_PER_BLOCK 8
-#define N_THREADS_PER_BLOCK (1 << LOG_N_THREADS_PER_BLOCK)
+#define MAX_LOG_N_THREADS_PER_BLOCK 8
+#define MAX_N_THREADS_PER_BLOCK (1 << MAX_LOG_N_THREADS_PER_BLOCK)
 
 __device__ void reverse_bit_order(ExtField *data, int block, int bits)
 {
@@ -42,16 +42,17 @@ __device__ void ntt_at_block_level(ExtField *buff, const int block, const int lo
     // we should have log_chunck_size <= LOG_N_THREADS_PER_BLOCK + 1
 
     const int threadId = threadIdx.x;
+    const int n_threads = blockDim.x;
 
-    __shared__ ExtField cached_buff[N_THREADS_PER_BLOCK * 2];
+    __shared__ ExtField cached_buff[MAX_N_THREADS_PER_BLOCK * 2];
 
-    cached_buff[threadId] = buff[threadId + N_THREADS_PER_BLOCK * 2 * block];
-    cached_buff[threadId + N_THREADS_PER_BLOCK] = buff[threadId + N_THREADS_PER_BLOCK * (2 * block + 1)];
+    cached_buff[threadId] = buff[threadId + n_threads * 2 * block];
+    cached_buff[threadId + n_threads] = buff[threadId + n_threads * (2 * block + 1)];
 
-    __shared__ uint32_t cached_twiddles[N_THREADS_PER_BLOCK * 2];
+    __shared__ uint32_t cached_twiddles[MAX_N_THREADS_PER_BLOCK * 2];
 
     cached_twiddles[threadId] = twiddles[threadId];
-    cached_twiddles[threadId + N_THREADS_PER_BLOCK] = twiddles[threadId + N_THREADS_PER_BLOCK];
+    cached_twiddles[threadId + n_threads] = twiddles[threadId + n_threads];
 
     __syncthreads();
 
@@ -74,9 +75,9 @@ __device__ void ntt_at_block_level(ExtField *buff, const int block, const int lo
 
         int i = threadId % packet_size;
         // w^i where w is a "2 * packet_size" root of unity
-        uint32_t first_twiddle = cached_twiddles[i * N_THREADS_PER_BLOCK / packet_size];
+        uint32_t first_twiddle = cached_twiddles[i * blockDim.x / packet_size];
         // w^(i + packet_size) where w is a "2 * packet_size" root of unity
-        uint32_t second_twiddle = cached_twiddles[(i + packet_size) * N_THREADS_PER_BLOCK / packet_size];
+        uint32_t second_twiddle = cached_twiddles[(i + packet_size) * blockDim.x / packet_size];
 
         // cached_buff[even_index] = even + first_twiddle * odd
         mul_prime_and_ext_field(&odd, first_twiddle, &cached_buff[even_index]);
@@ -90,8 +91,8 @@ __device__ void ntt_at_block_level(ExtField *buff, const int block, const int lo
     }
 
     // copy back to global memory
-    buff[threadId + N_THREADS_PER_BLOCK * 2 * block] = cached_buff[threadId];
-    buff[threadId + N_THREADS_PER_BLOCK * (2 * block + 1)] = cached_buff[threadId + N_THREADS_PER_BLOCK];
+    buff[threadId + blockDim.x * 2 * block] = cached_buff[threadId];
+    buff[threadId + blockDim.x * (2 * block + 1)] = cached_buff[threadId + blockDim.x];
 }
 
 __device__ void ntt(ExtField *buff, const int log_len, const int log_chunk_size, const uint32_t *twiddles)
@@ -99,7 +100,7 @@ __device__ void ntt(ExtField *buff, const int log_len, const int log_chunk_size,
     namespace cg = cooperative_groups;
     cg::grid_group grid = cg::this_grid();
 
-    const uint32_t n_repetitions = (1 << log_len) / (N_THREADS_PER_BLOCK * gridDim.x * 2);
+    const uint32_t n_repetitions = (1 << log_len) / (blockDim.x * gridDim.x * 2);
 
     // 1) Bit reverse order
 
@@ -111,14 +112,16 @@ __device__ void ntt(ExtField *buff, const int log_len, const int log_chunk_size,
 
     // 2) Do the NTT at block level
 
+    const int log_n_threads_per_block = __ffs(blockDim.x) - 1;
+
     for (int rep = 0; rep < n_repetitions; rep++)
     {
-        ntt_at_block_level(buff, blockIdx.x + gridDim.x * rep, min(LOG_N_THREADS_PER_BLOCK + 1, log_chunk_size), &twiddles[N_THREADS_PER_BLOCK * 2 - 1]);
+        ntt_at_block_level(buff, blockIdx.x + gridDim.x * rep, min(log_n_threads_per_block + 1, log_chunk_size), &twiddles[blockDim.x * 2 - 1]);
     }
 
     // 3) Finish the NTT
 
-    for (int step = LOG_N_THREADS_PER_BLOCK + 1; step < log_chunk_size; step++)
+    for (int step = log_n_threads_per_block + 1; step < log_chunk_size; step++)
     {
         grid.sync();
 
@@ -126,7 +129,7 @@ __device__ void ntt(ExtField *buff, const int log_len, const int log_chunk_size,
 
         for (int rep = 0; rep < n_repetitions; rep++)
         {
-            int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * N_THREADS_PER_BLOCK;
+            int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
 
             int packet_size = 1 << step;
             int even_index = threadIndex + (threadIndex / packet_size) * packet_size;
@@ -169,7 +172,7 @@ extern "C" __global__ void expanded_ntt(ExtField *input, ExtField *buff, ExtFiel
 
     // we should have N_THREADS_PER_BLOCK * NUM_BLOCKS * n_repetitions * 2 = 1 << (log_len + log_extension_factor)
     // WARNING: We assume the number of blocks is a power of 2
-    const uint32_t n_repetitions = (1 << (log_len + log_extension_factor)) / (N_THREADS_PER_BLOCK * gridDim.x * 2);
+    const uint32_t n_repetitions = (1 << (log_len + log_extension_factor)) / (blockDim.x * gridDim.x * 2);
 
     // int threadIndex = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -179,7 +182,7 @@ extern "C" __global__ void expanded_ntt(ExtField *input, ExtField *buff, ExtFiel
     // 1) Expand input several times to fill result, multiplying by the appropriate twiddle factors
     for (int rep = 0; rep < n_repetitions * 2; rep++)
     {
-        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * N_THREADS_PER_BLOCK;
+        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
 
         if (threadIndex < len)
         {
@@ -202,7 +205,7 @@ extern "C" __global__ void expanded_ntt(ExtField *input, ExtField *buff, ExtFiel
 
     for (int rep = 0; rep < n_repetitions * 2; rep++)
     {
-        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * N_THREADS_PER_BLOCK;
+        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
 
         result[threadIndex] = buff[(threadIndex % expansion_factor) * len + (threadIndex / expansion_factor)];
     }
@@ -224,14 +227,14 @@ extern "C" __global__ void restructure_evaluations(ExtField *input, ExtField *re
     cg::grid_group grid = cg::this_grid();
 
     // WARNING: We assume the number of blocks is a power of 2
-    const int n_repetitions = (1 << log_len) / (N_THREADS_PER_BLOCK * gridDim.x * 2);
+    const int n_repetitions = (1 << log_len) / (blockDim.x * gridDim.x * 2);
     const int folding_size = 1 << folding_factor;
     const int len = 1 << log_len;
 
     // 1) Transpose
     for (int rep = 0; rep < n_repetitions * 2; rep++)
     {
-        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * N_THREADS_PER_BLOCK;
+        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
 
         result[threadIndex] = input[(threadIndex % folding_size) * (len / folding_size) + (threadIndex / folding_size)];
     }
@@ -242,7 +245,7 @@ extern "C" __global__ void restructure_evaluations(ExtField *input, ExtField *re
     // 2) a) For each chunck c of size folding_size in result, reverse c[1..]
     for (int rep = 0; rep < n_repetitions; rep++)
     {
-        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * N_THREADS_PER_BLOCK;
+        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
         int chunk_index = threadIndex / (folding_size / 2);
         int chunk_offset = threadIndex % (folding_size / 2);
         if (chunk_offset != 0)
@@ -267,7 +270,7 @@ extern "C" __global__ void restructure_evaluations(ExtField *input, ExtField *re
 
     for (int rep = 0; rep < n_repetitions * 2; rep++)
     {
-        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * N_THREADS_PER_BLOCK;
+        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
         mul_prime_and_ext_field(&result[threadIndex], involded_correction_twiddles[threadIndex], &result[threadIndex]);
     }
 }

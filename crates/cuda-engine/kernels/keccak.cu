@@ -240,7 +240,6 @@ extern "C" __global__ void batch_keccak256(
     const uint8_t *inputs,            // Packed input data
     const uint32_t num_inputs,          // Number of inputs to process
     const uint32_t input_length,        // Length of each input
-    const uint32_t input_packed_length, // Length of each input
     uint8_t *outputs                  // Output buffer for hashes
 )
 {
@@ -248,10 +247,10 @@ extern "C" __global__ void batch_keccak256(
     if (idx < num_inputs)
     {
         // Calculate offset in the input buffer
-        const uint8_t *input = inputs + (idx * input_packed_length);
+        const uint8_t *input = &inputs[idx * input_length];
 
         // Calculate offset in the output buffer (32 bytes per hash)
-        uint8_t *output = outputs + (idx * 32);
+        uint8_t *output = &outputs[idx * 32];
 
         // Compute the hash
 

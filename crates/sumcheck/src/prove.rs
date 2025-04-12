@@ -7,7 +7,7 @@ use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};
 use utils::eq_extension;
 
-const MIN_VARS_FOR_GPU: usize = 9; // When there are a small number of variables, it's not worth using GPU
+const MIN_VARS_FOR_GPU: usize = 6; // When there are a small number of variables, it's not worth using GPU
 
 pub fn prove<
     'a,

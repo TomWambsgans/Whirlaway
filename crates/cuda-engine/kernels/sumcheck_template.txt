@@ -22,14 +22,14 @@ extern "C" __global__ void sum_over_hypercube_ext(const ExtField **multilinears,
     // Each multilinears has size 2^n_vars
     // sums has size 2^n_vars * n_compute_units
 
-    const int n_total_threads = N_THREADS_PER_BLOCK * gridDim.x;
+    const int n_total_threads = gridDim.x * blockDim.x;
 
     __shared__ ExtField cached_batching_scalars[N_BATCHING_SCALARS];
 
     // 1) Copy batching_scalars to shared memory
-    for (int rep = 0; rep < (N_BATCHING_SCALARS + N_THREADS_PER_BLOCK - 1) / N_THREADS_PER_BLOCK; rep++)
+    for (int rep = 0; rep < (N_BATCHING_SCALARS + blockDim.x - 1) / blockDim.x; rep++)
     {
-        const int thread_index = threadIdx.x + rep * N_THREADS_PER_BLOCK;
+        const int thread_index = threadIdx.x + rep * blockDim.x;
         if (thread_index < N_BATCHING_SCALARS)
             cached_batching_scalars[thread_index] = batching_scalars[thread_index];
     }
@@ -42,7 +42,7 @@ extern "C" __global__ void sum_over_hypercube_ext(const ExtField **multilinears,
 
     for (int rep = 0; rep < n_reps; rep++)
     {
-        const int thread_index = threadIdx.x + (blockIdx.x + rep * gridDim.x) * N_THREADS_PER_BLOCK;
+        const int thread_index = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
 
         ExtField regs[N_REGISTERS];
 

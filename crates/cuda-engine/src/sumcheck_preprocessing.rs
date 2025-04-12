@@ -8,7 +8,7 @@ use crate::*;
 
 const MAX_SUMCHECK_INSTRUCTIONS_TO_REMOVE_INLINING: usize = 10;
 
-const MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT: usize = 12;
+const MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT: usize = 5;
 
 #[derive(Clone, Debug, Hash)]
 pub struct SumcheckComputation<'a, F> {

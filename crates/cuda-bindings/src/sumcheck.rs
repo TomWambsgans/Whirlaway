@@ -8,8 +8,8 @@ use p3_field::{BasedVectorSpace, ExtensionField, Field};
 use crate::{MAX_N_BLOCKS, cuda_dot_product, cuda_fold_sum, cuda_sum};
 
 // TODO avoid hardcoding
-const SUMCHECK_LOG_N_THREADS_PER_BLOCK: u32 = 10;
-const SUMCHECK_N_THREADS_PER_BLOCK: u32 = 1 << SUMCHECK_LOG_N_THREADS_PER_BLOCK;
+const SUMCHECK_MAX_LOG_N_THREADS_PER_BLOCK: u32 = 10;
+const SUMCHECK_MAX_N_THREADS_PER_BLOCK: u32 = 1 << SUMCHECK_MAX_LOG_N_THREADS_PER_BLOCK;
 
 /// Async
 pub fn cuda_sum_over_hypercube_of_computation<
@@ -35,8 +35,8 @@ pub fn cuda_sum_over_hypercube_of_computation<
     assert_eq!(eq_mle.is_some(), comp.eq_mle_multiplier);
 
     let n_compute_units = comp.n_cuda_compute_units() as u32;
-    let n_blocks =
-        ((n_compute_units << n_vars).div_ceil(SUMCHECK_N_THREADS_PER_BLOCK)).min(MAX_N_BLOCKS);
+    let n_threads_per_block = (n_compute_units << n_vars).min(SUMCHECK_MAX_N_THREADS_PER_BLOCK);
+    let n_blocks = ((n_compute_units << n_vars).div_ceil(n_threads_per_block)).min(MAX_N_BLOCKS);
     let ext_degree = <EF as BasedVectorSpace<F>>::DIMENSION as u32;
 
     let multilinears_ptrs_dev = concat_pointers(&multilinears);
@@ -46,8 +46,8 @@ pub fn cuda_sum_over_hypercube_of_computation<
 
     let module_name = format!("sumcheck_{:x}", comp.uuid());
     let mut call = CudaCall::new(&module_name, "sum_over_hypercube_ext")
+        .threads_per_block(n_threads_per_block)
         .blocks(n_blocks)
-        .threads_per_block(SUMCHECK_N_THREADS_PER_BLOCK)
         .shared_mem_bytes(batching_scalars.len() as u32 * ext_degree * 4); // cf: __shared__ ExtField cached_batching_scalars[N_BATCHING_SCALARS];;
     call.arg(&multilinears_ptrs_dev);
     call.arg(&mut sums_dev);
