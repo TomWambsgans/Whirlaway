@@ -7,7 +7,7 @@ use cuda_engine::{
 };
 use p3_field::{BasedVectorSpace, ExtensionField, Field};
 
-use crate::{MAX_LOG_N_BLOCKS, MAX_LOG_N_COOPERATIVE_BLOCKS};
+use crate::{MAX_LOG_N_COOPERATIVE_BLOCKS, MAX_N_BLOCKS};
 
 // TODO avoid hardcoding
 const SUMCHECK_LOG_N_THREADS_PER_BLOCK: u32 = 8;
@@ -89,10 +89,9 @@ pub fn cuda_fix_variable_in_small_field<
 
     let n_reps = (slices.len() as u32) << (n_vars - 1);
     let n_threads_per_block = n_reps.min(1 << SUMCHECK_LOG_N_THREADS_PER_BLOCK);
-    let n_blocks =
-        ((n_reps + n_threads_per_block - 1) / n_threads_per_block).min(1 << MAX_LOG_N_BLOCKS);
+    let n_blocks = ((n_reps + n_threads_per_block - 1) / n_threads_per_block).min(MAX_N_BLOCKS);
     let n_slices = slices.len() as u32;
-    let mut call = CudaCall::new("sumcheck_folding", "fold_ext_by_prime")
+    let mut call = CudaCall::new("multilinear", "fold_ext_by_prime")
         .blocks(n_blocks)
         .threads_per_block(n_threads_per_block);
     call.arg(&slices_ptrs_dev);
@@ -125,12 +124,11 @@ pub fn cuda_fix_variable_in_big_field<F: Field, EF: ExtensionField<F>, ML: Borro
 
     let n_reps = (slices.len() as u32) << (n_vars - 1);
     let n_threads_per_block = n_reps.min(1 << SUMCHECK_LOG_N_THREADS_PER_BLOCK);
-    let n_blocks =
-        ((n_reps + n_threads_per_block - 1) / n_threads_per_block).min(1 << MAX_LOG_N_BLOCKS);
+    let n_blocks = ((n_reps + n_threads_per_block - 1) / n_threads_per_block).min(MAX_N_BLOCKS);
     let n_slices = slices.len() as u32;
     let scalar_dev = memcpy_htod(&[scalar]);
 
-    let mut call = CudaCall::new("sumcheck_folding", "fold_ext_by_ext")
+    let mut call = CudaCall::new("multilinear", "fold_ext_by_ext")
         .blocks(n_blocks)
         .threads_per_block(n_threads_per_block);
     call.arg(&slices_ptrs_dev);

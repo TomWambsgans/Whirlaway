@@ -11,7 +11,6 @@ use cuda_bindings::{
 use cuda_engine::{HostOrDeviceBuffer, cuda_sync, memcpy_dtoh};
 use cudarc::driver::CudaSlice;
 use p3_field::{ExtensionField, Field, TwoAdicField};
-use tracing::instrument;
 use utils::switch_endianness;
 
 use {
@@ -260,7 +259,6 @@ impl<F: Field> CoefficientList<F> {
         matches!(self, Self::Host(_))
     }
 
-    #[instrument(name = "expand_from_coeff_and_restructure", skip_all)]
     pub fn expand_from_coeff_and_restructure<PrimeField: TwoAdicField>(
         &self,
         expansion: usize,
@@ -270,6 +268,9 @@ impl<F: Field> CoefficientList<F> {
     where
         F: ExtensionField<PrimeField>,
     {
+        let _info =
+            tracing::info_span!("expand_from_coeff_and_restructure", cuda = self.is_device())
+                .entered();
         // TODO: `stack_evaluations` and `restructure_evaluations` are really in-place algorithms.
         // They also partially overlap and undo one another. We should merge them.
         match self {

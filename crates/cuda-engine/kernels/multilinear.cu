@@ -386,3 +386,111 @@ extern "C" __global__ void multilinears_down(uint32_t **columns, const uint32_t 
         }
     }
 }
+
+__device__ int n_folding_repetitions(const uint32_t n_slices, const uint32_t slice_log_len)
+{
+    const int total_n_threads = blockDim.x * gridDim.x;
+    const int n_folding_ops = n_slices * (1 << (slice_log_len - 1));
+    return (n_folding_ops + total_n_threads - 1) / total_n_threads;
+}
+
+extern "C" __global__ void fold_ext_by_prime(const ExtField **inputs, ExtField **res, const uint32_t scalar, const uint32_t n_slices, const uint32_t slice_log_len)
+{
+    const int n_repetitions = n_folding_repetitions(n_slices, slice_log_len);
+    for (int rep = 0; rep < n_repetitions; rep++)
+    {
+        const int thread_index = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
+        const int slice_index = thread_index / (1 << (slice_log_len - 1));
+        if (slice_index >= n_slices)
+            return;
+        const int slice_offset = thread_index % (1 << (slice_log_len - 1));
+        ExtField diff;
+        ext_field_sub(&inputs[slice_index][slice_offset + (1 << (slice_log_len - 1))], &inputs[slice_index][slice_offset], &diff);
+        ExtField mul;
+        mul_prime_and_ext_field(&diff, scalar, &mul);
+        ext_field_add(&mul, &inputs[slice_index][slice_offset], &res[slice_index][slice_offset]);
+    }
+}
+
+extern "C" __global__ void fold_ext_by_ext(const ExtField **inputs, ExtField **res, const ExtField *scalar, const uint32_t n_slices, const uint32_t slice_log_len)
+{
+    const int n_repetitions = n_folding_repetitions(n_slices, slice_log_len);
+    for (int rep = 0; rep < n_repetitions; rep++)
+    {
+        const int thread_index = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
+        const int slice_index = thread_index / (1 << (slice_log_len - 1));
+        if (slice_index >= n_slices)
+            return;
+        const int slice_offset = thread_index % (1 << (slice_log_len - 1));
+        ExtField diff;
+        ext_field_sub(&inputs[slice_index][slice_offset + (1 << (slice_log_len - 1))], &inputs[slice_index][slice_offset], &diff);
+        ExtField mul;
+        ext_field_mul(&diff, scalar, &mul);
+        ext_field_add(&mul, &inputs[slice_index][slice_offset], &res[slice_index][slice_offset]);
+    }
+}
+
+extern "C" __global__ void dot_product(ExtField *a, ExtField *b, ExtField *res, const uint32_t log_len)
+{
+    // a, b and res have size 2^log_len
+    // the final result is stored in res[0]
+
+    namespace cg = cooperative_groups;
+    cg::grid_group grid = cg::this_grid();
+    const int n_total_threads = blockDim.x * gridDim.x;
+
+    // 1) Product
+    const int len = (1 << log_len);
+    const int n_repetitions = (len + n_total_threads - 1) / n_total_threads;
+    for (int rep = 0; rep < n_repetitions; rep++)
+    {
+        const int idx = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
+        if (idx < len)
+        {
+            ext_field_mul(&a[idx], &b[idx], &res[idx]);
+        }
+    }
+
+    // 2) Sum
+    for (int step = 0; step < log_len; step++)
+    {
+        grid.sync();
+        const int half_len = 1 << (log_len - step - 1);
+        const int n_reps = (half_len + n_total_threads - 1) / n_total_threads;
+        for (int rep = 0; rep < n_reps; rep++)
+        {
+            const int thread_index = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
+            if (thread_index < half_len)
+            {
+                ext_field_add(&res[thread_index], &res[thread_index + half_len], &res[thread_index]);
+            }
+        }
+    }
+}
+
+extern "C" __global__ void fold_sum(const ExtField *input, ExtField *output, const uint32_t len, const uint32_t sum_size)
+{
+    // len must be a multiple of sum_size
+    // input has size len
+    // output has size len / sum_size
+    // output[0] = input[0] + input[output_len] + ... + input[output_len * (sum_size - 1)]
+    // output[1] = input[1] + input[output_len + 1] + ... + input[output_len * (sum_size - 1) + 1]
+    // ...
+    // Current implem is suited for small values of sum_size
+
+    const int n_total_threads = blockDim.x * gridDim.x;
+    const int output_len = len / sum_size;
+    const int n_reps = (output_len + n_total_threads - 1) / n_total_threads;
+    for (int rep = 0; rep < n_reps; rep++)
+    {
+        const int idx = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
+        if (idx < output_len)
+        {
+            output[idx] = {0};
+            for (int i = 0; i < sum_size; i++)
+            {
+                ext_field_add(&output[idx], &input[idx + output_len * i], &output[idx]);
+            }
+        }
+    }
+}
