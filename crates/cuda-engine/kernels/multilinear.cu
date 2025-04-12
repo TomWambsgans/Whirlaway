@@ -494,3 +494,28 @@ extern "C" __global__ void fold_sum(const ExtField *input, ExtField *output, con
         }
     }
 }
+
+extern "C" __global__ void sum_in_place(ExtField *terms, const uint32_t log_len)
+{
+    // will alter terms. The final result will be in terms[0]
+
+    namespace cg = cooperative_groups;
+    cg::grid_group grid = cg::this_grid();
+
+    const int n_total_threads = blockDim.x * gridDim.x;
+
+    for (int step = 0; step < log_len; step++)
+    {
+        const int half_len = 1 << (log_len - step - 1);
+        const int n_reps = (half_len + n_total_threads - 1) / n_total_threads;
+        for (int rep = 0; rep < n_reps; rep++)
+        {
+            const int thread_index = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
+            if (thread_index < half_len)
+            {
+                ext_field_add(&terms[thread_index], &terms[thread_index + half_len], &terms[thread_index]);
+            }
+        }
+        grid.sync();
+    }
+}

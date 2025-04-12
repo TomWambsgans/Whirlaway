@@ -4,7 +4,7 @@ use p3_koala_bear::KoalaBear;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
-use crate::{cuda_dot_product, cuda_fold_sum};
+use crate::{cuda_dot_product, cuda_fold_sum, cuda_sum};
 
 #[test]
 fn test_cuda_dot_product() {
@@ -70,5 +70,27 @@ fn test_cuda_fold_sum() {
             println!("CPU time: {:?} ms", time.elapsed().as_millis());
             assert!(cuda_res == cpu_res);
         }
+    }
+}
+
+#[test]
+fn test_cuda_sum_in_place() {
+    cuda_init();
+    let rng = &mut StdRng::seed_from_u64(0);
+    type F = BinomialExtensionField<KoalaBear, 8>;
+    for log_len in [1, 3, 11, 20] {
+        let len = 1 << log_len;
+        let input = (0..len).map(|_| rng.random()).collect::<Vec<F>>();
+        let input_dev = memcpy_htod(&input);
+        cuda_sync();
+        let time = std::time::Instant::now();
+        let cuda_res = cuda_sum(input_dev);
+        cuda_sync();
+        println!("CUDA time: {:?} ms", time.elapsed().as_millis());
+        cuda_sync();
+        let time = std::time::Instant::now();
+        let cpu_res = input.into_par_iter().sum::<F>();
+        println!("CPU time: {:?} ms", time.elapsed().as_millis());
+        assert_eq!(cuda_res, cpu_res);
     }
 }

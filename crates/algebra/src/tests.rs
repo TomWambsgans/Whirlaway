@@ -12,16 +12,15 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
 #[test]
-
 fn test_cuda_hypercube_sum() {
     type F = KoalaBear;
     const EXT_DEGREE: usize = 8;
     type EF = BinomialExtensionField<KoalaBear, EXT_DEGREE>;
 
     let n_multilinears = 11;
-    let n_vars = 3;
+    let n_vars = 12;
     let depth = 1;
-    let n_batching_scalars = 2;
+    let n_batching_scalars = 17;
 
     let rng = &mut StdRng::seed_from_u64(0);
     let compositions = (0..n_batching_scalars)
@@ -76,6 +75,7 @@ fn test_cuda_hypercube_sum() {
         &sumcheck_computation,
         &multilinears_dev,
         &batching_scalars,
+        None,
     );
 
     println!(

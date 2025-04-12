@@ -18,10 +18,10 @@ type EF = BinomialExtensionField<KoalaBear, 8>;
 
 #[test]
 fn test_air_fibonacci() {
-    let log_length = 10;
+    let log_length = 14;
     let security_bits = 45;
     let log_inv_rate = 2;
-    for cuda in [false, true] {
+    for cuda in [true, false] {
         let mut builder = AirBuilder::<F, 4>::new(log_length);
         let mut first_row_selector = vec![F::ZERO; 1 << log_length];
         first_row_selector[0] = F::ONE;

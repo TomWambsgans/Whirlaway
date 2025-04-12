@@ -1,4 +1,4 @@
-use algebra::pols::{Multilinear, MultilinearDevice, MultilinearHost, MultilinearsSlice};
+use algebra::pols::{Multilinear, MultilinearDevice, MultilinearHost, MultilinearsVec};
 use arithmetic_circuit::{CircuitComputation, TransparentPolynomial};
 use cuda_engine::{
     SumcheckComputation, cuda_init, cuda_preprocess_sumcheck_computation, memcpy_htod,
@@ -7,7 +7,7 @@ use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::{ExtensionField, Field, extension::BinomialExtensionField};
 use p3_koala_bear::KoalaBear;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use utils::powers;
+use utils::{eq_extension, powers};
 
 use super::*;
 
@@ -18,7 +18,7 @@ type EF = BinomialExtensionField<KoalaBear, 8>;
 
 #[test]
 fn test_sumcheck() {
-    let n_vars = 10;
+    let n_vars = 11;
     let n_exprs = 10;
     let n_multilinears = 20;
     let rng = &mut StdRng::seed_from_u64(0);
@@ -27,51 +27,53 @@ fn test_sumcheck() {
             TransparentPolynomial::<KoalaBear>::random(rng, n_multilinears, 1).fix_computation(true)
         })
         .collect::<Vec<_>>();
+    let eq_factor = (0..n_vars).map(|_| EF::random(rng)).collect::<Vec<_>>();
 
     cuda_init();
-    cuda_preprocess_sumcheck_computation(&SumcheckComputation {
+    let sumcheck_computation = SumcheckComputation {
         exprs: &exprs,
-        n_multilinears,
-        eq_mle_multiplier: false,
-    });
+        n_multilinears: n_multilinears + 1,
+        eq_mle_multiplier: true,
+    };
+    cuda_preprocess_sumcheck_computation(&sumcheck_computation);
 
     for gpu in [true, false] {
         let multilinears_host = (0..n_multilinears)
             .map(|_| MultilinearHost::<EF>::random(rng, n_vars))
             .collect::<Vec<_>>();
+        let multilinears = if gpu {
+            MultilinearsVec::Device(
+                multilinears_host
+                    .iter()
+                    .map(|m| MultilinearDevice::new(memcpy_htod(&m.evals)))
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            MultilinearsVec::Host(
+                multilinears_host
+                    .iter()
+                    .map(|m| m.clone())
+                    .collect::<Vec<_>>(),
+            )
+        };
+
         let batching_scalar: EF = rng.random();
         let batching_scalars = powers(batching_scalar, n_exprs);
-
-        let sum = MultilinearsSlice::Host(multilinears_host.iter().collect())
-            .sum_over_hypercube_of_computation(
-                &SumcheckComputation {
-                    exprs: &exprs,
-                    n_multilinears,
-                    eq_mle_multiplier: false,
-                },
-                &batching_scalars,
-            );
-
-        let multilinears = if gpu {
-            multilinears_host
-                .iter()
-                .map(|m| Multilinear::Device(MultilinearDevice::new(memcpy_htod(&m.evals))))
-                .collect::<Vec<_>>()
-        } else {
-            multilinears_host
-                .iter()
-                .map(|m| Multilinear::Host(m.clone()))
-                .collect::<Vec<_>>()
-        };
+        let eq_mle = Multilinear::eq_mle(&eq_factor, gpu);
+        let sum = multilinears.as_ref().sum_over_hypercube_of_computation(
+            &sumcheck_computation,
+            &batching_scalars,
+            Some(&eq_mle),
+        );
 
         let mut fs_prover = FsProver::new();
 
         let time = std::time::Instant::now();
         prove(
-            &multilinears,
+            multilinears.as_ref(),
             &exprs,
             &batching_scalars,
-            None,
+            Some(&eq_factor),
             false,
             &mut fs_prover,
             Some(sum),
@@ -91,15 +93,16 @@ fn test_sumcheck() {
             .max()
             .unwrap();
         let (claimed_sum, postponed_verification) =
-            verify::<EF>(&mut fs_verifier, &vec![max_degree_per_vars; n_vars], 0).unwrap();
+            verify::<EF>(&mut fs_verifier, &vec![1 + max_degree_per_vars; n_vars], 0).unwrap();
         assert_eq!(sum, claimed_sum);
+
         assert_eq!(
             eval_batched_exprs_of_multilinears(
                 &multilinears_host,
                 &exprs,
                 &batching_scalars,
                 &postponed_verification.point
-            ),
+            ) * eq_extension(&postponed_verification.point, &eq_factor),
             postponed_verification.value
         );
     }

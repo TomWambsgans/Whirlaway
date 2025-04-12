@@ -312,8 +312,7 @@ pub fn cuda_fold_sum<F: Field>(input: &CudaSlice<F>, sum_size: usize) -> CudaSli
     let output_len = input.len() / sum_size;
 
     let n_threads_per_blocks = MULTILINEAR_N_THREADS_PER_BLOCK.min(output_len as u32);
-    let n_blocks =
-        ((output_len as u32 + n_threads_per_blocks - 1) / n_threads_per_blocks).min(MAX_N_BLOCKS);
+    let n_blocks = ((output_len as u32).div_ceil(n_threads_per_blocks)).min(MAX_N_BLOCKS);
 
     let mut output = cuda_alloc::<F>(output_len);
     let len_u32 = input.len() as u32;
@@ -328,4 +327,99 @@ pub fn cuda_fold_sum<F: Field>(input: &CudaSlice<F>, sum_size: usize) -> CudaSli
     call.launch();
 
     output
+}
+
+// Async
+pub fn cuda_sum<F: Field>(terms: CudaSlice<F>) -> F {
+    // we take owneship of `terms` because it will be aletered
+    assert!(F::bits() > 32, "TODO");
+    assert!(terms.len().is_power_of_two());
+    let log_len = terms.len().ilog2() as u32;
+
+    let n_threads_per_blocks = MULTILINEAR_N_THREADS_PER_BLOCK.min((terms.len() / 2) as u32);
+    let n_blocks =
+        ((terms.len() as u32 / 2).div_ceil(n_threads_per_blocks)).min(MAX_N_COOPERATIVE_BLOCKS);
+    let mut call = CudaCall::new("multilinear", "sum_in_place")
+        .blocks(n_blocks)
+        .threads_per_block(n_threads_per_blocks);
+    call.arg(&terms);
+    call.arg(&log_len);
+    call.launch_cooperative();
+    cuda_get_at_index(&terms, 0)
+}
+
+/// Async
+pub fn cuda_fix_variable_in_small_field<
+    F: Field,
+    EF: ExtensionField<F>,
+    ML: Borrow<CudaSlice<EF>>,
+>(
+    slices: &[ML],
+    scalar: F,
+) -> Vec<CudaSlice<EF>> {
+    assert!(TypeId::of::<EF>() != TypeId::of::<F>(), "TODO");
+    let slices: Vec<&CudaSlice<EF>> = slices.iter().map(|m| m.borrow()).collect::<Vec<_>>();
+    assert!(slices[0].len().is_power_of_two());
+    let n_vars = slices[0].len().ilog2() as u32;
+    assert!(n_vars >= 1);
+    assert!(slices.iter().all(|s| s.len() == 1 << n_vars as usize));
+
+    let slices_ptrs_dev = concat_pointers(&slices);
+    let res = (0..slices.len())
+        .map(|_| cuda_alloc::<EF>(1 << (n_vars - 1)))
+        .collect::<Vec<_>>();
+    let mut res_ptrs_dev = concat_pointers(&res);
+
+    let n_reps = (slices.len() as u32) << (n_vars - 1);
+    let n_threads_per_block = n_reps.min(MULTILINEAR_N_THREADS_PER_BLOCK);
+    let n_blocks = ((n_reps + n_threads_per_block - 1) / n_threads_per_block).min(MAX_N_BLOCKS);
+    let n_slices = slices.len() as u32;
+    let mut call = CudaCall::new("multilinear", "fold_ext_by_prime")
+        .blocks(n_blocks)
+        .threads_per_block(n_threads_per_block);
+    call.arg(&slices_ptrs_dev);
+    call.arg(&mut res_ptrs_dev);
+    call.arg(&scalar);
+    call.arg(&n_slices);
+    call.arg(&n_vars);
+    call.launch();
+
+    res
+}
+
+/// Async
+pub fn cuda_fix_variable_in_big_field<F: Field, EF: ExtensionField<F>, ML: Borrow<CudaSlice<F>>>(
+    slices: &[ML],
+    scalar: EF,
+) -> Vec<CudaSlice<EF>> {
+    assert!(F::bits() > 32, "TODO");
+    let slices: Vec<&CudaSlice<F>> = slices.iter().map(|m| m.borrow()).collect::<Vec<_>>();
+    assert!(slices[0].len().is_power_of_two());
+    let n_vars = slices[0].len().ilog2() as u32;
+    assert!(n_vars >= 1);
+    assert!(slices.iter().all(|s| s.len() == 1 << n_vars as usize));
+    let slices_ptrs_dev = concat_pointers(&slices);
+
+    let res = (0..slices.len())
+        .map(|_| cuda_alloc::<EF>(1 << (n_vars - 1)))
+        .collect::<Vec<_>>();
+    let mut res_ptrs_dev = concat_pointers(&res);
+
+    let n_reps = (slices.len() as u32) << (n_vars - 1);
+    let n_threads_per_block = n_reps.min(MULTILINEAR_N_THREADS_PER_BLOCK);
+    let n_blocks = ((n_reps + n_threads_per_block - 1) / n_threads_per_block).min(MAX_N_BLOCKS);
+    let n_slices = slices.len() as u32;
+    let scalar_dev = memcpy_htod(&[scalar]);
+
+    let mut call = CudaCall::new("multilinear", "fold_ext_by_ext")
+        .blocks(n_blocks)
+        .threads_per_block(n_threads_per_block);
+    call.arg(&slices_ptrs_dev);
+    call.arg(&mut res_ptrs_dev);
+    call.arg(&scalar_dev);
+    call.arg(&n_slices);
+    call.arg(&n_vars);
+    call.launch();
+
+    res
 }

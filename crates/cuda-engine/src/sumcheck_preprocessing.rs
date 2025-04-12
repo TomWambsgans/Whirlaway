@@ -8,6 +8,8 @@ use crate::*;
 
 const MAX_SUMCHECK_INSTRUCTIONS_TO_REMOVE_INLINING: usize = 10;
 
+const MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT: usize = 12;
+
 #[derive(Clone, Debug, Hash)]
 pub struct SumcheckComputation<'a, F> {
     pub exprs: &'a [CircuitComputation<F>], // each one is multiplied by a 'batching scalar'. We assume the first batching scalar is always 1.
@@ -28,6 +30,12 @@ impl<'a, F> SumcheckComputation<'a, F> {
         }
     }
 
+    pub fn n_cuda_compute_units(&self) -> usize {
+        self.exprs
+            .len()
+            .div_ceil(MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT)
+    }
+
     pub fn uuid(&self) -> u64
     where
         F: Hash,
@@ -35,6 +43,7 @@ impl<'a, F> SumcheckComputation<'a, F> {
         // TODO avoid, use a custom string instead
         let mut hasher = DefaultHasher::new();
         self.hash(&mut hasher);
+        MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT.hash(&mut hasher);
         hasher.finish()
     }
 }
@@ -74,7 +83,7 @@ fn get_sumcheck_cuda_code<F: PrimeField32>(
     template: &str,
     composition: &SumcheckComputation<F>,
 ) -> String {
-    let instructions = get_sumcheck_cuda_instructions(composition);
+    let instructions = get_cuda_instructions(composition);
     template
         .replace(
             "N_REGISTERS_PLACEHOLDER",
@@ -87,20 +96,41 @@ fn get_sumcheck_cuda_code<F: PrimeField32>(
         .replace("COMPOSITION_PLACEHOLDER", &instructions)
 }
 
-fn get_sumcheck_cuda_instructions<F: PrimeField32>(
-    sumcheck_computation: &SumcheckComputation<F>,
+fn get_cuda_instructions<F: PrimeField32>(sumcheck_computation: &SumcheckComputation<F>) -> String {
+    let mut res = String::new();
+    let total_stack_size = sumcheck_computation.stack_size();
+    let n_compute_units = sumcheck_computation.n_cuda_compute_units();
+    let blank = "            ";
+    for compute_unit in 0..n_compute_units {
+        let start = compute_unit * MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT;
+        let end = ((compute_unit + 1) * MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT)
+            .min(sumcheck_computation.exprs.len());
+        let instructions =
+            compute_unit_instructions(sumcheck_computation.exprs, start, end, total_stack_size);
+        res += &format!("\n{blank}if (compute_unit_index == {}) {{", compute_unit);
+        res += &instructions;
+        res += &format!("{blank}}}\n");
+    }
+
+    res
+}
+
+fn compute_unit_instructions<F: PrimeField32>(
+    exprs: &[CircuitComputation<F>],
+    start: usize,
+    end: usize,
+    total_stack_size: usize,
 ) -> String {
     let mut res = String::new();
-    let blank = "            ";
-    let total_stack_size = sumcheck_computation.stack_size();
+    let blank = "                ";
 
-    for (i, inner) in sumcheck_computation.exprs.iter().enumerate() {
+    for (i, expr) in exprs[start..end].iter().enumerate() {
         res += &format!(
             "\n{blank}// computation {}/{}\n\n",
-            i + 1,
-            sumcheck_computation.exprs.len()
+            i + start + 1,
+            exprs.len()
         );
-        for instr in &inner.instructions {
+        for instr in &expr.instructions {
             let op_str = match instr.op {
                 CircuitOp::Product => "mul",
                 CircuitOp::Sum => "add",
@@ -119,7 +149,7 @@ fn get_sumcheck_cuda_instructions<F: PrimeField32>(
                 }
                 (ComputationInput::Node(node_index), ComputationInput::Scalar(scalar)) => {
                     res += &format!(
-                        "{}{}_prime_and_ext_field(&multilinears[{}][thread_index], to_monty({}), &regs[{}]);\n",
+                        "{}{}_prime_and_ext_field(&multilinears[{}][hypercube_point], to_monty({}), &regs[{}]);\n",
                         blank,
                         op_str,
                         node_index,
@@ -129,14 +159,14 @@ fn get_sumcheck_cuda_instructions<F: PrimeField32>(
                 }
                 (ComputationInput::Node(node_left), ComputationInput::Node(node_right)) => {
                     res += &format!(
-                        "{}ext_field_{}(&multilinears[{}][thread_index], &multilinears[{}][thread_index], &regs[{}]);\n",
+                        "{}ext_field_{}(&multilinears[{}][hypercube_point], &multilinears[{}][hypercube_point], &regs[{}]);\n",
                         blank, op_str, node_left, node_right, instr.result_location
                     )
                 }
                 (ComputationInput::Stack(stack_index), ComputationInput::Node(node_index))
                 | (ComputationInput::Node(node_index), ComputationInput::Stack(stack_index)) => {
                     res += &format!(
-                        "{}ext_field_{}(&regs[{}], &multilinears[{}][thread_index], &regs[{}]);\n",
+                        "{}ext_field_{}(&regs[{}], &multilinears[{}][hypercube_point], &regs[{}]);\n",
                         blank, op_str, stack_index, node_index, instr.result_location
                     )
                 }
@@ -152,24 +182,28 @@ fn get_sumcheck_cuda_instructions<F: PrimeField32>(
             }
         }
 
-        if sumcheck_computation.exprs.len() > 1 {
-            if i == 0 {
+        if exprs.len() > 1 {
+            if i == 0 && start == 0 {
                 res += &format!(
                     "{}regs[{}] = regs[{}];\n",
                     blank,
                     total_stack_size - 1,
-                    inner.stack_size - 1
+                    expr.stack_size - 1
                 );
             } else {
                 // multiply by batching scalar
-                assert!(inner.stack_size >= 2, "TODO edge case");
+                assert!(expr.stack_size >= 2, "TODO edge case");
                 res += &format!(
                     "{}ext_field_mul(&regs[{}], &cached_batching_scalars[{}], &regs[{}]);\n",
                     blank,
-                    inner.stack_size - 1,
-                    i,
+                    expr.stack_size - 1,
+                    i + start,
                     total_stack_size - 2,
                 );
+
+                if i == 0 {
+                    res += &format!("{}regs[{}] = {{0}};\n", blank, total_stack_size - 1);
+                }
                 res += &format!(
                     "{}ext_field_add(&regs[{}], &regs[{}], &regs[{}]);\n",
                     blank,
@@ -179,23 +213,6 @@ fn get_sumcheck_cuda_instructions<F: PrimeField32>(
                 );
             }
         }
-    }
-
-    if sumcheck_computation.eq_mle_multiplier {
-        assert!(total_stack_size >= 2, "TODO edge case");
-        res += &format!(
-            "{}regs[{}] = regs[{}];\n",
-            blank,
-            total_stack_size - 2,
-            total_stack_size - 1
-        );
-        res += &format!(
-            "{}ext_field_mul(&regs[{}], &multilinears[{}][thread_index], &regs[{}]);\n",
-            blank,
-            total_stack_size - 2,
-            sumcheck_computation.n_multilinears - 1,
-            total_stack_size - 1
-        );
     }
 
     res

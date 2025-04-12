@@ -597,23 +597,34 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
         &self,
         comp: &SumcheckComputation<SmallField>,
         batching_scalars: &[BigField],
+        eq_mle: Option<&Multilinear<BigField>>,
     ) -> BigField
     where
         F: ExtensionField<SmallField>,
     {
         let n_vars = self.n_vars();
         match self {
-            Self::Host(multilinears) => HypercubePoint::par_iter(n_vars)
-                .map(|x| {
-                    let point = multilinears
-                        .iter()
-                        .map(|pol| pol.eval_hypercube(&x))
-                        .collect::<Vec<_>>();
-                    eval_sumcheck_computation(comp, batching_scalars, &point)
-                })
-                .sum::<BigField>(),
+            Self::Host(multilinears) => {
+                let eq_mle = eq_mle.map(|pol| pol.as_host_ref());
+                HypercubePoint::par_iter(n_vars)
+                    .map(|x| {
+                        let point = multilinears
+                            .iter()
+                            .map(|pol| pol.eval_hypercube(&x))
+                            .collect::<Vec<_>>();
+                        let eq_mle_eval = eq_mle.map(|p| p.eval_hypercube(&x));
+                        eval_sumcheck_computation(comp, batching_scalars, &point, eq_mle_eval)
+                    })
+                    .sum::<BigField>()
+            }
             Self::Device(multilinears) => {
-                cuda_sum_over_hypercube_of_computation(comp, &multilinears, &batching_scalars)
+                let eq_mle = eq_mle.map(|pol| &pol.as_device_ref().evals);
+                cuda_sum_over_hypercube_of_computation(
+                    comp,
+                    &multilinears,
+                    &batching_scalars,
+                    eq_mle,
+                )
             }
         }
     }
@@ -728,25 +739,21 @@ pub fn eval_sumcheck_computation<
     comp: &SumcheckComputation<F>,
     batching_scalars: &[EF],
     point: &[NF],
+    eq_mle_eval: Option<EF>,
 ) -> EF {
-    let point_without_eq_factor = if comp.eq_mle_multiplier {
-        &point[..point.len() - 1]
-    } else {
-        point
-    };
     let mut res = if comp.exprs.len() == 1 {
-        EF::from(comp.exprs[0].eval(point_without_eq_factor))
+        EF::from(comp.exprs[0].eval(point))
     } else {
         comp.exprs
             .iter()
             .zip(batching_scalars)
             .skip(1)
-            .map(|(expr, scalar)| *scalar * expr.eval(point_without_eq_factor))
+            .map(|(expr, scalar)| *scalar * expr.eval(point))
             .sum::<EF>()
-            + comp.exprs[0].eval(point_without_eq_factor)
+            + comp.exprs[0].eval(point)
     };
     if comp.eq_mle_multiplier {
-        res *= point[point.len() - 1];
+        res *= eq_mle_eval.unwrap();
     }
     res
 }

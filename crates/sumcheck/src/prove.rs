@@ -48,7 +48,15 @@ pub fn prove<
     };
 
     let mut sum = sum.unwrap_or_else(|| {
-        multilinears.sum_over_hypercube_of_computation(&sumcheck_computation, batching_scalars)
+        assert!(
+            eq_factor.is_none(),
+            "This turns out to be true for everything we do"
+        ); // TODO avoid
+        multilinears.sum_over_hypercube_of_computation(
+            &sumcheck_computation,
+            batching_scalars,
+            None,
+        )
     });
     let mut folded_multilinears;
 
@@ -140,19 +148,17 @@ fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Extens
             let folded = multilinears.fix_variable_in_small_field(F::from_u32(z as u32));
 
             // TODO very bad
-            let mut folded = if TypeId::of::<NF>() == TypeId::of::<EF>() {
+            let folded = if TypeId::of::<NF>() == TypeId::of::<EF>() {
                 unsafe { std::mem::transmute::<_, MultilinearsVec<EF>>(folded) }
             } else {
                 panic!()
             };
 
-            if let Some(eq_mle) = &eq_mle {
-                folded.push(eq_mle.clone()); // TODO avoid clone
-            }
-
-            folded
-                .as_ref()
-                .sum_over_hypercube_of_computation(sumcheck_computation, batching_scalars)
+            folded.as_ref().sum_over_hypercube_of_computation(
+                sumcheck_computation,
+                batching_scalars,
+                eq_mle.as_ref(),
+            )
         };
         p_evals.push((EF::from_u32(z), sum_z));
     }
