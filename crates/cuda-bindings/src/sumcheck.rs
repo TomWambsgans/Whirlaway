@@ -8,7 +8,7 @@ use p3_field::{BasedVectorSpace, ExtensionField, Field};
 use crate::{MAX_N_BLOCKS, cuda_dot_product, cuda_fold_sum, cuda_sum};
 
 // TODO avoid hardcoding
-const SUMCHECK_MAX_LOG_N_THREADS_PER_BLOCK: u32 = 10;
+const SUMCHECK_MAX_LOG_N_THREADS_PER_BLOCK: u32 = 9;
 const SUMCHECK_MAX_N_THREADS_PER_BLOCK: u32 = 1 << SUMCHECK_MAX_LOG_N_THREADS_PER_BLOCK;
 
 /// Async
