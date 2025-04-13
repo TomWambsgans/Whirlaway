@@ -151,6 +151,7 @@ fn compute_unit_instructions<F: PrimeField32>(
                     )
                 }
                 (ComputationInput::Node(node_left), ComputationInput::Node(node_right)) => {
+                    // TODO avoid passing a global memory ref to ext_field_mul, cache it first to thread registers
                     res += &format!(
                         "{}ext_field_{}(&multilinears[{}][hypercube_point], &multilinears[{}][hypercube_point], &reg_{});\n",
                         blank, op_str, node_left, node_right, instr.result_location

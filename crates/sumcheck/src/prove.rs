@@ -52,11 +52,13 @@ pub fn prove<
             eq_factor.is_none(),
             "This turns out to be true for everything we do"
         ); // TODO avoid
-        multilinears.sum_over_hypercube_of_computation(
+        let sum = multilinears.sum_over_hypercube_of_computation(
             &sumcheck_computation,
             batching_scalars,
             None,
-        )
+        );
+        cuda_sync();
+        sum
     });
     let mut folded_multilinears;
 
@@ -136,7 +138,6 @@ fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Extens
         0
     };
     for z in start..=degree as u32 {
-        cuda_sync(); // I don't really understand why it is neccesary but it is
         let sum_z = if z == 1 {
             if let Some(eq_factor) = eq_factor {
                 let f = eq_extension(&eq_factor[..round], &challenges);

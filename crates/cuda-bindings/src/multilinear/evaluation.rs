@@ -1,7 +1,3 @@
-use crate::{
-    MAX_LOG_N_COOPERATIVE_BLOCKS, MAX_N_BLOCKS,
-    multilinear::{MULTILINEAR_LOG_N_THREADS_PER_BLOCK, MULTILINEAR_N_THREADS_PER_BLOCK},
-};
 use cuda_engine::{
     CudaCall, concat_pointers, cuda_alloc, cuda_get_at_index, cuda_sync, memcpy_htod,
 };
@@ -45,12 +41,8 @@ fn cuda_eval_multilinear<F: Field, EF: ExtensionField<F>>(
 
     let point_dev = memcpy_htod(&point);
     let mut buff = cuda_alloc::<EF>(coeffs.len() - 1);
-    let log_n_per_blocks = MULTILINEAR_LOG_N_THREADS_PER_BLOCK.min(n_vars - 1);
-    let log_n_blocks =
-        ((n_vars - 1).saturating_sub(log_n_per_blocks)).min(MAX_LOG_N_COOPERATIVE_BLOCKS);
-    let mut call = CudaCall::new("multilinear", function_name)
-        .blocks(1 << log_n_blocks)
-        .threads_per_block(1 << log_n_per_blocks);
+
+    let mut call = CudaCall::new("multilinear", function_name, 1 << (n_vars - 1));
     call.arg(coeffs);
     call.arg(&point_dev);
     call.arg(&n_vars);
@@ -82,13 +74,12 @@ pub fn cuda_fix_variable_in_small_field<
         .collect::<Vec<_>>();
     let mut res_ptrs_dev = concat_pointers(&res);
 
-    let n_reps = (slices.len() as u32) << (n_vars - 1);
-    let n_threads_per_block = n_reps.min(MULTILINEAR_N_THREADS_PER_BLOCK);
-    let n_blocks = ((n_reps + n_threads_per_block - 1) / n_threads_per_block).min(MAX_N_BLOCKS);
     let n_slices = slices.len() as u32;
-    let mut call = CudaCall::new("multilinear", "fold_ext_by_prime")
-        .blocks(n_blocks)
-        .threads_per_block(n_threads_per_block);
+    let mut call = CudaCall::new(
+        "multilinear",
+        "fold_ext_by_prime",
+        (slices.len() as u32) << (n_vars - 1),
+    );
     call.arg(&slices_ptrs_dev);
     call.arg(&mut res_ptrs_dev);
     call.arg(&scalar);
@@ -116,16 +107,13 @@ pub fn cuda_fix_variable_in_big_field<F: Field, EF: ExtensionField<F>, ML: Borro
         .map(|_| cuda_alloc::<EF>(1 << (n_vars - 1)))
         .collect::<Vec<_>>();
     let mut res_ptrs_dev = concat_pointers(&res);
-
-    let n_reps = (slices.len() as u32) << (n_vars - 1);
-    let n_threads_per_block = n_reps.min(MULTILINEAR_N_THREADS_PER_BLOCK);
-    let n_blocks = ((n_reps + n_threads_per_block - 1) / n_threads_per_block).min(MAX_N_BLOCKS);
     let n_slices = slices.len() as u32;
     let scalar_dev = memcpy_htod(&[scalar]);
-
-    let mut call = CudaCall::new("multilinear", "fold_ext_by_ext")
-        .blocks(n_blocks)
-        .threads_per_block(n_threads_per_block);
+    let mut call = CudaCall::new(
+        "multilinear",
+        "fold_ext_by_ext",
+        (slices.len() as u32) << (n_vars - 1),
+    );
     call.arg(&slices_ptrs_dev);
     call.arg(&mut res_ptrs_dev);
     call.arg(&scalar_dev);
@@ -146,12 +134,7 @@ pub fn cuda_eq_mle<F: Field>(point: &[F]) -> CudaSlice<F> {
     let n_vars = point.len() as u32;
     let point_dev = memcpy_htod(&point);
     let mut res = cuda_alloc::<F>(1 << n_vars);
-    let log_n_per_blocks = MULTILINEAR_LOG_N_THREADS_PER_BLOCK.min(n_vars - 1);
-    let log_n_blocks =
-        ((n_vars - 1).saturating_sub(log_n_per_blocks)).min(MAX_LOG_N_COOPERATIVE_BLOCKS);
-    let mut call = CudaCall::new("multilinear", "eq_mle")
-        .blocks(1 << log_n_blocks)
-        .threads_per_block(1 << log_n_per_blocks);
+    let mut call = CudaCall::new("multilinear", "eq_mle", 1 << (n_vars - 1));
     call.arg(&point_dev);
     call.arg(&n_vars);
     call.arg(&mut res);

@@ -7,8 +7,6 @@ use cudarc::driver::{CudaSlice, PushKernelArg};
 use p3_field::Field;
 use tracing::instrument;
 
-use crate::MAX_LOG_N_COOPERATIVE_BLOCKS;
-
 // TODO this value is also hardcoded in ntt.cuda, this is ugly
 const NTT_MAX_LOG_N_THREADS_PER_BLOCK: u32 = 8;
 const NTT_MAX_N_THREADS_PER_BLOCK: u32 = 1 << NTT_MAX_LOG_N_THREADS_PER_BLOCK;
@@ -23,11 +21,6 @@ pub fn cuda_expanded_ntt<F: Field>(coeffs: &CudaSlice<F>, expansion_factor: usiz
     let log_len = coeffs.len().trailing_zeros() as u32;
     let log_expension_factor = expansion_factor.trailing_zeros() as u32;
 
-    let log_n_threads_per_block =
-        (log_len + log_expension_factor - 1).min(NTT_MAX_LOG_N_THREADS_PER_BLOCK);
-    let log_n_blocks = (log_len + log_expension_factor - 1 - log_n_threads_per_block)
-        .min(MAX_LOG_N_COOPERATIVE_BLOCKS);
-
     assert!(
         log_expension_factor + log_len <= cuda_twiddles_two_adicity::<F::PrimeSubfield>() as u32,
         "NTT to big"
@@ -40,10 +33,12 @@ pub fn cuda_expanded_ntt<F: Field>(coeffs: &CudaSlice<F>, expansion_factor: usiz
 
     let extension_degree = std::mem::size_of::<F>() / std::mem::size_of::<u32>(); // TODO improve
 
-    let mut call = CudaCall::new("ntt", "expanded_ntt")
-        .blocks(1 << log_n_blocks)
-        .threads_per_block(1 << log_n_threads_per_block)
-        .shared_mem_bytes((NTT_MAX_N_THREADS_PER_BLOCK * 2) * (extension_degree as u32 + 1) * 4); // cf `ntt_at_block_level` in ntt.cu
+    let mut call = CudaCall::new(
+        "ntt",
+        "expanded_ntt",
+        1 << (log_len + log_expension_factor - 1),
+    )
+    .shared_mem_bytes((NTT_MAX_N_THREADS_PER_BLOCK * 2) * (extension_degree as u32 + 1) * 4); // cf `ntt_at_block_level` in ntt.cu
     call.arg(coeffs);
     call.arg(&mut buff_dev);
     call.arg(&mut result_dev);
@@ -64,9 +59,6 @@ pub fn cuda_ntt<F: Field>(coeffs: &[F], log_chunck_size: usize) -> Vec<F> {
 
     let log_len = coeffs.len().trailing_zeros() as u32;
 
-    let log_n_threads_per_block = (log_len - 1).min(NTT_MAX_LOG_N_THREADS_PER_BLOCK);
-    let log_n_blocks = (log_len - 1 - log_n_threads_per_block).min(MAX_LOG_N_COOPERATIVE_BLOCKS);
-
     assert!(
         log_len <= cuda_twiddles_two_adicity::<F::PrimeSubfield>() as u32,
         "NTT to big"
@@ -79,9 +71,7 @@ pub fn cuda_ntt<F: Field>(coeffs: &[F], log_chunck_size: usize) -> Vec<F> {
     let extension_degree = std::mem::size_of::<F>() / std::mem::size_of::<u32>(); // TODO improve
 
     let twiddles = cuda_twiddles::<F::PrimeSubfield>();
-    let mut call = CudaCall::new("ntt", "ntt_global")
-        .blocks(1 << log_n_blocks)
-        .threads_per_block(1 << log_n_threads_per_block)
+    let mut call = CudaCall::new("ntt", "ntt_global", 1 << (log_len - 1))
         .shared_mem_bytes((NTT_MAX_N_THREADS_PER_BLOCK * 2) * (extension_degree as u32 + 1) * 4); // cf `ntt_at_block_level` in ntt.cu
     call.arg(&mut coeffs_dev);
     call.arg(&log_len);
@@ -106,9 +96,6 @@ pub fn cuda_restructure_evaluations<F: Field>(
 
     let log_len = coeffs.len().trailing_zeros() as u32;
 
-    let log_n_threads_per_block = (log_len - 1).min(NTT_MAX_LOG_N_THREADS_PER_BLOCK);
-    let log_n_blocks = (log_len - 1 - log_n_threads_per_block).min(MAX_LOG_N_COOPERATIVE_BLOCKS);
-
     assert!(
         log_len <= cuda_twiddles_two_adicity::<F::PrimeSubfield>() as u32,
         "NTT to big"
@@ -121,9 +108,7 @@ pub fn cuda_restructure_evaluations<F: Field>(
     let extension_degree = std::mem::size_of::<F>() / std::mem::size_of::<u32>(); // TODO improve
 
     let twiddles = cuda_twiddles::<F::PrimeSubfield>();
-    let mut launch_args = CudaCall::new("ntt", "restructure_evaluations")
-        .blocks(1 << log_n_blocks)
-        .threads_per_block(1 << log_n_threads_per_block)
+    let mut launch_args = CudaCall::new("ntt", "restructure_evaluations", 1 << (log_len - 1))
         .shared_mem_bytes((NTT_MAX_N_THREADS_PER_BLOCK * 2) * (extension_degree as u32 + 1) * 4); // cf `ntt_at_block_level` in ntt.cu;
     launch_args.arg(coeffs);
     launch_args.arg(&mut result_dev);

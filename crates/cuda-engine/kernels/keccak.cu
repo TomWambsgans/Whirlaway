@@ -237,23 +237,28 @@ __device__ void keccak256(const uint8_t *input, size_t length, uint8_t *output)
 
 // Kernel that processes multiple inputs in parallel
 extern "C" __global__ void batch_keccak256(
-    const uint8_t *inputs,            // Packed input data
-    const uint32_t num_inputs,          // Number of inputs to process
-    const uint32_t input_length,        // Length of each input
-    uint8_t *outputs                  // Output buffer for hashes
+    const uint8_t *inputs,       // Packed input data
+    const uint32_t num_inputs,   // Number of inputs to process
+    const uint32_t input_length, // Length of each input
+    uint8_t *outputs             // Output buffer for hashes
 )
 {
-    uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < num_inputs)
+    const int total_threads = blockDim.x * gridDim.x;
+    const int n_reps = (num_inputs + total_threads - 1) / total_threads;
+    for (int rep = 0; rep < n_reps; rep++)
     {
-        // Calculate offset in the input buffer
-        const uint8_t *input = &inputs[idx * input_length];
+        uint32_t idx = (blockIdx.x + rep * gridDim.x) * blockDim.x + threadIdx.x;
+        if (idx < num_inputs)
+        {
+            // Calculate offset in the input buffer
+            const uint8_t *input = &inputs[idx * input_length];
 
-        // Calculate offset in the output buffer (32 bytes per hash)
-        uint8_t *output = &outputs[idx * 32];
+            // Calculate offset in the output buffer (32 bytes per hash)
+            uint8_t *output = &outputs[idx * 32];
 
-        // Compute the hash
+            // Compute the hash
 
-        keccak256(input, input_length, output);
+            keccak256(input, input_length, output);
+        }
     }
 }
