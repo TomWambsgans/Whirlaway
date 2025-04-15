@@ -312,6 +312,22 @@ impl<F: Field> CircuitComputation<F> {
     }
 }
 
+pub fn max_composition_degree<F: Field>(circuits: &[CircuitComputation<F>]) -> usize {
+    circuits
+        .iter()
+        .map(|circuit| circuit.composition_degree)
+        .max_by_key(|&degree| degree)
+        .unwrap_or_default()
+}
+
+pub fn max_stack_size<F: Field>(circuits: &[CircuitComputation<F>]) -> usize {
+    circuits
+        .iter()
+        .map(|circuit| circuit.stack_size)
+        .max_by_key(|&stack_size| stack_size)
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod test {
     use p3_field::extension::BinomialExtensionField;

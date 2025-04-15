@@ -732,6 +732,7 @@ dependencies = [
  "p3-field",
  "p3-koala-bear",
  "rand",
+ "rayon",
  "tracing",
  "utils",
 ]

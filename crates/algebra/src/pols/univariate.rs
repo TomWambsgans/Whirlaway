@@ -44,6 +44,10 @@ impl<F: Field> UnivariatePolynomial<F> {
         Self::horner_evaluate(&self.coeffs, x)
     }
 
+    pub fn sum_evals<EF: ExtensionField<F>>(&self, xs: &[EF]) -> EF {
+        xs.iter().map(|x| self.eval(x)).sum()
+    }
+
     pub fn eval_parallel<EF: ExtensionField<F>>(&self, x: &EF) -> EF {
         if self.coeffs.is_empty() {
             return EF::ZERO;
@@ -74,7 +78,10 @@ impl<F: Field> UnivariatePolynomial<F> {
         result
     }
 
-    pub fn lagrange_interpolation(values: &[(F, F)]) -> Option<Self> {
+    pub fn lagrange_interpolation<S: Field>(values: &[(S, F)]) -> Option<Self>
+    where
+        F: ExtensionField<S>,
+    {
         let n = values.len();
         let mut result = vec![F::ZERO; n];
 
@@ -152,6 +159,18 @@ impl<F: Field> MulAssign for UnivariatePolynomial<F> {
     fn mul_assign(&mut self, other: Self) {
         *self = std::mem::take(self) * other;
     }
+}
+
+pub fn univariate_selectors<F: Field>(n: usize) -> Vec<UnivariatePolynomial<F>> {
+    (0..1 << n)
+        .into_par_iter()
+        .map(|i| {
+            let values = (0..1 << n)
+                .map(|j| (F::from_u64(j), if i == j { F::ONE } else { F::ZERO }))
+                .collect::<Vec<_>>();
+            UnivariatePolynomial::lagrange_interpolation(&values).unwrap()
+        })
+        .collect()
 }
 
 #[cfg(test)]

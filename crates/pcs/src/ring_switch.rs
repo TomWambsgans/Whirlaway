@@ -127,7 +127,8 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
         };
 
         let s0 = dot_product(&s_hat.rows(), &lagranged_r_pp);
-        let (r_p, _) = sumcheck::prove::<F, EF, EF, _>(
+        let (r_p, _, _) = sumcheck::prove::<F, EF, EF, _>(
+            1,
             &vec![packed_pol, &A_pol],
             &[
                 (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
@@ -137,9 +138,10 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
             None,
             false,
             fs_prover,
-            Some(s0),
+            s0,
             None,
             0,
+            None,
         );
 
         let packed_value = witness.inner_witness.pol().evaluate(&r_p);
@@ -182,7 +184,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
         let lagranged_r_pp = MultilinearHost::eq_mle(&r_pp).evals;
         let s0 = dot_product(&rows, &lagranged_r_pp);
 
-        let (claimed_s0, sc_claim) = sumcheck::verify(fs_verifier, &vec![2; n_packed_vars], 0)?;
+        let (claimed_s0, sc_claim) = sumcheck::verify(fs_verifier, n_packed_vars, 2, 0)?;
         if claimed_s0 != s0 {
             return Err(RingSwitchError::Outer);
         }

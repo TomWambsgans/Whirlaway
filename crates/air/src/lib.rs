@@ -10,3 +10,5 @@ mod verify;
 mod test;
 
 pub use builder::*;
+
+const UNIVARIATE_SKIPS: usize = 3;

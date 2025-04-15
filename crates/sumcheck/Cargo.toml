@@ -11,6 +11,7 @@ tracing.workspace = true
 arithmetic-circuit.workspace = true
 utils.workspace = true
 cuda-engine.workspace = true
+rayon.workspace = true
 
 [dev-dependencies]
 p3-koala-bear.workspace = true

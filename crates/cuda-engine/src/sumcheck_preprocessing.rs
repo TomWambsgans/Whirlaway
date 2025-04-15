@@ -1,6 +1,6 @@
 use std::hash::{DefaultHasher, Hasher};
 
-use arithmetic_circuit::{CircuitComputation, CircuitOp, ComputationInput};
+use arithmetic_circuit::{CircuitComputation, CircuitOp, ComputationInput, max_stack_size};
 use p3_field::PrimeField32;
 use std::hash::Hash;
 
@@ -109,7 +109,7 @@ fn compute_unit_instructions<F: PrimeField32>(
     let mut res = String::new();
     let blank = "                ";
 
-    let mut n_registers = exprs.iter().map(|expr| expr.stack_size).max().unwrap();
+    let mut n_registers = max_stack_size(exprs);
     if (end - start) > 1 {
         n_registers += 2;
     }
