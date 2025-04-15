@@ -2,7 +2,7 @@ use arithmetic_circuit::CircuitComputation;
 use p3_field::Field;
 use tracing::instrument;
 
-use algebra::pols::MultilinearHost;
+use algebra::pols::{MultilinearHost, UnivariatePolynomial};
 use utils::{HypercubePoint, log2_up};
 
 pub struct AirTable<F: Field> {
@@ -10,6 +10,7 @@ pub struct AirTable<F: Field> {
     pub n_columns: usize,
     pub constraints: Vec<CircuitComputation<F>>, // n_vars = 2 * n_columns. First half = columns of row i, second half = columns of row i + 1
     pub preprocessed_columns: Vec<MultilinearHost<F>>, // TODO 'sparse' preprocessed columns (with non zero values at cylic shifts)
+    pub(crate) univariate_selectors: Vec<UnivariatePolynomial<F>>,
 }
 
 impl<F: Field> AirTable<F> {

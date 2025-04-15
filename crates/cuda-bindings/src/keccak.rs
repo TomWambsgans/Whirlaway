@@ -2,23 +2,16 @@ use cuda_engine::CudaCall;
 use cudarc::driver::{CudaView, CudaViewMut, DeviceRepr, PushKernelArg};
 use utils::KeccakDigest;
 
-const MAX_THREADS_PER_BLOCK: u32 = 256;
-
 pub fn cuda_keccak256<T: DeviceRepr>(
     input: &CudaView<T>,
     batch_size: usize,
     output: &mut CudaViewMut<KeccakDigest>,
 ) {
-    // TODO cap block number
     assert!(input.len() % batch_size == 0);
     let n_inputs = (input.len() / batch_size) as u32;
     assert_eq!(n_inputs, output.len() as u32);
     let input_length = (batch_size * std::mem::size_of::<T>()) as u32;
-    let n_threads_per_block = n_inputs.min(MAX_THREADS_PER_BLOCK);
-    let num_blocks = n_inputs.div_ceil(MAX_THREADS_PER_BLOCK);
-    let mut launch_args = CudaCall::new("keccak", "batch_keccak256")
-        .threads_per_block(n_threads_per_block)
-        .blocks(num_blocks);
+    let mut launch_args = CudaCall::new("keccak", "batch_keccak256", n_inputs);
     launch_args.arg(input);
     launch_args.arg(&n_inputs);
     launch_args.arg(&input_length);

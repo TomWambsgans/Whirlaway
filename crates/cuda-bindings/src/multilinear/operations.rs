@@ -1,27 +1,30 @@
-use crate::{
-    MAX_N_BLOCKS, MAX_N_COOPERATIVE_BLOCKS,
-    multilinear::{MULTILINEAR_LOG_N_THREADS_PER_BLOCK, MULTILINEAR_N_THREADS_PER_BLOCK},
-};
 use cuda_engine::{CudaCall, cuda_alloc, cuda_get_at_index, memcpy_htod};
 use cudarc::driver::{CudaSlice, PushKernelArg};
-use p3_field::{ExtensionField, Field};
+use p3_field::{ExtensionField, Field, extension::BinomialExtensionField};
+use p3_koala_bear::KoalaBear;
 use std::any::TypeId;
 
 // Async
-pub fn cuda_dot_product<F: Field>(a: &CudaSlice<F>, b: &CudaSlice<F>) -> F {
-    assert!(F::bits() > 32, "TODO");
+pub fn cuda_dot_product<F: Field, EF: ExtensionField<F>>(
+    a: &CudaSlice<EF>,
+    b: &CudaSlice<F>,
+) -> EF {
     assert_eq!(a.len(), b.len());
     assert!(a.len().is_power_of_two());
     let log_len = a.len().ilog2() as u32;
+    let buff = cuda_alloc::<EF>(a.len());
 
-    let n_threads_per_blocks = MULTILINEAR_N_THREADS_PER_BLOCK.min(a.len() as u32);
-    let n_blocks = ((a.len() as u32 + n_threads_per_blocks - 1) / n_threads_per_blocks)
-        .min(MAX_N_COOPERATIVE_BLOCKS);
+    let koala_t = TypeId::of::<KoalaBear>();
+    let koala_8_t = TypeId::of::<BinomialExtensionField<KoalaBear, 8>>();
+    let func_name = if (TypeId::of::<EF>(), TypeId::of::<F>()) == (koala_8_t, koala_t) {
+        "dot_product_ext_prime"
+    } else if (TypeId::of::<EF>(), TypeId::of::<F>()) == (koala_8_t, koala_8_t) {
+        "dot_product_ext_ext"
+    } else {
+        unimplemented!("TODO handle other fields");
+    };
 
-    let buff = cuda_alloc::<F>(a.len());
-    let mut call = CudaCall::new("multilinear", "dot_product")
-        .blocks(n_blocks)
-        .threads_per_block(n_threads_per_blocks);
+    let mut call = CudaCall::new("multilinear", func_name, a.len() as u32);
     call.arg(a);
     call.arg(b);
     call.arg(&buff);
@@ -37,11 +40,7 @@ pub fn cuda_scale_slice_in_place<F: Field>(slice: &mut CudaSlice<F>, scalar: F) 
     let scalar = [scalar];
     let scalar_dev = memcpy_htod(&scalar);
     let n = slice.len() as u32;
-    let n_threads_per_blocks = MULTILINEAR_LOG_N_THREADS_PER_BLOCK.min(n);
-    let n_blocks = ((n + n_threads_per_blocks - 1) / n_threads_per_blocks).min(MAX_N_BLOCKS);
-    let mut call = CudaCall::new("multilinear", "scale_ext_slice_in_place")
-        .blocks(n_blocks)
-        .threads_per_block(n_threads_per_blocks);
+    let mut call = CudaCall::new("multilinear", "scale_ext_slice_in_place", n);
     call.arg(slice);
     call.arg(&n);
     call.arg(&scalar_dev);
@@ -57,13 +56,8 @@ pub fn cuda_scale_slice<F: Field, EF: ExtensionField<F>>(
     let scalar = [scalar];
     let scalar_dev = memcpy_htod(&scalar);
     let n = slice.len() as u32;
-    let n_threads_per_blocks = MULTILINEAR_LOG_N_THREADS_PER_BLOCK.min(n);
-    let n_blocks = ((n + n_threads_per_blocks - 1) / n_threads_per_blocks).min(MAX_N_BLOCKS);
-
     let mut res = cuda_alloc::<EF>(slice.len());
-    let mut call = CudaCall::new("multilinear", "scale_prime_slice_by_ext")
-        .blocks(n_blocks)
-        .threads_per_block(n_threads_per_blocks);
+    let mut call = CudaCall::new("multilinear", "scale_prime_slice_by_ext", n);
     call.arg(slice);
     call.arg(&n);
     call.arg(&scalar_dev);
@@ -76,12 +70,8 @@ pub fn cuda_scale_slice<F: Field, EF: ExtensionField<F>>(
 pub fn cuda_add_slices<F: Field>(a: &CudaSlice<F>, b: &CudaSlice<F>) -> CudaSlice<F> {
     let n = a.len() as u32;
     assert_eq!(n, b.len() as u32);
-    let n_threads_per_blocks = MULTILINEAR_LOG_N_THREADS_PER_BLOCK.min(n);
-    let n_blocks = ((n + n_threads_per_blocks - 1) / n_threads_per_blocks).min(MAX_N_BLOCKS);
     let mut res = cuda_alloc::<F>(n as usize);
-    let mut call = CudaCall::new("multilinear", "add_slices")
-        .blocks(n_blocks)
-        .threads_per_block(n_threads_per_blocks);
+    let mut call = CudaCall::new("multilinear", "add_slices", n);
     call.arg(a);
     call.arg(b);
     call.arg(&mut res);
@@ -95,11 +85,7 @@ pub fn cuda_add_assign_slices<F: Field>(a: &mut CudaSlice<F>, b: &CudaSlice<F>) 
     // a += b;
     let n = a.len() as u32;
     assert_eq!(n, b.len() as u32);
-    let n_threads_per_blocks = MULTILINEAR_LOG_N_THREADS_PER_BLOCK.min(n);
-    let n_blocks = ((n + n_threads_per_blocks - 1) / n_threads_per_blocks).min(MAX_N_BLOCKS);
-    let mut call = CudaCall::new("multilinear", "add_assign_slices")
-        .blocks(n_blocks)
-        .threads_per_block(n_threads_per_blocks);
+    let mut call = CudaCall::new("multilinear", "add_assign_slices", n);
     call.arg(a);
     call.arg(b);
     call.arg(&n);
@@ -111,27 +97,19 @@ pub fn cuda_fold_sum<F: Field>(input: &CudaSlice<F>, sum_size: usize) -> CudaSli
     assert!(F::bits() > 32, "TODO");
     assert!(
         sum_size <= 256,
-        "CUDA implement is not optimized for large sum sizes"
+        "current CUDA implementation is not optimized for large sum sizes"
     );
     assert!(input.len() % sum_size == 0);
-
     let output_len = input.len() / sum_size;
-
-    let n_threads_per_blocks = MULTILINEAR_N_THREADS_PER_BLOCK.min(output_len as u32);
-    let n_blocks = ((output_len as u32).div_ceil(n_threads_per_blocks)).min(MAX_N_BLOCKS);
-
     let mut output = cuda_alloc::<F>(output_len);
     let len_u32 = input.len() as u32;
     let sum_size_u32 = sum_size as u32;
-    let mut call = CudaCall::new("multilinear", "fold_sum")
-        .blocks(n_blocks)
-        .threads_per_block(n_threads_per_blocks);
+    let mut call = CudaCall::new("multilinear", "fold_sum", output_len as u32);
     call.arg(input);
     call.arg(&mut output);
     call.arg(&len_u32);
     call.arg(&sum_size_u32);
     call.launch();
-
     output
 }
 
@@ -140,19 +118,11 @@ pub fn cuda_sum<F: Field>(terms: CudaSlice<F>) -> F {
     // we take owneship of `terms` because it will be aletered
     assert!(F::bits() > 32, "TODO");
     assert!(terms.len().is_power_of_two());
-
     if terms.len() == 1 {
         return cuda_get_at_index(&terms, 0);
     }
-
     let log_len = terms.len().ilog2() as u32;
-
-    let n_threads_per_blocks = MULTILINEAR_N_THREADS_PER_BLOCK.min((terms.len() / 2) as u32);
-    let n_blocks =
-        ((terms.len() as u32 / 2).div_ceil(n_threads_per_blocks)).min(MAX_N_COOPERATIVE_BLOCKS);
-    let mut call = CudaCall::new("multilinear", "sum_in_place")
-        .blocks(n_blocks)
-        .threads_per_block(n_threads_per_blocks);
+    let mut call = CudaCall::new("multilinear", "sum_in_place", (terms.len() / 2) as u32);
     call.arg(&terms);
     call.arg(&log_len);
     call.launch_cooperative();

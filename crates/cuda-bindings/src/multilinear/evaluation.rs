@@ -1,40 +1,21 @@
-use crate::{
-    MAX_LOG_N_COOPERATIVE_BLOCKS, MAX_N_BLOCKS,
-    multilinear::{MULTILINEAR_LOG_N_THREADS_PER_BLOCK, MULTILINEAR_N_THREADS_PER_BLOCK},
-};
-use cuda_engine::{
-    CudaCall, concat_pointers, cuda_alloc, cuda_get_at_index, cuda_sync, memcpy_htod,
-};
+use cuda_engine::{CudaCall, cuda_alloc, cuda_get_at_index, cuda_sync, memcpy_htod};
 use cudarc::driver::{CudaSlice, PushKernelArg};
-use p3_field::{ExtensionField, Field};
-use std::{any::TypeId, borrow::Borrow};
+use p3_field::{ExtensionField, Field, extension::BinomialExtensionField};
+use p3_koala_bear::KoalaBear;
+use std::any::TypeId;
+
+use super::cuda_dot_product;
 
 // Async
 pub fn cuda_eval_multilinear_in_monomial_basis<F: Field, EF: ExtensionField<F>>(
     coeffs: &CudaSlice<F>,
     point: &[EF],
 ) -> EF {
-    cuda_eval_multilinear(coeffs, point, "eval_multilinear_in_monomial_basis")
-}
-
-// Async
-pub fn cuda_eval_multilinear_in_lagrange_basis<F: Field, EF: ExtensionField<F>>(
-    evals: &CudaSlice<F>,
-    point: &[EF],
-) -> EF {
-    cuda_eval_multilinear(evals, point, "eval_multilinear_in_lagrange_basis")
-}
-
-// Async
-fn cuda_eval_multilinear<F: Field, EF: ExtensionField<F>>(
-    coeffs: &CudaSlice<F>,
-    point: &[EF],
-    function_name: &str,
-) -> EF {
-    if TypeId::of::<F>() != TypeId::of::<EF>() || F::bits() <= 32 {
-        unimplemented!()
+    // TODO simplify
+    let koala_8_t = TypeId::of::<BinomialExtensionField<KoalaBear, 8>>();
+    if (TypeId::of::<F>(), TypeId::of::<EF>()) != (koala_8_t, koala_8_t) {
+        unimplemented!("TODO handle other fields");
     }
-
     assert!(coeffs.len().is_power_of_two());
     let n_vars = coeffs.len().ilog2() as u32;
     assert_eq!(n_vars, point.len() as u32);
@@ -45,12 +26,12 @@ fn cuda_eval_multilinear<F: Field, EF: ExtensionField<F>>(
 
     let point_dev = memcpy_htod(&point);
     let mut buff = cuda_alloc::<EF>(coeffs.len() - 1);
-    let log_n_per_blocks = MULTILINEAR_LOG_N_THREADS_PER_BLOCK.min(n_vars - 1);
-    let log_n_blocks =
-        ((n_vars - 1).saturating_sub(log_n_per_blocks)).min(MAX_LOG_N_COOPERATIVE_BLOCKS);
-    let mut call = CudaCall::new("multilinear", function_name)
-        .blocks(1 << log_n_blocks)
-        .threads_per_block(1 << log_n_per_blocks);
+
+    let mut call = CudaCall::new(
+        "multilinear",
+        "eval_ext_multilinear_at_ext_point_in_monomial_basis",
+        1 << (n_vars - 1),
+    );
     call.arg(coeffs);
     call.arg(&point_dev);
     call.arg(&n_vars);
@@ -60,80 +41,13 @@ fn cuda_eval_multilinear<F: Field, EF: ExtensionField<F>>(
     cuda_get_at_index(&buff, coeffs.len() - 2)
 }
 
-/// Async
-pub fn cuda_fix_variable_in_small_field<
-    F: Field,
-    EF: ExtensionField<F>,
-    ML: Borrow<CudaSlice<EF>>,
->(
-    slices: &[ML],
-    scalar: F,
-) -> Vec<CudaSlice<EF>> {
-    assert!(TypeId::of::<EF>() != TypeId::of::<F>(), "TODO");
-    let slices: Vec<&CudaSlice<EF>> = slices.iter().map(|m| m.borrow()).collect::<Vec<_>>();
-    assert!(slices[0].len().is_power_of_two());
-    let n_vars = slices[0].len().ilog2() as u32;
-    assert!(n_vars >= 1);
-    assert!(slices.iter().all(|s| s.len() == 1 << n_vars as usize));
-
-    let slices_ptrs_dev = concat_pointers(&slices);
-    let res = (0..slices.len())
-        .map(|_| cuda_alloc::<EF>(1 << (n_vars - 1)))
-        .collect::<Vec<_>>();
-    let mut res_ptrs_dev = concat_pointers(&res);
-
-    let n_reps = (slices.len() as u32) << (n_vars - 1);
-    let n_threads_per_block = n_reps.min(MULTILINEAR_N_THREADS_PER_BLOCK);
-    let n_blocks = ((n_reps + n_threads_per_block - 1) / n_threads_per_block).min(MAX_N_BLOCKS);
-    let n_slices = slices.len() as u32;
-    let mut call = CudaCall::new("multilinear", "fold_ext_by_prime")
-        .blocks(n_blocks)
-        .threads_per_block(n_threads_per_block);
-    call.arg(&slices_ptrs_dev);
-    call.arg(&mut res_ptrs_dev);
-    call.arg(&scalar);
-    call.arg(&n_slices);
-    call.arg(&n_vars);
-    call.launch();
-
-    res
-}
-
-/// Async
-pub fn cuda_fix_variable_in_big_field<F: Field, EF: ExtensionField<F>, ML: Borrow<CudaSlice<F>>>(
-    slices: &[ML],
-    scalar: EF,
-) -> Vec<CudaSlice<EF>> {
-    assert!(F::bits() > 32, "TODO");
-    let slices: Vec<&CudaSlice<F>> = slices.iter().map(|m| m.borrow()).collect::<Vec<_>>();
-    assert!(slices[0].len().is_power_of_two());
-    let n_vars = slices[0].len().ilog2() as u32;
-    assert!(n_vars >= 1);
-    assert!(slices.iter().all(|s| s.len() == 1 << n_vars as usize));
-    let slices_ptrs_dev = concat_pointers(&slices);
-
-    let res = (0..slices.len())
-        .map(|_| cuda_alloc::<EF>(1 << (n_vars - 1)))
-        .collect::<Vec<_>>();
-    let mut res_ptrs_dev = concat_pointers(&res);
-
-    let n_reps = (slices.len() as u32) << (n_vars - 1);
-    let n_threads_per_block = n_reps.min(MULTILINEAR_N_THREADS_PER_BLOCK);
-    let n_blocks = ((n_reps + n_threads_per_block - 1) / n_threads_per_block).min(MAX_N_BLOCKS);
-    let n_slices = slices.len() as u32;
-    let scalar_dev = memcpy_htod(&[scalar]);
-
-    let mut call = CudaCall::new("multilinear", "fold_ext_by_ext")
-        .blocks(n_blocks)
-        .threads_per_block(n_threads_per_block);
-    call.arg(&slices_ptrs_dev);
-    call.arg(&mut res_ptrs_dev);
-    call.arg(&scalar_dev);
-    call.arg(&n_slices);
-    call.arg(&n_vars);
-    call.launch();
-
-    res
+// Async
+pub fn cuda_eval_multilinear_in_lagrange_basis<F: Field, EF: ExtensionField<F>>(
+    coeffs: &CudaSlice<F>,
+    point: &[EF],
+) -> EF {
+    let eq_mle = cuda_eq_mle(point);
+    cuda_dot_product(&eq_mle, coeffs)
 }
 
 // Async
@@ -146,12 +60,7 @@ pub fn cuda_eq_mle<F: Field>(point: &[F]) -> CudaSlice<F> {
     let n_vars = point.len() as u32;
     let point_dev = memcpy_htod(&point);
     let mut res = cuda_alloc::<F>(1 << n_vars);
-    let log_n_per_blocks = MULTILINEAR_LOG_N_THREADS_PER_BLOCK.min(n_vars - 1);
-    let log_n_blocks =
-        ((n_vars - 1).saturating_sub(log_n_per_blocks)).min(MAX_LOG_N_COOPERATIVE_BLOCKS);
-    let mut call = CudaCall::new("multilinear", "eq_mle")
-        .blocks(1 << log_n_blocks)
-        .threads_per_block(1 << log_n_per_blocks);
+    let mut call = CudaCall::new("multilinear", "eq_mle", 1 << (n_vars - 1));
     call.arg(&point_dev);
     call.arg(&n_vars);
     call.arg(&mut res);
@@ -209,8 +118,8 @@ mod tests {
         let rng = &mut StdRng::seed_from_u64(0);
         let n_vars = 20;
         let len = 1 << n_vars;
+        let coeffs = (0..len).map(|_| rng.random()).collect::<Vec<F>>();
         let point = (0..n_vars).map(|_| rng.random()).collect::<Vec<EF>>();
-        let coeffs = (0..len).map(|_| rng.random()).collect::<Vec<EF>>();
 
         let coeffs_dev = memcpy_htod(&coeffs);
         cuda_sync();
@@ -252,47 +161,5 @@ mod tests {
         println!("CPU took {} ms", time.elapsed().as_millis());
 
         assert_eq!(cuda_result, expected_result);
-    }
-
-    #[test]
-    fn test_cuda_fix_variable_in_small_field() {
-        const EXT_DEGREE: usize = 8;
-
-        type F = KoalaBear;
-        type EF = BinomialExtensionField<F, EXT_DEGREE>;
-        cuda_init();
-
-        let rng = &mut StdRng::seed_from_u64(0);
-        let n_vars = 5;
-        let n_slices = 3;
-        let slices = (0..n_slices)
-            .map(|_| MultilinearHost::<EF>::random(rng, n_vars))
-            .collect::<Vec<_>>();
-        let slices_dev = slices
-            .iter()
-            .map(|multilinear| MultilinearDevice::new(memcpy_htod(&multilinear.evals)))
-            .collect::<Vec<_>>();
-        let scalar: F = rng.random();
-
-        let time = std::time::Instant::now();
-        let cuda_result = cuda_fix_variable_in_small_field(&slices_dev, scalar);
-        cuda_sync();
-        println!(
-            "CUDA fix_variable_in_small_field took {} ms",
-            time.elapsed().as_millis()
-        );
-        let time = std::time::Instant::now();
-        let expected_result = slices
-            .iter()
-            .map(|multilinear| multilinear.fix_variable_in_small_field(scalar))
-            .collect::<Vec<_>>();
-        println!("CPU took {} ms", time.elapsed().as_millis());
-        let retrieved = cuda_result
-            .iter()
-            .map(|multilinear| MultilinearHost::new(memcpy_dtoh(multilinear)))
-            .collect::<Vec<_>>();
-        cuda_sync();
-        assert_eq!(retrieved.len(), expected_result.len());
-        assert!(retrieved == expected_result);
     }
 }

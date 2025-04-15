@@ -152,13 +152,12 @@ pub struct CudaCall<'a> {
     #[deref]
     #[deref_mut]
     pub args: LaunchArgs<'a>,
-    pub n_threads_per_block: u32,
-    pub n_blocks: u32,
+    pub n_ops: u32,
     pub shared_mem_bytes: u32,
 }
 
 impl<'a> CudaCall<'a> {
-    pub fn new(module: &str, func_name: &str) -> Self {
+    pub fn new(module: &str, func_name: &str, n_ops: u32) -> Self {
         let cuda = cuda_engine();
         let guard = cuda.functions.read().unwrap();
         let function = guard
@@ -174,20 +173,9 @@ impl<'a> CudaCall<'a> {
         Self {
             function,
             args,
-            n_threads_per_block: 0,
-            n_blocks: 0,
+            n_ops,
             shared_mem_bytes: 0,
         }
-    }
-
-    pub fn threads_per_block(mut self, n: u32) -> Self {
-        self.n_threads_per_block = n;
-        self
-    }
-
-    pub fn blocks(mut self, n: u32) -> Self {
-        self.n_blocks = n;
-        self
     }
 
     pub fn shared_mem_bytes(mut self, n: u32) -> Self {
@@ -195,21 +183,28 @@ impl<'a> CudaCall<'a> {
         self
     }
 
-    fn launch_config(&self) -> LaunchConfig {
+    fn launch_config(&self, cooperative: bool) -> LaunchConfig {
+        assert!(self.n_ops > 0);
+        let max_log_threads = if cooperative {
+            8 // also harcoded in ntt.cu
+        } else {
+            9
+        };
+        let max_blocks = if cooperative { 1 << 5 } else { 1 << 14 };
+        let log_threads = max_log_threads.min(self.n_ops.next_power_of_two().ilog2());
+        let blocks = max_blocks.min(self.n_ops.div_ceil(1 << log_threads) as u32);
         LaunchConfig {
-            grid_dim: (self.n_blocks, 1, 1),
-            block_dim: (self.n_threads_per_block, 1, 1),
+            grid_dim: (blocks, 1, 1),
+            block_dim: (1 << log_threads, 1, 1),
             shared_mem_bytes: self.shared_mem_bytes,
         }
     }
 
     pub fn launch(mut self) {
-        assert!(self.n_blocks > 0 && self.n_threads_per_block > 0);
-        unsafe { self.args.launch(self.launch_config()) }.unwrap();
+        unsafe { self.args.launch(self.launch_config(false)) }.unwrap();
     }
 
     pub fn launch_cooperative(mut self) {
-        assert!(self.n_blocks > 0 && self.n_threads_per_block > 0);
-        unsafe { self.args.launch_cooperative(self.launch_config()) }.unwrap();
+        unsafe { self.args.launch_cooperative(self.launch_config(true)) }.unwrap();
     }
 }

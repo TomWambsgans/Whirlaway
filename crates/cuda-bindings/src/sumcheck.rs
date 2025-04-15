@@ -3,13 +3,10 @@ use std::{any::TypeId, borrow::Borrow};
 use cudarc::driver::{CudaSlice, PushKernelArg};
 
 use cuda_engine::{CudaCall, SumcheckComputation, concat_pointers, cuda_alloc, memcpy_htod};
-use p3_field::{BasedVectorSpace, ExtensionField, Field};
+use p3_field::{BasedVectorSpace, ExtensionField, Field, extension::BinomialExtensionField};
+use p3_koala_bear::KoalaBear;
 
-use crate::{MAX_N_BLOCKS, cuda_dot_product, cuda_fold_sum, cuda_sum};
-
-// TODO avoid hardcoding
-const SUMCHECK_MAX_LOG_N_THREADS_PER_BLOCK: u32 = 10;
-const SUMCHECK_MAX_N_THREADS_PER_BLOCK: u32 = 1 << SUMCHECK_MAX_LOG_N_THREADS_PER_BLOCK;
+use crate::{cuda_dot_product, cuda_fold_sum, cuda_sum};
 
 /// Async
 pub fn cuda_sum_over_hypercube_of_computation<
@@ -23,9 +20,6 @@ pub fn cuda_sum_over_hypercube_of_computation<
     batching_scalars: &[EF],
     eq_mle: Option<&CudaSlice<EF>>,
 ) -> EF {
-    if TypeId::of::<EF>() != TypeId::of::<NF>() {
-        unimplemented!()
-    }
     let multilinears: Vec<&CudaSlice<NF>> =
         multilinears.iter().map(|m| m.borrow()).collect::<Vec<_>>();
     assert_eq!(batching_scalars.len(), comp.exprs.len());
@@ -35,8 +29,6 @@ pub fn cuda_sum_over_hypercube_of_computation<
     assert_eq!(eq_mle.is_some(), comp.eq_mle_multiplier);
 
     let n_compute_units = comp.n_cuda_compute_units() as u32;
-    let n_threads_per_block = (n_compute_units << n_vars).min(SUMCHECK_MAX_N_THREADS_PER_BLOCK);
-    let n_blocks = ((n_compute_units << n_vars).div_ceil(n_threads_per_block)).min(MAX_N_BLOCKS);
     let ext_degree = <EF as BasedVectorSpace<F>>::DIMENSION as u32;
 
     let multilinears_ptrs_dev = concat_pointers(&multilinears);
@@ -44,10 +36,19 @@ pub fn cuda_sum_over_hypercube_of_computation<
     let batching_scalars_dev = memcpy_htod(batching_scalars);
     let mut sums_dev = cuda_alloc::<EF>((n_compute_units as usize) << n_vars);
 
+    let koala_t = TypeId::of::<KoalaBear>();
+    let koala_8_t = TypeId::of::<BinomialExtensionField<KoalaBear, 8>>();
+    let current_t = (TypeId::of::<F>(), TypeId::of::<NF>(), TypeId::of::<EF>());
+    let func_name = if current_t == (koala_t, koala_t, koala_8_t) {
+        "sum_over_hypercube_prime"
+    } else if current_t == (koala_t, koala_8_t, koala_8_t) {
+        "sum_over_hypercube_ext"
+    } else {
+        unimplemented!("TODO handle other fields");
+    };
+
     let module_name = format!("sumcheck_{:x}", comp.uuid());
-    let mut call = CudaCall::new(&module_name, "sum_over_hypercube_ext")
-        .threads_per_block(n_threads_per_block)
-        .blocks(n_blocks)
+    let mut call = CudaCall::new(&module_name, func_name, n_compute_units << n_vars)
         .shared_mem_bytes(batching_scalars.len() as u32 * ext_degree * 4); // cf: __shared__ ExtField cached_batching_scalars[N_BATCHING_SCALARS];;
     call.arg(&multilinears_ptrs_dev);
     call.arg(&mut sums_dev);
@@ -112,7 +113,7 @@ mod test {
         let rng = &mut StdRng::seed_from_u64(0);
 
         let multilinears = (0..n_multilinears)
-            .map(|_| MultilinearHost::<EF>::random(rng, n_vars))
+            .map(|_| MultilinearHost::<F>::random(rng, n_vars))
             .collect::<Vec<_>>();
 
         let batching_scalar: EF = rng.random();
@@ -124,13 +125,17 @@ mod test {
         let expected_sum = (0..1 << n_vars)
             .into_par_iter()
             .map(|i| {
-                exprs.iter().zip(&batching_scalars).map(|(comp, b)| {
-                comp.eval(
-                    &(0..n_multilinears)
-                        .map(|j| multilinears[j].evals[i])
-                        .collect::<Vec<_>>(),
-                )
-            } * *b).sum::<EF>()
+                exprs
+                    .iter()
+                    .zip(&batching_scalars)
+                    .map(|(comp, b)| {
+                        *b * comp.eval(
+                            &(0..n_multilinears)
+                                .map(|j| multilinears[j].evals[i])
+                                .collect::<Vec<_>>(),
+                        )
+                    })
+                    .sum::<EF>()
             })
             .sum::<EF>();
         println!("CPU hypercube sum took {} ms", time.elapsed().as_millis());
@@ -143,7 +148,7 @@ mod test {
         let copy_duration = time.elapsed();
 
         let time = std::time::Instant::now();
-        let cuda_sum = cuda_sum_over_hypercube_of_computation::<F, EF, _, _>(
+        let cuda_sum = cuda_sum_over_hypercube_of_computation::<F, F, _, _>(
             &sumcheck_computation,
             &multilinears_dev,
             &batching_scalars,

@@ -41,7 +41,13 @@ impl CudaEngine {
         let dev = CudaContext::new(0).unwrap();
         let mut functions = HashMap::new();
         for module in ["keccak", "ntt", "multilinear"] {
-            compile_module(dev.clone(), &kernel_folder(), module, false, &mut functions);
+            compile_module(
+                dev.clone(),
+                &kernels_folder(),
+                module,
+                false,
+                &mut functions,
+            );
         }
         let stream = dev.default_stream();
         CudaEngine {
@@ -144,26 +150,18 @@ fn cuda_compute_capacity() -> Result<(i32, i32), Box<dyn Error>> {
     Ok((major, minor))
 }
 
-pub(crate) fn kernel_folder() -> PathBuf {
-    let mut kernels_folder = Path::new("kernels");
-    if !kernels_folder.exists() {
-        kernels_folder = Path::new("crates/cuda-engine/kernels")
-    };
-    if !kernels_folder.exists() {
-        kernels_folder = Path::new("../cuda-engine/kernels")
-    }
-    assert!(kernels_folder.exists());
-    kernels_folder.to_path_buf()
+pub(crate) fn kernels_folder() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("kernels")
 }
 
 pub(crate) fn ptx_dir() -> PathBuf {
-    let ptx_dir = kernel_folder().join("build").join("ptx");
+    let ptx_dir = kernels_folder().join("build").join("ptx");
     fs::create_dir_all(&ptx_dir).unwrap();
     ptx_dir
 }
 
 pub(crate) fn cuda_synthetic_dir() -> PathBuf {
-    let cuda_synthetic_dir = kernel_folder().join("build").join("cuda_synthetic");
+    let cuda_synthetic_dir = kernels_folder().join("build").join("cuda_synthetic");
     fs::create_dir_all(&cuda_synthetic_dir).unwrap();
     cuda_synthetic_dir
 }

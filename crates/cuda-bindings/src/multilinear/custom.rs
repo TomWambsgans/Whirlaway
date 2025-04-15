@@ -1,6 +1,3 @@
-use crate::{
-    MAX_N_BLOCKS, MAX_N_COOPERATIVE_BLOCKS, multilinear::MULTILINEAR_LOG_N_THREADS_PER_BLOCK,
-};
 use cuda_engine::{CudaCall, concat_pointers, cuda_alloc, memcpy_htod};
 use cudarc::driver::{CudaSlice, PushKernelArg};
 use p3_field::Field;
@@ -11,19 +8,13 @@ pub fn cuda_whir_fold<F: Field>(coeffs: &CudaSlice<F>, folding_randomness: &[F])
     assert!(coeffs.len().is_power_of_two());
     let n_vars = coeffs.len().ilog2() as u32;
     let folding_factor = folding_randomness.len() as u32;
-    let n_threads_per_blocks = MULTILINEAR_LOG_N_THREADS_PER_BLOCK.min(coeffs.len() as u32);
-    let n_blocks = (((coeffs.len() / 2) as u32 + n_threads_per_blocks - 1) / n_threads_per_blocks)
-        .next_power_of_two()
-        .min(MAX_N_COOPERATIVE_BLOCKS);
     let folding_randomness_dev = memcpy_htod(folding_randomness);
     let buff_size = (0..folding_factor - 1)
         .map(|i| 1 << (n_vars - i - 1))
         .sum::<usize>();
     let mut buff = cuda_alloc::<F>(buff_size);
     let mut res = cuda_alloc::<F>(coeffs.len() / (1 << folding_factor) as usize);
-    let mut call = CudaCall::new("multilinear", "whir_fold")
-        .blocks(n_blocks)
-        .threads_per_block(n_threads_per_blocks);
+    let mut call = CudaCall::new("multilinear", "whir_fold", coeffs.len() as u32 / 2);
     call.arg(coeffs);
     call.arg(&n_vars);
     call.arg(&folding_factor);
@@ -60,18 +51,13 @@ fn cuda_air_columns_up_or_down<F: Field, S: Borrow<CudaSlice<F>>>(
         .map(|_| cuda_alloc::<F>(1 << n_vars as usize))
         .collect::<Vec<_>>();
     let res_ptrs = concat_pointers(&res);
-    let total = (columns.len() << n_vars) as u32;
-    let n_threads_per_blocks = MULTILINEAR_LOG_N_THREADS_PER_BLOCK.min(total);
-    let n_blocks = ((total + n_threads_per_blocks - 1) / n_threads_per_blocks).min(MAX_N_BLOCKS);
     let func_name = if up {
         "multilinears_up"
     } else {
         "multilinears_down"
     };
     let n_columns = columns.len() as u32;
-    let mut call = CudaCall::new("multilinear", func_name)
-        .blocks(n_blocks)
-        .threads_per_block(n_threads_per_blocks);
+    let mut call = CudaCall::new("multilinear", func_name, (columns.len() << n_vars) as u32);
     call.arg(&column_ptrs);
     call.arg(&n_columns);
     call.arg(&n_vars);

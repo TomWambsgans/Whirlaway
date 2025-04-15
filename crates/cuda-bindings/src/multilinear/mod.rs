@@ -10,5 +10,5 @@ pub use custom::*;
 mod operations;
 pub use operations::*;
 
-const MULTILINEAR_LOG_N_THREADS_PER_BLOCK: u32 = 8;
-const MULTILINEAR_N_THREADS_PER_BLOCK: u32 = 1 << MULTILINEAR_LOG_N_THREADS_PER_BLOCK;
+mod fold;
+pub use fold::*;

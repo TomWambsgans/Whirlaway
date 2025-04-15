@@ -1,7 +1,3 @@
-use crate::{
-    MAX_LOG_N_COOPERATIVE_BLOCKS, MAX_N_COOPERATIVE_BLOCKS,
-    multilinear::{MULTILINEAR_LOG_N_THREADS_PER_BLOCK, MULTILINEAR_N_THREADS_PER_BLOCK},
-};
 use cuda_engine::{CudaCall, cuda_alloc};
 use cudarc::driver::{CudaSlice, PushKernelArg};
 use p3_field::Field;
@@ -11,13 +7,13 @@ use p3_field::Field;
 pub fn cuda_monomial_to_lagrange_basis_rev<F: Field>(coeffs: &CudaSlice<F>) -> CudaSlice<F> {
     assert!(coeffs.len().is_power_of_two());
     let n_vars = coeffs.len().ilog2() as u32;
-    let log_n_blocks = (n_vars.saturating_sub(MULTILINEAR_LOG_N_THREADS_PER_BLOCK + 1))
-        .min(MAX_LOG_N_COOPERATIVE_BLOCKS);
     let mut buff = cuda_alloc::<F>(coeffs.len());
     let mut result = cuda_alloc::<F>(coeffs.len());
-    let mut call = CudaCall::new("multilinear", "monomial_to_lagrange_basis")
-        .blocks(1 << log_n_blocks)
-        .threads_per_block(MULTILINEAR_N_THREADS_PER_BLOCK);
+    let mut call = CudaCall::new(
+        "multilinear",
+        "monomial_to_lagrange_basis",
+        1 << (n_vars - 1),
+    );
     call.arg(coeffs);
     call.arg(&mut buff);
     call.arg(&mut result);
@@ -31,13 +27,12 @@ pub fn cuda_monomial_to_lagrange_basis_rev<F: Field>(coeffs: &CudaSlice<F>) -> C
 pub fn cuda_lagrange_to_monomial_basis<F: Field>(evals: &CudaSlice<F>) -> CudaSlice<F> {
     assert!(evals.len().is_power_of_two());
     let n_vars = evals.len().ilog2() as u32;
-    let n_threads_per_blocks = MULTILINEAR_N_THREADS_PER_BLOCK.min(evals.len() as u32 / 2);
-    let n_blocks = ((evals.len() as u32 / 2 + n_threads_per_blocks - 1) / n_threads_per_blocks)
-        .min(MAX_N_COOPERATIVE_BLOCKS);
     let mut result = cuda_alloc::<F>(evals.len());
-    let mut call = CudaCall::new("multilinear", "lagrange_to_monomial_basis")
-        .blocks(n_blocks)
-        .threads_per_block(MULTILINEAR_N_THREADS_PER_BLOCK);
+    let mut call = CudaCall::new(
+        "multilinear",
+        "lagrange_to_monomial_basis",
+        evals.len() as u32 / 2,
+    );
     call.arg(evals);
     call.arg(&mut result);
     call.arg(&n_vars);
