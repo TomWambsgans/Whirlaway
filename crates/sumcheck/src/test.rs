@@ -199,7 +199,7 @@ fn test_univariate_skip() {
         .collect::<Vec<_>>();
     let folded_multilinears_host = multilinears_host
         .iter()
-        .map(|m| m.fold_rectangular_in_big_field(&selector_evals))
+        .map(|m| m.fold_rectangular_in_large_field(&selector_evals))
         .collect::<Vec<_>>();
 
     assert_eq!(

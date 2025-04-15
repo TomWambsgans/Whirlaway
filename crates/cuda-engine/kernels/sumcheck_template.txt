@@ -32,7 +32,35 @@ extern "C" __global__ void sum_over_hypercube_ext(const ExtField **multilinears,
             switch (compute_unit_index)
             {
                 // AUTOMATICALLY GENERATED
-COMPOSITION_PLACEHOLDER            }
+COMPOSITION_PLACEHOLDER_EXT            }
+        }
+    }
+}
+
+
+extern "C" __global__ void sum_over_hypercube_prime(const uint32_t **multilinears, ExtField *sums, const ExtField *batching_scalars, const uint32_t n_vars, const uint32_t n_compute_units)
+{
+    // Each multilinears has size 2^n_vars
+    // sums has size 2^n_vars * n_compute_units
+
+    const int n_total_threads = gridDim.x * blockDim.x;
+    const int total_computations = n_compute_units << n_vars;
+    const int n_reps = (total_computations + n_total_threads - 1) / n_total_threads;
+
+    for (int rep = 0; rep < n_reps; rep++)
+    {
+        const int thread_index = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
+
+        if (thread_index < total_computations)
+        {
+
+            const int hypercube_point = thread_index % (1 << n_vars);
+            const int compute_unit_index = thread_index / (1 << n_vars);
+
+            switch (compute_unit_index)
+            {
+                // AUTOMATICALLY GENERATED
+COMPOSITION_PLACEHOLDER_PRIME            }
         }
     }
 }

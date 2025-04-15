@@ -21,7 +21,7 @@ fn test_air_fibonacci() {
     let log_length = 12;
     let security_bits = 45;
     let log_inv_rate = 2;
-    for cuda in [false] {
+    for cuda in [true, false] {
         let mut builder = AirBuilder::<F, 4>::new(log_length);
         let mut first_row_selector = vec![F::ZERO; 1 << log_length];
         first_row_selector[0] = F::ONE;
@@ -65,10 +65,11 @@ fn test_air_fibonacci() {
                 eq_mle_multiplier: false,
             };
             let inner_air_sumcheck = SumcheckComputation::<F> {
-                exprs: &[((ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
-                    + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3)))
+                exprs: &[(ArithmeticCircuit::Node(4)
+                    * ((ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
+                        + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3))))
                 .fix_computation(false)],
-                n_multilinears: 4,
+                n_multilinears: 5,
                 eq_mle_multiplier: false,
             };
 
@@ -108,7 +109,7 @@ fn test_air_complex() {
     for log_length in [4, 7, 12] {
         let security_bits = 45;
         let log_inv_rate = 2;
-        for cuda in [false] {
+        for cuda in [true, false] {
             let mut builder = AirBuilder::<F, 8>::new(log_length);
             let mut first_row_selector = vec![F::ZERO; 1 << log_length];
             first_row_selector[0] = F::ONE;
@@ -186,10 +187,11 @@ fn test_air_complex() {
                     eq_mle_multiplier: false,
                 };
                 let inner_air_sumcheck = SumcheckComputation::<F> {
-                    exprs: &[((ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
-                        + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3)))
+                    exprs: &[(ArithmeticCircuit::Node(4)
+                        * ((ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
+                            + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3))))
                     .fix_computation(false)],
-                    n_multilinears: 4,
+                    n_multilinears: 5,
                     eq_mle_multiplier: false,
                 };
 

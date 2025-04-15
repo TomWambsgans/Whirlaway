@@ -80,7 +80,7 @@ impl<F: Field> AirTable<F> {
             .iter()
             .map(|c| {
                 column_up_host(c)
-                    .fold_rectangular_in_big_field(&outer_selector_evals)
+                    .fold_rectangular_in_large_field(&outer_selector_evals)
                     .evaluate(&outer_sumcheck_challenge.point[1..])
             })
             .collect::<Vec<_>>();
@@ -89,7 +89,7 @@ impl<F: Field> AirTable<F> {
             .iter()
             .map(|c| {
                 column_down_host(c)
-                    .fold_rectangular_in_big_field(&outer_selector_evals)
+                    .fold_rectangular_in_large_field(&outer_selector_evals)
                     .evaluate(&outer_sumcheck_challenge.point[1..])
             })
             .collect::<Vec<_>>();

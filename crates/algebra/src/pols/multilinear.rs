@@ -3,10 +3,10 @@ use super::{CoefficientListHost, UnivariatePolynomial};
 use crate::tensor_algebra::TensorAlgebra;
 use cuda_bindings::{
     cuda_add_assign_slices, cuda_add_slices, cuda_eq_mle, cuda_eval_multilinear_in_lagrange_basis,
-    cuda_fix_variable_in_big_field, cuda_lagrange_to_monomial_basis, cuda_scale_slice,
+    cuda_fold_rectangular_in_small_field, cuda_lagrange_to_monomial_basis, cuda_scale_slice,
     cuda_scale_slice_in_place,
 };
-use cuda_bindings::{cuda_fix_variable_in_small_field, cuda_sum_over_hypercube_of_computation};
+use cuda_bindings::{cuda_fold_rectangular_in_large_field, cuda_sum_over_hypercube_of_computation};
 use cuda_engine::{
     SumcheckComputation, clone_dtod, cuda_alloc_zeros, cuda_sync, memcpy_dtod, memcpy_dtoh,
     memcpy_htod,
@@ -24,7 +24,7 @@ use utils::{HypercubePoint, PartialHypercubePoint};
 
 /*
 
-Multlinear Polynomials represented as a vector of evaluations in the Lagrange basis.
+Multilinear Polynomials represented as a vector of its evaluations on the boolean hypercube (Lagrange basis).
 
 */
 
@@ -86,35 +86,6 @@ impl<F: Field> MultilinearHost<F> {
         MultilinearHost::new(packed_evals)
     }
 
-    /// fix first variables
-    pub fn fix_variable_in_big_field<EF: ExtensionField<F>>(&self, z: EF) -> MultilinearHost<EF> {
-        let half = self.evals.len() / 2;
-        let mut new_evals = vec![EF::ZERO; half];
-        new_evals
-            .par_iter_mut()
-            .enumerate()
-            .for_each(|(i, result)| {
-                *result = z * (self.evals[i + half] - self.evals[i]) + self.evals[i];
-            });
-        MultilinearHost::new(new_evals)
-    }
-
-    /// fix first variables
-    pub fn fix_variable_in_small_field<S: Field>(&self, z: S) -> Self
-    where
-        F: ExtensionField<S>,
-    {
-        let half = self.evals.len() / 2;
-        let mut new_evals = vec![F::ZERO; half];
-        new_evals
-            .par_iter_mut()
-            .enumerate()
-            .for_each(|(i, result)| {
-                *result = (self.evals[i + half] - self.evals[i]) * z + self.evals[i];
-            });
-        Self::new(new_evals)
-    }
-
     pub fn fold_rectangular_in_small_field<S: Field>(&self, scalars: &[S]) -> Self
     where
         F: ExtensionField<S>,
@@ -136,7 +107,7 @@ impl<F: Field> MultilinearHost<F> {
         MultilinearHost::new(new_evals)
     }
 
-    pub fn fold_rectangular_in_big_field<EF: ExtensionField<F>>(
+    pub fn fold_rectangular_in_large_field<EF: ExtensionField<F>>(
         &self,
         scalars: &[EF],
     ) -> MultilinearHost<EF> {
@@ -193,22 +164,6 @@ impl<F: Field> MultilinearHost<F> {
         UnivariatePolynomial::new(self.to_monomial_basis().coeffs)
     }
 
-    /// Interprets self as a univariate polynomial (with coefficients of X^i in order of ascending i) and evaluates it at each point in `points`.
-    /// We return the vector of evaluations.
-    ///
-    /// NOTE: For the `usual` mapping between univariate and multilinear polynomials, the coefficient ordering is such that
-    /// for a single point x, we have (extending notation to a single point)
-    /// self.evaluate_at_univariate(x) == self.evaluate([x^(2^n), x^(2^{n-1}), ..., x^2, x])
-    pub fn evaluate_at_univariate(&self, points: &[F]) -> Vec<F> {
-        // DensePolynomial::from_coefficients_slice converts to a dense univariate polynomial.
-        // The coefficient order is "coefficient of 1 first".
-        let univariate = self.clone().as_univariate(); // TODO avoid clone
-        points
-            .iter()
-            .map(|point| univariate.eval_parallel(point))
-            .collect()
-    }
-
     pub fn eval_hypercube(&self, point: &HypercubePoint) -> F {
         assert_eq!(self.n_vars, point.n_vars);
         self.evals[point.val]
@@ -232,12 +187,6 @@ impl<F: Field> MultilinearHost<F> {
 
     pub fn max_degree_per_vars(&self) -> Vec<usize> {
         vec![1; self.n_vars]
-    }
-
-    pub fn embed<EF: ExtensionField<F>>(&self) -> MultilinearHost<EF> {
-        // TODO avoid
-        let evals = self.evals.iter().map(|&e| EF::from(e)).collect();
-        MultilinearHost::new(evals)
     }
 
     pub fn scale<EF: ExtensionField<F>>(&self, scalar: EF) -> MultilinearHost<EF> {
@@ -397,14 +346,6 @@ impl<F: Field> MultilinearDevice<F> {
         assert_eq!(self.n_vars, point.len());
         cuda_eval_multilinear_in_lagrange_basis(&self.evals, point)
     }
-
-    // TODO remove
-    pub fn embed<EF: ExtensionField<F>>(&self) -> MultilinearDevice<EF> {
-        let host_pol = self.transfer_to_host();
-        cuda_sync();
-        let embedded = host_pol.embed();
-        MultilinearDevice::new(memcpy_htod(&embedded.evals))
-    }
 }
 
 impl<F: Field> AddAssign<MultilinearDevice<F>> for MultilinearDevice<F> {
@@ -480,7 +421,13 @@ impl<F: Field> Multilinear<F> {
         // TODO remove
         match self {
             Self::Host(pol) => Self::Host(pol.add_dummy_starting_variables(n)),
-            Self::Device(_) => todo!(),
+            Self::Device(pol) => {
+                let host_multilinear = pol.transfer_to_host();
+                let new_pol = host_multilinear.add_dummy_starting_variables(n);
+                let res = MultilinearDevice::new(memcpy_htod(&new_pol.evals));
+                cuda_sync();
+                Self::Device(res)
+            }
         }
     }
 
@@ -522,20 +469,6 @@ impl<F: Field> Multilinear<F> {
         }
     }
 
-    pub fn as_device(self) -> MultilinearDevice<F> {
-        match self {
-            Self::Device(pol) => pol,
-            Self::Host(_) => panic!(),
-        }
-    }
-
-    pub fn as_host(self) -> MultilinearHost<F> {
-        match self {
-            Self::Host(pol) => pol,
-            Self::Device(_) => panic!(),
-        }
-    }
-
     // Async
     pub fn to_monomial_basis(&self) -> CoefficientList<F> {
         match self {
@@ -570,25 +503,6 @@ impl<F: Field> Multilinear<F> {
             Self::Device(pol) => pol.evaluate(point),
         }
     }
-
-    // TODO remove
-    pub fn embed<EF: ExtensionField<F>>(&self) -> Multilinear<EF> {
-        match self {
-            Self::Host(pol) => Multilinear::Host(pol.embed()),
-            Self::Device(pol) => Multilinear::Device(pol.embed()),
-        }
-    }
-
-    /// Async
-    pub fn fold_rectangular_in_big_field<EF: ExtensionField<F>>(
-        &self,
-        scalars: &[EF],
-    ) -> Multilinear<EF> {
-        match self {
-            Self::Host(pol) => Multilinear::Host(pol.fold_rectangular_in_big_field(scalars)),
-            Self::Device(_) => todo!(),
-        }
-    }
 }
 
 impl<F: Field> AddAssign<Multilinear<F>> for Multilinear<F> {
@@ -605,20 +519,6 @@ impl<F: Field> AddAssign<Multilinear<F>> for Multilinear<F> {
 pub enum MultilinearsSlice<'a, F: Field> {
     Host(Vec<&'a MultilinearHost<F>>),
     Device(Vec<&'a MultilinearDevice<F>>),
-}
-
-impl<'a, F: Field, M: Borrow<Multilinear<F>>> From<&'a [M]> for MultilinearsSlice<'a, F> {
-    /// Panics is there are device and host polynomials at the same time
-    fn from(pols: &'a [M]) -> Self {
-        let pols: Vec<_> = pols.iter().map(|p| p.borrow()).collect();
-        assert!(pols.iter().all(|p| p.n_vars() == pols[0].n_vars()));
-        let on_device = pols[0].is_device();
-        if on_device {
-            Self::Device(pols.iter().map(|p| p.as_device_ref()).collect())
-        } else {
-            Self::Host(pols.iter().map(|p| p.as_host_ref()).collect())
-        }
-    }
 }
 
 impl<'a, F: Field, M: Borrow<Multilinear<F>>> From<&'a Vec<M>> for MultilinearsSlice<'a, F> {
@@ -641,13 +541,6 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
         match self {
             Self::Host(pol) => pol[0].n_vars,
             Self::Device(pol) => pol[0].n_vars,
-        }
-    }
-
-    pub fn n_coefs(&self) -> usize {
-        match self {
-            Self::Host(pol) => pol[0].n_coefs(),
-            Self::Device(pol) => pol[0].n_coefs(),
         }
     }
 
@@ -707,46 +600,6 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
     }
 
     /// Async
-    pub fn fix_variable_in_small_field<S: Field>(&self, scalar: S) -> MultilinearsVec<F>
-    where
-        F: ExtensionField<S>,
-    {
-        match self {
-            Self::Host(pol) => MultilinearsVec::Host(
-                pol.iter()
-                    .map(|p| p.fix_variable_in_small_field(scalar))
-                    .collect(),
-            ),
-            Self::Device(pols) => MultilinearsVec::Device(
-                cuda_fix_variable_in_small_field(pols, scalar)
-                    .into_iter()
-                    .map(|p| MultilinearDevice::new(p))
-                    .collect(),
-            ),
-        }
-    }
-
-    /// Async
-    pub fn fix_variable_in_big_field<EF: ExtensionField<F>>(
-        &self,
-        scalar: EF,
-    ) -> MultilinearsVec<EF> {
-        match self {
-            Self::Host(pol) => MultilinearsVec::Host(
-                pol.iter()
-                    .map(|p| p.fix_variable_in_big_field(scalar))
-                    .collect(),
-            ),
-            Self::Device(pols) => MultilinearsVec::Device(
-                cuda_fix_variable_in_big_field(pols, scalar)
-                    .into_iter()
-                    .map(|p: CudaSlice<EF>| MultilinearDevice::new(p))
-                    .collect(),
-            ),
-        }
-    }
-
-    /// Async
     pub fn fold_rectangular_in_small_field<S: Field>(&self, scalars: &[S]) -> MultilinearsVec<F>
     where
         F: ExtensionField<S>,
@@ -757,22 +610,38 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
                     .map(|p| p.fold_rectangular_in_small_field(scalars))
                     .collect(),
             ),
-            Self::Device(_) => todo!(),
+            Self::Device(pols) => MultilinearsVec::Device(
+                cuda_fold_rectangular_in_small_field(
+                    &pols.iter().map(|pol| &pol.evals).collect::<Vec<_>>(),
+                    scalars,
+                )
+                .into_iter()
+                .map(|pol| MultilinearDevice::new(pol))
+                .collect(),
+            ),
         }
     }
 
     /// Async
-    pub fn fold_rectangular_in_big_field<EF: ExtensionField<F>>(
+    pub fn fold_rectangular_in_large_field<EF: ExtensionField<F>>(
         &self,
         scalars: &[EF],
     ) -> MultilinearsVec<EF> {
         match self {
             Self::Host(pol) => MultilinearsVec::Host(
                 pol.iter()
-                    .map(|p| p.fold_rectangular_in_big_field(scalars))
+                    .map(|p| p.fold_rectangular_in_large_field(scalars))
                     .collect(),
             ),
-            Self::Device(_) => todo!(),
+            Self::Device(pols) => MultilinearsVec::Device(
+                cuda_fold_rectangular_in_large_field(
+                    &pols.iter().map(|pol| &pol.evals).collect::<Vec<_>>(),
+                    scalars,
+                )
+                .into_iter()
+                .map(|pol| MultilinearDevice::new(pol))
+                .collect(),
+            ),
         }
     }
 
@@ -826,14 +695,6 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
         }
     }
 
-    /// TODO REMOVE
-    pub fn embed<EF: ExtensionField<F>>(&self) -> MultilinearsVec<EF> {
-        match self {
-            Self::Host(pol) => MultilinearsVec::Host(pol.iter().map(|p| p.embed()).collect()),
-            Self::Device(pol) => MultilinearsVec::Device(pol.iter().map(|p| p.embed()).collect()),
-        }
-    }
-
     // Sync
     pub fn transfer_to_host(&self) -> MultilinearsVec<F> {
         match self {
@@ -881,34 +742,6 @@ pub enum MultilinearsVec<F: Field> {
 }
 
 impl<F: Field> MultilinearsVec<F> {
-    pub fn n_vars(&self) -> usize {
-        match self {
-            Self::Host(pol) => pol[0].n_vars,
-            Self::Device(pol) => pol[0].n_vars,
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        match self {
-            Self::Host(pol) => pol.len(),
-            Self::Device(pol) => pol.len(),
-        }
-    }
-
-    pub fn n_coefs(&self) -> usize {
-        match self {
-            Self::Host(pol) => pol[0].n_coefs(),
-            Self::Device(pol) => pol[0].n_coefs(),
-        }
-    }
-
-    pub fn push(&mut self, pol: Multilinear<F>) {
-        match self {
-            Self::Host(pols) => pols.push(pol.as_host()),
-            Self::Device(pols) => pols.push(pol.as_device()),
-        }
-    }
-
     pub fn as_ref(&self) -> MultilinearsSlice<F> {
         match self {
             Self::Host(pols) => MultilinearsSlice::Host(pols.iter().collect()),

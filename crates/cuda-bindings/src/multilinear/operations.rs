@@ -1,16 +1,30 @@
 use cuda_engine::{CudaCall, cuda_alloc, cuda_get_at_index, memcpy_htod};
 use cudarc::driver::{CudaSlice, PushKernelArg};
-use p3_field::{ExtensionField, Field};
+use p3_field::{ExtensionField, Field, extension::BinomialExtensionField};
+use p3_koala_bear::KoalaBear;
 use std::any::TypeId;
 
 // Async
-pub fn cuda_dot_product<F: Field>(a: &CudaSlice<F>, b: &CudaSlice<F>) -> F {
-    assert!(F::bits() > 32, "TODO");
+pub fn cuda_dot_product<F: Field, EF: ExtensionField<F>>(
+    a: &CudaSlice<EF>,
+    b: &CudaSlice<F>,
+) -> EF {
     assert_eq!(a.len(), b.len());
     assert!(a.len().is_power_of_two());
     let log_len = a.len().ilog2() as u32;
-    let buff = cuda_alloc::<F>(a.len());
-    let mut call = CudaCall::new("multilinear", "dot_product", a.len() as u32);
+    let buff = cuda_alloc::<EF>(a.len());
+
+    let koala_t = TypeId::of::<KoalaBear>();
+    let koala_8_t = TypeId::of::<BinomialExtensionField<KoalaBear, 8>>();
+    let func_name = if (TypeId::of::<EF>(), TypeId::of::<F>()) == (koala_8_t, koala_t) {
+        "dot_product_ext_prime"
+    } else if (TypeId::of::<EF>(), TypeId::of::<F>()) == (koala_8_t, koala_8_t) {
+        "dot_product_ext_ext"
+    } else {
+        unimplemented!("TODO handle other fields");
+    };
+
+    let mut call = CudaCall::new("multilinear", func_name, a.len() as u32);
     call.arg(a);
     call.arg(b);
     call.arg(&buff);

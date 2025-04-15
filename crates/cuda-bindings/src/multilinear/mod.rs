@@ -9,3 +9,6 @@ pub use custom::*;
 
 mod operations;
 pub use operations::*;
+
+mod fold;
+pub use fold::*;

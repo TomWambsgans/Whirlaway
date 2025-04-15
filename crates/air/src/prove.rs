@@ -75,10 +75,7 @@ impl<F: Field> AirTable<F> {
             let _span = span!(Level::INFO, "outer sumcheck").entered();
             sumcheck::prove(
                 UNIVARIATE_SKIPS,
-                columns_up_and_down(&preprocessed_and_witness)
-                    .as_ref()
-                    .embed::<EF>()
-                    .as_ref(), // TODO avoid this embedding
+                columns_up_and_down(&preprocessed_and_witness).as_ref(),
                 &self.constraints,
                 &constraints_batching_scalars,
                 Some(&zerocheck_challenges),
@@ -129,16 +126,18 @@ impl<F: Field> AirTable<F> {
                 cuda,
                 UNIVARIATE_SKIPS,
             ));
+
+            // TODO remove
+            let expanded = MultilinearHost::new(
+                self.univariate_selectors
+                    .iter()
+                    .map(|s| s.eval(&outer_challenges[0]))
+                    .collect(),
+            )
+            .add_dummy_ending_variables(log_length);
             nodes.push(match cuda {
-                false => MultilinearHost::new(
-                    self.univariate_selectors
-                        .iter()
-                        .map(|s| s.eval(&outer_challenges[0]))
-                        .collect(),
-                )
-                .add_dummy_ending_variables(log_length)
-                .into(),
-                true => todo!(),
+                false => expanded.into(),
+                true => MultilinearDevice::new(memcpy_htod(&expanded.evals)).into(), // bad
             });
 
             nodes
@@ -169,10 +168,7 @@ impl<F: Field> AirTable<F> {
 
         let values = witness
             .par_iter()
-            .map(|w| {
-                w.embed::<EF>()
-                    .evaluate(&inner_challenges[UNIVARIATE_SKIPS..])
-            }) // TODO avoid this embedding
+            .map(|w| w.evaluate(&inner_challenges[UNIVARIATE_SKIPS..]))
             .collect::<Vec<_>>();
         cuda_sync();
         fs_prover.add_scalars(&values);
@@ -267,49 +263,6 @@ fn matrix_down_folded_with_univariate_skips<F: Field>(
         folded.into()
     }
 }
-
-// /// Async
-// fn matrix_up_folded<F: Field>(
-//     outer_challenges: &[F],
-//     on_device: bool,
-//     univariate_skips: usize,
-// ) -> Multilinear<F> {
-//     let n = outer_challenges.len();
-//     let n_vars = n + univariate_skips * 2 - 1;
-
-//     let inner = MultilinearHost::eq_mle(&outer_challenges[1..]);
-//     let mut folded = MultilinearHost::zero(n_vars);
-//     for i in 0..(1 << univariate_skips) {
-//         folded.evals
-//             [i + (i << univariate_skips) << (n - 1)..(1 + i + (i << univariate_skips) << (n - 1))]
-//             .copy_from_slice(&inner.evals);
-//     }
-//     let prod = outer_challenges[1..].iter().copied().product::<F>();
-//     folded += MultilinearHost::eq_mle(
-//         &HypercubePoint {
-//             n_vars,
-//             val: (1 << n_vars) - 2,
-//         }
-//         .to_vec(),
-//     )
-//     .scale(prod);
-
-//     folded += MultilinearHost::eq_mle(
-//         &HypercubePoint {
-//             n_vars,
-//             val: 1 << n_vars,
-//         }
-//         .to_vec(),
-//     )
-//     .scale(-prod);
-
-//     // TODO do it on the device directly
-//     if on_device {
-//         MultilinearDevice::new(memcpy_htod(&folded.evals)).into()
-//     } else {
-//         folded.into()
-//     }
-// }
 
 fn matrix_down_folded<F: Field>(outer_challenges: &[F]) -> MultilinearHost<F> {
     let n = outer_challenges.len();

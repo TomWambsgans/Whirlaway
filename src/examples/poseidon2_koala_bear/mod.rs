@@ -128,10 +128,11 @@ pub fn prove_poseidon2(log_n_rows: usize, security_bits: usize, log_inv_rate: us
             eq_mle_multiplier: false,
         };
         let inner_air_sumcheck = SumcheckComputation::<F> {
-            exprs: &[((ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
-                + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3)))
+            exprs: &[(ArithmeticCircuit::Node(4)
+                * ((ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
+                    + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3))))
             .fix_computation(false)],
-            n_multilinears: 4,
+            n_multilinears: 5,
             eq_mle_multiplier: false,
         };
         cuda_init();
