@@ -473,7 +473,6 @@ extern "C" __global__ void dot_product_ext_ext(ExtField *a, ExtField *b, ExtFiel
     }
 }
 
-
 extern "C" __global__ void dot_product_ext_prime(ExtField *a, uint32_t *b, ExtField *res, const uint32_t log_len)
 {
     // a, b and res have size 2^log_len
@@ -535,6 +534,77 @@ extern "C" __global__ void fold_sum(const ExtField *input, ExtField *output, con
             {
                 ext_field_add(&output[idx], &input[idx + output_len * i], &output[idx]);
             }
+        }
+    }
+}
+
+extern "C" __global__ void tensor_algebra_dot_product(const ExtField *left, ExtField *right, uint32_t *buff, uint32_t *result, const uint32_t log_len, const uint32_t log_n_tasks_per_thread)
+{
+    // left and right have size 2^log_len
+    // buff has size EXT_DEGREE^2 * 2^(log_len - log_n_tasks_per_thread)
+    // res has size EXT_DEGREE^2
+
+    namespace cg = cooperative_groups;
+    cg::grid_group grid = cg::this_grid();
+
+    const int n_total_threads = blockDim.x * gridDim.x;
+    int n_reps = ((1 << (log_len - log_n_tasks_per_thread)) + n_total_threads - 1) / n_total_threads;
+    for (int rep = 0; rep < n_reps; rep++)
+    {
+        const int idx = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
+        if (idx >= 1 << (log_len - log_n_tasks_per_thread))
+        {
+            break;
+        }
+        TensorAlgebra sum = {0};
+        for (int task = 0; task < 1 << log_n_tasks_per_thread; task++)
+        {
+            const int offset = idx * (1 << log_n_tasks_per_thread) + task;
+            ExtField l = left[offset];
+            ExtField r = right[offset];
+            TensorAlgebra res;
+            phi_0_times_phi_1(&l, &r, &res);
+            add_tensor_algebra(&sum, &res, &sum);
+        }
+        int shift = 0;
+        for (int i = 0; i < EXT_DEGREE; i++)
+        {
+            for (int j = 0; j < EXT_DEGREE; j++)
+            {
+                buff[shift + idx] = sum.coeffs[i][j];
+                shift += 1 << (log_len - log_n_tasks_per_thread);
+            }
+        }
+    }
+
+    const int w = log_len - log_n_tasks_per_thread;
+    // Sum
+    for (int step = 0; step < w; step++)
+    {
+        grid.sync();
+        const int half_size = 1 << (w - step - 1);
+        const int n_ops = half_size * EXT_DEGREE * EXT_DEGREE;
+        n_reps = (n_ops + n_total_threads - 1) / n_total_threads;
+        for (int rep = 0; rep < n_reps; rep++)
+        {
+            const int thread_index = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
+            if (thread_index < n_ops)
+            {
+                const int offset = (thread_index / half_size) << w;
+                const int m = thread_index % half_size;
+                buff[offset + m] = monty_field_add(buff[offset + m], buff[offset + m + half_size]);
+            }
+        }
+    }
+
+    grid.sync();
+    n_reps = (EXT_DEGREE * EXT_DEGREE + n_total_threads - 1) / n_total_threads;
+    for (int rep = 0; rep < n_reps; rep++)
+    {
+        const int idx = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
+        if (idx < EXT_DEGREE * EXT_DEGREE)
+        {
+            result[idx] = buff[idx << (log_len - log_n_tasks_per_thread)];
         }
     }
 }

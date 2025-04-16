@@ -1,21 +1,45 @@
+use std::any::TypeId;
+
 use cuda_engine::{
-    CudaCall, cuda_alloc, cuda_correction_twiddles, cuda_sync, cuda_twiddles,
-    cuda_twiddles_two_adicity, memcpy_dtoh, memcpy_htod,
+    CudaCall, cuda_alloc, cuda_correction_twiddles, cuda_twiddles, cuda_twiddles_two_adicity,
 };
 use cudarc::driver::{CudaSlice, PushKernelArg};
 
-use p3_field::Field;
-use tracing::instrument;
+use p3_field::{Field, extension::BinomialExtensionField};
+use p3_koala_bear::KoalaBear;
 
 // TODO this value is also hardcoded in ntt.cuda, this is ugly
 const NTT_MAX_LOG_N_THREADS_PER_BLOCK: u32 = 8;
 const NTT_MAX_N_THREADS_PER_BLOCK: u32 = 1 << NTT_MAX_LOG_N_THREADS_PER_BLOCK;
 
 pub fn cuda_expanded_ntt<F: Field>(coeffs: &CudaSlice<F>, expansion_factor: usize) -> CudaSlice<F> {
-    // SAFETY: one should have called init_cuda::<F::PrimeSubfield>() before
-
     assert!(coeffs.len().is_power_of_two());
     assert!(expansion_factor.is_power_of_two());
+    assert_eq!(
+        TypeId::of::<F>(),
+        TypeId::of::<BinomialExtensionField<KoalaBear, 8>>(),
+        "TODO other fields"
+    );
+
+    let log_len = coeffs.len().trailing_zeros() as u32;
+    let log_expension_factor = expansion_factor.trailing_zeros() as u32;
+
+    let mut expanded = cuda_expand_with_twiddles(coeffs, expansion_factor);
+    cuda_ntt(&mut expanded, log_len as usize);
+    cuda_transpose(&expanded, log_len, log_expension_factor)
+}
+
+fn cuda_expand_with_twiddles<F: Field>(
+    coeffs: &CudaSlice<F>,
+    expansion_factor: usize,
+) -> CudaSlice<F> {
+    assert!(coeffs.len().is_power_of_two());
+    assert!(expansion_factor.is_power_of_two());
+    assert_eq!(
+        TypeId::of::<F>(),
+        TypeId::of::<BinomialExtensionField<KoalaBear, 8>>(),
+        "TODO other fields"
+    );
 
     let expanded_len = coeffs.len() * expansion_factor;
     let log_len = coeffs.len().trailing_zeros() as u32;
@@ -26,35 +50,45 @@ pub fn cuda_expanded_ntt<F: Field>(coeffs: &CudaSlice<F>, expansion_factor: usiz
         "NTT to big"
     );
 
-    assert_eq!(std::mem::size_of::<F>() % std::mem::size_of::<u32>(), 0);
-
-    let mut buff_dev = cuda_alloc::<F>(expanded_len);
     let mut result_dev = cuda_alloc::<F>(expanded_len);
-
-    let extension_degree = std::mem::size_of::<F>() / std::mem::size_of::<u32>(); // TODO improve
+    let twiddles = cuda_twiddles::<F::PrimeSubfield>();
 
     let mut call = CudaCall::new(
         "ntt",
-        "expanded_ntt",
-        1 << (log_len + log_expension_factor - 1),
-    )
-    .shared_mem_bytes((NTT_MAX_N_THREADS_PER_BLOCK * 2) * (extension_degree as u32 + 1) * 4); // cf `ntt_at_block_level` in ntt.cu
+        "expand_with_twiddles",
+        1 << (log_len + log_expension_factor),
+    );
     call.arg(coeffs);
-    call.arg(&mut buff_dev);
     call.arg(&mut result_dev);
     call.arg(&log_len);
     call.arg(&log_expension_factor);
-    let twiddles = cuda_twiddles::<F::PrimeSubfield>();
     call.arg(&twiddles);
-    call.launch_cooperative();
+    call.launch();
 
     result_dev
 }
 
-#[instrument(name = "CUDA NTT", skip_all)]
-pub fn cuda_ntt<F: Field>(coeffs: &[F], log_chunck_size: usize) -> Vec<F> {
-    // SAFETY: one should have called init_cuda::<F::PrimeSubfield>() before
+fn cuda_transpose<F: Field>(input: &CudaSlice<F>, log_rows: u32, log_cols: u32) -> CudaSlice<F> {
+    assert!(input.len().is_power_of_two());
+    assert_eq!(log_rows + log_cols, input.len().trailing_zeros() as u32);
+    assert_eq!(
+        TypeId::of::<F>(),
+        TypeId::of::<BinomialExtensionField<KoalaBear, 8>>(),
+        "TODO other fields"
+    );
+    let mut result_dev = cuda_alloc::<F>(input.len());
 
+    let mut call = CudaCall::new("ntt", "transpose", 1 << (log_rows + log_cols));
+    call.arg(input);
+    call.arg(&mut result_dev);
+    call.arg(&log_rows);
+    call.arg(&log_cols);
+    call.launch();
+
+    result_dev
+}
+
+pub fn cuda_ntt<F: Field>(coeffs: &mut CudaSlice<F>, log_chunck_size: usize) {
     assert!(coeffs.len().is_power_of_two());
 
     let log_len = coeffs.len().trailing_zeros() as u32;
@@ -66,23 +100,16 @@ pub fn cuda_ntt<F: Field>(coeffs: &[F], log_chunck_size: usize) -> Vec<F> {
 
     assert_eq!(std::mem::size_of::<F>() % std::mem::size_of::<u32>(), 0);
 
-    let mut coeffs_dev = memcpy_htod(coeffs);
-
     let extension_degree = std::mem::size_of::<F>() / std::mem::size_of::<u32>(); // TODO improve
 
     let twiddles = cuda_twiddles::<F::PrimeSubfield>();
     let mut call = CudaCall::new("ntt", "ntt_global", 1 << (log_len - 1))
         .shared_mem_bytes((NTT_MAX_N_THREADS_PER_BLOCK * 2) * (extension_degree as u32 + 1) * 4); // cf `ntt_at_block_level` in ntt.cu
-    call.arg(&mut coeffs_dev);
+    call.arg(coeffs);
     call.arg(&log_len);
     call.arg(&log_chunck_size);
     call.arg(&twiddles);
     call.launch_cooperative();
-
-    let cuda_result = memcpy_dtoh(&coeffs_dev);
-    cuda_sync();
-
-    cuda_result
 }
 
 pub fn cuda_restructure_evaluations<F: Field>(
@@ -195,7 +222,10 @@ mod tests {
                 }
                 let len = 1 << log_len;
                 let mut coeffs = (0..len).map(|_| rng.random()).collect::<Vec<EF>>();
-                let cuda_result = cuda_ntt(&coeffs, log_chunck_size);
+                let mut coeffs_dev = memcpy_htod(&coeffs);
+                cuda_ntt(&mut coeffs_dev, log_chunck_size);
+                let cuda_result = memcpy_dtoh(&coeffs_dev);
+                cuda_sync();
                 ntt_batch::<F, EF>(&mut coeffs, 1 << log_chunck_size);
                 assert!(cuda_result == coeffs);
             }

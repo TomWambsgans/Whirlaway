@@ -1,5 +1,6 @@
 # TODO
 
+- avoid repeated access to global memory in cuda sumcheck when there are enough registers
 - cuda sumcheck: first round, if n_batching_scalars = 0 => sums are actually in F, not EF
 - In whir::prove, the hypercube sum is already known, so no need to recompute it in sumcheck::prove
 - Avoid variable reversing for whir sumchecks

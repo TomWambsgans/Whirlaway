@@ -178,6 +178,32 @@ __device__ MAYBE_NOINLINE void ext_field_mul(const ExtField *a, const ExtField *
     ext_field_add(result, &A1_B1, result);
 }
 
+typedef struct
+{
+    uint32_t coeffs[EXT_DEGREE][EXT_DEGREE];
+} TensorAlgebra;
+
+__device__ void add_tensor_algebra(const TensorAlgebra *a, const TensorAlgebra *b, TensorAlgebra *result)
+{
+    // Works even if result is the same as a or b
+    for (int i = 0; i < EXT_DEGREE; i++)
+    {
+        for (int j = 0; j < EXT_DEGREE; j++)
+        {
+            result->coeffs[i][j] = monty_field_add(a->coeffs[i][j], b->coeffs[i][j]);
+        }
+    }
+}
+__device__ void phi_0_times_phi_1(const ExtField *a, const ExtField *b, TensorAlgebra *result)
+{
+    for (int i = 0; i < EXT_DEGREE; i++)
+    {
+        for (int j = 0; j < EXT_DEGREE; j++)
+        {
+            result->coeffs[i][j] = monty_field_mul(a->coeffs[i], b->coeffs[j]);
+        }
+    }
+}
 // Schoolbook multiplication for extension fields
 // __device__ MAYBE_NOINLINE void ext_field_mul(const ExtField *a, const ExtField *b, ExtField *result)
 // {

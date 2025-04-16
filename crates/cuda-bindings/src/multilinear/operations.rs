@@ -1,8 +1,10 @@
-use cuda_engine::{CudaCall, cuda_alloc, cuda_get_at_index, memcpy_htod};
+use cuda_engine::{CudaCall, cuda_alloc, cuda_get_at_index, memcpy_dtoh, memcpy_htod};
 use cudarc::driver::{CudaSlice, PushKernelArg};
-use p3_field::{ExtensionField, Field, extension::BinomialExtensionField};
+use p3_field::{BasedVectorSpace, ExtensionField, Field, extension::BinomialExtensionField};
 use p3_koala_bear::KoalaBear;
 use std::any::TypeId;
+
+use crate::cuda_eq_mle;
 
 // Async
 pub fn cuda_dot_product<F: Field, EF: ExtensionField<F>>(
@@ -129,9 +131,59 @@ pub fn cuda_sum<F: Field>(terms: CudaSlice<F>) -> F {
     cuda_get_at_index(&terms, 0)
 }
 
+// Async
+pub fn cuda_eval_mixed_tensor<F: Field, EF: ExtensionField<F>>(
+    terms: &CudaSlice<EF>,
+    point: &[EF],
+) -> Vec<Vec<F>> {
+    assert_eq!(
+        TypeId::of::<F>(),
+        TypeId::of::<KoalaBear>(),
+        "TODO other fields"
+    );
+    assert_eq!(
+        TypeId::of::<EF>(),
+        TypeId::of::<BinomialExtensionField<KoalaBear, 8>>(),
+        "TODO other fields"
+    );
+    assert!(terms.len().is_power_of_two());
+    let n_vars = terms.len().ilog2() as u32;
+    assert_eq!(point.len(), n_vars as usize);
+    let log_n_tasks_per_thread = n_vars.min(5); // TODO find the best value
+
+    let eq_mle = cuda_eq_mle(point);
+
+    let ext_degree = <EF as BasedVectorSpace<F>>::DIMENSION;
+
+    let n_ops = terms.len() >> log_n_tasks_per_thread;
+
+    let mut buffer = cuda_alloc::<F>(n_ops * ext_degree.pow(2));
+    let mut result = cuda_alloc::<F>(ext_degree.pow(2));
+
+    let mut call = CudaCall::new("multilinear", "tensor_algebra_dot_product", n_ops as u32);
+    call.arg(&eq_mle);
+    call.arg(terms);
+    call.arg(&mut buffer);
+    call.arg(&mut result);
+    call.arg(&n_vars);
+    call.arg(&log_n_tasks_per_thread);
+    call.launch_cooperative();
+
+    let retrieved_result = memcpy_dtoh(&result);
+    assert_eq!(retrieved_result.len(), ext_degree.pow(2));
+    let mut final_result = vec![vec![F::ZERO; ext_degree as usize]; ext_degree as usize];
+    for i in 0..ext_degree {
+        for j in 0..ext_degree {
+            final_result[i as usize][j as usize] = retrieved_result[i * ext_degree + j];
+        }
+    }
+    final_result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use algebra::pols::MultilinearHost;
     use cuda_engine::*;
     use p3_field::extension::BinomialExtensionField;
     use p3_koala_bear::KoalaBear;
@@ -165,6 +217,30 @@ mod tests {
 
             assert!(res_cuda == res_cpu);
         }
+    }
+
+    #[test]
+    fn test_cuda_eval_mixed_tensor() {
+        cuda_init();
+        type F = KoalaBear;
+        type EF = BinomialExtensionField<F, 8>;
+        let n_vars = 20;
+        let rng = &mut StdRng::seed_from_u64(0);
+        let terms = MultilinearHost::random(rng, n_vars);
+        let point = (0..n_vars).map(|_| rng.random()).collect::<Vec<EF>>();
+        let terms_dev = memcpy_htod(&terms.evals);
+        cuda_sync();
+
+        let time = std::time::Instant::now();
+        let res_cuda = cuda_eval_mixed_tensor::<F, EF>(&terms_dev, &point);
+        cuda_sync();
+        println!("CUDA time: {:?} ms", time.elapsed().as_millis());
+
+        let time = std::time::Instant::now();
+        let res_cpu = terms.eval_mixed_tensor::<F>(&point);
+        println!("CPU time: {:?} ms", time.elapsed().as_millis());
+
+        assert_eq!(res_cuda, res_cpu.data);
     }
 
     #[test]

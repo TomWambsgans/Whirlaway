@@ -2,14 +2,14 @@ use super::{CoefficientList, CoefficientListDevice};
 use super::{CoefficientListHost, UnivariatePolynomial};
 use crate::tensor_algebra::TensorAlgebra;
 use cuda_bindings::{
-    cuda_add_assign_slices, cuda_add_slices, cuda_eq_mle, cuda_eval_multilinear_in_lagrange_basis,
-    cuda_fold_rectangular_in_small_field, cuda_lagrange_to_monomial_basis, cuda_scale_slice,
-    cuda_scale_slice_in_place,
+    cuda_add_assign_slices, cuda_add_slices, cuda_eq_mle, cuda_eval_mixed_tensor,
+    cuda_eval_multilinear_in_lagrange_basis, cuda_fold_rectangular_in_small_field,
+    cuda_lagrange_to_monomial_basis, cuda_scale_slice, cuda_scale_slice_in_place,
 };
 use cuda_bindings::{cuda_fold_rectangular_in_large_field, cuda_sum_over_hypercube_of_computation};
 use cuda_engine::{
-    SumcheckComputation, clone_dtod, cuda_alloc_zeros, cuda_sync, memcpy_dtod, memcpy_dtoh,
-    memcpy_htod,
+    SumcheckComputation, clone_dtod, cuda_alloc_zeros, cuda_get_at_index, cuda_sync, memcpy_dtod,
+    memcpy_dtoh, memcpy_htod,
 };
 use cudarc::driver::CudaSlice;
 use p3_field::{BasedVectorSpace, ExtensionField, Field};
@@ -20,6 +20,7 @@ use rand::{
 use rayon::prelude::*;
 use std::borrow::Borrow;
 use std::ops::AddAssign;
+use tracing::instrument;
 use utils::{HypercubePoint, PartialHypercubePoint};
 
 /*
@@ -337,13 +338,15 @@ impl<F: Field> MultilinearDevice<F> {
     where
         F: ExtensionField<SubF>,
     {
-        // TODO implement in cuda to avoid device -> host transfer
-        self.transfer_to_host().eval_mixed_tensor(point)
+        TensorAlgebra::new(cuda_eval_mixed_tensor::<SubF, F>(&self.evals, point))
     }
 
     // Async
     pub fn evaluate<EF: ExtensionField<F>>(&self, point: &[EF]) -> EF {
         assert_eq!(self.n_vars, point.len());
+        if self.n_vars == 0 {
+            return EF::from(cuda_get_at_index(&self.evals, 0));
+        }
         cuda_eval_multilinear_in_lagrange_basis(&self.evals, point)
     }
 }
@@ -486,6 +489,7 @@ impl<F: Field> Multilinear<F> {
     }
 
     /// Async
+    #[instrument(name = "eval_mixed_tensor", skip_all)]
     pub fn eval_mixed_tensor<SubF: Field>(&self, point: &[F]) -> TensorAlgebra<SubF, F>
     where
         F: ExtensionField<SubF>,

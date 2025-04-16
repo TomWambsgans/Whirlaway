@@ -156,7 +156,6 @@ dependencies = [
  "p3-koala-bear",
  "rand",
  "rayon",
- "tracing",
  "utils",
 ]
 

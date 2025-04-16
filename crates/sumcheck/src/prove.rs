@@ -111,7 +111,7 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
     round: usize,
     missing_mul_factor: &mut Option<EF>,
 ) -> MultilinearsVec<EF> {
-    let _span = if *n_vars >= 6 {
+    let _span = if round < 3 {
         Some(tracing::span!(tracing::Level::INFO, "Sumcheck round").entered())
     } else {
         None

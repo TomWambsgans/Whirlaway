@@ -5,7 +5,7 @@ edition.workspace = true
 
 [dependencies]
 cudarc.workspace = true
-tracing.workspace = true
+# tracing.workspace = true
 p3-field.workspace = true
 utils.workspace = true
 cuda-engine.workspace = true

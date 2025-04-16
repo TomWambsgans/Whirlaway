@@ -54,8 +54,8 @@ impl<F: Field, EF: ExtensionField<F>> TensorAlgebra<F, EF> {
         let two_pow_kappa = Self::two_pow_kappa();
         let mut data = vec![vec![F::ZERO; two_pow_kappa]; two_pow_kappa];
         for i in 0..two_pow_kappa {
-            for (j, p1_splt) in p1_split.iter().enumerate() {
-                data[i][j] = p0_split[i] * *p1_splt;
+            for (j, p1_split) in p1_split.iter().enumerate() {
+                data[i][j] = p0_split[i] * *p1_split;
             }
         }
         Self::new(data)

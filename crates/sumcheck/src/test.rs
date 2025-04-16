@@ -38,7 +38,7 @@ fn test_sumcheck() {
     };
     cuda_preprocess_sumcheck_computation(&sumcheck_computation);
 
-    for gpu in [false] {
+    for gpu in [true, false] {
         let multilinears_host = (0..n_multilinears)
             .map(|_| MultilinearHost::<EF>::random(rng, n_vars))
             .collect::<Vec<_>>();
