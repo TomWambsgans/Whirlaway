@@ -92,7 +92,7 @@ fn get_cuda_instructions<F: PrimeField32>(
 ) -> String {
     let mut res = String::new();
     let n_compute_units = sumcheck_computation.n_cuda_compute_units();
-    let blank = "            ";
+    let blank = "        ";
     for compute_unit in 0..n_compute_units {
         let start = compute_unit * MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT;
         let end = ((compute_unit + 1) * MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT)
@@ -118,7 +118,7 @@ fn compute_unit_instructions_ext<F: PrimeField32>(
     end: usize,
 ) -> String {
     let mut res = String::new();
-    let blank = "                ";
+    let blank = "            ";
 
     let n_registers = max_stack_size(exprs);
     for i in 0..n_registers {
@@ -294,7 +294,7 @@ fn compute_unit_instructions_prime<F: PrimeField32>(
     end: usize,
 ) -> String {
     let mut res = String::new();
-    let blank = "                ";
+    let blank = "            ";
 
     let n_registers = max_stack_size(exprs);
 

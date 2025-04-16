@@ -8,6 +8,8 @@ use p3_koala_bear::KoalaBear;
 
 use crate::{cuda_dot_product, cuda_fold_sum, cuda_sum};
 
+const LOG_CUDA_WARP_SIZE: u32 = 5;
+
 /// Async
 pub fn cuda_sum_over_hypercube_of_computation<
     F: Field,
@@ -47,8 +49,10 @@ pub fn cuda_sum_over_hypercube_of_computation<
         unimplemented!("TODO handle other fields");
     };
 
+    let n_ops = n_compute_units << n_vars.max(LOG_CUDA_WARP_SIZE);
+
     let module_name = format!("sumcheck_{:x}", comp.uuid());
-    let mut call = CudaCall::new(&module_name, func_name, n_compute_units << n_vars)
+    let mut call = CudaCall::new(&module_name, func_name, n_ops)
         .shared_mem_bytes(batching_scalars.len() as u32 * ext_degree * 4); // cf: __shared__ ExtField cached_batching_scalars[N_BATCHING_SCALARS];;
     call.arg(&multilinears_ptrs_dev);
     call.arg(&mut sums_dev);
@@ -75,7 +79,7 @@ pub fn cuda_sum_over_hypercube_of_computation<
 mod test {
     use crate::cuda_sum_over_hypercube_of_computation;
     use algebra::pols::{MultilinearDevice, MultilinearHost};
-    use arithmetic_circuit::ArithmeticCircuit;
+    use arithmetic_circuit::TransparentPolynomial;
     use cuda_engine::{
         SumcheckComputation, cuda_init, cuda_preprocess_sumcheck_computation, memcpy_htod,
     };
@@ -97,7 +101,9 @@ mod test {
 
         let rng = &mut StdRng::seed_from_u64(0);
         let exprs = (0..n_batching_scalars)
-            .map(|_| ArithmeticCircuit::random(rng, n_multilinears, depth).fix_computation(true))
+            .map(|_| {
+                TransparentPolynomial::<F>::random(rng, n_multilinears, depth).fix_computation(true)
+            })
             .collect::<Vec<_>>();
 
         let sumcheck_computation = SumcheckComputation {
@@ -148,7 +154,7 @@ mod test {
         let copy_duration = time.elapsed();
 
         let time = std::time::Instant::now();
-        let cuda_sum = cuda_sum_over_hypercube_of_computation::<F, F, _, _>(
+        let cuda_sum = cuda_sum_over_hypercube_of_computation(
             &sumcheck_computation,
             &multilinears_dev,
             &batching_scalars,

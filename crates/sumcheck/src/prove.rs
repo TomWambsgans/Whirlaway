@@ -7,7 +7,7 @@ use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};
 use rayon::prelude::*;
 
-pub const MIN_VARS_FOR_GPU: usize = 6; // When there are a small number of variables, it's not worth using GPU
+pub const MIN_VARS_FOR_GPU: usize = 0; // When there are a small number of variables, it's not worth using GPU
 
 pub fn prove<
     'a,
@@ -181,7 +181,7 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
     let challenge = fs_prover.challenge_scalars::<EF>(1)[0];
     challenges.push(challenge);
     *sum = p.eval(&challenge);
-    *n_vars -= 1;
+    *n_vars -= skips;
 
     // Do PoW if needed
     if pow_bits > 0 {
