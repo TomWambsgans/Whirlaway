@@ -11,5 +11,6 @@
 - A_pol in cuda (in ring siwtch)
 - matrix_up_folded / matrix_down_folded in cuda
 - AIR inner sumcheck can bee accelerated (some factors have not all the variables + it's sparse)
+- Neg in ArithmeticCircuitComposed
 
 - Add ZK?

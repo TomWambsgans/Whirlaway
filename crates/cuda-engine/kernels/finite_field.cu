@@ -100,6 +100,26 @@ __device__ MAYBE_NOINLINE void mul_prime_and_ext_field(const ExtField *a, uint32
     }
 }
 
+__device__ MAYBE_NOINLINE void sub_prime_and_ext_field(uint32_t a, const ExtField *b, ExtField *result)
+{
+    result->coeffs[0] = monty_field_sub(a, b->coeffs[0]);
+    for (int i = 1; i < EXT_DEGREE; i++)
+    {
+        result->coeffs[i] = monty_field_sub(0, b->coeffs[i]);
+    }
+}
+
+__device__ MAYBE_NOINLINE void sub_ext_field_and_prime(const ExtField *a, uint32_t b, ExtField *result)
+{
+    // TODO this would be more efficient in place (to avoid the copy loop)
+    
+    result->coeffs[0] = monty_field_sub(a->coeffs[0], b);
+    for (int i = 1; i < EXT_DEGREE; i++)
+    {
+        result->coeffs[i] = a->coeffs[i];
+    }
+}
+
 __device__ MAYBE_NOINLINE void add_prime_and_ext_field(const ExtField *a, uint32_t b, ExtField *result)
 {
     // TODO this would be more efficient in place (to avoid the copy loop)

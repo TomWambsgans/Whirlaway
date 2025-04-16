@@ -23,10 +23,11 @@ pub struct CircuitInstruction<F> {
     pub result_location: StackIndex,
 }
 
-#[derive(Clone, Debug, Hash)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum CircuitOp {
     Sum,
     Product,
+    Sub,
 }
 
 #[derive(Clone, Debug, Hash)]
@@ -79,6 +80,7 @@ impl<F: Field> TransparentPolynomial<F> {
             },
             &|left, right| build_instruction(CircuitOp::Product, left, right),
             &|left, right| build_instruction(CircuitOp::Sum, left, right),
+            &|left, right| build_instruction(CircuitOp::Sub, left, right),
         );
 
         let stack_size = stack_size.into_inner();
@@ -91,7 +93,7 @@ impl<F: Field> TransparentPolynomial<F> {
 
         // trick to speed up computations (to avoid the initial scalar embedding)
         for inst in &mut instructions {
-            if matches!(inst.left, ComputationInput::Scalar(_)) {
+            if matches!(inst.left, ComputationInput::Scalar(_)) && inst.op != CircuitOp::Sub {
                 std::mem::swap(&mut inst.left, &mut inst.right);
             }
         }
@@ -122,6 +124,10 @@ impl<F: Field> CircuitComputation<F> {
                 CircuitOp::Product => {
                     instruction.left.eval(point, &stack).clone()
                         * instruction.right.eval(point, &stack).clone()
+                }
+                CircuitOp::Sub => {
+                    instruction.left.eval(point, &stack).clone()
+                        - instruction.right.eval(point, &stack).clone()
                 }
             };
         }

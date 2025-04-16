@@ -10,7 +10,10 @@ pub struct AirTable<F: Field> {
     pub n_columns: usize,
     pub constraints: Vec<CircuitComputation<F>>, // n_vars = 2 * n_columns. First half = columns of row i, second half = columns of row i + 1
     pub preprocessed_columns: Vec<MultilinearHost<F>>, // TODO 'sparse' preprocessed columns (with non zero values at cylic shifts)
+    // below are the data which is common to all proofs / verifications
     pub(crate) univariate_selectors: Vec<UnivariatePolynomial<F>>,
+    pub(crate) lde_matrix_up: CircuitComputation<F>,
+    pub(crate) lde_matrix_down: CircuitComputation<F>,
 }
 
 impl<F: Field> AirTable<F> {
