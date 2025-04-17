@@ -100,28 +100,9 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
 
         let r_pp = fs_prover.challenge_scalars::<EF>(kappa);
 
-        // let lagranged_r_pp = MultilinearHost::eq_mle(&r_pp).evals;
-        // let A_pol = {
-        //     let mut A_basis = Vec::with_capacity(packed_pol.n_coefs());
-        //     for w in 0..packed_pol.n_coefs() {
-        //         A_basis.push(dot_product(&A_coefs[w], &lagranged_r_pp));
-        //     }
-        //     MultilinearHost::new(A_basis)
-        // };
-
-        // // TODO A_pol in cuda
-
-        // let A_pol: Multilinear<EF> = if packed_pol.is_device() {
-        //     MultilinearDevice::new(memcpy_htod(&A_pol.evals)).into() // TODO bad (A pol should be constructed in cuda)
-        // } else {
-        //     A_pol.into()
-        // };
-
         let lagranged_r_pp = MultilinearHost::eq_mle(&r_pp).evals;
         let A_pol = Multilinear::eq_mle(&packed_point, packed_pol.is_device())
             .piecewise_dot_product_at_field_level::<F>(&lagranged_r_pp);
-
-        let time = std::time::Instant::now();
 
         let s0 = dot_product(&s_hat.rows(), &lagranged_r_pp);
         let (r_p, _, _) = sumcheck::prove::<F, EF, EF, _>(
@@ -140,9 +121,6 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
             0,
             None,
         );
-        println!("T3: {:?}", time.elapsed());
-        let time = std::time::Instant::now();
-
         let packed_value = witness.inner_witness.pol().evaluate(&r_p);
         cuda_sync();
         let packed_eval = Evaluation {
@@ -151,7 +129,6 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
         };
         fs_prover.add_scalars(&[packed_value]);
         std::mem::drop(_span);
-        println!("T4: {:?}", time.elapsed());
 
         self.inner
             .open(witness.inner_witness, &packed_eval, fs_prover)
