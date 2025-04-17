@@ -12,10 +12,7 @@ use crate::{
     utils::{column_down_host, column_up_host},
 };
 
-use super::{
-    table::AirTable,
-    utils::{matrix_down_lde, matrix_up_lde},
-};
+use super::table::AirTable;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AirVerifError {
@@ -139,9 +136,6 @@ impl<F: Field> AirTable<F> {
             return Err(AirVerifError::SumMismatch);
         }
 
-        let lde_matrix_up = matrix_up_lde(log_length);
-        let lde_matrix_down = matrix_down_lde(log_length);
-
         let mut batched_inner_value = EF::ZERO;
         let matrix_lde_point = [
             inner_sumcheck_challenge.point[..UNIVARIATE_SKIPS].to_vec(),
@@ -149,8 +143,8 @@ impl<F: Field> AirTable<F> {
             inner_sumcheck_challenge.point[UNIVARIATE_SKIPS..].to_vec(),
         ]
         .concat();
-        let up = lde_matrix_up.eval(&matrix_lde_point);
-        let down = lde_matrix_down.eval(&matrix_lde_point);
+        let up = self.lde_matrix_up.eval(&matrix_lde_point);
+        let down = self.lde_matrix_down.eval(&matrix_lde_point);
 
         let final_inner_claims = fs_verifier.next_scalars::<EF>(self.n_witness_columns())?;
 

@@ -1,5 +1,6 @@
 # TODO
 
+- avoid repeated access to global memory in cuda sumcheck when there are enough registers
 - cuda sumcheck: first round, if n_batching_scalars = 0 => sums are actually in F, not EF
 - In whir::prove, the hypercube sum is already known, so no need to recompute it in sumcheck::prove
 - Avoid variable reversing for whir sumchecks
@@ -10,5 +11,8 @@
 - A_pol in cuda (in ring siwtch)
 - matrix_up_folded / matrix_down_folded in cuda
 - AIR inner sumcheck can bee accelerated (some factors have not all the variables + it's sparse)
+- Neg in ArithmeticCircuitComposed
+- There is a lot of duplications in cuda kernels + in the synthetic cuda generation (in rust)
+- use cuda constant memory for batching_scalars in sumcheck
 
 - Add ZK?

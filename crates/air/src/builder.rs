@@ -2,7 +2,10 @@ use algebra::pols::{MultilinearHost, univariate_selectors};
 use arithmetic_circuit::ArithmeticCircuit;
 use p3_field::Field;
 
-use crate::UNIVARIATE_SKIPS;
+use crate::{
+    UNIVARIATE_SKIPS,
+    utils::{matrix_down_lde, matrix_up_lde},
+};
 
 use super::table::AirTable;
 
@@ -108,6 +111,8 @@ impl<F: Field, const COLS: usize> AirBuilder<F, COLS> {
                 .map(MultilinearHost::new)
                 .collect(),
             univariate_selectors: univariate_selectors(UNIVARIATE_SKIPS),
+            lde_matrix_up: matrix_up_lde(self.log_length).fix_computation(true),
+            lde_matrix_down: matrix_down_lde(self.log_length).fix_computation(true),
         }
     }
 }

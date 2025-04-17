@@ -92,7 +92,7 @@ fn get_cuda_instructions<F: PrimeField32>(
 ) -> String {
     let mut res = String::new();
     let n_compute_units = sumcheck_computation.n_cuda_compute_units();
-    let blank = "            ";
+    let blank = "        ";
     for compute_unit in 0..n_compute_units {
         let start = compute_unit * MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT;
         let end = ((compute_unit + 1) * MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT)
@@ -118,7 +118,7 @@ fn compute_unit_instructions_ext<F: PrimeField32>(
     end: usize,
 ) -> String {
     let mut res = String::new();
-    let blank = "                ";
+    let blank = "            ";
 
     let n_registers = max_stack_size(exprs);
     for i in 0..n_registers {
@@ -138,14 +138,20 @@ fn compute_unit_instructions_ext<F: PrimeField32>(
             let op_str = match instr.op {
                 CircuitOp::Product => "mul",
                 CircuitOp::Sum => "add",
+                CircuitOp::Sub => "sub",
             };
 
             match (&instr.left, &instr.right) {
                 (ComputationInput::Stack(stack_index), ComputationInput::Scalar(scalar)) => {
+                    let func_name = match instr.op {
+                        CircuitOp::Product => "mul_prime_and_ext_field",
+                        CircuitOp::Sum => "add_prime_and_ext_field",
+                        CircuitOp::Sub => "sub_ext_field_and_prime",
+                    };
                     res += &format!(
-                        "{}{}_prime_and_ext_field(&reg_{}, to_monty({}), &reg_{});\n",
+                        "{}{}(&reg_{}, to_monty({}), &reg_{});\n",
                         blank,
-                        op_str,
+                        func_name,
                         stack_index,
                         scalar.as_canonical_u32(),
                         instr.result_location
@@ -156,10 +162,15 @@ fn compute_unit_instructions_ext<F: PrimeField32>(
                         "{}temp_a = multilinears[{}][hypercube_point];\n",
                         blank, node_index
                     );
+                    let func_name = match instr.op {
+                        CircuitOp::Product => "mul_prime_and_ext_field",
+                        CircuitOp::Sum => "add_prime_and_ext_field",
+                        CircuitOp::Sub => "sub_ext_field_and_prime",
+                    };
                     res += &format!(
-                        "{}{}_prime_and_ext_field(&temp_a, to_monty({}), &reg_{});\n",
+                        "{}{}(&temp_a, to_monty({}), &reg_{});\n",
                         blank,
-                        op_str,
+                        func_name,
                         scalar.as_canonical_u32(),
                         instr.result_location
                     )
@@ -178,8 +189,7 @@ fn compute_unit_instructions_ext<F: PrimeField32>(
                         blank, op_str, instr.result_location
                     )
                 }
-                (ComputationInput::Stack(stack_index), ComputationInput::Node(node_index))
-                | (ComputationInput::Node(node_index), ComputationInput::Stack(stack_index)) => {
+                (ComputationInput::Stack(stack_index), ComputationInput::Node(node_index)) => {
                     res += &format!(
                         "{}temp_a = multilinears[{}][hypercube_point];\n",
                         blank, node_index
@@ -189,14 +199,72 @@ fn compute_unit_instructions_ext<F: PrimeField32>(
                         blank, op_str, stack_index, instr.result_location
                     )
                 }
+                (ComputationInput::Node(node_index), ComputationInput::Stack(stack_index)) => {
+                    res += &format!(
+                        "{}temp_a = multilinears[{}][hypercube_point];\n",
+                        blank, node_index
+                    );
+                    res += &format!(
+                        "{}ext_field_{}(&temp_a, &reg_{}, &reg_{});\n",
+                        blank, op_str, stack_index, instr.result_location
+                    )
+                }
                 (ComputationInput::Stack(stack_left), ComputationInput::Stack(stack_right)) => {
                     res += &format!(
                         "{}ext_field_{}(&reg_{}, &reg_{}, &reg_{});\n",
                         blank, op_str, stack_left, stack_right, instr.result_location
                     )
                 }
-                (ComputationInput::Scalar(_), _) => {
-                    unreachable!("Scalar should always be on the right")
+                (ComputationInput::Scalar(scalar), ComputationInput::Stack(stack_index)) => {
+                    match instr.op {
+                        CircuitOp::Product | CircuitOp::Sum => {
+                            res += &format!(
+                                "{}{}_prime_and_ext_field(&reg_{}, to_monty({}), &reg_{});\n",
+                                blank,
+                                op_str,
+                                stack_index,
+                                scalar.as_canonical_u32(),
+                                instr.result_location
+                            )
+                        }
+                        CircuitOp::Sub => {
+                            res += &format!(
+                                "{}sub_prime_and_ext_field(to_monty({}), &reg_{}, &reg_{});\n",
+                                blank,
+                                scalar.as_canonical_u32(),
+                                stack_index,
+                                instr.result_location
+                            )
+                        }
+                    };
+                }
+                (ComputationInput::Scalar(scalar), ComputationInput::Node(node_index)) => {
+                    res += &format!(
+                        "{}temp_a = multilinears[{}][hypercube_point];\n",
+                        blank, node_index
+                    );
+                    match instr.op {
+                        CircuitOp::Product | CircuitOp::Sum => {
+                            res += &format!(
+                                "{}{}_prime_and_ext_field(&temp_a, to_monty({}), &reg_{});\n",
+                                blank,
+                                op_str,
+                                scalar.as_canonical_u32(),
+                                instr.result_location
+                            )
+                        }
+                        CircuitOp::Sub => {
+                            res += &format!(
+                                "{}sub_prime_and_ext_field(to_monty({}), &temp_a, &reg_{});\n",
+                                blank,
+                                scalar.as_canonical_u32(),
+                                instr.result_location
+                            )
+                        }
+                    };
+                }
+                (ComputationInput::Scalar(_), ComputationInput::Scalar(_)) => {
+                    unreachable!("Useless computation")
                 }
             }
         }
@@ -226,7 +294,7 @@ fn compute_unit_instructions_prime<F: PrimeField32>(
     end: usize,
 ) -> String {
     let mut res = String::new();
-    let blank = "                ";
+    let blank = "            ";
 
     let n_registers = max_stack_size(exprs);
 
@@ -246,6 +314,7 @@ fn compute_unit_instructions_prime<F: PrimeField32>(
             let op_str = match instr.op {
                 CircuitOp::Product => "mul",
                 CircuitOp::Sum => "add",
+                CircuitOp::Sub => "sub",
             };
 
             match (&instr.left, &instr.right) {
@@ -275,11 +344,16 @@ fn compute_unit_instructions_prime<F: PrimeField32>(
                         blank, instr.result_location, op_str, node_left, node_right,
                     )
                 }
-                (ComputationInput::Stack(stack_index), ComputationInput::Node(node_index))
-                | (ComputationInput::Node(node_index), ComputationInput::Stack(stack_index)) => {
+                (ComputationInput::Stack(stack_index), ComputationInput::Node(node_index)) => {
                     res += &format!(
                         "{}reg_{} = monty_field_{}(reg_{}, multilinears[{}][hypercube_point]);\n",
                         blank, instr.result_location, op_str, stack_index, node_index,
+                    )
+                }
+                (ComputationInput::Node(node_index), ComputationInput::Stack(stack_index)) => {
+                    res += &format!(
+                        "{}reg_{} = monty_field_{}(multilinears[{}][hypercube_point], reg_{});\n",
+                        blank, instr.result_location, op_str, node_index, stack_index,
                     )
                 }
                 (ComputationInput::Stack(stack_left), ComputationInput::Stack(stack_right)) => {
@@ -288,8 +362,28 @@ fn compute_unit_instructions_prime<F: PrimeField32>(
                         blank, instr.result_location, op_str, stack_left, stack_right,
                     )
                 }
-                (ComputationInput::Scalar(_), _) => {
-                    unreachable!("Scalar should always be on the right")
+                (ComputationInput::Scalar(scalar), ComputationInput::Stack(stack_index)) => {
+                    res += &format!(
+                        "{}reg_{} = monty_field_{}(to_monty({}), reg_{});\n",
+                        blank,
+                        instr.result_location,
+                        op_str,
+                        stack_index,
+                        scalar.as_canonical_u32(),
+                    )
+                }
+                (ComputationInput::Scalar(scalar), ComputationInput::Node(node_index)) => {
+                    res += &format!(
+                        "{}reg_{} = monty_field_{}(to_monty({}), multilinears[{}][hypercube_point]);\n",
+                        blank,
+                        instr.result_location,
+                        op_str,
+                        scalar.as_canonical_u32(),
+                        node_index,
+                    )
+                }
+                (ComputationInput::Scalar(_), ComputationInput::Scalar(_)) => {
+                    unreachable!("Useless computation")
                 }
             }
         }

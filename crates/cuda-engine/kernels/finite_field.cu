@@ -100,6 +100,26 @@ __device__ MAYBE_NOINLINE void mul_prime_and_ext_field(const ExtField *a, uint32
     }
 }
 
+__device__ MAYBE_NOINLINE void sub_prime_and_ext_field(uint32_t a, const ExtField *b, ExtField *result)
+{
+    result->coeffs[0] = monty_field_sub(a, b->coeffs[0]);
+    for (int i = 1; i < EXT_DEGREE; i++)
+    {
+        result->coeffs[i] = monty_field_sub(0, b->coeffs[i]);
+    }
+}
+
+__device__ MAYBE_NOINLINE void sub_ext_field_and_prime(const ExtField *a, uint32_t b, ExtField *result)
+{
+    // TODO this would be more efficient in place (to avoid the copy loop)
+    
+    result->coeffs[0] = monty_field_sub(a->coeffs[0], b);
+    for (int i = 1; i < EXT_DEGREE; i++)
+    {
+        result->coeffs[i] = a->coeffs[i];
+    }
+}
+
 __device__ MAYBE_NOINLINE void add_prime_and_ext_field(const ExtField *a, uint32_t b, ExtField *result)
 {
     // TODO this would be more efficient in place (to avoid the copy loop)
@@ -178,6 +198,32 @@ __device__ MAYBE_NOINLINE void ext_field_mul(const ExtField *a, const ExtField *
     ext_field_add(result, &A1_B1, result);
 }
 
+typedef struct
+{
+    uint32_t coeffs[EXT_DEGREE][EXT_DEGREE];
+} TensorAlgebra;
+
+__device__ void add_tensor_algebra(const TensorAlgebra *a, const TensorAlgebra *b, TensorAlgebra *result)
+{
+    // Works even if result is the same as a or b
+    for (int i = 0; i < EXT_DEGREE; i++)
+    {
+        for (int j = 0; j < EXT_DEGREE; j++)
+        {
+            result->coeffs[i][j] = monty_field_add(a->coeffs[i][j], b->coeffs[i][j]);
+        }
+    }
+}
+__device__ void phi_0_times_phi_1(const ExtField *a, const ExtField *b, TensorAlgebra *result)
+{
+    for (int i = 0; i < EXT_DEGREE; i++)
+    {
+        for (int j = 0; j < EXT_DEGREE; j++)
+        {
+            result->coeffs[i][j] = monty_field_mul(a->coeffs[i], b->coeffs[j]);
+        }
+    }
+}
 // Schoolbook multiplication for extension fields
 // __device__ MAYBE_NOINLINE void ext_field_mul(const ExtField *a, const ExtField *b, ExtField *result)
 // {

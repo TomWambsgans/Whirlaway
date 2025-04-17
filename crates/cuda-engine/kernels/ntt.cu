@@ -49,7 +49,7 @@ __device__ void ntt_at_block_level(ExtField *buff, const int block, const int lo
     cached_buff[threadId] = buff[threadId + n_threads * 2 * block];
     cached_buff[threadId + n_threads] = buff[threadId + n_threads * (2 * block + 1)];
 
-    __shared__ uint32_t cached_twiddles[MAX_N_THREADS_PER_BLOCK * 2];
+    __shared__ uint32_t cached_twiddles[MAX_N_THREADS_PER_BLOCK * 2]; // TODO use constant memory instead
 
     cached_twiddles[threadId] = twiddles[threadId];
     cached_twiddles[threadId + n_threads] = twiddles[threadId + n_threads];
@@ -97,6 +97,14 @@ __device__ void ntt_at_block_level(ExtField *buff, const int block, const int lo
 
 __device__ void ntt(ExtField *buff, const int log_len, const int log_chunk_size, const uint32_t *twiddles)
 {
+    // twiddles = 1
+    // followed by w^0, w^1 where w is a 2-root of unity
+    // followed by w^0, w^1, w^2, w^3 where w is a 4-root of unity
+    // followed by w^0, w^1, w^2, w^3, w^4, w^5, w^6, w^7 where w is a 8-root of unity
+    // ...
+    // input has size 1 << log_len (the coefs of the polynomial we want to NTT)
+    // buff and result both have size 1 << (log_len + log_extension_factor)
+
     namespace cg = cooperative_groups;
     cg::grid_group grid = cg::this_grid();
 
@@ -145,69 +153,59 @@ __device__ void ntt(ExtField *buff, const int log_len, const int log_chunk_size,
             uint32_t second_twiddle = twiddles[packet_size * 2 - 1 + i + packet_size];
 
             // result[even_index] = even + first_twiddle * odd
-            mul_prime_and_ext_field(&odd, first_twiddle, &buff[even_index]);
-            ext_field_add(&even, &buff[even_index], &buff[even_index]);
+            ExtField temp;
+            mul_prime_and_ext_field(&odd, first_twiddle, &temp);
+            ext_field_add(&even, &temp, &buff[even_index]);
 
             // result[odd_index] = even + second_twiddle * odd
-            mul_prime_and_ext_field(&odd, second_twiddle, &buff[odd_index]);
-            ext_field_add(&even, &buff[odd_index], &buff[odd_index]);
+            mul_prime_and_ext_field(&odd, second_twiddle, &temp);
+            ext_field_add(&even, &temp, &buff[odd_index]);
         }
     }
 
     grid.sync();
 }
 
-extern "C" __global__ void expanded_ntt(ExtField *input, ExtField *buff, ExtField *result, const uint32_t log_len, const uint32_t log_extension_factor, const uint32_t *twiddles)
+extern "C" __global__ void expand_with_twiddles(ExtField *input, ExtField *result, const uint32_t log_len, const uint32_t log_extension_factor, const uint32_t *twiddles)
 {
-    // twiddles = 1
-    // followed by w^0, w^1 where w is a 2-root of unity
-    // followed by w^0, w^1, w^2, w^3 where w is a 4-root of unity
-    // followed by w^0, w^1, w^2, w^3, w^4, w^5, w^6, w^7 where w is a 8-root of unity
-    // ...
-    // input has size 1 << log_len (the coefs of the polynomial we want to NTT)
-    // buff and result both have size 1 << (log_len + log_extension_factor)
-
-    namespace cg = cooperative_groups;
-    cg::grid_group grid = cg::this_grid();
-
-    // we should have N_THREADS_PER_BLOCK * NUM_BLOCKS * n_repetitions * 2 = 1 << (log_len + log_extension_factor)
-    // WARNING: We assume the number of blocks is a power of 2
-    const uint32_t n_repetitions = (1 << (log_len + log_extension_factor)) / (blockDim.x * gridDim.x * 2);
-
-    // int threadIndex = threadIdx.x + blockIdx.x * blockDim.x;
-
     const int len = 1 << log_len;
     const int expansion_factor = 1 << log_extension_factor;
+    const int total_n_threads = blockDim.x * gridDim.x;
+    const uint32_t n_repetitions = ((1 << (log_len + log_extension_factor)) + total_n_threads - 1) / total_n_threads;
 
     // 1) Expand input several times to fill result, multiplying by the appropriate twiddle factors
-    for (int rep = 0; rep < n_repetitions * 2; rep++)
+    for (int rep = 0; rep < n_repetitions; rep++)
     {
         int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
 
         if (threadIndex < len)
         {
-            buff[threadIndex] = input[threadIndex];
+            result[threadIndex] = input[threadIndex];
         }
         else
         {
             uint32_t twidle = twiddles[(1 << (log_len + log_extension_factor)) - 1 + (threadIndex % len) * (threadIndex / len)];
-            mul_prime_and_ext_field(&input[threadIndex % len], twidle, &buff[threadIndex]);
+            mul_prime_and_ext_field(&input[threadIndex % len], twidle, &result[threadIndex]);
         }
     }
+}
 
-    grid.sync();
+extern "C" __global__ void transpose(ExtField *input, ExtField *result, const uint32_t log_rows, const uint32_t log_cols)
+{
+    const int n_total_n_threads = blockDim.x * gridDim.x;
+    const int n_ops = 1 << (log_rows + log_cols);
+    const int n_repetitions = (n_ops + n_total_n_threads - 1) / n_total_n_threads;
+    const int rows = 1 << log_rows;
+    const int cols = 1 << log_cols;
 
-    // 2) Core ntt
-
-    ntt(buff, log_len + log_extension_factor, log_len, twiddles);
-
-    // 3) Transpose buff to result
-
-    for (int rep = 0; rep < n_repetitions * 2; rep++)
+    for (int rep = 0; rep < n_repetitions; rep++)
     {
         int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
-
-        result[threadIndex] = buff[(threadIndex % expansion_factor) * len + (threadIndex / expansion_factor)];
+        if (threadIndex >= n_ops)
+        {
+            return;
+        }
+        result[threadIndex] = input[(threadIndex % cols) * rows + (threadIndex / cols)];
     }
 }
 

@@ -122,7 +122,7 @@ pub(crate) fn compile_module(
             panic!("NVCC error: {}", String::from_utf8_lossy(&output.stderr));
         }
     } else {
-        tracing::info!("Using cached PTX for {}", module);
+        tracing::debug!("Using cached PTX for {}", module);
     }
 
     let cuda_content = std::fs::read_to_string(cuda_file).expect("Failed to read CUDA file");

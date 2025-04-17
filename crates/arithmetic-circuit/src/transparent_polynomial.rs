@@ -1,5 +1,5 @@
 use super::ArithmeticCircuit;
-use p3_field::{Algebra, ExtensionField, Field, PrimeCharacteristicRing};
+use p3_field::{Algebra, Field, PrimeCharacteristicRing};
 use rand::{
     Rng,
     distr::{Distribution, StandardUniform},
@@ -12,15 +12,6 @@ use std::{
 pub type TransparentPolynomial<F> = ArithmeticCircuit<F, usize>;
 
 impl<F: Field> TransparentPolynomial<F> {
-    pub fn eval<EF: ExtensionField<F>>(&self, point: &[EF]) -> EF {
-        self.parse(
-            &|scalar| EF::from(*scalar), // TODO avoid this embedding
-            &|node| point[*node].clone(),
-            &|left, right| left * right,
-            &|left, right| left + right,
-        )
-    }
-
     pub fn eq_extension_n_scalars(scalars: &[F]) -> Self {
         // eq(scalars, Xs) = ((scalars[0] X0 + (scalars[0] - 1) (X0 - 1)) * ((scalars[1] X1 + (scalars[1] - 1) (X1 - 1)) ...
         let left = (0..scalars.len())
@@ -84,6 +75,7 @@ impl<F: Field> TransparentPolynomial<F> {
                 res
             },
             &|left, right| max_degree_per_vars_prod(&vec![left, right]),
+            &|left, right| max_degree_per_vars_sum(&vec![left, right]),
             &|left, right| max_degree_per_vars_sum(&vec![left, right]),
         )
     }
@@ -217,14 +209,6 @@ impl<F: Field> TransparentPolynomial<F> {
     // }
 }
 
-impl<F: Field, N> Sub for ArithmeticCircuit<F, N> {
-    type Output = Self;
-
-    fn sub(self, other: Self) -> Self {
-        Self::new_sum(vec![self, other * F::NEG_ONE])
-    }
-}
-
 impl<F: Field, N> Add<F> for ArithmeticCircuit<F, N> {
     type Output = Self;
 
@@ -254,12 +238,6 @@ impl<F: Field, N> Neg for ArithmeticCircuit<F, N> {
 
     fn neg(self) -> Self {
         self * F::NEG_ONE
-    }
-}
-
-impl<F: Field, N> SubAssign for ArithmeticCircuit<F, N> {
-    fn sub_assign(&mut self, other: Self) {
-        *self = Self::new_sum(vec![std::mem::take(self), other * F::NEG_ONE]);
     }
 }
 
@@ -329,9 +307,9 @@ mod tests {
             }
             .to_vec();
             if one_points.contains(&point) {
-                assert_eq!(next.eval(&point), F::ONE);
+                assert_eq!(next.fix_computation(false).eval(&point), F::ONE);
             } else {
-                assert_eq!(next.eval(&point), F::ZERO);
+                assert_eq!(next.fix_computation(false).eval(&point), F::ZERO);
             }
         }
     }

@@ -7,7 +7,7 @@ use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};
 use rayon::prelude::*;
 
-pub const MIN_VARS_FOR_GPU: usize = 6; // When there are a small number of variables, it's not worth using GPU
+pub const MIN_VARS_FOR_GPU: usize = 0; // When there are a small number of variables, it's not worth using GPU
 
 pub fn prove<
     'a,
@@ -65,8 +65,9 @@ pub fn prove<
 
     let mut need_to_transfer_back_to_device = false;
     for i in 1..n_rounds {
-        if on_device && n_vars < MIN_VARS_FOR_GPU {
+        if on_device && !need_to_transfer_back_to_device && n_vars < MIN_VARS_FOR_GPU {
             // transfer GPU -> CPU
+            let _span = tracing::span!(tracing::Level::INFO, "Sumcheck transfer to CPU").entered();
             folded_multilinears = folded_multilinears.as_ref().transfer_to_host();
             need_to_transfer_back_to_device = true;
         }
@@ -87,10 +88,10 @@ pub fn prove<
             i,
             &mut missing_mul_factor,
         );
-
-        if need_to_transfer_back_to_device {
-            folded_multilinears = folded_multilinears.transfer_to_device();
-        }
+    }
+    if need_to_transfer_back_to_device {
+        let _span = tracing::span!(tracing::Level::INFO, "Sumcheck transfer back to GPU").entered();
+        folded_multilinears = folded_multilinears.transfer_to_device();
     }
     (challenges, folded_multilinears.decompose(), sum)
 }
@@ -111,7 +112,7 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
     round: usize,
     missing_mul_factor: &mut Option<EF>,
 ) -> MultilinearsVec<EF> {
-    let _span = if *n_vars >= 6 {
+    let _span = if round < 30 {
         Some(tracing::span!(tracing::Level::INFO, "Sumcheck round").entered())
     } else {
         None
@@ -144,7 +145,7 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
                 .iter()
                 .map(|s| s.eval(&F::from_usize(z)))
                 .collect::<Vec<_>>();
-            // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication bellow: TODO not urgent)
+            // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication below: TODO not urgent)
             let folded = multilinears.fold_rectangular_in_small_field(&folding_scalars);
             let mut sum_z = folded.as_ref().sum_over_hypercube_of_computation(
                 &sumcheck_computation,
@@ -180,7 +181,7 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
     let challenge = fs_prover.challenge_scalars::<EF>(1)[0];
     challenges.push(challenge);
     *sum = p.eval(&challenge);
-    *n_vars -= 1;
+    *n_vars -= skips;
 
     // Do PoW if needed
     if pow_bits > 0 {
@@ -200,7 +201,7 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
                 * missing_mul_factor.unwrap_or(EF::ONE),
         );
     }
-    // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication bellow: TODO not urgent)
+    // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication below: TODO not urgent)
     let res = multilinears.fold_rectangular_in_large_field(&folding_scalars);
 
     res

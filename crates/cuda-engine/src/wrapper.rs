@@ -190,7 +190,7 @@ impl<'a> CudaCall<'a> {
         } else {
             9
         };
-        let max_blocks = if cooperative { 1 << 5 } else { 1 << 14 };
+        let max_blocks = if cooperative { 1 << 4 } else { 1 << 14 }; // TODO why only 16 cooperative blocks? Sometimes it works with 32 wtf
         let log_threads = max_log_threads.min(self.n_ops.next_power_of_two().ilog2());
         let blocks = max_blocks.min(self.n_ops.div_ceil(1 << log_threads) as u32);
         LaunchConfig {
