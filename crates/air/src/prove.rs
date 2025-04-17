@@ -92,30 +92,37 @@ impl<F: Field> AirTable<F> {
 
         let inner_sums_up = &all_inner_sums[self.n_preprocessed_columns()..self.n_columns];
         let inner_sums_down = &all_inner_sums[self.n_columns + self.n_preprocessed_columns()..];
+        let _span_evals = span!(Level::INFO, "transfering column evalutations from cuda").entered();
         let inner_sums = inner_sums_up
             .into_iter()
             .chain(inner_sums_down)
             .map(|s| s.evaluate::<EF>(&[]))
             .collect::<Vec<_>>();
         cuda_sync();
+        std::mem::drop(_span_evals);
         fs_prover.add_scalars(&inner_sums);
 
         let inner_sumcheck_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
 
-        let witness = witness.decompose();
         let mles_for_inner_sumcheck = {
+            let _span_mles = span!(Level::INFO, "constructing MLEs").entered();
             let mut nodes = Vec::<Multilinear<EF>>::new();
-            let mut scalar = EF::ONE;
-            for _ in 0..2 {
+            let _span_linear_comb = span!(Level::INFO, "linear combination of columns").entered();
+            let expanded_scalars =
+                powers(inner_sumcheck_batching_scalar, 2 * self.n_witness_columns());
+            for i in 0..2 {
                 // up and down
-                let mut sum = Multilinear::<EF>::zero(log_length, cuda);
-                for w in &witness {
-                    sum += w.scale(scalar);
-                    scalar *= inner_sumcheck_batching_scalar;
-                }
-                sum = sum.add_dummy_starting_variables(UNIVARIATE_SKIPS); // TODO this is not efficient
+                let sum = witness
+                    .as_ref()
+                    .linear_comb(
+                        &expanded_scalars
+                            [i * self.n_witness_columns()..(i + 1) * self.n_witness_columns()],
+                    )
+                    .add_dummy_starting_variables(UNIVARIATE_SKIPS); // TODO this is not efficient
                 nodes.push(sum);
             }
+            cuda_sync();
+            std::mem::drop(_span_linear_comb);
             nodes.push(matrix_up_folded_with_univariate_skips(
                 &outer_challenges,
                 cuda,
@@ -166,11 +173,13 @@ impl<F: Field> AirTable<F> {
             None,
         );
 
+        let _span_evals = span!(Level::INFO, "evaluating witness").entered();
         let values = witness
-            .par_iter()
-            .map(|w| w.evaluate(&inner_challenges[UNIVARIATE_SKIPS..]))
-            .collect::<Vec<_>>();
+            .as_ref()
+            .batch_evaluate(&inner_challenges[UNIVARIATE_SKIPS..]);
+
         cuda_sync();
+        std::mem::drop(_span_evals);
         fs_prover.add_scalars(&values);
 
         let final_random_scalars = fs_prover.challenge_scalars::<EF>(self.log_n_witness_columns());

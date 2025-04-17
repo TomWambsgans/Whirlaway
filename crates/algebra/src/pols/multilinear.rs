@@ -4,8 +4,8 @@ use crate::tensor_algebra::TensorAlgebra;
 use cuda_bindings::{
     cuda_add_assign_slices, cuda_add_slices, cuda_eq_mle, cuda_eval_mixed_tensor,
     cuda_eval_multilinear_in_lagrange_basis, cuda_fold_rectangular_in_small_field,
-    cuda_lagrange_to_monomial_basis, cuda_piecewise_linear_comb, cuda_scale_slice,
-    cuda_scale_slice_in_place,
+    cuda_lagrange_to_monomial_basis, cuda_linear_comb_of_slices, cuda_piecewise_linear_comb,
+    cuda_scale_slice, cuda_scale_slice_in_place,
 };
 use cuda_bindings::{cuda_fold_rectangular_in_large_field, cuda_sum_over_hypercube_of_computation};
 use cuda_engine::{
@@ -735,6 +735,38 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
         }
     }
 
+    /// Async
+    pub fn linear_comb<EF: ExtensionField<F>>(&self, scalars: &[EF]) -> Multilinear<EF> {
+        assert_eq!(self.len(), scalars.len());
+        match self {
+            Self::Host(pols) => {
+                let mut sum = MultilinearHost::<EF>::zero(self.n_vars());
+                for i in 0..scalars.len() {
+                    sum += pols[i].scale(scalars[i]);
+                }
+                Multilinear::Host(sum)
+            }
+            Self::Device(pols) => Multilinear::Device(MultilinearDevice::new(
+                cuda_linear_comb_of_slices(&pols, scalars),
+            )),
+        }
+    }
+
+    /// Async
+    pub fn batch_evaluate<EF: ExtensionField<F>>(&self, point: &[EF]) -> Vec<EF> {
+        assert_eq!(self.n_vars(), point.len());
+        match self {
+            Self::Host(pols) => pols.par_iter().map(|pol| pol.evaluate(point)).collect(),
+            Self::Device(pols) => {
+                let mut res = Vec::with_capacity(self.len());
+                for pol in pols {
+                    res.push(pol.evaluate(point));
+                }
+                res
+            }
+        }
+    }
+
     pub fn chain(&self, other: &Self) -> Self {
         assert!(self.is_empty() || other.is_empty() || self.n_vars() == other.n_vars());
         match (self, other) {
@@ -815,6 +847,20 @@ impl<F: Field> MultilinearsVec<F> {
         match self {
             Self::Host(pols) => pols.into_iter().map(Multilinear::from).collect(),
             Self::Device(pols) => pols.into_iter().map(Multilinear::from).collect(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Host(pols) => pols.len(),
+            Self::Device(pols) => pols.len(),
+        }
+    }
+
+    pub fn n_vars(&self) -> usize {
+        match self {
+            Self::Host(pol) => pol[0].n_vars,
+            Self::Device(pol) => pol[0].n_vars,
         }
     }
 

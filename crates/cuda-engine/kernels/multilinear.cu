@@ -544,6 +544,39 @@ extern "C" __global__ void piecewise_linear_comb(const uint32_t *input, ExtField
     }
 }
 
+extern "C" __global__ void linear_combination_of_prime_slices_by_ext_scalars(const uint32_t **inputs, ExtField *output, ExtField *scalars, const uint32_t len, const uint32_t n_scalars)
+{
+    // inputs has size n_scalars, and each inputs[i] has size len
+    // output has size len
+    // scalars has size n_scalars
+    // output[0] = input[0][0].scalars[0] + input[0][1].scalars[1] + ... + input[0][n_scalars - 1].scalars[n_scalars - 1]
+    // output[1] = input[1][0].scalars[0] + input[1][1].scalars[1] + ... + input[1][n_scalars - 1].scalars[n_scalars - 1]
+    // ...
+    // Current implem is suited for small values of n_scalars
+
+    // TODO store scalars in constant memory
+
+    const int n_total_threads = blockDim.x * gridDim.x;
+    const int n_reps = (len + n_total_threads - 1) / n_total_threads;
+    for (int rep = 0; rep < n_reps; rep++)
+    {
+        const int idx = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
+        if (idx >= len)
+        {
+            return;
+        }
+        ExtField comb = {0};
+        for (int i = 0; i < n_scalars; i++)
+        {
+            ExtField scalar = scalars[i];
+            ExtField prod;
+            mul_prime_and_ext_field(&scalar, inputs[i][idx], &prod);
+            ext_field_add(&comb, &prod, &comb);
+        }
+        output[idx] = comb;
+    }
+}
+
 extern "C" __global__ void piecewise_sum(const ExtField *input, ExtField *output, const uint32_t len, const uint32_t sum_size)
 {
     // len must be a multiple of sum_size
