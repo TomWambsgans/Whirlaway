@@ -46,9 +46,13 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
     pub fn prove(
         &self,
         fs_prover: &mut FsProver,
-        statement: Statement<EF>,
+        mut statement: Statement<EF>,
         witness: Witness<EF>,
     ) -> Option<()> {
+        for point in &mut statement.points {
+            point.reverse();
+        }
+
         assert!(self.validate_parameters());
         debug_assert!(self.validate_statement(&statement));
         assert!(self.validate_witness(&witness));
@@ -75,10 +79,9 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
             let combination_randomness_gen = fs_prover.challenge_scalars::<EF>(1)[0];
             let combination_randomness = powers(combination_randomness_gen, initial_claims.len());
 
-            let nodes = vec![
-                witness.polynomial.to_lagrange_basis_rev(),
-                randomized_eq_extensions(&initial_claims, &combination_randomness, self.0.cuda),
-            ];
+            let liner_comb =
+                randomized_eq_extensions(&initial_claims, &combination_randomness, self.0.cuda);
+            let nodes = vec![&witness.lagrange_polynomial, &liner_comb];
             let n_rounds = Some(self.0.folding_factor.at_round(0));
             let pow_bits = self.0.starting_folding_pow_bits;
             let sum = dot_product(&initial_answers, &combination_randomness);

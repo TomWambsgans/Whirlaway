@@ -7,7 +7,7 @@
 #include "finite_field.cu"
 
 // (+ reverse vars)
-extern "C" __global__ void monomial_to_lagrange_basis(ExtField *input_coeffs, ExtField *buff, ExtField *output_evals, const uint32_t n_vars)
+extern "C" __global__ void monomial_to_lagrange_basis_rev(ExtField *input_coeffs, ExtField *buff, ExtField *output_evals, const uint32_t n_vars)
 {
     namespace cg = cooperative_groups;
     cg::grid_group grid = cg::this_grid();
@@ -66,8 +66,8 @@ extern "C" __global__ void lagrange_to_monomial_basis(ExtField *input_evals, Ext
     namespace cg = cooperative_groups;
     cg::grid_group grid = cg::this_grid();
 
+    const int n_total_threads = blockDim.x * gridDim.x;
     int n_iters = (1 << n_vars);
-    int n_total_threads = blockDim.x * gridDim.x;
     int n_repetitions = (n_iters + n_total_threads - 1) / n_total_threads;
 
     // 1) copy input_evals to output_coeffs
@@ -82,7 +82,6 @@ extern "C" __global__ void lagrange_to_monomial_basis(ExtField *input_evals, Ext
     grid.sync();
 
     n_iters = (1 << (n_vars - 1));
-    n_total_threads = blockDim.x * gridDim.x;
     n_repetitions = (n_iters + n_total_threads - 1) / n_total_threads;
 
     // 2) compute the monomial ceffs
@@ -91,15 +90,56 @@ extern "C" __global__ void lagrange_to_monomial_basis(ExtField *input_evals, Ext
         const int half_size = 1 << step;
         for (int rep = 0; rep < n_repetitions; rep++)
         {
-            const int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
-            if (threadIndex < n_iters)
+            const int idx = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
+            if (idx < n_iters)
             {
-                const int x = (threadIndex / half_size) * 2 * half_size;
-                const int y = threadIndex % half_size;
+                const int x = (idx / half_size) * 2 * half_size;
+                const int y = idx % half_size;
                 ext_field_sub(&output_coeffs[x + y + half_size], &output_coeffs[x + y], &output_coeffs[x + y + half_size]);
             }
         }
 
+        grid.sync();
+    }
+}
+
+// Could also be done in place
+extern "C" __global__ void lagrange_to_monomial_basis_rev(ExtField *input_evals, ExtField *buff, ExtField *output_coeffs, const uint32_t n_vars)
+{
+    namespace cg = cooperative_groups;
+    cg::grid_group grid = cg::this_grid();
+
+    const int n_total_threads = blockDim.x * gridDim.x;
+    int n_iters = (1 << (n_vars - 1));
+    int n_repetitions = (n_iters + n_total_threads - 1) / n_total_threads;
+
+    // 2) compute the monomial ceffs
+    for (int step = 0; step < n_vars; step++)
+    {
+        const int half = 1 << (n_vars - step - 1);
+        for (int rep = 0; rep < n_repetitions; rep++)
+        {
+
+            const int idx = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
+            if (idx >= n_iters)
+            {
+                continue;
+            }
+
+            const int start = (idx / half) * 2 * half;
+            const int offset = idx % half;
+
+            ExtField *inputs = step == 0 ? input_evals : (n_vars % 2 != step % 2 ? buff : output_coeffs);
+            ExtField *outputs = n_vars % 2 == step % 2 ? buff : output_coeffs;
+
+            ExtField even = inputs[start + offset * 2];
+            ExtField odd = inputs[start + offset * 2 + 1];
+            ExtField diff;
+            ext_field_sub(&odd, &even, &diff);
+
+            outputs[start + offset] = even;
+            outputs[start + offset + half] = diff;
+        }
         grid.sync();
     }
 }

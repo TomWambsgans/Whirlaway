@@ -13,6 +13,8 @@ use whir::{
     },
 };
 
+use whir::whir::committer::Witness as WhirWitness;
+
 use super::{PCS, PcsWitness};
 
 pub use whir::parameters::WhirParameters;
@@ -22,15 +24,9 @@ pub struct WhirPCS<F: TwoAdicField, EF: ExtensionField<F>> {
     config: WhirConfig<F, EF>,
 }
 
-pub struct WhirWitness<F: Field> {
-    // TODO avoid duplication
-    pub pol: Multilinear<F>,
-    pub inner: whir::whir::committer::Witness<F>,
-}
-
-impl<EF: Field> PcsWitness<EF> for WhirWitness<EF> {
+impl<'a, EF: Field> PcsWitness<EF> for WhirWitness<EF> {
     fn pol(&self) -> &Multilinear<EF> {
-        &self.pol
+        &self.lagrange_polynomial
     }
 }
 
@@ -47,13 +43,10 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> PCS<EF, EF> for WhirPCS<F, EF> {
         Self { config }
     }
 
-    fn commit(&self, pol: impl Into<Multilinear<EF>>, fs_prover: &mut FsProver) -> Self::Witness {
-        let committer = Committer::new(self.config.clone());
-        let pol: Multilinear<EF> = pol.into();
-        let inner = committer
-            .commit(fs_prover, pol.to_monomial_basis())
-            .unwrap();
-        WhirWitness { pol, inner }
+    fn commit(&self, pol: Multilinear<EF>, fs_prover: &mut FsProver) -> Self::Witness {
+        Committer::new(self.config.clone())
+            .commit(fs_prover, pol)
+            .unwrap()
     }
 
     fn parse_commitment(
@@ -69,7 +62,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> PCS<EF, EF> for WhirPCS<F, EF> {
             evaluations: vec![eval.value],
         };
         Prover(self.config.clone())
-            .prove(fs_prover, statement, witness.inner)
+            .prove(fs_prover, statement, witness)
             .unwrap();
     }
 
@@ -83,7 +76,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> PCS<EF, EF> for WhirPCS<F, EF> {
             points: vec![eval.point.clone()],
             evaluations: vec![eval.value],
         };
-        Verifier::new(self.config.clone()).verify(fs_verifier, parsed_commitment, &statement)
+        Verifier::new(self.config.clone()).verify(fs_verifier, parsed_commitment, statement)
     }
 }
 
@@ -123,7 +116,7 @@ mod test {
         let evals = (0..1 << n_vars)
             .map(|x| EF::from_u64(x as u64))
             .collect::<Vec<_>>();
-        let pol = MultilinearHost::new(evals);
+        let pol = Multilinear::Host(MultilinearHost::new(evals));
         let point = (0..n_vars)
             .map(|x| EF::from_u64(x as u64))
             .collect::<Vec<_>>();

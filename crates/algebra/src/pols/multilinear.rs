@@ -2,11 +2,11 @@ use super::{CoefficientList, CoefficientListDevice};
 use super::{CoefficientListHost, UnivariatePolynomial};
 use crate::tensor_algebra::TensorAlgebra;
 use cuda_bindings::{
-    cuda_add_assign_slices, cuda_add_slices, cuda_eq_mle, cuda_eval_mixed_tensor,
+    cuda_add_assign_slices, cuda_add_slices, cuda_dot_product, cuda_eq_mle, cuda_eval_mixed_tensor,
     cuda_eval_multilinear_in_lagrange_basis, cuda_fold_rectangular_in_small_field,
-    cuda_lagrange_to_monomial_basis, cuda_linear_comb_of_slices, cuda_piecewise_linear_comb,
-    cuda_repeat_slice_from_inside, cuda_repeat_slice_from_outside, cuda_scale_slice,
-    cuda_scale_slice_in_place,
+    cuda_lagrange_to_monomial_basis, cuda_lagrange_to_monomial_basis_rev,
+    cuda_linear_comb_of_slices, cuda_piecewise_linear_comb, cuda_repeat_slice_from_inside,
+    cuda_repeat_slice_from_outside, cuda_scale_slice, cuda_scale_slice_in_place,
 };
 use cuda_bindings::{cuda_fold_rectangular_in_large_field, cuda_sum_over_hypercube_of_computation};
 use cuda_engine::{
@@ -160,6 +160,25 @@ impl<F: Field> MultilinearHost<F> {
                     coeffs[j | step] -= temp;
                 }
             }
+        }
+
+        CoefficientListHost::new(coeffs)
+    }
+
+    pub fn to_monomial_basis_rev(self) -> CoefficientListHost<F> {
+        let mut coeffs = self.evals;
+        let n = self.n_vars;
+
+        for i in 0..n {
+            coeffs.par_chunks_mut(1 << (n - i)).for_each(|chunk| {
+                let n = chunk.len();
+                let left = (0..n / 2).map(|j| chunk[2 * j]).collect::<Vec<_>>();
+                let right = (0..n / 2)
+                    .map(|j| chunk[2 * j + 1] - chunk[2 * j])
+                    .collect::<Vec<_>>();
+                chunk[..n / 2].copy_from_slice(&left);
+                chunk[n / 2..].copy_from_slice(&right);
+            });
         }
 
         CoefficientListHost::new(coeffs)
@@ -336,6 +355,11 @@ impl<F: Field> MultilinearDevice<F> {
     // Async
     pub fn to_monomial_basis(&self) -> CoefficientListDevice<F> {
         CoefficientListDevice::new(cuda_lagrange_to_monomial_basis(&self.evals))
+    }
+
+    // Async
+    pub fn to_monomial_basis_rev(&self) -> CoefficientListDevice<F> {
+        CoefficientListDevice::new(cuda_lagrange_to_monomial_basis_rev(&self.evals))
     }
 
     // Sync
@@ -536,6 +560,14 @@ impl<F: Field> Multilinear<F> {
         match self {
             Self::Host(pol) => CoefficientList::Host(pol.clone().to_monomial_basis()),
             Self::Device(pol) => CoefficientList::Device(pol.to_monomial_basis()),
+        }
+    }
+
+    // Async
+    pub fn to_monomial_basis_rev(&self) -> CoefficientList<F> {
+        match self {
+            Self::Host(pol) => CoefficientList::Host(pol.clone().to_monomial_basis_rev()),
+            Self::Device(pol) => CoefficientList::Device(pol.to_monomial_basis_rev()),
         }
     }
 
@@ -775,9 +807,10 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
         match self {
             Self::Host(pols) => pols.par_iter().map(|pol| pol.evaluate(point)).collect(),
             Self::Device(pols) => {
+                let eq_mle = cuda_eq_mle(point);
                 let mut res = Vec::with_capacity(self.len());
                 for pol in pols {
-                    res.push(pol.evaluate(point));
+                    res.push(cuda_dot_product(&eq_mle, &pol.evals));
                 }
                 res
             }
@@ -891,5 +924,26 @@ impl<F: Field> MultilinearsVec<F> {
             ),
             Self::Device(pols) => Self::Device(pols),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use p3_koala_bear::KoalaBear;
+    use rand::{SeedableRng, rngs::StdRng};
+
+    use super::*;
+
+    #[test]
+    fn test_to_monomial_basis_rev() {
+        let rng = &mut StdRng::seed_from_u64(0);
+        let n_vars = 7;
+        type F = KoalaBear;
+        let mut point = (0..n_vars).map(|_| rng.random()).collect::<Vec<F>>();
+        let multilinear = MultilinearHost::<F>::random(rng, n_vars);
+        let eval_1 = multilinear.clone().to_monomial_basis_rev().evaluate(&point);
+        point.reverse();
+        let eval_2 = multilinear.evaluate(&point);
+        assert_eq!(eval_1, eval_2);
     }
 }

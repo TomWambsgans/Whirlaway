@@ -69,7 +69,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
         }
     }
 
-    fn commit(&self, pol: impl Into<Multilinear<F>>, fs_prover: &mut FsProver) -> Self::Witness {
+    fn commit(&self, pol: Multilinear<F>, fs_prover: &mut FsProver) -> Self::Witness {
         let pol: Multilinear<F> = pol.into();
         let inner_witness = self.inner.commit(pol.packed::<EF>(), fs_prover);
         RingSwitchWitness { pol, inner_witness }
@@ -218,7 +218,7 @@ mod test {
             n_vars,
             &WhirParameters::standard(security_bits, log_inv_rate, false),
         );
-        let pol = MultilinearHost::<F>::random(rng, n_vars);
+        let pol = Multilinear::Host(MultilinearHost::<F>::random(rng, n_vars));
         let mut fs_prover = FsProver::new();
         let commitment = ring_switch.commit(pol.clone(), &mut fs_prover);
         let point = (0..n_vars).map(|_| rng.random()).collect::<Vec<_>>();
