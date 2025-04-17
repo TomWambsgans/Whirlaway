@@ -8,7 +8,7 @@
 - https://eprint.iacr.org/2024/108.pdf section 3
 - We can probably send less data in the first AIR sumcheck, with univariate skip, and the "current row" / "next row" reductions
 - matrix_up_folded / matrix_down_folded in cuda
-- AIR inner sumcheck can bee accelerated (some factors have not all the variables + it's sparse)
+- AIR inner sumcheck can bee accelerated (some factors have not all the variables + it's sparse -> avoid "dummy variables")
 - Neg in ArithmeticCircuitComposed
 - There is a lot of duplications in cuda kernels + in the synthetic cuda generation (in rust)
 - use cuda constant memory for batching_scalars

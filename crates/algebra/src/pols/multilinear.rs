@@ -5,7 +5,8 @@ use cuda_bindings::{
     cuda_add_assign_slices, cuda_add_slices, cuda_eq_mle, cuda_eval_mixed_tensor,
     cuda_eval_multilinear_in_lagrange_basis, cuda_fold_rectangular_in_small_field,
     cuda_lagrange_to_monomial_basis, cuda_linear_comb_of_slices, cuda_piecewise_linear_comb,
-    cuda_scale_slice, cuda_scale_slice_in_place,
+    cuda_repeat_slice_from_inside, cuda_repeat_slice_from_outside, cuda_scale_slice,
+    cuda_scale_slice_in_place,
 };
 use cuda_bindings::{cuda_fold_rectangular_in_large_field, cuda_sum_over_hypercube_of_computation};
 use cuda_engine::{
@@ -367,6 +368,18 @@ impl<F: Field> MultilinearDevice<F> {
     }
 
     // Async
+    pub fn add_dummy_starting_variables(&self, n: usize) -> Self {
+        // TODO remove
+        Self::new(cuda_repeat_slice_from_outside(&self.evals, 1 << n))
+    }
+
+    // Async
+    pub fn add_dummy_ending_variables(&self, n: usize) -> Self {
+        // TODO remove
+        Self::new(cuda_repeat_slice_from_inside(&self.evals, 1 << n))
+    }
+
+    // Async
     pub fn evaluate<EF: ExtensionField<F>>(&self, point: &[EF]) -> EF {
         assert_eq!(self.n_vars, point.len());
         if self.n_vars == 0 {
@@ -462,17 +475,21 @@ impl<F: Field> Multilinear<F> {
         }
     }
 
+    // Async
     pub fn add_dummy_starting_variables(&self, n: usize) -> Self {
         // TODO remove
         match self {
             Self::Host(pol) => Self::Host(pol.add_dummy_starting_variables(n)),
-            Self::Device(pol) => {
-                let host_multilinear = pol.transfer_to_host();
-                let new_pol = host_multilinear.add_dummy_starting_variables(n);
-                let res = MultilinearDevice::new(memcpy_htod(&new_pol.evals));
-                cuda_sync();
-                Self::Device(res)
-            }
+            Self::Device(pol) => Self::Device(pol.add_dummy_starting_variables(n)),
+        }
+    }
+
+    // Async
+    pub fn add_dummy_ending_variables(&self, n: usize) -> Self {
+        // TODO remove
+        match self {
+            Self::Host(pol) => Self::Host(pol.add_dummy_ending_variables(n)),
+            Self::Device(pol) => Self::Device(pol.add_dummy_ending_variables(n)),
         }
     }
 

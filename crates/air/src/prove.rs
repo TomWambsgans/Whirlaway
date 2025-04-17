@@ -135,17 +135,19 @@ impl<F: Field> AirTable<F> {
             ));
 
             // TODO remove
-            let expanded = MultilinearHost::new(
+            let expanded_host = MultilinearHost::new(
                 self.univariate_selectors
                     .iter()
                     .map(|s| s.eval(&outer_challenges[0]))
                     .collect(),
-            )
+            );
+            let expanded = if cuda {
+                Multilinear::Device(MultilinearDevice::new(memcpy_htod(&expanded_host.evals))) // maybe do this in cuda ?
+            } else {
+                Multilinear::Host(expanded_host)
+            }
             .add_dummy_ending_variables(log_length);
-            nodes.push(match cuda {
-                false => expanded.into(),
-                true => MultilinearDevice::new(memcpy_htod(&expanded.evals)).into(), // bad
-            });
+            nodes.push(expanded);
 
             nodes
         };

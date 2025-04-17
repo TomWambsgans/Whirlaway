@@ -605,6 +605,41 @@ extern "C" __global__ void piecewise_sum(const ExtField *input, ExtField *output
     }
 }
 
+extern "C" __global__ void repeat_slice_from_outside(const ExtField *input, ExtField *output, const uint32_t len, const uint32_t n_repetitions)
+{
+    // Optimized for a small number of repetitions
+    const int n_total_threads = blockDim.x * gridDim.x;
+    const int n_reps = (len + n_total_threads - 1) / n_total_threads;
+    for (int rep = 0; rep < n_reps; rep++)
+    {
+        const int idx = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
+        if (idx >= len)
+        {
+            return;
+        }
+        ExtField value = input[idx];
+        for (int i = 0; i < n_repetitions; i++)
+        {
+            output[idx + i * len] = value;
+        }
+    }
+}
+
+extern "C" __global__ void repeat_slice_from_inside(const ExtField *input, ExtField *output, const uint32_t len, const uint32_t n_repetitions)
+{
+    // Optimized for a large number of repetitions
+    const int n_total_threads = blockDim.x * gridDim.x;
+    const int n_reps = (len * n_repetitions + n_total_threads - 1) / n_total_threads;
+    for (int rep = 0; rep < n_reps; rep++)
+    {
+        const int idx = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
+        if (idx < len * n_repetitions)
+        {
+            output[idx] = input[idx / n_repetitions];
+        }
+    }
+}
+
 extern "C" __global__ void tensor_algebra_dot_product(const ExtField *left, ExtField *right, uint32_t *buff, uint32_t *result, const uint32_t log_len, const uint32_t log_n_tasks_per_thread)
 {
     // left and right have size 2^log_len

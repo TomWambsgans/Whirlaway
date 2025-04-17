@@ -188,6 +188,60 @@ pub fn cuda_linear_comb_of_slices<F: Field, EF: ExtensionField<F>, S: Borrow<Cud
 }
 
 // Async
+pub fn cuda_repeat_slice_from_outside<F: Field>(
+    input: &CudaSlice<F>,
+    n_repetitions: usize,
+) -> CudaSlice<F> {
+    assert!(
+        n_repetitions <= 128,
+        "current CUDA implementation is not optimized for a large repetitions"
+    );
+    cuda_repeat_slice(input, n_repetitions, true)
+}
+
+// Async
+pub fn cuda_repeat_slice_from_inside<F: Field>(
+    input: &CudaSlice<F>,
+    n_repetitions: usize,
+) -> CudaSlice<F> {
+    cuda_repeat_slice(input, n_repetitions, false)
+}
+
+// Async
+fn cuda_repeat_slice<F: Field>(
+    input: &CudaSlice<F>,
+    n_repetitions: usize,
+    outside: bool,
+) -> CudaSlice<F> {
+    assert_eq!(
+        TypeId::of::<F>(),
+        TypeId::of::<BinomialExtensionField<KoalaBear, 8>>(),
+        "TODO"
+    );
+
+    let mut output = cuda_alloc::<F>(input.len() * n_repetitions);
+    let len_u32 = input.len() as u32;
+    let n_repetitions_u32 = n_repetitions as u32;
+    let func_name = if outside {
+        "repeat_slice_from_outside"
+    } else {
+        "repeat_slice_from_inside"
+    };
+    let n_ops = if outside {
+        len_u32
+    } else {
+        len_u32 * n_repetitions_u32
+    };
+    let mut call = CudaCall::new("multilinear", func_name, n_ops);
+    call.arg(input);
+    call.arg(&mut output);
+    call.arg(&len_u32);
+    call.arg(&n_repetitions_u32);
+    call.launch();
+    output
+}
+
+// Async
 pub fn cuda_sum<F: Field>(terms: CudaSlice<F>) -> F {
     // we take owneship of `terms` because it will be aletered
     assert!(F::bits() > 32, "TODO");
@@ -415,8 +469,7 @@ mod tests {
                 cuda_sync();
                 let scalars = (0..n_scalars).map(|_| rng.random()).collect::<Vec<EF>>();
                 let time = std::time::Instant::now();
-                let cuda_res =
-                    cuda_linear_comb_of_slices(&inputs_dev, &scalars);
+                let cuda_res = cuda_linear_comb_of_slices(&inputs_dev, &scalars);
                 cuda_sync();
                 println!("CUDA time: {:?} ms", time.elapsed().as_millis());
                 let cuda_res = memcpy_dtoh(&cuda_res);
