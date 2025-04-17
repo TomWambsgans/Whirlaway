@@ -251,7 +251,7 @@ extern "C" __global__ void scale_prime_slice_by_ext(uint32_t *slice, const uint3
     }
 }
 
-extern "C" __global__ void add_slices(const ExtField *a, const ExtField *b, ExtField *res, const uint32_t len)
+extern "C" __global__ void add_slices(const ExtField **slices, ExtField *res, const uint32_t n_slices, const uint32_t len)
 {
     const int total_n_threads = blockDim.x * gridDim.x;
 
@@ -261,7 +261,12 @@ extern "C" __global__ void add_slices(const ExtField *a, const ExtField *b, ExtF
         const int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
         if (threadIndex < len)
         {
-            ext_field_add(&a[threadIndex], &b[threadIndex], &res[threadIndex]);
+            ExtField sum = {0};
+            for (int i = 0; i < n_slices; i++)
+            {
+                ext_field_add(&slices[i][threadIndex], &sum, &sum);
+            }
+            res[threadIndex] = sum;
         }
     }
 }

@@ -301,8 +301,8 @@ impl<F: Field> MultilinearHost<F> {
     }
 }
 
-impl<F: Field> AddAssign<MultilinearHost<F>> for MultilinearHost<F> {
-    fn add_assign(&mut self, other: MultilinearHost<F>) {
+impl<F: Field> AddAssign<&Self> for MultilinearHost<F> {
+    fn add_assign(&mut self, other: &Self) {
         assert_eq!(self.n_vars, other.n_vars);
         self.evals
             .par_iter_mut()
@@ -343,13 +343,6 @@ impl<F: Field> MultilinearDevice<F> {
     // Async
     pub fn scale_in_place(&mut self, scalar: F) {
         cuda_scale_slice_in_place(&mut self.evals, scalar);
-    }
-
-    // Async
-    pub fn add(&self, other: &Self) -> Self {
-        assert_eq!(self.n_vars, other.n_vars);
-        let res = cuda_add_slices(&self.evals, &other.evals);
-        Self::new(res)
     }
 
     // Async
@@ -430,9 +423,9 @@ impl<F: Field> MultilinearDevice<F> {
     }
 }
 
-impl<F: Field> AddAssign<MultilinearDevice<F>> for MultilinearDevice<F> {
+impl<F: Field> AddAssign<&Self> for MultilinearDevice<F> {
     // Async
-    fn add_assign(&mut self, other: Self) {
+    fn add_assign(&mut self, other: &Self) {
         assert_eq!(self.n_vars, other.n_vars);
         cuda_add_assign_slices(&mut self.evals, &other.evals);
     }
@@ -555,6 +548,20 @@ impl<F: Field> Multilinear<F> {
         }
     }
 
+    pub fn as_device(self) -> MultilinearDevice<F> {
+        match self {
+            Self::Device(pol) => pol,
+            Self::Host(_) => panic!(""),
+        }
+    }
+
+    pub fn as_host(self) -> MultilinearHost<F> {
+        match self {
+            Self::Host(pol) => pol,
+            Self::Device(_) => panic!(""),
+        }
+    }
+
     // Async
     pub fn to_monomial_basis(&self) -> CoefficientList<F> {
         match self {
@@ -616,8 +623,8 @@ impl<F: Field> Multilinear<F> {
     }
 }
 
-impl<F: Field> AddAssign<Multilinear<F>> for Multilinear<F> {
-    fn add_assign(&mut self, other: Self) {
+impl<F: Field> AddAssign<&Self> for Multilinear<F> {
+    fn add_assign(&mut self, other: &Self) {
         match (self, other) {
             (Self::Host(pol), Self::Host(other)) => pol.add_assign(other),
             (Self::Device(pol), Self::Device(other)) => pol.add_assign(other),
@@ -791,7 +798,7 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
             Self::Host(pols) => {
                 let mut sum = MultilinearHost::<EF>::zero(self.n_vars());
                 for i in 0..scalars.len() {
-                    sum += pols[i].scale(scalars[i]);
+                    sum += &pols[i].scale(scalars[i]);
                 }
                 Multilinear::Host(sum)
             }
@@ -839,7 +846,23 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
         }
     }
 
-    // Sync
+    /// Async
+    pub fn sum(&self) -> Multilinear<F> {
+        match self {
+            Self::Host(pols) => {
+                let mut res = MultilinearHost::zero(pols[0].n_vars);
+                for pol in pols {
+                    res += *pol;
+                }
+                Multilinear::Host(res)
+            }
+            Self::Device(pols) => {
+                Multilinear::Device(MultilinearDevice::new(cuda_add_slices(pols)))
+            }
+        }
+    }
+
+    /// Sync
     pub fn transfer_to_host(&self) -> MultilinearsVec<F> {
         match self {
             Self::Host(_) => panic!("Already on host"),
@@ -883,6 +906,17 @@ pub fn eval_sumcheck_computation<
 pub enum MultilinearsVec<F: Field> {
     Host(Vec<MultilinearHost<F>>),
     Device(Vec<MultilinearDevice<F>>),
+}
+
+impl<F: Field> From<Vec<Multilinear<F>>> for MultilinearsVec<F> {
+    fn from(value: Vec<Multilinear<F>>) -> Self {
+        assert!(value.iter().all(|p| p.n_vars() == value[0].n_vars()));
+        if value[0].is_device() {
+            Self::Device(value.into_iter().map(|p| p.as_device()).collect())
+        } else {
+            Self::Host(value.into_iter().map(|p| p.as_host()).collect())
+        }
+    }
 }
 
 impl<F: Field> MultilinearsVec<F> {

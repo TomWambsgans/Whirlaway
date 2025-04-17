@@ -71,15 +71,26 @@ pub fn cuda_scale_slice<F: Field, EF: ExtensionField<F>>(
 }
 
 // Async
-pub fn cuda_add_slices<F: Field>(a: &CudaSlice<F>, b: &CudaSlice<F>) -> CudaSlice<F> {
-    let n = a.len() as u32;
-    assert_eq!(n, b.len() as u32);
-    let mut res = cuda_alloc::<F>(n as usize);
-    let mut call = CudaCall::new("multilinear", "add_slices", n);
-    call.arg(a);
-    call.arg(b);
+pub fn cuda_add_slices<F: Field, S: Borrow<CudaSlice<F>>>(slices: &[S]) -> CudaSlice<F> {
+    assert_eq!(
+        TypeId::of::<F>(),
+        TypeId::of::<BinomialExtensionField<KoalaBear, 8>>(),
+        "TODO"
+    );
+    let n_slices = slices.len() as u32;
+    let len = slices[0].borrow().len() as u32;
+    assert!(
+        slices
+            .iter()
+            .all(|slice| slice.borrow().len() == len as usize)
+    );
+    let mut res = cuda_alloc::<F>(len as usize);
+    let slices_ptrs = concat_pointers(slices);
+    let mut call = CudaCall::new("multilinear", "add_slices", len);
+    call.arg(&slices_ptrs);
     call.arg(&mut res);
-    call.arg(&n);
+    call.arg(&n_slices);
+    call.arg(&len);
     call.launch();
     res
 }
