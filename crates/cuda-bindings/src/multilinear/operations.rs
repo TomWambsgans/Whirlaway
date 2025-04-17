@@ -1,5 +1,5 @@
 use cuda_engine::{CudaCall, cuda_alloc, cuda_get_at_index, memcpy_dtoh, memcpy_htod};
-use cudarc::driver::{CudaSlice, PushKernelArg};
+use cudarc::driver::{CudaSlice, CudaView, PushKernelArg};
 use p3_field::{BasedVectorSpace, ExtensionField, Field, extension::BinomialExtensionField};
 use p3_koala_bear::KoalaBear;
 use std::any::TypeId;
@@ -95,10 +95,14 @@ pub fn cuda_add_assign_slices<F: Field>(a: &mut CudaSlice<F>, b: &CudaSlice<F>) 
 }
 
 // Async
-pub fn cuda_fold_sum<F: Field>(input: &CudaSlice<F>, sum_size: usize) -> CudaSlice<F> {
-    assert!(F::bits() > 32, "TODO");
+pub fn cuda_piecewise_sum<F: Field>(input: &CudaSlice<F>, sum_size: usize) -> CudaSlice<F> {
+    assert_eq!(
+        TypeId::of::<F>(),
+        TypeId::of::<BinomialExtensionField<KoalaBear, 8>>(),
+        "TODO"
+    );
     assert!(
-        sum_size <= 256,
+        sum_size <= 64,
         "current CUDA implementation is not optimized for large sum sizes"
     );
     assert!(input.len() % sum_size == 0);
@@ -106,11 +110,41 @@ pub fn cuda_fold_sum<F: Field>(input: &CudaSlice<F>, sum_size: usize) -> CudaSli
     let mut output = cuda_alloc::<F>(output_len);
     let len_u32 = input.len() as u32;
     let sum_size_u32 = sum_size as u32;
-    let mut call = CudaCall::new("multilinear", "fold_sum", output_len as u32);
+    let mut call = CudaCall::new("multilinear", "piecewise_sum", output_len as u32);
     call.arg(input);
     call.arg(&mut output);
     call.arg(&len_u32);
     call.arg(&sum_size_u32);
+    call.launch();
+    output
+}
+
+// Async
+pub fn cuda_piecewise_linear_comb<F: Field, EF: ExtensionField<F>>(
+    input: &CudaView<F>,
+    scalars: &[EF],
+) -> CudaSlice<EF> {
+    assert_eq!(
+        TypeId::of::<(F, EF)>(),
+        TypeId::of::<(KoalaBear, BinomialExtensionField<KoalaBear, 8>)>(),
+        "TODO"
+    );
+    assert!(
+        scalars.len() <= 64,
+        "current CUDA implementation is not optimized for a large linear combination"
+    );
+    assert!(input.len() % scalars.len() == 0);
+    let output_len = input.len() / scalars.len();
+    let mut output = cuda_alloc::<EF>(output_len);
+    let len_u32 = input.len() as u32;
+    let n_scalars_u32 = scalars.len() as u32;
+    let scalars_dev = memcpy_htod(scalars);
+    let mut call = CudaCall::new("multilinear", "piecewise_linear_comb", output_len as u32);
+    call.arg(input);
+    call.arg(&mut output);
+    call.arg(&scalars_dev);
+    call.arg(&len_u32);
+    call.arg(&n_scalars_u32);
     call.launch();
     output
 }
@@ -185,7 +219,7 @@ mod tests {
     use super::*;
     use algebra::pols::MultilinearHost;
     use cuda_engine::*;
-    use p3_field::extension::BinomialExtensionField;
+    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
     use rayon::prelude::*;
@@ -244,12 +278,12 @@ mod tests {
     }
 
     #[test]
-    fn test_cuda_fold_sum() {
+    fn test_cuda_piecewise_sum() {
         cuda_init();
         let rng = &mut StdRng::seed_from_u64(0);
         type F = BinomialExtensionField<KoalaBear, 8>;
         for log_len in [1, 3, 11, 20] {
-            for sum_size in [1, 2, 4, 128] {
+            for sum_size in [1, 2, 4, 64] {
                 let len = 1 << log_len;
                 if sum_size > len {
                     continue;
@@ -258,7 +292,7 @@ mod tests {
                 let input_dev = memcpy_htod(&input);
                 cuda_sync();
                 let time = std::time::Instant::now();
-                let cuda_res = cuda_fold_sum(&input_dev, sum_size);
+                let cuda_res = cuda_piecewise_sum(&input_dev, sum_size);
                 cuda_sync();
                 println!("CUDA time: {:?} ms", time.elapsed().as_millis());
                 let cuda_res = memcpy_dtoh(&cuda_res);
@@ -275,6 +309,46 @@ mod tests {
                         sum
                     })
                     .collect::<Vec<F>>();
+                println!("CPU time: {:?} ms", time.elapsed().as_millis());
+                assert!(cuda_res == cpu_res);
+            }
+        }
+    }
+
+    #[test]
+    fn test_piecewise_linear_comb() {
+        cuda_init();
+        let rng = &mut StdRng::seed_from_u64(0);
+        type F = KoalaBear;
+        type EF = BinomialExtensionField<KoalaBear, 8>;
+        for log_len in [1, 3, 11, 20] {
+            for n_scalars in [1, 2, 4, 64] {
+                let len = 1 << log_len;
+                if n_scalars > len {
+                    continue;
+                }
+                let input = (0..len).map(|_| rng.random()).collect::<Vec<F>>();
+                let input_dev = memcpy_htod(&input);
+                cuda_sync();
+                let scalars = (0..n_scalars).map(|_| rng.random()).collect::<Vec<EF>>();
+                let time = std::time::Instant::now();
+                let cuda_res = cuda_piecewise_linear_comb(&input_dev.as_view(), &scalars);
+                cuda_sync();
+                println!("CUDA time: {:?} ms", time.elapsed().as_millis());
+                let cuda_res = memcpy_dtoh(&cuda_res);
+                cuda_sync();
+                let time = std::time::Instant::now();
+                let output_len = len / n_scalars;
+                let cpu_res = (0..output_len)
+                    .into_par_iter()
+                    .map(|i| {
+                        let mut sum = EF::ZERO;
+                        for j in 0..n_scalars {
+                            sum += scalars[j] * input[i * n_scalars + j];
+                        }
+                        sum
+                    })
+                    .collect::<Vec<EF>>();
                 println!("CPU time: {:?} ms", time.elapsed().as_millis());
                 assert!(cuda_res == cpu_res);
             }

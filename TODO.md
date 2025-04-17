@@ -12,5 +12,7 @@
 - matrix_up_folded / matrix_down_folded in cuda
 - AIR inner sumcheck can bee accelerated (some factors have not all the variables + it's sparse)
 - Neg in ArithmeticCircuitComposed
+- There is a lot of duplications in cuda kernels + in the synthetic cuda generation (in rust)
+- use cuda constant memory for batching_scalars in sumcheck
 
 - Add ZK?

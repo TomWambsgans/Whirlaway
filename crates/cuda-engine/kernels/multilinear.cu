@@ -511,7 +511,40 @@ extern "C" __global__ void dot_product_ext_prime(ExtField *a, uint32_t *b, ExtFi
     }
 }
 
-extern "C" __global__ void fold_sum(const ExtField *input, ExtField *output, const uint32_t len, const uint32_t sum_size)
+extern "C" __global__ void piecewise_linear_comb(const uint32_t *input, ExtField *output, ExtField *scalars, const uint32_t len, const uint32_t n_scalars)
+{
+    // len must be a multiple of n_scalars
+    // input has size len
+    // output has size len / n_scalars
+    // output[0] = input[0].scalars[0] + input[output_len].scalars[1] + ... + input[output_len * (n_scalars - 1)].scalars[n_scalars - 1]
+    // output[1] = input[1].scalars[0] + input[output_len + 1].scalars[1] + ... + input[output_len * (n_scalars - 1) + 1].scalars[n_scalars - 1]
+    // ...
+    // Current implem is suited for small values of n_scalars
+
+    // TODO store scalars in constant memory
+
+    const int n_total_threads = blockDim.x * gridDim.x;
+    const int output_len = len / n_scalars;
+    const int n_reps = (output_len + n_total_threads - 1) / n_total_threads;
+    for (int rep = 0; rep < n_reps; rep++)
+    {
+        const int idx = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
+        if (idx < output_len)
+        {
+            ExtField comb = {0};
+            for (int i = 0; i < n_scalars; i++)
+            {
+                ExtField scalar = scalars[i];
+                ExtField prod;
+                mul_prime_and_ext_field(&scalar, input[idx * n_scalars + i], &prod);
+                ext_field_add(&comb, &prod, &comb);
+            }
+            output[idx] = comb;
+        }
+    }
+}
+
+extern "C" __global__ void piecewise_sum(const ExtField *input, ExtField *output, const uint32_t len, const uint32_t sum_size)
 {
     // len must be a multiple of sum_size
     // input has size len
@@ -529,11 +562,12 @@ extern "C" __global__ void fold_sum(const ExtField *input, ExtField *output, con
         const int idx = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
         if (idx < output_len)
         {
-            output[idx] = {0};
+            ExtField sum = {0};
             for (int i = 0; i < sum_size; i++)
             {
-                ext_field_add(&output[idx], &input[idx + output_len * i], &output[idx]);
+                ext_field_add(&sum, &input[idx + output_len * i], &sum);
             }
+            output[idx] = sum;
         }
     }
 }

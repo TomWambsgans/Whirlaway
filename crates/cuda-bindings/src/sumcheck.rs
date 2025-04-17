@@ -6,7 +6,7 @@ use cuda_engine::{CudaCall, SumcheckComputation, concat_pointers, cuda_alloc, me
 use p3_field::{BasedVectorSpace, ExtensionField, Field, extension::BinomialExtensionField};
 use p3_koala_bear::KoalaBear;
 
-use crate::{cuda_dot_product, cuda_fold_sum, cuda_sum};
+use crate::{cuda_dot_product, cuda_piecewise_sum, cuda_sum};
 
 const LOG_CUDA_WARP_SIZE: u32 = 5;
 
@@ -64,7 +64,7 @@ pub fn cuda_sum_over_hypercube_of_computation<
     let hypercube_evals = if n_compute_units == 1 {
         sums_dev
     } else {
-        cuda_fold_sum(&sums_dev, n_compute_units as usize)
+        cuda_piecewise_sum(&sums_dev, n_compute_units as usize)
     };
 
     if comp.eq_mle_multiplier {

@@ -49,7 +49,7 @@ __device__ void ntt_at_block_level(ExtField *buff, const int block, const int lo
     cached_buff[threadId] = buff[threadId + n_threads * 2 * block];
     cached_buff[threadId + n_threads] = buff[threadId + n_threads * (2 * block + 1)];
 
-    __shared__ uint32_t cached_twiddles[MAX_N_THREADS_PER_BLOCK * 2];
+    __shared__ uint32_t cached_twiddles[MAX_N_THREADS_PER_BLOCK * 2]; // TODO use constant memory instead
 
     cached_twiddles[threadId] = twiddles[threadId];
     cached_twiddles[threadId + n_threads] = twiddles[threadId + n_threads];
