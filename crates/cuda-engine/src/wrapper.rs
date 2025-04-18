@@ -8,6 +8,7 @@ use cudarc::driver::{
 use cudarc::driver::{CudaSlice, DeviceRepr};
 use p3_field::Field;
 
+// TODO Avoid hardcoding : This is GPU dependent
 pub const LOG_MAX_THREADS_PER_COOPERATIVE_BLOCK: u32 = 8;
 pub const LOG_MAX_THREADS_PER_BLOCK: u32 = 9;
 

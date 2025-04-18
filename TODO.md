@@ -1,5 +1,7 @@
 # TODO
 
+- do not hardcode cuda version in cudarc feature
+- do not harcode the number of cuda threads / blocks
 - avoid repeated access to global memory in cuda sumcheck when there are enough registers (in the extension field, this is already done for the prime field)
 - cuda sumcheck: first round, if n_batching_scalars = 0 => sums are actually in F, not EF
 - In whir::prove, the hypercube sum is already known, so no need to recompute it in sumcheck::prove
