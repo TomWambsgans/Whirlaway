@@ -3,6 +3,7 @@
 use rand::{SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
+use tracing::instrument;
 use utils::{deserialize_field, serialize_field};
 
 use p3_field::Field;
@@ -84,6 +85,7 @@ impl FsProver {
         (0..len).map(|_| F::random(&mut rng)).collect::<Vec<_>>()
     }
 
+    #[instrument(name = "Fiat SHamir pow", skip(self))]
     pub fn challenge_pow(&mut self, bits: usize) {
         let nonce = (0..u64::MAX)
             .into_par_iter()
@@ -258,4 +260,17 @@ fn count_ending_zero_bits(buff: &[u8]) -> usize {
         }
     }
     count
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn benchmark_pow() {
+        let mut prover = FsProver::new();
+        let time = std::time::Instant::now();
+        prover.challenge_pow(16);
+        println!("Time: {:?}", time.elapsed());
+    }
 }

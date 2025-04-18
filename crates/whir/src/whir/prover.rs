@@ -218,6 +218,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
                     num_variables,
                 ))
             }));
+            cuda_sync();
             fs_prover.add_scalars(&ood_answers);
         }
 
@@ -288,7 +289,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
             &round_state.sumcheck_mles,
             &[
                 (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
-                    .fix_computation(false),
+                    .fix_computation(true),
             ],
             &[EF::ONE],
             None,

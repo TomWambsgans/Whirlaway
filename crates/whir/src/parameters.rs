@@ -20,7 +20,7 @@ impl Display for SoundnessType {
             "{}",
             match &self {
                 SoundnessType::ProvableList => "without conjecture",
-                SoundnessType::ConjectureList => "conjectured (list)",
+                SoundnessType::ConjectureList => "conjectured",
                 SoundnessType::UniqueDecoding => "unique decoding",
             }
         )
@@ -180,12 +180,17 @@ pub struct WhirParameters {
 }
 
 impl WhirParameters {
-    pub fn standard(security_bits: usize, log_inv_rate: usize, cuda: bool) -> Self {
+    pub fn standard(
+        soundness_type: SoundnessType,
+        security_bits: usize,
+        log_inv_rate: usize,
+        cuda: bool,
+    ) -> Self {
         Self {
             security_level: security_bits,
-            pow_bits: 18,
+            pow_bits: 16,
             folding_factor: FoldingFactor::Constant(4),
-            soundness_type: SoundnessType::ProvableList,
+            soundness_type,
             starting_log_inv_rate: log_inv_rate,
             cuda,
         }

@@ -45,6 +45,7 @@ regex = { version = "1.11.1" }
 
 [dependencies]
 pcs.workspace = true
+whir.workspace = true
 fiat-shamir.workspace = true
 algebra.workspace = true
 air.workspace = true

@@ -110,7 +110,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
             &vec![packed_pol, &A_pol],
             &[
                 (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
-                    .fix_computation(false),
+                    .fix_computation(true),
             ],
             &[EF::ONE],
             None,
@@ -199,7 +199,7 @@ mod test {
     use p3_field::extension::BinomialExtensionField;
     use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
-    use whir::parameters::WhirParameters;
+    use whir::parameters::{SoundnessType, WhirParameters};
 
     use crate::WhirPCS;
 
@@ -216,7 +216,12 @@ mod test {
         let rng = &mut StdRng::seed_from_u64(0);
         let ring_switch = RingSwitch::<F, EF, WhirPCS<F, EF>>::new(
             n_vars,
-            &WhirParameters::standard(security_bits, log_inv_rate, false),
+            &WhirParameters::standard(
+                SoundnessType::ProvableList,
+                security_bits,
+                log_inv_rate,
+                false,
+            ),
         );
         let pol = Multilinear::Host(MultilinearHost::<F>::random(rng, n_vars));
         let mut fs_prover = FsProver::new();

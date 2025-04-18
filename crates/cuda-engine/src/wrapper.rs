@@ -8,6 +8,15 @@ use cudarc::driver::{
 use cudarc::driver::{CudaSlice, DeviceRepr};
 use p3_field::Field;
 
+pub const LOG_MAX_THREADS_PER_COOPERATIVE_BLOCK: u32 = 8;
+pub const LOG_MAX_THREADS_PER_BLOCK: u32 = 9;
+
+pub const MAX_THREADS_PER_COOPERATIVE_BLOCK: u32 = 1 << LOG_MAX_THREADS_PER_COOPERATIVE_BLOCK;
+pub const MAX_THREADS_PER_BLOCK: u32 = 1 << LOG_MAX_THREADS_PER_BLOCK;
+
+pub const MAX_COOPERATIVE_BLOCKS: u32 = 1 << 4;
+pub const MAX_BLOCKS: u32 = 1 << 14;
+
 pub enum HostOrDeviceBuffer<T> {
     Host(Vec<T>),
     Device(CudaSlice<T>),
@@ -154,6 +163,7 @@ pub struct CudaCall<'a> {
     pub args: LaunchArgs<'a>,
     pub n_ops: u32,
     pub shared_mem_bytes: u32,
+    pub func_name: String,
 }
 
 impl<'a> CudaCall<'a> {
@@ -175,6 +185,7 @@ impl<'a> CudaCall<'a> {
             args,
             n_ops,
             shared_mem_bytes: 0,
+            func_name: func_name.to_string(),
         }
     }
 
@@ -186,11 +197,15 @@ impl<'a> CudaCall<'a> {
     fn launch_config(&self, cooperative: bool) -> LaunchConfig {
         assert!(self.n_ops > 0);
         let max_log_threads = if cooperative {
-            8 // also harcoded in ntt.cu
+            LOG_MAX_THREADS_PER_COOPERATIVE_BLOCK // also harcoded in ntt.cu
         } else {
-            9
+            LOG_MAX_THREADS_PER_BLOCK
         };
-        let max_blocks = if cooperative { 1 << 4 } else { 1 << 14 }; // TODO why only 16 cooperative blocks? Sometimes it works with 32 wtf
+        let max_blocks = if cooperative {
+            MAX_COOPERATIVE_BLOCKS
+        } else {
+            MAX_BLOCKS
+        }; // TODO why only 16 cooperative blocks? Sometimes it works with 32 wtf
         let log_threads = max_log_threads.min(self.n_ops.next_power_of_two().ilog2());
         let blocks = max_blocks.min(self.n_ops.div_ceil(1 << log_threads) as u32);
         LaunchConfig {
@@ -201,10 +216,12 @@ impl<'a> CudaCall<'a> {
     }
 
     pub fn launch(mut self) {
-        unsafe { self.args.launch(self.launch_config(false)) }.unwrap();
+        unsafe { self.args.launch(self.launch_config(false)) }
+            .unwrap_or_else(|e| panic!("{} failed with: {}", self.func_name, e));
     }
 
     pub fn launch_cooperative(mut self) {
-        unsafe { self.args.launch_cooperative(self.launch_config(true)) }.unwrap();
+        unsafe { self.args.launch_cooperative(self.launch_config(true)) }
+            .unwrap_or_else(|e| panic!("{} failed with: {}", self.func_name, e));
     }
 }

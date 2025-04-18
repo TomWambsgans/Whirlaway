@@ -1,7 +1,8 @@
 use std::any::TypeId;
 
 use cuda_engine::{
-    CudaCall, cuda_alloc, cuda_correction_twiddles, cuda_twiddles, cuda_twiddles_two_adicity,
+    CudaCall, MAX_THREADS_PER_COOPERATIVE_BLOCK, cuda_alloc, cuda_correction_twiddles,
+    cuda_twiddles, cuda_twiddles_two_adicity,
 };
 use cudarc::driver::{CudaSlice, PushKernelArg};
 
@@ -9,8 +10,6 @@ use p3_field::{Field, extension::BinomialExtensionField};
 use p3_koala_bear::KoalaBear;
 
 // TODO this value is also hardcoded in ntt.cuda, this is ugly
-const NTT_MAX_LOG_N_THREADS_PER_BLOCK: u32 = 8;
-const NTT_MAX_N_THREADS_PER_BLOCK: u32 = 1 << NTT_MAX_LOG_N_THREADS_PER_BLOCK;
 
 pub fn cuda_expanded_ntt<F: Field>(coeffs: &CudaSlice<F>, expansion_factor: usize) -> CudaSlice<F> {
     assert!(coeffs.len().is_power_of_two());
@@ -103,8 +102,9 @@ pub fn cuda_ntt<F: Field>(coeffs: &mut CudaSlice<F>, log_chunck_size: usize) {
     let extension_degree = std::mem::size_of::<F>() / std::mem::size_of::<u32>(); // TODO improve
 
     let twiddles = cuda_twiddles::<F::PrimeSubfield>();
-    let mut call = CudaCall::new("ntt", "ntt_global", 1 << (log_len - 1))
-        .shared_mem_bytes((NTT_MAX_N_THREADS_PER_BLOCK * 2) * (extension_degree as u32 + 1) * 4); // cf `ntt_at_block_level` in ntt.cu
+    let mut call = CudaCall::new("ntt", "ntt_global", 1 << (log_len - 1)).shared_mem_bytes(
+        (MAX_THREADS_PER_COOPERATIVE_BLOCK * 2) * (extension_degree as u32 + 1) * 4,
+    ); // cf `ntt_at_block_level` in ntt.cu
     call.arg(coeffs);
     call.arg(&log_len);
     call.arg(&log_chunck_size);
@@ -136,7 +136,9 @@ pub fn cuda_restructure_evaluations<F: Field>(
 
     let twiddles = cuda_twiddles::<F::PrimeSubfield>();
     let mut launch_args = CudaCall::new("ntt", "restructure_evaluations", 1 << (log_len - 1))
-        .shared_mem_bytes((NTT_MAX_N_THREADS_PER_BLOCK * 2) * (extension_degree as u32 + 1) * 4); // cf `ntt_at_block_level` in ntt.cu;
+        .shared_mem_bytes(
+            (MAX_THREADS_PER_COOPERATIVE_BLOCK * 2) * (extension_degree as u32 + 1) * 4,
+        ); // cf `ntt_at_block_level` in ntt.cu;
     launch_args.arg(coeffs);
     launch_args.arg(&mut result_dev);
     launch_args.arg(&log_len);

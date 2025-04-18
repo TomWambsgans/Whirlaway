@@ -9,6 +9,10 @@ use rayon::join;
 /// Transpose a matrix in-place.
 /// Will batch transpose multiple matrices if the length of the slice is a multiple of rows * cols.
 /// This algorithm assumes that both rows and cols are powers of two.
+///
+/// Example:
+/// transpose([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], 2, 4)
+/// gives:[1, 5, 2, 6, 3, 7, 4, 8, 9, 13, 10, 14, 11, 15, 12, 16]
 pub fn transpose<F: Sized + Copy + Send>(matrix: &mut [F], rows: usize, cols: usize) {
     assert_eq!(matrix.len() % (rows * cols), 0);
     assert!(rows.is_power_of_two());

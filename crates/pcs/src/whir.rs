@@ -88,6 +88,7 @@ mod test {
     use p3_koala_bear::KoalaBear;
     use tracing_forest::{ForestLayer, util::LevelFilter};
     use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
+    use whir::parameters::SoundnessType;
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, 8>;
@@ -108,7 +109,12 @@ mod test {
         let log_inv_rate = 3;
         let pcs = WhirPCS::<F, EF>::new(
             n_vars,
-            &WhirParameters::standard(security_bits, log_inv_rate, false),
+            &WhirParameters::standard(
+                SoundnessType::ProvableList,
+                security_bits,
+                log_inv_rate,
+                false,
+            ),
         );
 
         let mut fs_prover = FsProver::new();

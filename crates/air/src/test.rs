@@ -10,6 +10,7 @@ use p3_koala_bear::KoalaBear;
 use pcs::{PCS, RingSwitch, WhirPCS, WhirParameters};
 
 use algebra::pols::MultilinearHost;
+use whir::parameters::SoundnessType;
 
 use crate::AirBuilder;
 
@@ -93,7 +94,12 @@ fn test_air_fibonacci() {
 
         let pcs = RingSwitch::<F, EF, WhirPCS<F, EF>>::new(
             log_length + 1,
-            &WhirParameters::standard(security_bits, log_inv_rate, cuda),
+            &WhirParameters::standard(
+                SoundnessType::ProvableList,
+                security_bits,
+                log_inv_rate,
+                cuda,
+            ),
         );
 
         let mut fs_prover = FsProver::new();
@@ -234,7 +240,12 @@ fn test_air_complex() {
 
             let pcs = RingSwitch::<F, EF, WhirPCS<F, EF>>::new(
                 log_length + 3,
-                &WhirParameters::standard(security_bits, log_inv_rate, cuda),
+                &WhirParameters::standard(
+                    SoundnessType::ProvableList,
+                    security_bits,
+                    log_inv_rate,
+                    cuda,
+                ),
             );
 
             let mut fs_prover = FsProver::new();
