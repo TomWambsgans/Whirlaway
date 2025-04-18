@@ -1,9 +1,6 @@
 use super::{Statement, committer::Witness, parameters::WhirConfig};
 use crate::domain::Domain;
-use algebra::{
-    pols::CoefficientListHost,
-    pols::{CoefficientList, Multilinear},
-};
+use algebra::pols::{CoefficientList, CoefficientListHost, Multilinear, MultilinearsVec};
 use arithmetic_circuit::TransparentPolynomial;
 use cuda_engine::{HostOrDeviceBuffer, cuda_sync};
 use fiat_shamir::FsProver;
@@ -46,9 +43,13 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
     pub fn prove(
         &self,
         fs_prover: &mut FsProver,
-        statement: Statement<EF>,
+        mut statement: Statement<EF>,
         witness: Witness<EF>,
     ) -> Option<()> {
+        for point in &mut statement.points {
+            point.reverse();
+        }
+
         assert!(self.validate_parameters());
         debug_assert!(self.validate_statement(&statement));
         assert!(self.validate_witness(&witness));
@@ -75,10 +76,9 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
             let combination_randomness_gen = fs_prover.challenge_scalars::<EF>(1)[0];
             let combination_randomness = powers(combination_randomness_gen, initial_claims.len());
 
-            let nodes = vec![
-                witness.polynomial.to_lagrange_basis_rev(),
-                randomized_eq_extensions(&initial_claims, &combination_randomness, self.0.cuda),
-            ];
+            let liner_comb =
+                randomized_eq_extensions(&initial_claims, &combination_randomness, self.0.cuda);
+            let nodes = vec![&witness.lagrange_polynomial, &liner_comb];
             let n_rounds = Some(self.0.folding_factor.at_round(0));
             let pow_bits = self.0.starting_folding_pow_bits;
             let sum = dot_product(&initial_answers, &combination_randomness);
@@ -102,7 +102,6 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
             folding_randomness.reverse();
             folding_randomness
         };
-
         let round_state = RoundState {
             domain: self.0.starting_domain.clone(),
             round: 0,
@@ -219,6 +218,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
                     num_variables,
                 ))
             }));
+            cuda_sync();
             fs_prover.add_scalars(&ood_answers);
         }
 
@@ -279,7 +279,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
         let combination_randomness = powers(combination_randomness_gen, stir_challenges.len());
 
         round_state.sumcheck_mles[1] +=
-            randomized_eq_extensions(&stir_challenges, &combination_randomness, self.0.cuda);
+            &randomized_eq_extensions(&stir_challenges, &combination_randomness, self.0.cuda);
 
         let mut folding_randomness;
         let hypercube_sum;
@@ -289,7 +289,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
             &round_state.sumcheck_mles,
             &[
                 (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
-                    .fix_computation(false),
+                    .fix_computation(true),
             ],
             &[EF::ONE],
             None,
@@ -328,6 +328,7 @@ struct RoundState<F: TwoAdicField, EF: ExtensionField<F>> {
     prev_merkle_answers: HostOrDeviceBuffer<EF>,
 }
 
+#[instrument(name = "randomized_eq_extensions", skip_all)]
 fn randomized_eq_extensions<F: Field>(
     eq_points: &[Vec<F>],
     randomized_coefs: &[F],
@@ -339,14 +340,16 @@ fn randomized_eq_extensions<F: Field>(
             .iter()
             .all(|point| point.len() == eq_points[0].len())
     );
-    let mut res: Multilinear<F> = Multilinear::zero(eq_points[0].len(), cuda);
+    let mut all_eq_mles = Vec::new();
     for (initial_claim, randomness_coef) in eq_points.iter().zip(randomized_coefs) {
         let mut initial_claim = initial_claim.clone();
         initial_claim.reverse();
         let mut eq_mle = Multilinear::eq_mle(&initial_claim, cuda);
         eq_mle.scale_in_place(*randomness_coef);
-        res += eq_mle;
+        all_eq_mles.push(eq_mle);
     }
+    let res = MultilinearsVec::from(all_eq_mles).as_ref().sum();
+
     cuda_sync();
     res
 }

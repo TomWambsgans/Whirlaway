@@ -92,30 +92,37 @@ impl<F: Field> AirTable<F> {
 
         let inner_sums_up = &all_inner_sums[self.n_preprocessed_columns()..self.n_columns];
         let inner_sums_down = &all_inner_sums[self.n_columns + self.n_preprocessed_columns()..];
+        let _span_evals = span!(Level::INFO, "transfering column evalutations from cuda").entered();
         let inner_sums = inner_sums_up
             .into_iter()
             .chain(inner_sums_down)
             .map(|s| s.evaluate::<EF>(&[]))
             .collect::<Vec<_>>();
         cuda_sync();
+        std::mem::drop(_span_evals);
         fs_prover.add_scalars(&inner_sums);
 
         let inner_sumcheck_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
 
-        let witness = witness.decompose();
         let mles_for_inner_sumcheck = {
+            let _span_mles = span!(Level::INFO, "constructing MLEs").entered();
             let mut nodes = Vec::<Multilinear<EF>>::new();
-            let mut scalar = EF::ONE;
-            for _ in 0..2 {
+            let _span_linear_comb = span!(Level::INFO, "linear combination of columns").entered();
+            let expanded_scalars =
+                powers(inner_sumcheck_batching_scalar, 2 * self.n_witness_columns());
+            for i in 0..2 {
                 // up and down
-                let mut sum = Multilinear::<EF>::zero(log_length, cuda);
-                for w in &witness {
-                    sum += w.scale(scalar);
-                    scalar *= inner_sumcheck_batching_scalar;
-                }
-                sum = sum.add_dummy_starting_variables(UNIVARIATE_SKIPS); // TODO this is not efficient
+                let sum = witness
+                    .as_ref()
+                    .linear_comb(
+                        &expanded_scalars
+                            [i * self.n_witness_columns()..(i + 1) * self.n_witness_columns()],
+                    )
+                    .add_dummy_starting_variables(UNIVARIATE_SKIPS); // TODO this is not efficient
                 nodes.push(sum);
             }
+            cuda_sync();
+            std::mem::drop(_span_linear_comb);
             nodes.push(matrix_up_folded_with_univariate_skips(
                 &outer_challenges,
                 cuda,
@@ -128,17 +135,19 @@ impl<F: Field> AirTable<F> {
             ));
 
             // TODO remove
-            let expanded = MultilinearHost::new(
+            let expanded_host = MultilinearHost::new(
                 self.univariate_selectors
                     .iter()
                     .map(|s| s.eval(&outer_challenges[0]))
                     .collect(),
-            )
+            );
+            let expanded = if cuda {
+                Multilinear::Device(MultilinearDevice::new(memcpy_htod(&expanded_host.evals))) // maybe do this in cuda ?
+            } else {
+                Multilinear::Host(expanded_host)
+            }
             .add_dummy_ending_variables(log_length);
-            nodes.push(match cuda {
-                false => expanded.into(),
-                true => MultilinearDevice::new(memcpy_htod(&expanded.evals)).into(), // bad
-            });
+            nodes.push(expanded);
 
             nodes
         };
@@ -166,11 +175,13 @@ impl<F: Field> AirTable<F> {
             None,
         );
 
+        let _span_evals = span!(Level::INFO, "evaluating witness").entered();
         let values = witness
-            .par_iter()
-            .map(|w| w.evaluate(&inner_challenges[UNIVARIATE_SKIPS..]))
-            .collect::<Vec<_>>();
+            .as_ref()
+            .batch_evaluate(&inner_challenges[UNIVARIATE_SKIPS..]);
+
         cuda_sync();
+        std::mem::drop(_span_evals);
         fs_prover.add_scalars(&values);
 
         let final_random_scalars = fs_prover.challenge_scalars::<EF>(self.log_n_witness_columns());
@@ -205,49 +216,23 @@ fn matrix_up_folded_with_univariate_skips<F: Field>(
     on_device: bool,
     univariate_skips: usize,
 ) -> Multilinear<F> {
-    matrix_folded_with_univariate_skips(outer_challenges, on_device, univariate_skips, true)
-}
-
-/// Async
-#[instrument(name = "matrix_down_folded_with_univariate_skips", skip_all)]
-fn matrix_down_folded_with_univariate_skips<F: Field>(
-    outer_challenges: &[F],
-    on_device: bool,
-    univariate_skips: usize,
-) -> Multilinear<F> {
-    matrix_folded_with_univariate_skips(outer_challenges, on_device, univariate_skips, false)
-}
-
-/// Async
-fn matrix_folded_with_univariate_skips<F: Field>(
-    outer_challenges: &[F],
-    on_device: bool,
-    univariate_skips: usize,
-    up: bool,
-) -> Multilinear<F> {
+    // TODO: It's sparse => bad performance
     let n = outer_challenges.len();
-    // n_vars defined as in the original function.
     let n_vars = n + univariate_skips * 2 - 1;
     let mut folded = MultilinearHost::zero(n_vars);
     let point_len = univariate_skips + (n - 1);
+    let inner_mle = MultilinearHost::eq_mle(&outer_challenges[1..]);
     folded
         .evals
         .par_chunks_mut(1 << point_len)
         .enumerate()
         .for_each(|(i, block)| {
-            let mut point = HypercubePoint {
-                n_vars: univariate_skips,
-                val: i,
-            }
-            .to_vec();
-            point.extend_from_slice(&outer_challenges[1..]);
-            let inner = if up {
-                matrix_up_folded(&point).evals
-            } else {
-                matrix_down_folded(&point).evals
-            };
-            block.copy_from_slice(&inner);
+            block[i << (n - 1)..(i + 1) << (n - 1)].copy_from_slice(&inner_mle.evals);
         });
+
+    let outer_challenges_prod = outer_challenges[1..].iter().copied().product::<F>();
+    folded.evals[(1 << n_vars) - 1] -= outer_challenges_prod;
+    folded.evals[(1 << n_vars) - 2] += outer_challenges_prod;
 
     // TODO do it on the device directly
     if on_device {
@@ -258,30 +243,58 @@ fn matrix_folded_with_univariate_skips<F: Field>(
 }
 
 /// Async
-fn matrix_up_folded<F: Field>(outer_challenges: &[F]) -> MultilinearHost<F> {
+#[instrument(name = "matrix_down_folded_with_univariate_skips", skip_all)]
+fn matrix_down_folded_with_univariate_skips<F: Field>(
+    outer_challenges: &[F],
+    on_device: bool,
+    univariate_skips: usize,
+) -> Multilinear<F> {
+    // TODO: It's sparse => bad performance
     let n = outer_challenges.len();
-    let mut folded = MultilinearHost::eq_mle(&outer_challenges);
-    let outer_challenges_prod: F = outer_challenges.iter().copied().product();
-    folded.evals[(1 << n) - 1] -= outer_challenges_prod;
-    folded.evals[(1 << n) - 2] += outer_challenges_prod;
+    // n_vars defined as in the original function.
+    let n_vars = n + univariate_skips * 2 - 1;
+    let mut folded = MultilinearHost::zero(n_vars);
+    let point_len = univariate_skips + (n - 1);
+    let inner_mles = (1..outer_challenges.len())
+        .map(|i| MultilinearHost::eq_mle(&outer_challenges[1..i]))
+        .collect::<Vec<_>>();
     folded
-}
+        .evals
+        .par_chunks_mut(1 << point_len)
+        .enumerate()
+        .for_each(|(i, block)| {
+            let x = HypercubePoint {
+                n_vars: univariate_skips,
+                val: i,
+            };
+            let mut point = x.to_vec();
+            point.extend_from_slice(&outer_challenges[1..]);
+            let m = point.len();
+            for k in 0..m {
+                let outer_challenges_prod =
+                    (F::ONE - point[m - k - 1]) * point[m - k..].iter().copied().product::<F>();
+                if outer_challenges_prod.is_zero() {
+                    continue;
+                }
+                let eq_mle = &inner_mles[(m - k - 1).saturating_sub(x.n_vars)];
+                // MultilinearHost::eq_mle(&outer_challenges[0..n - k - 1]);
+                let eq_mle = eq_mle.scale(outer_challenges_prod);
+                let n_coefs = eq_mle.n_coefs();
+                for (mut i, v) in eq_mle.evals.into_iter().enumerate() {
+                    i += (x.val >> (x.n_vars - x.n_vars.min(m - k - 1))) * n_coefs;
+                    i <<= k + 1;
+                    i += 1 << k;
+                    block[i] += v;
+                }
+            }
+        });
 
-fn matrix_down_folded<F: Field>(outer_challenges: &[F]) -> MultilinearHost<F> {
-    let n = outer_challenges.len();
-    let mut folded = vec![F::ZERO; 1 << n];
-    for k in 0..n {
-        let outer_challenges_prod = (F::ONE - outer_challenges[n - k - 1])
-            * outer_challenges[n - k..].iter().copied().product::<F>();
-        let mut eq_mle = MultilinearHost::eq_mle(&outer_challenges[0..n - k - 1]);
-        eq_mle = eq_mle.scale(outer_challenges_prod);
-        for (mut i, v) in eq_mle.evals.into_iter().enumerate() {
-            i <<= k + 1;
-            i += 1 << k;
-            folded[i] += v;
-        }
+    folded.evals[(1 << n_vars) - 1] += outer_challenges[1..].iter().copied().product::<F>();
+
+    // TODO do it on the device directly
+    if on_device {
+        MultilinearDevice::new(memcpy_htod(&folded.evals)).into()
+    } else {
+        folded.into()
     }
-    // bottom left corner:
-    folded[(1 << n) - 1] += outer_challenges.iter().copied().product::<F>();
-    MultilinearHost::new(folded)
 }

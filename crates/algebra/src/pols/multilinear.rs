@@ -2,10 +2,11 @@ use super::{CoefficientList, CoefficientListDevice};
 use super::{CoefficientListHost, UnivariatePolynomial};
 use crate::tensor_algebra::TensorAlgebra;
 use cuda_bindings::{
-    cuda_add_assign_slices, cuda_add_slices, cuda_eq_mle, cuda_eval_mixed_tensor,
+    cuda_add_assign_slices, cuda_add_slices, cuda_dot_product, cuda_eq_mle, cuda_eval_mixed_tensor,
     cuda_eval_multilinear_in_lagrange_basis, cuda_fold_rectangular_in_small_field,
-    cuda_lagrange_to_monomial_basis, cuda_piecewise_linear_comb, cuda_scale_slice,
-    cuda_scale_slice_in_place,
+    cuda_lagrange_to_monomial_basis, cuda_lagrange_to_monomial_basis_rev,
+    cuda_linear_comb_of_slices, cuda_piecewise_linear_comb, cuda_repeat_slice_from_inside,
+    cuda_repeat_slice_from_outside, cuda_scale_slice, cuda_scale_slice_in_place,
 };
 use cuda_bindings::{cuda_fold_rectangular_in_large_field, cuda_sum_over_hypercube_of_computation};
 use cuda_engine::{
@@ -164,6 +165,25 @@ impl<F: Field> MultilinearHost<F> {
         CoefficientListHost::new(coeffs)
     }
 
+    pub fn to_monomial_basis_rev(self) -> CoefficientListHost<F> {
+        let mut coeffs = self.evals;
+        let n = self.n_vars;
+
+        for i in 0..n {
+            coeffs.par_chunks_mut(1 << (n - i)).for_each(|chunk| {
+                let n = chunk.len();
+                let left = (0..n / 2).map(|j| chunk[2 * j]).collect::<Vec<_>>();
+                let right = (0..n / 2)
+                    .map(|j| chunk[2 * j + 1] - chunk[2 * j])
+                    .collect::<Vec<_>>();
+                chunk[..n / 2].copy_from_slice(&left);
+                chunk[n / 2..].copy_from_slice(&right);
+            });
+        }
+
+        CoefficientListHost::new(coeffs)
+    }
+
     pub fn as_univariate(self) -> UnivariatePolynomial<F> {
         UnivariatePolynomial::new(self.to_monomial_basis().coeffs)
     }
@@ -281,8 +301,8 @@ impl<F: Field> MultilinearHost<F> {
     }
 }
 
-impl<F: Field> AddAssign<MultilinearHost<F>> for MultilinearHost<F> {
-    fn add_assign(&mut self, other: MultilinearHost<F>) {
+impl<F: Field> AddAssign<&Self> for MultilinearHost<F> {
+    fn add_assign(&mut self, other: &Self) {
         assert_eq!(self.n_vars, other.n_vars);
         self.evals
             .par_iter_mut()
@@ -326,15 +346,13 @@ impl<F: Field> MultilinearDevice<F> {
     }
 
     // Async
-    pub fn add(&self, other: &Self) -> Self {
-        assert_eq!(self.n_vars, other.n_vars);
-        let res = cuda_add_slices(&self.evals, &other.evals);
-        Self::new(res)
+    pub fn to_monomial_basis(&self) -> CoefficientListDevice<F> {
+        CoefficientListDevice::new(cuda_lagrange_to_monomial_basis(&self.evals))
     }
 
     // Async
-    pub fn to_monomial_basis(&self) -> CoefficientListDevice<F> {
-        CoefficientListDevice::new(cuda_lagrange_to_monomial_basis(&self.evals))
+    pub fn to_monomial_basis_rev(&self) -> CoefficientListDevice<F> {
+        CoefficientListDevice::new(cuda_lagrange_to_monomial_basis_rev(&self.evals))
     }
 
     // Sync
@@ -367,6 +385,18 @@ impl<F: Field> MultilinearDevice<F> {
     }
 
     // Async
+    pub fn add_dummy_starting_variables(&self, n: usize) -> Self {
+        // TODO remove
+        Self::new(cuda_repeat_slice_from_outside(&self.evals, 1 << n))
+    }
+
+    // Async
+    pub fn add_dummy_ending_variables(&self, n: usize) -> Self {
+        // TODO remove
+        Self::new(cuda_repeat_slice_from_inside(&self.evals, 1 << n))
+    }
+
+    // Async
     pub fn evaluate<EF: ExtensionField<F>>(&self, point: &[EF]) -> EF {
         assert_eq!(self.n_vars, point.len());
         if self.n_vars == 0 {
@@ -393,9 +423,9 @@ impl<F: Field> MultilinearDevice<F> {
     }
 }
 
-impl<F: Field> AddAssign<MultilinearDevice<F>> for MultilinearDevice<F> {
+impl<F: Field> AddAssign<&Self> for MultilinearDevice<F> {
     // Async
-    fn add_assign(&mut self, other: Self) {
+    fn add_assign(&mut self, other: &Self) {
         assert_eq!(self.n_vars, other.n_vars);
         cuda_add_assign_slices(&mut self.evals, &other.evals);
     }
@@ -462,17 +492,21 @@ impl<F: Field> Multilinear<F> {
         }
     }
 
+    // Async
     pub fn add_dummy_starting_variables(&self, n: usize) -> Self {
         // TODO remove
         match self {
             Self::Host(pol) => Self::Host(pol.add_dummy_starting_variables(n)),
-            Self::Device(pol) => {
-                let host_multilinear = pol.transfer_to_host();
-                let new_pol = host_multilinear.add_dummy_starting_variables(n);
-                let res = MultilinearDevice::new(memcpy_htod(&new_pol.evals));
-                cuda_sync();
-                Self::Device(res)
-            }
+            Self::Device(pol) => Self::Device(pol.add_dummy_starting_variables(n)),
+        }
+    }
+
+    // Async
+    pub fn add_dummy_ending_variables(&self, n: usize) -> Self {
+        // TODO remove
+        match self {
+            Self::Host(pol) => Self::Host(pol.add_dummy_ending_variables(n)),
+            Self::Device(pol) => Self::Device(pol.add_dummy_ending_variables(n)),
         }
     }
 
@@ -514,11 +548,33 @@ impl<F: Field> Multilinear<F> {
         }
     }
 
+    pub fn as_device(self) -> MultilinearDevice<F> {
+        match self {
+            Self::Device(pol) => pol,
+            Self::Host(_) => panic!(""),
+        }
+    }
+
+    pub fn as_host(self) -> MultilinearHost<F> {
+        match self {
+            Self::Host(pol) => pol,
+            Self::Device(_) => panic!(""),
+        }
+    }
+
     // Async
     pub fn to_monomial_basis(&self) -> CoefficientList<F> {
         match self {
             Self::Host(pol) => CoefficientList::Host(pol.clone().to_monomial_basis()),
             Self::Device(pol) => CoefficientList::Device(pol.to_monomial_basis()),
+        }
+    }
+
+    // Async
+    pub fn to_monomial_basis_rev(&self) -> CoefficientList<F> {
+        match self {
+            Self::Host(pol) => CoefficientList::Host(pol.clone().to_monomial_basis_rev()),
+            Self::Device(pol) => CoefficientList::Device(pol.to_monomial_basis_rev()),
         }
     }
 
@@ -567,8 +623,8 @@ impl<F: Field> Multilinear<F> {
     }
 }
 
-impl<F: Field> AddAssign<Multilinear<F>> for Multilinear<F> {
-    fn add_assign(&mut self, other: Self) {
+impl<F: Field> AddAssign<&Self> for Multilinear<F> {
+    fn add_assign(&mut self, other: &Self) {
         match (self, other) {
             (Self::Host(pol), Self::Host(other)) => pol.add_assign(other),
             (Self::Device(pol), Self::Device(other)) => pol.add_assign(other),
@@ -735,6 +791,39 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
         }
     }
 
+    /// Async
+    pub fn linear_comb<EF: ExtensionField<F>>(&self, scalars: &[EF]) -> Multilinear<EF> {
+        assert_eq!(self.len(), scalars.len());
+        match self {
+            Self::Host(pols) => {
+                let mut sum = MultilinearHost::<EF>::zero(self.n_vars());
+                for i in 0..scalars.len() {
+                    sum += &pols[i].scale(scalars[i]);
+                }
+                Multilinear::Host(sum)
+            }
+            Self::Device(pols) => Multilinear::Device(MultilinearDevice::new(
+                cuda_linear_comb_of_slices(&pols, scalars),
+            )),
+        }
+    }
+
+    /// Async
+    pub fn batch_evaluate<EF: ExtensionField<F>>(&self, point: &[EF]) -> Vec<EF> {
+        assert_eq!(self.n_vars(), point.len());
+        match self {
+            Self::Host(pols) => pols.par_iter().map(|pol| pol.evaluate(point)).collect(),
+            Self::Device(pols) => {
+                let eq_mle = cuda_eq_mle(point);
+                let mut res = Vec::with_capacity(self.len());
+                for pol in pols {
+                    res.push(cuda_dot_product(&eq_mle, &pol.evals));
+                }
+                res
+            }
+        }
+    }
+
     pub fn chain(&self, other: &Self) -> Self {
         assert!(self.is_empty() || other.is_empty() || self.n_vars() == other.n_vars());
         match (self, other) {
@@ -757,7 +846,23 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
         }
     }
 
-    // Sync
+    /// Async
+    pub fn sum(&self) -> Multilinear<F> {
+        match self {
+            Self::Host(pols) => {
+                let mut res = MultilinearHost::zero(pols[0].n_vars);
+                for pol in pols {
+                    res += *pol;
+                }
+                Multilinear::Host(res)
+            }
+            Self::Device(pols) => {
+                Multilinear::Device(MultilinearDevice::new(cuda_add_slices(pols)))
+            }
+        }
+    }
+
+    /// Sync
     pub fn transfer_to_host(&self) -> MultilinearsVec<F> {
         match self {
             Self::Host(_) => panic!("Already on host"),
@@ -803,6 +908,17 @@ pub enum MultilinearsVec<F: Field> {
     Device(Vec<MultilinearDevice<F>>),
 }
 
+impl<F: Field> From<Vec<Multilinear<F>>> for MultilinearsVec<F> {
+    fn from(value: Vec<Multilinear<F>>) -> Self {
+        assert!(value.iter().all(|p| p.n_vars() == value[0].n_vars()));
+        if value[0].is_device() {
+            Self::Device(value.into_iter().map(|p| p.as_device()).collect())
+        } else {
+            Self::Host(value.into_iter().map(|p| p.as_host()).collect())
+        }
+    }
+}
+
 impl<F: Field> MultilinearsVec<F> {
     pub fn as_ref(&self) -> MultilinearsSlice<F> {
         match self {
@@ -818,6 +934,20 @@ impl<F: Field> MultilinearsVec<F> {
         }
     }
 
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Host(pols) => pols.len(),
+            Self::Device(pols) => pols.len(),
+        }
+    }
+
+    pub fn n_vars(&self) -> usize {
+        match self {
+            Self::Host(pol) => pol[0].n_vars,
+            Self::Device(pol) => pol[0].n_vars,
+        }
+    }
+
     // Sync
     pub fn transfer_to_device(self) -> MultilinearsVec<F> {
         match self {
@@ -828,5 +958,26 @@ impl<F: Field> MultilinearsVec<F> {
             ),
             Self::Device(pols) => Self::Device(pols),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use p3_koala_bear::KoalaBear;
+    use rand::{SeedableRng, rngs::StdRng};
+
+    use super::*;
+
+    #[test]
+    fn test_to_monomial_basis_rev() {
+        let rng = &mut StdRng::seed_from_u64(0);
+        let n_vars = 7;
+        type F = KoalaBear;
+        let mut point = (0..n_vars).map(|_| rng.random()).collect::<Vec<F>>();
+        let multilinear = MultilinearHost::<F>::random(rng, n_vars);
+        let eval_1 = multilinear.clone().to_monomial_basis_rev().evaluate(&point);
+        point.reverse();
+        let eval_2 = multilinear.evaluate(&point);
+        assert_eq!(eval_1, eval_2);
     }
 }

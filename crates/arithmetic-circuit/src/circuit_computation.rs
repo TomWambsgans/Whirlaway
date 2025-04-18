@@ -1,4 +1,8 @@
-use std::{cell::RefCell, collections::HashSet, usize};
+use std::{
+    cell::RefCell,
+    collections::{BTreeSet, HashSet},
+    usize,
+};
 
 use p3_field::{ExtensionField, Field};
 
@@ -133,6 +137,19 @@ impl<F: Field> CircuitComputation<F> {
         }
         assert_eq!(stack.len(), self.stack_size);
         stack[self.stack_size - 1].clone()
+    }
+
+    pub fn nodes_involved(&self) -> BTreeSet<usize> {
+        let mut nodes = BTreeSet::new();
+        for instruction in &self.instructions {
+            if let ComputationInput::Node(node) = instruction.left {
+                nodes.insert(node);
+            }
+            if let ComputationInput::Node(node) = instruction.right {
+                nodes.insert(node);
+            }
+        }
+        nodes
     }
 
     /// Optimize the stack usage by performing lifetime analysis and a linear‐scan register
@@ -332,6 +349,14 @@ pub fn max_stack_size<F: Field>(circuits: &[CircuitComputation<F>]) -> usize {
         .map(|circuit| circuit.stack_size)
         .max_by_key(|&stack_size| stack_size)
         .unwrap_or_default()
+}
+
+pub fn all_nodes_involved<F: Field>(circuits: &[CircuitComputation<F>]) -> BTreeSet<usize> {
+    let mut all_nodes = BTreeSet::new();
+    for circuit in circuits {
+        all_nodes.extend(circuit.nodes_involved());
+    }
+    all_nodes
 }
 
 #[cfg(test)]

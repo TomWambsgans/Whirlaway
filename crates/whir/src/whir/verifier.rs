@@ -355,11 +355,15 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
         &self,
         fs_verifier: &mut FsVerifier,
         parsed_commitment: &ParsedCommitment<EF, KeccakDigest>,
-        statement: &Statement<EF>,
+        mut statement: Statement<EF>,
     ) -> Result<(), WhirError> {
+        for point in &mut statement.points {
+            point.reverse();
+        }
+
         // We first do a pass in which we rederive all the FS challenges
         // Then we will check the algebraic part (so to optimise inversions)
-        let parsed = self.parse_proof(fs_verifier, parsed_commitment, statement)?;
+        let parsed = self.parse_proof(fs_verifier, parsed_commitment, &statement)?;
 
         let computed_folds = self.compute_folds_helped(&parsed);
 
@@ -476,7 +480,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
         };
 
         // Check the final sumcheck evaluation
-        let evaluation_of_v_poly = self.compute_v_poly(&parsed_commitment, statement, &parsed);
+        let evaluation_of_v_poly = self.compute_v_poly(&parsed_commitment, &statement, &parsed);
 
         if prev_sumcheck_poly_eval
             != evaluation_of_v_poly

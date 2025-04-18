@@ -19,3 +19,4 @@ arithmetic-circuit.workspace = true
 [dev-dependencies]
 p3-koala-bear.workspace = true
 rand.workspace = true
+whir.workspace = true

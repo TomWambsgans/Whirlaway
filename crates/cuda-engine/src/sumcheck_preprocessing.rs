@@ -1,6 +1,8 @@
 use std::hash::{DefaultHasher, Hasher};
 
-use arithmetic_circuit::{CircuitComputation, CircuitOp, ComputationInput, max_stack_size};
+use arithmetic_circuit::{
+    CircuitComputation, CircuitOp, ComputationInput, all_nodes_involved, max_stack_size,
+};
 use p3_field::PrimeField32;
 use std::hash::Hash;
 
@@ -298,6 +300,12 @@ fn compute_unit_instructions_prime<F: PrimeField32>(
 
     let n_registers = max_stack_size(exprs);
 
+    for i in all_nodes_involved(&exprs[start..end]) {
+        res += &format!(
+            "{}uint32_t node_{} = multilinears[{}][hypercube_point];\n",
+            blank, i, i
+        );
+    }
     for i in 0..n_registers {
         res += &format!("{}uint32_t reg_{};\n", blank, i);
     }
@@ -330,7 +338,7 @@ fn compute_unit_instructions_prime<F: PrimeField32>(
                 }
                 (ComputationInput::Node(node_index), ComputationInput::Scalar(scalar)) => {
                     res += &format!(
-                        "{}reg_{} = monty_field_{}(multilinears[{}][hypercube_point], to_monty({}));\n",
+                        "{}reg_{} = monty_field_{}(node_{}, to_monty({}));\n",
                         blank,
                         instr.result_location,
                         op_str,
@@ -340,19 +348,19 @@ fn compute_unit_instructions_prime<F: PrimeField32>(
                 }
                 (ComputationInput::Node(node_left), ComputationInput::Node(node_right)) => {
                     res += &format!(
-                        "{}reg_{} = monty_field_{}(multilinears[{}][hypercube_point], multilinears[{}][hypercube_point]);\n",
+                        "{}reg_{} = monty_field_{}(node_{}, node_{});\n",
                         blank, instr.result_location, op_str, node_left, node_right,
                     )
                 }
                 (ComputationInput::Stack(stack_index), ComputationInput::Node(node_index)) => {
                     res += &format!(
-                        "{}reg_{} = monty_field_{}(reg_{}, multilinears[{}][hypercube_point]);\n",
+                        "{}reg_{} = monty_field_{}(reg_{}, node_{});\n",
                         blank, instr.result_location, op_str, stack_index, node_index,
                     )
                 }
                 (ComputationInput::Node(node_index), ComputationInput::Stack(stack_index)) => {
                     res += &format!(
-                        "{}reg_{} = monty_field_{}(multilinears[{}][hypercube_point], reg_{});\n",
+                        "{}reg_{} = monty_field_{}(node_{}, reg_{});\n",
                         blank, instr.result_location, op_str, node_index, stack_index,
                     )
                 }
@@ -374,7 +382,7 @@ fn compute_unit_instructions_prime<F: PrimeField32>(
                 }
                 (ComputationInput::Scalar(scalar), ComputationInput::Node(node_index)) => {
                     res += &format!(
-                        "{}reg_{} = monty_field_{}(to_monty({}), multilinears[{}][hypercube_point]);\n",
+                        "{}reg_{} = monty_field_{}(to_monty({}), node_{});\n",
                         blank,
                         instr.result_location,
                         op_str,

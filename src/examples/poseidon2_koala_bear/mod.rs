@@ -11,7 +11,10 @@ use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear};
 use p3_matrix::Matrix;
 use pcs::{PCS, RingSwitch, WhirPCS, WhirParameters};
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use std::{borrow::Borrow, time::Instant};
+use std::{
+    borrow::Borrow,
+    time::{Duration, Instant},
+};
 use tracing::level_filters::LevelFilter;
 use tracing_forest::ForestLayer;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
@@ -38,22 +41,68 @@ const COLS: usize =
 type F = KoalaBear;
 type EF = BinomialExtensionField<KoalaBear, 8>;
 
-#[test]
-fn test_poseidon2() {
-    prove_poseidon2(4, 100, 2, false);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use whir::parameters::SoundnessType;
+
+    #[test]
+    fn test_poseidon2() {
+        prove_poseidon2(
+            4,
+            WhirParameters::standard(SoundnessType::ProvableList, 100, 2, false),
+            false,
+        );
+    }
 }
 
-pub fn prove_poseidon2(log_n_rows: usize, security_bits: usize, log_inv_rate: usize, cuda: bool) {
-    let env_filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::INFO.into())
-        .from_env_lossy();
+#[derive(Clone)]
+pub struct Poseidon2Benchmark {
+    pub log_n_rows: usize,
+    pub whir_params: WhirParameters,
+    pub prover_time: Duration,
+    pub verifier_time: Duration,
+    pub proof_size: usize,
+}
 
-    Registry::default()
-        .with(env_filter)
-        .with(ForestLayer::default())
-        .init();
+impl ToString for Poseidon2Benchmark {
+    fn to_string(&self) -> String {
+        let mut res = String::new();
+        res += &format!(
+            "Security level: {} bits ({}), starting rate: 1/{}\n",
+            self.whir_params.security_level,
+            self.whir_params.soundness_type,
+            1 << self.whir_params.starting_log_inv_rate
+        );
+        let n_rows = 1 << self.log_n_rows;
+        res += &format!(
+            "Proved {} poseidon2 hashes in {:.3} s ({} / s)\n",
+            n_rows,
+            self.prover_time.as_millis() as f64 / 1000.0,
+            (n_rows as f64 / self.prover_time.as_secs_f64()).round() as usize
+        );
+        res += &format!("Proof size: {:.1} KiB\n", self.proof_size as f64 / 1024.0);
+        res += &format!("Verification: {} ms\n", self.verifier_time.as_millis());
+        res
+    }
+}
 
-    let whir_params = WhirParameters::standard(security_bits, log_inv_rate, cuda);
+pub fn prove_poseidon2(
+    log_n_rows: usize,
+    whir_params: WhirParameters,
+    display_logs: bool,
+) -> Poseidon2Benchmark {
+    if display_logs {
+        let env_filter = EnvFilter::builder()
+            .with_default_directive(LevelFilter::INFO.into())
+            .from_env_lossy();
+
+        Registry::default()
+            .with(env_filter)
+            .with(ForestLayer::default())
+            .init();
+    }
+
     let n_rows = 1 << log_n_rows;
 
     let rng = &mut StdRng::seed_from_u64(0);
@@ -114,7 +163,7 @@ pub fn prove_poseidon2(log_n_rows: usize, security_bits: usize, log_inv_rate: us
     // println!("Constraints degree: {}", table.constraint_degree());
     // table.check_validity(&witness);
 
-    if cuda {
+    if whir_params.cuda {
         let constraint_sumcheck_computations = SumcheckComputation::<F> {
             exprs: &table.constraints,
             n_multilinears: table.n_columns * 2 + 1,
@@ -149,27 +198,20 @@ pub fn prove_poseidon2(log_n_rows: usize, security_bits: usize, log_inv_rate: us
 
     let t = Instant::now();
     let mut fs_prover = FsProver::new();
-    table.prove(&mut fs_prover, &pcs, witness, cuda);
+    table.prove(&mut fs_prover, &pcs, witness, whir_params.cuda);
     let proof_size = fs_prover.transcript_len();
 
     let prover_time = t.elapsed();
     let time = Instant::now();
-
     let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
     table.verify(&mut fs_verifier, &pcs, log_n_rows).unwrap();
     let verifier_time = time.elapsed();
 
-    println!();
-    println!(
-        "Security level: {} bits ({})",
-        whir_params.security_level, whir_params.soundness_type
-    );
-    println!(
-        "Proved {} poseidon2 hashes in {:?} ({} / s)",
-        n_rows,
+    Poseidon2Benchmark {
+        log_n_rows,
+        whir_params,
         prover_time,
-        (n_rows as f64 / prover_time.as_secs_f64()).round() as usize
-    );
-    println!("Proof size: {:.1} KiB", proof_size as f64 / 1024.0);
-    println!("Verification: {:?}", verifier_time);
+        verifier_time,
+        proof_size,
+    }
 }

@@ -69,7 +69,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
         }
     }
 
-    fn commit(&self, pol: impl Into<Multilinear<F>>, fs_prover: &mut FsProver) -> Self::Witness {
+    fn commit(&self, pol: Multilinear<F>, fs_prover: &mut FsProver) -> Self::Witness {
         let pol: Multilinear<F> = pol.into();
         let inner_witness = self.inner.commit(pol.packed::<EF>(), fs_prover);
         RingSwitchWitness { pol, inner_witness }
@@ -100,28 +100,9 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
 
         let r_pp = fs_prover.challenge_scalars::<EF>(kappa);
 
-        // let lagranged_r_pp = MultilinearHost::eq_mle(&r_pp).evals;
-        // let A_pol = {
-        //     let mut A_basis = Vec::with_capacity(packed_pol.n_coefs());
-        //     for w in 0..packed_pol.n_coefs() {
-        //         A_basis.push(dot_product(&A_coefs[w], &lagranged_r_pp));
-        //     }
-        //     MultilinearHost::new(A_basis)
-        // };
-
-        // // TODO A_pol in cuda
-
-        // let A_pol: Multilinear<EF> = if packed_pol.is_device() {
-        //     MultilinearDevice::new(memcpy_htod(&A_pol.evals)).into() // TODO bad (A pol should be constructed in cuda)
-        // } else {
-        //     A_pol.into()
-        // };
-
         let lagranged_r_pp = MultilinearHost::eq_mle(&r_pp).evals;
         let A_pol = Multilinear::eq_mle(&packed_point, packed_pol.is_device())
             .piecewise_dot_product_at_field_level::<F>(&lagranged_r_pp);
-
-        let time = std::time::Instant::now();
 
         let s0 = dot_product(&s_hat.rows(), &lagranged_r_pp);
         let (r_p, _, _) = sumcheck::prove::<F, EF, EF, _>(
@@ -129,7 +110,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
             &vec![packed_pol, &A_pol],
             &[
                 (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
-                    .fix_computation(false),
+                    .fix_computation(true),
             ],
             &[EF::ONE],
             None,
@@ -140,9 +121,6 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
             0,
             None,
         );
-        println!("T3: {:?}", time.elapsed());
-        let time = std::time::Instant::now();
-
         let packed_value = witness.inner_witness.pol().evaluate(&r_p);
         cuda_sync();
         let packed_eval = Evaluation {
@@ -151,7 +129,6 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
         };
         fs_prover.add_scalars(&[packed_value]);
         std::mem::drop(_span);
-        println!("T4: {:?}", time.elapsed());
 
         self.inner
             .open(witness.inner_witness, &packed_eval, fs_prover)
@@ -222,7 +199,7 @@ mod test {
     use p3_field::extension::BinomialExtensionField;
     use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
-    use whir::parameters::WhirParameters;
+    use whir::parameters::{SoundnessType, WhirParameters};
 
     use crate::WhirPCS;
 
@@ -239,9 +216,14 @@ mod test {
         let rng = &mut StdRng::seed_from_u64(0);
         let ring_switch = RingSwitch::<F, EF, WhirPCS<F, EF>>::new(
             n_vars,
-            &WhirParameters::standard(security_bits, log_inv_rate, false),
+            &WhirParameters::standard(
+                SoundnessType::ProvableList,
+                security_bits,
+                log_inv_rate,
+                false,
+            ),
         );
-        let pol = MultilinearHost::<F>::random(rng, n_vars);
+        let pol = Multilinear::Host(MultilinearHost::<F>::random(rng, n_vars));
         let mut fs_prover = FsProver::new();
         let commitment = ring_switch.commit(pol.clone(), &mut fs_prover);
         let point = (0..n_vars).map(|_| rng.random()).collect::<Vec<_>>();

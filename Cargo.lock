@@ -28,6 +28,7 @@ dependencies = [
  "sumcheck",
  "tracing",
  "utils",
+ "whir",
 ]
 
 [[package]]
@@ -227,6 +228,7 @@ dependencies = [
  "rand",
  "rayon",
  "sha3",
+ "tracing",
  "utils",
 ]
 
@@ -954,6 +956,7 @@ dependencies = [
  "tracing",
  "tracing-forest",
  "tracing-subscriber",
+ "whir",
 ]
 
 [[package]]
