@@ -1,0 +1,176 @@
+\documentclass{article}
+
+\usepackage[english]{babel}
+
+\usepackage[letterpaper,top=2cm,bottom=2cm,left=3cm,right=3cm,marginparwidth=1.75cm]{geometry}
+
+% Useful packages
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usepackage[colorlinks=true, allcolors=blue]{hyperref}
+
+\newcommand{\Fp}{\mathbb F_p}
+\newcommand{\Fq}{\mathbb F_q}
+\newcommand{\Pol}{T}
+
+\title{Whirlaway}
+\author{}
+\date{}
+\begin{document}
+\maketitle
+
+\section{Introduction}
+
+Whirlaway is a hash-based SNARK focusing on lightweight proofs, powered by the WHIR Polynomial Commitment Scheme \cite{whir}. The implementation is still in progress and can be found \href{https://github.com/TomWambsgans/Whirlaway}{here}. In this document, we explain how the proof system works. Nothing is fundamentally new, simply the combination of several recent techniques (WHIR, Ring-Switching, Sumcheck /  Univariate Skip).
+
+\section{Notations and Symbols}
+
+\begin{itemize}
+    \item $log$ is always in base 2
+    \item $[i]_2$: big-endian bit decomposition of an integer $i$
+    \item $eq(x, y) := \prod_{i = 1}^{n} (x_i y_i + (1 - x_i) (1 - y_i))$, for $x$ and $y$ in $\mathbb F^n$
+    \item $\Fp$: small field
+    \item $\Fq$: large field ($q = p^{2^\kappa}$)
+    \item $M$ $(\text{resp. } M')$: number of columns (resp. non-preprocessed columns) in the AIR table
+    \item $m$ $(\text{resp. } m')$: smallest integer such that $2^m \geq M$ (resp. $2^{m'} \geq M'$)
+    \item $N = 2^n$: number of rows in the AIR table
+    \item $h_1, \dots, h_u$: transition constraints
+    \item $H$: batched constraint ($H := \sum_{i=0}^{u-1} h_i \alpha^i $)
+    \item $\Pol$: multilinear polynomial in $\Fp$ encoding all the (non-preprocessed) columns, with $n + m'$ variables
+\end{itemize}
+
+\section{Arithmetization}
+
+We use AIR arithmetization (Algebraic Intermediate Representation). The witness consists of a list of $M$ columns $c_0, \dots, c_{M-1}$. Each column contains $N = 2^n$ elements if $\Fp$ (we use a power of 2 for simplicity). The goal of the prover is to convince the verifier that the table respects a set of $u$ transition constraints $h_0, \dots h_{u-1}$. Each constraint $h$ is a polynomial in $2 M$ variables, which is respected if for all rows $r \in \{0, \dots, N-2\}$: 
+
+$$h(c_0[r], \dots, c_{M-1}[r], c_0[r+1], \dots, c_{M-1}[r+1]) = 0$$
+
+Traditional AIR systems allow the verifier to fix certain cells in the table (see "boundary conditions" \href{https://aszepieniec.github.io/stark-anatomy/stark}{here}). For technical reasons, we use a slightly different approach: we allow the verifier to fix certain columns, potentially sparse (called "preprocessed columns"). The work of the verifier associated to each preprocessed column is proportional to its number of nonzero rows. We denote by $c_0, \dots, c_{M'-1}$ the non-preprocessed columns and $c_{M'}, \dots, c_{M-1}$ the preprocessed ones.
+
+\section{Proving system}
+
+\subsection{Commitment}
+
+Contrary to most of the STARK systems, which use a univariate Polynomial Commitment Scheme (PCS), like FRI or KZG, we use instead a multilinear\footnote{a multivariate polynomial with degree at most one in each variable} PCS: WHIR \cite{whir}. The entire AIR table is encoded and committed as a single multilinear polynomial $\Pol$ (except for the preprocessed columns, which are not committed). $\Pol$ has $n + m'$ variables, where $n = \log N = \log \text{(number of rows)}$ and $m' = \left\lceil  \log M' \right\rceil = \left\lceil  \log \text{(number of non-preprocessed columns)} \right\rceil$. $\Pol$ is defined in the lagrange basis (by its evaluations on the hypercube).
+
+For every (non-preprocessed) column $i$ ($0 \leq i < M'$), for every row $r$ ($0 \leq r < N$): 
+
+$$\Pol([i]_2 [r]_2) := c_{i}[r]$$
+
+Where $[i]_2$ and $[r]_2$ are the corresponding bit decomposition (big-endian) of $i$ and $r$ (e.g. $M' = 20, N = 128, i = 3, r = 33, [i]_2[r]_2 = (00011 | 0100001)$).
+
+The undefined evaluations ($M \leq i < 2^{m'}$) are irrelevant and can be set to zero.
+
+Note that the coefficients of $\Pol$ are in the small field $\Fp$. The random evaluation point at which $\Pol$ will be queried later by the verifier is in the big field $\Fq$ (for soundness). To avoid the "embedding overhead" of committing in the big field, we use the \textbf{ring-switching} protocol (see section 3 of \cite{fri_binius}) to commit in the small field and open in the big field.
+
+\subsection{Batching the constraints}
+
+After receiving the commitment to $\Pol$, the verifier sends a random scalar $\alpha \in \Fq$ to the prover. Except with small soundness error, we can replace the $u$ transition constraints by a single one: $H := \sum_{i=0}^{u-1} h_i \alpha^i $.
+
+\subsection{Zerocheck} \label{zerocheck}
+
+The main argument comes from \cite{ccs} (see also \cite{simple_multivariate_AIR}).
+
+For each column $c$, we define the multilinear polynomials $c^{\text{up}}$ in $n$ variables by:
+
+$$c^{\text{up}}([r]_2)  = \begin{cases}
+			c[r] & \text{if } r \in \{0, \dots, N-2\}\\
+            c[N-2] & \text{if } r = N-1
+		 \end{cases}$$
+
+Similarly, we define the multilinear polynomials $c^{\text{down}}$ in $n$ variables by:
+
+$$c^{\text{down}}([r]_2)  = \begin{cases}
+			c[r+1] & \text{if } r \in \{0, \dots, N-2\}\\
+            c[N-1] & \text{if } r = N-1
+		 \end{cases}$$
+
+The batched constraint $H$ is respected on the table if and only if:
+
+$$\begin{gathered}
+\forall r \in \{0, \dots, N-2\}, \hspace{2mm} H(c_0[r], \dots, c_{M-1}[r], c_0[r+1], \dots, c_{M-1}[r+1]) = 0 \\
+\Leftrightarrow\\
+\forall r \in \{0, \dots, N-1\}, \hspace{2mm} H(c_0^{\text{up}}([r]_2), \dots, c_{M-1}^{\text{up}}([r]_2), c_0^{\text{down}}([r]_2), \dots, c_{M-1}^{\text{down}}([r]_2)) = 0
+\end{gathered}$$
+
+The last equality can be proven using a zerocheck (see \cite{hyperplonk}), assuming the verifier has oracle access to $c_0^{\text{up}}, \dots, c_{M-1}^{\text{up}}$ and $ c_0^{\text{down}}, \dots, c_{M-1}^{\text{down}}$, which will be addressed in \ref{shifted_mle}. The zerocheck is performed as follows:
+
+\begin{itemize}
+    \item The verifier sends a random vector $r \in (\Fq)^n$
+    \item Prover and verifier run the sumcheck protocol to prove that:
+    $$ \sum_{b \in \{0, 1\}^n} eq(b, r) \cdot H(c_0^{\text{up}}(b), \dots, c_{M-1}^{\text{up}}(b), c_0^{\text{down}}(b), \dots, c_{M-1}^{\text{down}}(b)) = 0 $$
+    \item Let $\beta \in (\Fq)^n$ be the vector of random challenges sent during the sumcheck. The verifier needs to evaluate the expression inside the sum above for $b \xleftarrow{} \beta$.
+    
+    $eq(\beta, r)$ can be easily computed.
+    
+    To handle the other factor, the prover sends the claimed values of $c_0^{\text{up}}(\beta), \dots, c_{M-1}^{\text{up}}(\beta)$ and $c_0^{\text{down}}(\beta), \dots, c_{M-1}^{\text{down}}(\beta)$ (correctness will be addressed in \ref{shifted_mle}). Given these $2M$ values, the verifier can finally evaluate $H$, which concludes the zerocheck.
+\end{itemize}
+
+\subsection{Oracle access to \texorpdfstring{$\textbf{\textit{c}}^{\text{up}}$}{} and \texorpdfstring{$\textbf{\textit{c}}^{\text{down}}$}{}}\label{shifted_mle}
+
+In \ref{zerocheck}, for each column $c_i$, the prover has sent two values: $\text{claim}^\text{up}_i$ and $\text{claim}^\text{down}_i$ respectively equal to $c_i^{\text{up}}(\beta)$ and $c_i^{\text{down}}(\beta)$ in the honest case. It is now time to prove the correctness of these $2M$ evaluations.
+
+First, the verifier sends a random challenge $\gamma \in \Fq$. Except with small soundness error, the $2M$ claims can be reduced to the following:
+
+\begin{equation}\label{eq1}
+    \sum_{i = 0}^{M-1} (\gamma^i \cdot \text{claim}^\text{up}_i + \gamma^{i+M} \cdot \text{claim}^\text{down}_i) \stackrel{?}{=} \sum_{i = 0}^{M-1} (\gamma^i \cdot c_i^{\text{up}}(\beta) + \gamma^{i+M} \cdot c_i^{\text{down}}(\beta))
+\end{equation}
+
+
+The verifier can easily compute the left side. To handle the right side, the following protocol is used:
+
+\subsubsection{\texorpdfstring{Expression of $\textbf{\textit{c}}^{\text{up}}$}{}}
+
+For every column $c$, for every $r \in (\Fq)^n$, we have:
+
+$$c^{\text{up}}(r) = \sum_{b \in \{0, 1\}^n} [\underbrace{eq(b, r) \cdot (1 - eq(r, (\underbrace{1, \dots, 1}_{n \text{ times}})) + eq((r, b), (\underbrace{1, \dots, 1}_{2n - 1 \text{ times}}, 0)}_{\text{shift}^{\text{up}}(r, b)}] \cdot \tilde{c}(b)) $$
+
+Where $\tilde{c}$ represents the multilinear extension (MLE) of $c$.
+
+\subsubsection{\texorpdfstring{Expression of $\textbf{\textit{c}}^{\text{down}}$}{}}
+
+For every column $c$, for every $r \in (\Fq)^n$, we have:
+
+$$c^{\text{down}}(r) = \sum_{b \in \{0, 1\}^n} [\underbrace{\text{next}(r, b) +  eq((r, b), (\underbrace{1, \dots, 1}_{2n \text{ times}}))}_{\text{shift}^{\text{down}}(r, b)}] \cdot \tilde{c}(b) $$
+
+Where "next" is the multilinear polynomial in $2n$ variables defined on the hypercube by: 
+
+$$\text{next}([x]_2 [y]_2)  = \begin{cases}
+			1 & \text{if } y = x +1\\
+            0 & \text{otherwise}
+		 \end{cases} \text{ for every pair of n-bit integers } (x, y)$$
+
+See section 5.1 of \cite{ccs} for more details.
+
+\subsubsection{Yet another sumcheck}
+
+The right side of (\ref{eq1}) can thus be expressed as:
+
+$$\sum_{b \in \{0, 1\}^n} \underbrace{\sum_{i = 0}^{M-1} [\gamma^i \cdot \text{shift}^{\text{up}}(\beta, b) + \gamma^{i+M} \cdot \text{shift}^{\text{down}}(\beta, b) ] \cdot \tilde{c}_i(b)}_{\text{expr}(\beta, b)}$$
+
+A second sumcheck (with respect to $b$) is used to compute this sum. Let $\delta \in (\Fq)^n$ be the corresponding vector of challenges. The verifier must finally evaluate $\text{expr}(\beta, \delta)$. Both $\text{shift}^{\text{up}}$ and $\text{shift}^{\text{down}}$ can be succinctly computed. It remains $(\tilde{c}_i(\delta))_{0 \leq i < M}$, the evaluations of the columns MLEs on a common point $\delta$.
+
+\subsection{PCS opening}
+
+The verifier evaluates by himself $(\tilde{c}_i(\delta))_{M' \leq i < M}$ on the preprocessed columns.
+
+The prover sends to the verifier $(v_i)_{0 \leq i < M'}$, equal to $(\tilde{c}_i(\delta))_{0 \leq i < M'}$ in the honest case.
+
+The verifier sends a vector $z$ of $m' = \left\lceil  \log M' \right\rceil$ random scalars in $\Fq$.
+
+The verifier computes $\sum_{i \in \{0, 1\}^{m'}} eq(i, z) \cdot v_i$, then request a PCS opening for $\Pol((z, \delta))$, and require that both evaluations coincide.
+
+\section{Univariate skip}
+
+In order to improve the prover performance, we use the "univariate skip" from the section 5 of \cite{univariate_skip} in the zerocheck. TODO 
+
+% TODO
+% - section 4.4 gamma can be removed, by running 2M sumchecks in parallel ?
+
+
+\bibliographystyle{IEEEtran}
+\bibliography{bibliography}
+
+\end{document}

@@ -12,6 +12,8 @@ A hash-based SNARK with lightweight proofs, powered by the [Whir](https://eprint
 
 ## Proving System
 
+The protocol is detailed in [Whirlaway.pdf](Whirlaway.pdf)
+
 The core argument builds upon [SuperSpartan](https://eprint.iacr.org/2023/552.pdf) (Srinath Setty, Justin Thaler, Riad Wahby), with AIR-specific optimizations developed by William Borgeaud in [A simple multivariate AIR argument inspired by SuperSpartan](https://solvable.group/posts/super-air/#fnref:1).
 
 Key techniques:
