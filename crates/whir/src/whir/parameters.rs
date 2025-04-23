@@ -3,10 +3,7 @@ use std::{f64::consts::LOG2_10, fmt::Display};
 
 use p3_field::{ExtensionField, TwoAdicField};
 
-use crate::{
-    domain::Domain,
-    parameters::{FoldingFactor, MultivariateParameters, SoundnessType, WhirParameters},
-};
+use crate::parameters::{FoldingFactor, MultivariateParameters, SoundnessType, WhirParameters};
 
 #[derive(Clone)]
 pub struct WhirConfig<F: TwoAdicField, EF: ExtensionField<F>> {
@@ -22,7 +19,6 @@ pub struct WhirConfig<F: TwoAdicField, EF: ExtensionField<F>> {
     // 2. The commitment is a valid folded polynomial, and an additional
     //    polynomial evaluation statement. In that case, the initial statement
     //    is set to true.
-    pub(crate) starting_domain: Domain<F>,
     pub(crate) starting_log_inv_rate: usize,
     pub(crate) starting_folding_pow_bits: usize,
 
@@ -35,6 +31,7 @@ pub struct WhirConfig<F: TwoAdicField, EF: ExtensionField<F>> {
     pub(crate) final_sumcheck_rounds: usize,
     pub(crate) final_folding_pow_bits: usize,
     pub(crate) cuda: bool,
+    _f: std::marker::PhantomData<F>,
 }
 
 #[derive(Debug, Clone)]
@@ -58,12 +55,6 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> WhirConfig<F, EF> {
 
         let protocol_security_level =
             0.max(whir_parameters.security_level - whir_parameters.pow_bits);
-
-        let starting_domain = Domain::new(
-            1 << mv_parameters.num_variables,
-            whir_parameters.starting_log_inv_rate,
-        )
-        .expect("Should have found an appropriate domain - check Field 2 adicity?");
 
         let (num_rounds, final_sumcheck_rounds) = whir_parameters
             .folding_factor
@@ -182,7 +173,6 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> WhirConfig<F, EF> {
             max_pow_bits: whir_parameters.pow_bits,
             committment_ood_samples,
             mv_parameters,
-            starting_domain,
             soundness_type: whir_parameters.soundness_type,
             starting_log_inv_rate: whir_parameters.starting_log_inv_rate,
             starting_folding_pow_bits,
@@ -194,6 +184,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> WhirConfig<F, EF> {
             final_folding_pow_bits,
             final_log_inv_rate: log_inv_rate,
             cuda: whir_parameters.cuda,
+            _f: std::marker::PhantomData,
         }
     }
 

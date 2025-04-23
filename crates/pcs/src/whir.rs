@@ -30,7 +30,7 @@ impl<'a, EF: Field> PcsWitness<EF> for WhirWitness<EF> {
     }
 }
 
-impl<F: TwoAdicField, EF: ExtensionField<F>> PCS<EF, EF> for WhirPCS<F, EF> {
+impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField + Ord> PCS<EF, EF> for WhirPCS<F, EF> {
     type Witness = WhirWitness<EF>;
     type ParsedCommitment = ParsedCommitment<EF, KeccakDigest>;
     type VerifError = WhirError;

@@ -119,10 +119,12 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
             .collect();
 
         let mut prev_root = parsed_commitment.root.clone();
-        let mut domain_gen = self.params.starting_domain.backing_domain.group_gen();
+        let mut domain_gen = F::two_adic_generator(
+            self.params.mv_parameters.num_variables + self.params.starting_log_inv_rate,
+        );
         let mut exp_domain_gen = domain_gen.exp_u64(1 << self.params.folding_factor.at_round(0));
-        let mut domain_gen_inv = self.params.starting_domain.backing_domain.group_gen_inv();
-        let mut domain_size = self.params.starting_domain.size();
+        let mut domain_size =
+            1 << (self.params.mv_parameters.num_variables + self.params.starting_log_inv_rate);
         let mut rounds = vec![];
 
         for r in 0..self.params.n_rounds() {
@@ -201,7 +203,6 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
             prev_root = new_root.clone();
             domain_gen = domain_gen * domain_gen;
             exp_domain_gen = domain_gen.exp_u64(1 << self.params.folding_factor.at_round(r + 1));
-            domain_gen_inv = domain_gen_inv * domain_gen_inv;
             domain_size /= 2;
         }
 

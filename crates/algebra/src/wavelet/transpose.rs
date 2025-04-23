@@ -1,4 +1,6 @@
-use super::{MatrixMut, utils::workload_size};
+use crate::wavelet::workload_size;
+
+use super::MatrixMut;
 use std::mem::swap;
 
 use rayon::join;

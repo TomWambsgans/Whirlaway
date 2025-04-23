@@ -1,8 +1,7 @@
 use super::{Multilinear, MultilinearDevice};
-use crate::{
-    ntt::{expand_from_coeff, restructure_evaluations, wavelet_transform},
-    pols::MultilinearHost,
-};
+use crate::{pols::MultilinearHost, wavelet::wavelet_transform};
+use p3_dft::TwoAdicSubgroupDft;
+
 use cuda_bindings::cuda_restructure_evaluations;
 use cuda_bindings::{
     cuda_eval_multilinear_in_monomial_basis, cuda_expanded_ntt,
@@ -10,7 +9,9 @@ use cuda_bindings::{
 };
 use cuda_engine::{HostOrDeviceBuffer, cuda_sync, memcpy_dtoh};
 use cudarc::driver::CudaSlice;
+use p3_dft::Radix2DitParallel;
 use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use utils::switch_endianness;
 
 use {
@@ -262,11 +263,10 @@ impl<F: Field> CoefficientList<F> {
     pub fn expand_from_coeff_and_restructure<PrimeField: TwoAdicField>(
         &self,
         expansion: usize,
-        domain_gen_inv: PrimeField,
         folding_factor: usize,
     ) -> HostOrDeviceBuffer<F>
     where
-        F: ExtensionField<PrimeField>,
+        F: ExtensionField<PrimeField> + TwoAdicField + Ord,
     {
         let _info =
             tracing::info_span!("expand_from_coeff_and_restructure", cuda = self.is_device())
@@ -280,10 +280,17 @@ impl<F: Field> CoefficientList<F> {
                 cuda_sync();
                 HostOrDeviceBuffer::Device(folded_evals)
             }
-            Self::Host(coeffs) => {
-                let evals = expand_from_coeff::<PrimeField, F>(&coeffs.coeffs, expansion);
-                let folded_evals = restructure_evaluations(evals, domain_gen_inv, folding_factor);
-                HostOrDeviceBuffer::Host(folded_evals)
+            Self::Host(my_coeffs) => {
+                let mut coeffs = my_coeffs.coeffs.clone();
+                coeffs.resize(my_coeffs.n_coefs() * expansion, F::ZERO);
+                // TODO preprocess twiddles
+                HostOrDeviceBuffer::Host(
+                    Radix2DitParallel::<F>::default()
+                        .dft_batch(RowMajorMatrix::new(coeffs, 1 << folding_factor))
+                        // Get natural order of rows.
+                        .to_row_major_matrix()
+                        .values,
+                )
             }
         }
     }

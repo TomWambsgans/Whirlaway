@@ -1,8 +1,14 @@
-use super::{transpose, utils::workload_size};
-use p3_field::Field;
-use std::cmp::max;
+//! NTT and related algorithms.
 
+use matrix::MatrixMut;
+
+mod matrix;
+mod transpose;
+
+use crate::wavelet::transpose::transpose;
+use p3_field::Field;
 use rayon::prelude::*;
+use std::cmp::max;
 
 /// Fast Wavelet Transform.
 ///
@@ -15,7 +21,7 @@ pub fn wavelet_transform<F: Field>(values: &mut [F]) {
     wavelet_transform_batch(values, values.len())
 }
 
-pub fn wavelet_transform_batch<F: Field>(values: &mut [F], size: usize) {
+fn wavelet_transform_batch<F: Field>(values: &mut [F], size: usize) {
     debug_assert_eq!(values.len() % size, 0);
     debug_assert!(size.is_power_of_two());
     if values.len() > workload_size::<F>() && values.len() != size {
@@ -85,4 +91,12 @@ pub fn wavelet_transform_batch<F: Field>(values: &mut [F], size: usize) {
             transpose(values, n1, n2);
         }
     }
+}
+
+/// Target single-thread workload size for `T`.
+/// Should ideally be a multiple of a cache line (64 bytes)
+/// and close to the L1 cache size (32 KB).
+const fn workload_size<T: Sized>() -> usize {
+    const CACHE_SIZE: usize = 1 << 15;
+    CACHE_SIZE / size_of::<T>()
 }

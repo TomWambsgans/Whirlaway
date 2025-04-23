@@ -1,5 +1,4 @@
 use super::{Statement, committer::Witness, parameters::WhirConfig};
-use crate::domain::Domain;
 use algebra::pols::{CoefficientList, CoefficientListHost, Multilinear, MultilinearsVec};
 use arithmetic_circuit::TransparentPolynomial;
 use cuda_engine::{HostOrDeviceBuffer, cuda_sync};
@@ -14,7 +13,7 @@ use crate::whir::fs_utils::get_challenge_stir_queries;
 
 pub struct Prover<F: TwoAdicField, EF: ExtensionField<F>>(pub WhirConfig<F, EF>);
 
-impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
+impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField + Ord> Prover<F, EF> {
     fn validate_parameters(&self) -> bool {
         self.0.mv_parameters.num_variables
             == self.0.folding_factor.total_number(self.0.n_rounds()) + self.0.final_sumcheck_rounds
@@ -103,14 +102,15 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
             folding_randomness
         };
         let round_state = RoundState {
-            domain: self.0.starting_domain.clone(),
             round: 0,
             sumcheck_mles,
             hypercube_sum,
+            domain_size: 1 << (self.0.mv_parameters.num_variables + self.0.starting_log_inv_rate),
             folding_randomness,
             coefficients: witness.polynomial,
             prev_merkle: witness.merkle_tree,
             prev_merkle_answers: witness.merkle_leaves,
+            _f: std::marker::PhantomData,
         };
 
         self.round(fs_prover, round_state)
@@ -135,7 +135,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
             // Final verifier queries and answers. The indices are over the
             // *folded* domain.
             let final_challenge_indexes = get_challenge_stir_queries(
-                round_state.domain.size(), // The size of the *original* domain before folding
+                round_state.domain_size, // The size of the *original* domain before folding
                 self.0.folding_factor.at_round(round_state.round), // The folding factor we used to fold the previous polynomial
                 self.0.final_queries,
                 fs_prover,
@@ -191,12 +191,10 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
         let round_params = &self.0.round_parameters[round_state.round];
 
         // Fold the coefficients, and compute fft of polynomial (and commit)
-        let new_domain = round_state.domain.scale(2);
-        let expansion = new_domain.size() / folded_coefficients.n_coefs();
+        let expansion = round_state.domain_size / (2 * folded_coefficients.n_coefs());
 
         let folded_evals = folded_coefficients.expand_from_coeff_and_restructure(
             expansion,
-            new_domain.backing_domain.group_gen_inv(),
             self.0.folding_factor.at_round(round_state.round + 1),
         );
 
@@ -224,16 +222,16 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
 
         // STIR queries
         let stir_challenges_indexes = get_challenge_stir_queries(
-            round_state.domain.size(), // Current domain size *before* folding
+            round_state.domain_size, // Current domain size *before* folding
             self.0.folding_factor.at_round(round_state.round), // Current fold factor
             round_params.num_queries,
             fs_prover,
         );
         // Compute the generator of the folded domain, in the extension field
-        let domain_scaled_gen = round_state
-            .domain
-            .backing_domain
-            .element(1 << self.0.folding_factor.at_round(round_state.round));
+        let domain_scaled_gen = F::two_adic_generator(
+            round_state.domain_size.trailing_zeros() as usize
+                - self.0.folding_factor.at_round(round_state.round),
+        );
         let stir_challenges: Vec<_> = ood_points
             .into_iter()
             .chain(
@@ -304,13 +302,14 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
 
         let round_state = RoundState {
             round: round_state.round + 1,
-            domain: new_domain,
+            domain_size: round_state.domain_size / 2,
             sumcheck_mles,
             hypercube_sum,
             folding_randomness,
             coefficients: folded_coefficients, // TODO: Is this redundant with `sumcheck_prover.coeff` ?
             prev_merkle: merkle_tree,
             prev_merkle_answers: folded_evals,
+            _f: std::marker::PhantomData,
         };
 
         self.round(fs_prover, round_state)
@@ -319,13 +318,14 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Prover<F, EF> {
 
 struct RoundState<F: TwoAdicField, EF: ExtensionField<F>> {
     round: usize,
-    domain: Domain<F>,
     sumcheck_mles: Vec<Multilinear<EF>>,
     hypercube_sum: EF,
+    domain_size: usize,
     folding_randomness: Vec<EF>,
     coefficients: CoefficientList<EF>,
     prev_merkle: MerkleTree<EF>,
     prev_merkle_answers: HostOrDeviceBuffer<EF>,
+    _f: std::marker::PhantomData<F>,
 }
 
 #[instrument(name = "randomized_eq_extensions", skip_all)]

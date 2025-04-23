@@ -61,7 +61,7 @@ $$\Pol([i]_2 [r]_2) := c_{i}[r]$$
 
 Where $[i]_2$ and $[r]_2$ are the corresponding bit decomposition (big-endian) of $i$ and $r$ (e.g. $M' = 20, N = 128, i = 3, r = 33, [i]_2[r]_2 = (00011 | 0100001)$).
 
-The undefined evaluations ($M \leq i < 2^{m'}$) are irrelevant and can be set to zero.
+The undefined evaluations ($M' \leq i < 2^{m'}$) are irrelevant and can be set to zero.
 
 Note that the coefficients of $\Pol$ are in the small field $\Fp$. The random evaluation point at which $\Pol$ will be queried later by the verifier is in the big field $\Fq$ (for soundness). To avoid the "embedding overhead" of committing in the big field, we use the \textbf{ring-switching} protocol (see section 3 of \cite{fri_binius}) to commit in the small field and open in the big field.
 
@@ -160,7 +160,7 @@ The prover sends to the verifier $(v_i)_{0 \leq i < M'}$, equal to $(\tilde{c}_i
 
 The verifier sends a vector $z$ of $m' = \left\lceil  \log M' \right\rceil$ random scalars in $\Fq$.
 
-The verifier computes $\sum_{i \in \{0, 1\}^{m'}} eq(i, z) \cdot v_i$, then request a PCS opening for $\Pol((z, \delta))$, and require that both evaluations coincide.
+The verifier computes $\sum_{i \in \{0, 1\}^{m'}} eq(i, z) \cdot v_i$, then requests a PCS opening for $\Pol((z, \delta))$, and requires that both evaluations coincide.
 
 \section{Univariate skip}
 

@@ -19,7 +19,7 @@ pub struct Witness<EF: Field> {
 
 pub struct Committer<F: TwoAdicField, EF: ExtensionField<F>>(WhirConfig<F, EF>);
 
-impl<F: TwoAdicField, EF: ExtensionField<F>> Committer<F, EF> {
+impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField + Ord> Committer<F, EF> {
     pub fn new(config: WhirConfig<F, EF>) -> Self {
         Self(config)
     }
@@ -30,17 +30,12 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Committer<F, EF> {
         fs_prover: &mut FsProver,
         lagrange_polynomial: Multilinear<EF>,
     ) -> Option<Witness<EF>> {
-        let base_domain = self.0.starting_domain.base_domain.as_ref().unwrap();
-
         let polynomial = lagrange_polynomial.to_monomial_basis_rev();
 
-        let expansion = base_domain.size() / polynomial.n_coefs();
+        let expansion = 1 << self.0.starting_log_inv_rate;
 
-        let folded_evals = polynomial.expand_from_coeff_and_restructure(
-            expansion,
-            base_domain.group_gen_inv(),
-            self.0.folding_factor.at_round(0),
-        );
+        let folded_evals = polynomial
+            .expand_from_coeff_and_restructure(expansion, self.0.folding_factor.at_round(0));
 
         // Group folds together as a leaf.
         let fold_size = 1 << self.0.folding_factor.at_round(0);

@@ -27,25 +27,18 @@ Key techniques:
 
 Proving poseidon2 hashes on the koala-bear field. Note that we are limited by the two adicity (24) of the field (other fields will be included in the future).
 
-### RTX 4090
-
-| WHIR initial rate | 1/16    | 1/8     | 1/4     | 1/2     |
-| ----------------- | ------- | ------- | ------- | ------- |
-| poseidon2 count   | 2^15    | 2^16    | 2^17    | 2^18    |
-| proving time      | 0.35 s  | 0.43 s  | 0.57 s  | 0.85 s  |
-| hash / s          | 95K     | 152K    | 229K    | 307K    |
-| proof size        | 154 KiB | 186 KiB | 230 KiB | 331 KiB |
-| verification time | 5 ms    | 5 ms    | 7 ms    | 9 ms    |
-
-### RTX 3060 mobile
-
-| WHIR initial rate | 1/16    | 1/8     | 1/4     | 1/2     |
-| ----------------- | ------- | ------- | ------- | ------- |
-| poseidon2 count   | 2^15    | 2^16    | 2^17    | 2^18    |
-| proving time      | 0.72 s  | 0.86 s  | 1.25 s  | 1.17 s  |
-| hash / s          | 46K     | 76K     | 105K    | 112K    |
-| proof size        | 154 KiB | 186 KiB | 230 KiB | 331 KiB |
-| verification time | 5 ms    | 5 ms    | 7 ms    | 9 ms    |
+| WHIR initial rate   | 1/16    | 1/8     | 1/4     | 1/2     |
+| ------------------- | ------- | ------- | ------- | ------- |
+| poseidon2 count     | 2^15    | 2^16    | 2^17    | 2^18    |
+| **RTX 4090**        |         |         |         |         |
+| proving time        | 0.35 s  | 0.43 s  | 0.57 s  | 0.85 s  |
+| hash / s            | 95K     | 152K    | 229K    | 307K    |
+| **RTX 3060 mobile** |         |         |         |         |
+| proving time        | 0.72 s  | 0.86 s  | 1.25 s  | 1.17 s  |
+| hash / s            | 46K     | 76K     | 105K    | 112K    |
+| **Verification**    |         |         |         |         |
+| proof size          | 154 KiB | 186 KiB | 230 KiB | 331 KiB |
+| verification time   | 5 ms    | 5 ms    | 7 ms    | 9 ms    |
 
 To reproduce the benchmark:
 
