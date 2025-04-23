@@ -14,5 +14,12 @@
 - Neg in ArithmeticCircuitComposed
 - There is a lot of duplications in cuda kernels + in the synthetic cuda generation (in rust)
 - use cuda constant memory for batching_scalars
+- sparse preprocessed columns
+- MaybeUninit instead of allocating zeros when it's rewritten just after
+
+- https://github.com/tcoratger/whir-p3/pull/5/files
+- https://github.com/tcoratger/whir-p3/pull/7
+- https://github.com/WizardOfMenlo/whir/pull/85
+
 
 - Add ZK?

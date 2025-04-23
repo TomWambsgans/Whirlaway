@@ -131,7 +131,7 @@ impl<'a, T> MatrixMut<'a, T> {
     }
 
     /// returns an immutable pointer to the element at (`row`, `col`). This performs no bounds checking and provining indices out-of-bounds is UB.
-    unsafe fn ptr_at(&self, row: usize, col: usize) -> *const T {
+    pub unsafe fn ptr_at(&self, row: usize, col: usize) -> *const T {
         // Safe to call under the following assertion (checked by caller)
         // assert!(row < self.rows);
         // assert!(col < self.cols);
@@ -142,7 +142,7 @@ impl<'a, T> MatrixMut<'a, T> {
     }
 
     /// returns a mutable pointer to the element at (`row`, `col`). This performs no bounds checking and provining indices out-of-bounds is UB.
-    unsafe fn ptr_at_mut(&mut self, row: usize, col: usize) -> *mut T {
+    pub unsafe fn ptr_at_mut(&mut self, row: usize, col: usize) -> *mut T {
         // Safe to call under the following assertion (checked by caller)
         //
         // assert!(row < self.rows);

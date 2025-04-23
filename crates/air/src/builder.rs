@@ -1,3 +1,5 @@
+use std::array;
+
 use algebra::pols::{MultilinearHost, univariate_selectors};
 use arithmetic_circuit::ArithmeticCircuit;
 use p3_field::Field;
@@ -70,23 +72,20 @@ impl<F: Field, const COLS: usize> AirBuilder<F, COLS> {
         [ArithmeticCircuit<F, ConstraintVariable>; COLS],
         [ArithmeticCircuit<F, ConstraintVariable>; COLS],
     ) {
-        let up = (0..COLS)
-            .map(|col_index| {
+        (
+            array::from_fn(|col_index| {
                 ArithmeticCircuit::Node(ConstraintVariable {
                     col_index,
                     alignment: Alignment::Up,
                 })
-            })
-            .collect::<Vec<_>>();
-        let down = (0..COLS)
-            .map(|col_index| {
+            }),
+            array::from_fn(|col_index| {
                 ArithmeticCircuit::Node(ConstraintVariable {
                     col_index,
                     alignment: Alignment::Down,
                 })
-            })
-            .collect::<Vec<_>>();
-        (up.try_into().unwrap(), down.try_into().unwrap())
+            }),
+        )
     }
 
     pub fn build(mut self) -> AirTable<F> {

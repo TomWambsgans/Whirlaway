@@ -20,7 +20,7 @@ fn main() {
     // println!("\n{}", benchmark.to_string());
 
     for soundness_type in [SoundnessType::ProvableList, SoundnessType::ConjectureList] {
-        for (log_n_rows, log_inv_rate) in [(15, 4), (16, 3), (17, 2), (17, 2)] {
+        for (log_n_rows, log_inv_rate) in [(15, 4), (16, 3), (17, 2), (17, 1)] {
             let benchmark = prove_poseidon2(
                 log_n_rows,
                 WhirParameters::standard(soundness_type, SECURITY_BITS, log_inv_rate, USE_CUDA),
