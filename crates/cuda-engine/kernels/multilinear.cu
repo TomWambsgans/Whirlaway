@@ -7,7 +7,7 @@
 #include "finite_field.cu"
 
 // (+ reverse vars)
-extern "C" __global__ void monomial_to_lagrange_basis_rev(ExtField *input_coeffs, ExtField *buff, ExtField *output_evals, const uint32_t n_vars)
+extern "C" __global__ void monomial_to_lagrange_basis_rev(BigField *input_coeffs, BigField *buff, BigField *output_evals, const uint32_t n_vars)
 {
     namespace cg = cooperative_groups;
     cg::grid_group grid = cg::this_grid();
@@ -20,8 +20,8 @@ extern "C" __global__ void monomial_to_lagrange_basis_rev(ExtField *input_coeffs
     {
         // switch back and forth between buffers
 
-        ExtField *input;
-        ExtField *output;
+        BigField *input;
+        BigField *output;
 
         if (step == 0)
         {
@@ -50,9 +50,9 @@ extern "C" __global__ void monomial_to_lagrange_basis_rev(ExtField *input_coeffs
             {
                 const int x = (threadIndex / half_size) * 2 * half_size;
                 const int y = threadIndex % half_size;
-                ExtField left = input[x + 2 * y];
+                BigField left = input[x + 2 * y];
                 output[x + y] = left;
-                ext_field_add(&left, &input[x + (2 * y) + 1], &output[x + y + half_size]);
+                BigField::add(&left, &input[x + (2 * y) + 1], &output[x + y + half_size]);
             }
         }
 
@@ -61,7 +61,7 @@ extern "C" __global__ void monomial_to_lagrange_basis_rev(ExtField *input_coeffs
 }
 
 // Could also be done in place
-extern "C" __global__ void lagrange_to_monomial_basis(ExtField *input_evals, ExtField *output_coeffs, const uint32_t n_vars)
+extern "C" __global__ void lagrange_to_monomial_basis(BigField *input_evals, BigField *output_coeffs, const uint32_t n_vars)
 {
     namespace cg = cooperative_groups;
     cg::grid_group grid = cg::this_grid();
@@ -95,7 +95,7 @@ extern "C" __global__ void lagrange_to_monomial_basis(ExtField *input_evals, Ext
             {
                 const int x = (idx / half_size) * 2 * half_size;
                 const int y = idx % half_size;
-                ext_field_sub(&output_coeffs[x + y + half_size], &output_coeffs[x + y], &output_coeffs[x + y + half_size]);
+                BigField::sub(&output_coeffs[x + y + half_size], &output_coeffs[x + y], &output_coeffs[x + y + half_size]);
             }
         }
 
@@ -104,7 +104,7 @@ extern "C" __global__ void lagrange_to_monomial_basis(ExtField *input_evals, Ext
 }
 
 // Could also be done in place
-extern "C" __global__ void lagrange_to_monomial_basis_rev(ExtField *input_evals, ExtField *buff, ExtField *output_coeffs, const uint32_t n_vars)
+extern "C" __global__ void lagrange_to_monomial_basis_rev(BigField *input_evals, BigField *buff, BigField *output_coeffs, const uint32_t n_vars)
 {
     namespace cg = cooperative_groups;
     cg::grid_group grid = cg::this_grid();
@@ -129,13 +129,13 @@ extern "C" __global__ void lagrange_to_monomial_basis_rev(ExtField *input_evals,
             const int start = (idx / half) * 2 * half;
             const int offset = idx % half;
 
-            ExtField *inputs = step == 0 ? input_evals : (n_vars % 2 != step % 2 ? buff : output_coeffs);
-            ExtField *outputs = n_vars % 2 == step % 2 ? buff : output_coeffs;
+            BigField *inputs = step == 0 ? input_evals : (n_vars % 2 != step % 2 ? buff : output_coeffs);
+            BigField *outputs = n_vars % 2 == step % 2 ? buff : output_coeffs;
 
-            ExtField even = inputs[start + offset * 2];
-            ExtField odd = inputs[start + offset * 2 + 1];
-            ExtField diff;
-            ext_field_sub(&odd, &even, &diff);
+            BigField even = inputs[start + offset * 2];
+            BigField odd = inputs[start + offset * 2 + 1];
+            BigField diff;
+            BigField::sub(&odd, &even, &diff);
 
             outputs[start + offset] = even;
             outputs[start + offset + half] = diff;
@@ -144,7 +144,7 @@ extern "C" __global__ void lagrange_to_monomial_basis_rev(ExtField *input_evals,
     }
 }
 
-extern "C" __global__ void eval_ext_multilinear_at_ext_point_in_monomial_basis(ExtField *coeffs, ExtField *point, const uint32_t n_vars, ExtField *buff)
+extern "C" __global__ void eval_ext_multilinear_at_ext_point_in_monomial_basis(BigField *coeffs, BigField *point, const uint32_t n_vars, BigField *buff)
 {
     // coeffs and buff have size 2^n_vars
     // result is stored at the last index of the buffer
@@ -156,8 +156,8 @@ extern "C" __global__ void eval_ext_multilinear_at_ext_point_in_monomial_basis(E
 
     for (int step = 0; step < n_vars; step++)
     {
-        ExtField *input;
-        ExtField *output;
+        BigField *input;
+        BigField *output;
 
         if (step == 0)
         {
@@ -179,16 +179,16 @@ extern "C" __global__ void eval_ext_multilinear_at_ext_point_in_monomial_basis(E
             const int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
             if (threadIndex < n_iters)
             {
-                ExtField prod;
-                ext_field_mul(&input[threadIndex + (1 << (n_vars - 1 - step))], &point[step], &prod);
-                ext_field_add(&input[threadIndex], &prod, &output[threadIndex]);
+                BigField prod;
+                BigField::mul(&input[threadIndex + (1 << (n_vars - 1 - step))], &point[step], &prod);
+                BigField::add(&input[threadIndex], &prod, &output[threadIndex]);
             }
         }
         grid.sync();
     }
 }
 
-extern "C" __global__ void eq_mle(ExtField *point, const uint32_t n_vars, ExtField *res)
+extern "C" __global__ void eq_mle(BigField *point, const uint32_t n_vars, BigField *res)
 {
     namespace cg = cooperative_groups;
     cg::grid_group grid = cg::this_grid();
@@ -197,8 +197,8 @@ extern "C" __global__ void eq_mle(ExtField *point, const uint32_t n_vars, ExtFie
 
     if (threadIdx.x == 0 && blockIdx.x == 0)
     {
-        res[0] = ExtField{0};
-        res[0].coeffs[0] = to_monty(1);
+        res[0] = BigField{0};
+        res[0].coeffs[0] = SmallField::from_canonical(1);
     }
     grid.sync();
 
@@ -211,15 +211,15 @@ extern "C" __global__ void eq_mle(ExtField *point, const uint32_t n_vars, ExtFie
             const int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
             if (threadIndex < n_iters)
             {
-                ext_field_mul(&res[threadIndex], &point[n_vars - 1 - step], &res[threadIndex + (1 << step)]);
-                ext_field_sub(&res[threadIndex], &res[threadIndex + (1 << step)], &res[threadIndex]);
+                BigField::mul(&res[threadIndex], &point[n_vars - 1 - step], &res[threadIndex + (1 << step)]);
+                BigField::sub(&res[threadIndex], &res[threadIndex + (1 << step)], &res[threadIndex]);
             }
         }
         grid.sync();
     }
 }
 
-extern "C" __global__ void scale_ext_slice_in_place(ExtField *slice, const uint32_t len, ExtField *scalar)
+extern "C" __global__ void scale_ext_slice_in_place(BigField *slice, const uint32_t len, BigField *scalar)
 {
     const int total_n_threads = blockDim.x * gridDim.x;
 
@@ -229,14 +229,14 @@ extern "C" __global__ void scale_ext_slice_in_place(ExtField *slice, const uint3
         const int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
         if (threadIndex < len)
         {
-            ExtField prod;
-            ext_field_mul(&slice[threadIndex], scalar, &prod);
+            BigField prod;
+            BigField::mul(&slice[threadIndex], scalar, &prod);
             slice[threadIndex] = prod;
         }
     }
 }
 
-extern "C" __global__ void scale_prime_slice_by_ext(uint32_t *slice, const uint32_t len, ExtField *scalar, ExtField *res)
+extern "C" __global__ void scale_prime_slice_by_ext(SmallField *slice, const uint32_t len, BigField *scalar, BigField *res)
 {
     const int total_n_threads = blockDim.x * gridDim.x;
 
@@ -246,12 +246,12 @@ extern "C" __global__ void scale_prime_slice_by_ext(uint32_t *slice, const uint3
         const int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
         if (threadIndex < len)
         {
-            mul_prime_and_ext_field(scalar, slice[threadIndex], &res[threadIndex]);
+            BigField::mul_small_field(scalar, slice[threadIndex], &res[threadIndex]);
         }
     }
 }
 
-extern "C" __global__ void add_slices(const ExtField **slices, ExtField *res, const uint32_t n_slices, const uint32_t len)
+extern "C" __global__ void add_slices(const BigField **slices, BigField *res, const uint32_t n_slices, const uint32_t len)
 {
     const int total_n_threads = blockDim.x * gridDim.x;
 
@@ -261,17 +261,17 @@ extern "C" __global__ void add_slices(const ExtField **slices, ExtField *res, co
         const int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
         if (threadIndex < len)
         {
-            ExtField sum = {0};
+            BigField sum = {0};
             for (int i = 0; i < n_slices; i++)
             {
-                ext_field_add(&slices[i][threadIndex], &sum, &sum);
+                BigField::add(&slices[i][threadIndex], &sum, &sum);
             }
             res[threadIndex] = sum;
         }
     }
 }
 
-extern "C" __global__ void add_assign_slices(ExtField *a, ExtField *b, const uint32_t len)
+extern "C" __global__ void add_assign_slices(BigField *a, BigField *b, const uint32_t len)
 {
     // a += b
     const int total_n_threads = blockDim.x * gridDim.x;
@@ -281,12 +281,12 @@ extern "C" __global__ void add_assign_slices(ExtField *a, ExtField *b, const uin
         const int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
         if (threadIndex < len)
         {
-            ext_field_add(&a[threadIndex], &b[threadIndex], &a[threadIndex]);
+            BigField::add(&a[threadIndex], &b[threadIndex], &a[threadIndex]);
         }
     }
 }
 
-extern "C" __global__ void whir_fold(ExtField *coeffs, const uint32_t n_vars, const uint32_t folding_factor, ExtField *folding_randomness, ExtField *buff, ExtField *res)
+extern "C" __global__ void whir_fold(BigField *coeffs, const uint32_t n_vars, const uint32_t folding_factor, BigField *folding_randomness, BigField *buff, BigField *res)
 {
     // coeffs has length 2^n_vars
 
@@ -297,8 +297,8 @@ extern "C" __global__ void whir_fold(ExtField *coeffs, const uint32_t n_vars, co
 
     for (int step = 0; step < folding_factor; step++)
     {
-        ExtField *input;
-        ExtField *output;
+        BigField *input;
+        BigField *output;
 
         if (folding_factor == 1)
         {
@@ -336,9 +336,9 @@ extern "C" __global__ void whir_fold(ExtField *coeffs, const uint32_t n_vars, co
             {
                 const int x = (threadIndex / helf_step_size) * 2 * helf_step_size;
                 const int y = threadIndex % helf_step_size;
-                ExtField prod;
-                ext_field_mul(&input[x + y + helf_step_size], &folding_randomness[step], &prod);
-                ext_field_add(&input[x + y], &prod, &output[threadIndex]);
+                BigField prod;
+                BigField::mul(&input[x + y + helf_step_size], &folding_randomness[step], &prod);
+                BigField::add(&input[x + y], &prod, &output[threadIndex]);
             }
         }
         grid.sync();
@@ -385,7 +385,7 @@ extern "C" __global__ void multilinears_down(uint32_t **columns, const uint32_t 
     }
 }
 
-extern "C" __global__ void fold_prime_by_prime(const uint32_t **inputs, uint32_t **res, const uint32_t *scalars, const uint32_t n_slices, const uint32_t slice_log_len, const uint32_t log_n_scalars)
+extern "C" __global__ void fold_prime_by_prime(const SmallField **inputs, SmallField **res, const SmallField *scalars, const uint32_t n_slices, const uint32_t slice_log_len, const uint32_t log_n_scalars)
 {
     // scalar contains 2^folding_factor elements
     const int total_n_threads = blockDim.x * gridDim.x;
@@ -398,17 +398,17 @@ extern "C" __global__ void fold_prime_by_prime(const uint32_t **inputs, uint32_t
         if (slice_index >= n_slices)
             return;
         const int slice_offset = thread_index % (1 << (slice_log_len - log_n_scalars));
-        uint32_t sum = 0;
+        SmallField sum = SmallField::from_canonical(0);
         for (int i = 0; i < 1 << log_n_scalars; i++)
         {
-            uint32_t term = monty_field_mul(inputs[slice_index][slice_offset + (i << (slice_log_len - log_n_scalars))], scalars[i]);
-            sum = monty_field_add(sum, term);
+            SmallField term = SmallField::mul(inputs[slice_index][slice_offset + (i << (slice_log_len - log_n_scalars))], scalars[i]);
+            sum = SmallField::add(sum, term);
         }
         res[slice_index][slice_offset] = sum;
     }
 }
 
-extern "C" __global__ void fold_prime_by_ext(const uint32_t **inputs, ExtField **res, const ExtField *scalars, const uint32_t n_slices, const uint32_t slice_log_len, const uint32_t log_n_scalars)
+extern "C" __global__ void fold_prime_by_ext(const SmallField **inputs, BigField **res, const BigField *scalars, const uint32_t n_slices, const uint32_t slice_log_len, const uint32_t log_n_scalars)
 {
     // scalar contains 2^folding_factor elements
     const int total_n_threads = blockDim.x * gridDim.x;
@@ -421,18 +421,18 @@ extern "C" __global__ void fold_prime_by_ext(const uint32_t **inputs, ExtField *
         if (slice_index >= n_slices)
             return;
         const int slice_offset = thread_index % (1 << (slice_log_len - log_n_scalars));
-        ExtField sum = {0};
+        BigField sum = {0};
         for (int i = 0; i < 1 << log_n_scalars; i++)
         {
-            ExtField term;
-            mul_prime_and_ext_field(&scalars[i], inputs[slice_index][slice_offset + (i << (slice_log_len - log_n_scalars))], &term);
-            ext_field_add(&sum, &term, &sum);
+            BigField term;
+            BigField::mul_small_field(&scalars[i], inputs[slice_index][slice_offset + (i << (slice_log_len - log_n_scalars))], &term);
+            BigField::add(&sum, &term, &sum);
         }
         res[slice_index][slice_offset] = sum;
     }
 }
 
-extern "C" __global__ void fold_ext_by_prime(const ExtField **inputs, ExtField **res, const uint32_t *scalars, const uint32_t n_slices, const uint32_t slice_log_len, const uint32_t log_n_scalars)
+extern "C" __global__ void fold_ext_by_prime(const BigField **inputs, BigField **res, const SmallField *scalars, const uint32_t n_slices, const uint32_t slice_log_len, const uint32_t log_n_scalars)
 {
     // scalar contains 2^folding_factor elements
     const int total_n_threads = blockDim.x * gridDim.x;
@@ -445,18 +445,18 @@ extern "C" __global__ void fold_ext_by_prime(const ExtField **inputs, ExtField *
         if (slice_index >= n_slices)
             return;
         const int slice_offset = thread_index % (1 << (slice_log_len - log_n_scalars));
-        ExtField sum = {0};
+        BigField sum = {0};
         for (int i = 0; i < 1 << log_n_scalars; i++)
         {
-            ExtField term;
-            mul_prime_and_ext_field(&inputs[slice_index][slice_offset + (i << (slice_log_len - log_n_scalars))], scalars[i], &term);
-            ext_field_add(&sum, &term, &sum);
+            BigField term;
+            BigField::mul_small_field(&inputs[slice_index][slice_offset + (i << (slice_log_len - log_n_scalars))], scalars[i], &term);
+            BigField::add(&sum, &term, &sum);
         }
         res[slice_index][slice_offset] = sum;
     }
 }
 
-extern "C" __global__ void fold_ext_by_ext(const ExtField **inputs, ExtField **res, const ExtField *scalars, const uint32_t n_slices, const uint32_t slice_log_len, const uint32_t log_n_scalars)
+extern "C" __global__ void fold_ext_by_ext(const BigField **inputs, BigField **res, const BigField *scalars, const uint32_t n_slices, const uint32_t slice_log_len, const uint32_t log_n_scalars)
 {
     // scalar contains 2^folding_factor elements
     const int total_n_threads = blockDim.x * gridDim.x;
@@ -469,18 +469,18 @@ extern "C" __global__ void fold_ext_by_ext(const ExtField **inputs, ExtField **r
         if (slice_index >= n_slices)
             return;
         const int slice_offset = thread_index % (1 << (slice_log_len - log_n_scalars));
-        ExtField sum = {0};
+        BigField sum = {0};
         for (int i = 0; i < 1 << log_n_scalars; i++)
         {
-            ExtField term;
-            ext_field_mul(&scalars[i], &inputs[slice_index][slice_offset + (i << (slice_log_len - log_n_scalars))], &term);
-            ext_field_add(&sum, &term, &sum);
+            BigField term;
+            BigField::mul(&scalars[i], &inputs[slice_index][slice_offset + (i << (slice_log_len - log_n_scalars))], &term);
+            BigField::add(&sum, &term, &sum);
         }
         res[slice_index][slice_offset] = sum;
     }
 }
 
-extern "C" __global__ void dot_product_ext_ext(ExtField *a, ExtField *b, ExtField *res, const uint32_t log_len)
+extern "C" __global__ void dot_product_ext_ext(BigField *a, BigField *b, BigField *res, const uint32_t log_len)
 {
     // a, b and res have size 2^log_len
     // the final result is stored in res[0]
@@ -497,7 +497,7 @@ extern "C" __global__ void dot_product_ext_ext(ExtField *a, ExtField *b, ExtFiel
         const int idx = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
         if (idx < len)
         {
-            ext_field_mul(&a[idx], &b[idx], &res[idx]);
+            BigField::mul(&a[idx], &b[idx], &res[idx]);
         }
     }
 
@@ -512,13 +512,13 @@ extern "C" __global__ void dot_product_ext_ext(ExtField *a, ExtField *b, ExtFiel
             const int thread_index = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
             if (thread_index < half_len)
             {
-                ext_field_add(&res[thread_index], &res[thread_index + half_len], &res[thread_index]);
+                BigField::add(&res[thread_index], &res[thread_index + half_len], &res[thread_index]);
             }
         }
     }
 }
 
-extern "C" __global__ void dot_product_ext_prime(ExtField *a, uint32_t *b, ExtField *res, const uint32_t log_len)
+extern "C" __global__ void dot_product_ext_prime(BigField *a, SmallField *b, BigField *res, const uint32_t log_len)
 {
     // a, b and res have size 2^log_len
     // the final result is stored in res[0]
@@ -535,7 +535,7 @@ extern "C" __global__ void dot_product_ext_prime(ExtField *a, uint32_t *b, ExtFi
         const int idx = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
         if (idx < len)
         {
-            mul_prime_and_ext_field(&a[idx], b[idx], &res[idx]);
+            BigField::mul_small_field(&a[idx], b[idx], &res[idx]);
         }
     }
 
@@ -550,13 +550,13 @@ extern "C" __global__ void dot_product_ext_prime(ExtField *a, uint32_t *b, ExtFi
             const int thread_index = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
             if (thread_index < half_len)
             {
-                ext_field_add(&res[thread_index], &res[thread_index + half_len], &res[thread_index]);
+                BigField::add(&res[thread_index], &res[thread_index + half_len], &res[thread_index]);
             }
         }
     }
 }
 
-extern "C" __global__ void piecewise_linear_comb(const uint32_t *input, ExtField *output, ExtField *scalars, const uint32_t len, const uint32_t n_scalars)
+extern "C" __global__ void piecewise_linear_comb(const SmallField *input, BigField *output, BigField *scalars, const uint32_t len, const uint32_t n_scalars)
 {
     // len must be a multiple of n_scalars
     // input has size len
@@ -576,20 +576,20 @@ extern "C" __global__ void piecewise_linear_comb(const uint32_t *input, ExtField
         const int idx = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
         if (idx < output_len)
         {
-            ExtField comb = {0};
+            BigField comb = {0};
             for (int i = 0; i < n_scalars; i++)
             {
-                ExtField scalar = scalars[i];
-                ExtField prod;
-                mul_prime_and_ext_field(&scalar, input[idx * n_scalars + i], &prod);
-                ext_field_add(&comb, &prod, &comb);
+                BigField scalar = scalars[i];
+                BigField prod;
+                BigField::mul_small_field(&scalar, input[idx * n_scalars + i], &prod);
+                BigField::add(&comb, &prod, &comb);
             }
             output[idx] = comb;
         }
     }
 }
 
-extern "C" __global__ void linear_combination_of_prime_slices_by_ext_scalars(const uint32_t **inputs, ExtField *output, ExtField *scalars, const uint32_t len, const uint32_t n_scalars)
+extern "C" __global__ void linear_combination_of_prime_slices_by_ext_scalars(const SmallField **inputs, BigField *output, BigField *scalars, const uint32_t len, const uint32_t n_scalars)
 {
     // inputs has size n_scalars, and each inputs[i] has size len
     // output has size len
@@ -610,19 +610,19 @@ extern "C" __global__ void linear_combination_of_prime_slices_by_ext_scalars(con
         {
             return;
         }
-        ExtField comb = {0};
+        BigField comb = {0};
         for (int i = 0; i < n_scalars; i++)
         {
-            ExtField scalar = scalars[i];
-            ExtField prod;
-            mul_prime_and_ext_field(&scalar, inputs[i][idx], &prod);
-            ext_field_add(&comb, &prod, &comb);
+            BigField scalar = scalars[i];
+            BigField prod;
+            BigField::mul_small_field(&scalar, inputs[i][idx], &prod);
+            BigField::add(&comb, &prod, &comb);
         }
         output[idx] = comb;
     }
 }
 
-extern "C" __global__ void piecewise_sum(const ExtField *input, ExtField *output, const uint32_t len, const uint32_t sum_size)
+extern "C" __global__ void piecewise_sum(const BigField *input, BigField *output, const uint32_t len, const uint32_t sum_size)
 {
     // len must be a multiple of sum_size
     // input has size len
@@ -640,17 +640,17 @@ extern "C" __global__ void piecewise_sum(const ExtField *input, ExtField *output
         const int idx = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
         if (idx < output_len)
         {
-            ExtField sum = {0};
+            BigField sum = {0};
             for (int i = 0; i < sum_size; i++)
             {
-                ext_field_add(&sum, &input[idx + output_len * i], &sum);
+                BigField::add(&sum, &input[idx + output_len * i], &sum);
             }
             output[idx] = sum;
         }
     }
 }
 
-extern "C" __global__ void repeat_slice_from_outside(const ExtField *input, ExtField *output, const uint32_t len, const uint32_t n_repetitions)
+extern "C" __global__ void repeat_slice_from_outside(const BigField *input, BigField *output, const uint32_t len, const uint32_t n_repetitions)
 {
     // Optimized for a small number of repetitions
     const int n_total_threads = blockDim.x * gridDim.x;
@@ -662,7 +662,7 @@ extern "C" __global__ void repeat_slice_from_outside(const ExtField *input, ExtF
         {
             return;
         }
-        ExtField value = input[idx];
+        BigField value = input[idx];
         for (int i = 0; i < n_repetitions; i++)
         {
             output[idx + i * len] = value;
@@ -670,7 +670,7 @@ extern "C" __global__ void repeat_slice_from_outside(const ExtField *input, ExtF
     }
 }
 
-extern "C" __global__ void repeat_slice_from_inside(const ExtField *input, ExtField *output, const uint32_t len, const uint32_t n_repetitions)
+extern "C" __global__ void repeat_slice_from_inside(const BigField *input, BigField *output, const uint32_t len, const uint32_t n_repetitions)
 {
     // Optimized for a large number of repetitions
     const int n_total_threads = blockDim.x * gridDim.x;
@@ -685,7 +685,7 @@ extern "C" __global__ void repeat_slice_from_inside(const ExtField *input, ExtFi
     }
 }
 
-extern "C" __global__ void tensor_algebra_dot_product(const ExtField *left, ExtField *right, uint32_t *buff, uint32_t *result, const uint32_t log_len, const uint32_t log_n_tasks_per_thread)
+extern "C" __global__ void tensor_algebra_dot_product(const BigField *left, BigField *right, SmallField *buff, SmallField *result, const uint32_t log_len, const uint32_t log_n_tasks_per_thread)
 {
     // left and right have size 2^log_len
     // buff has size EXT_DEGREE^2 * 2^(log_len - log_n_tasks_per_thread)
@@ -707,11 +707,11 @@ extern "C" __global__ void tensor_algebra_dot_product(const ExtField *left, ExtF
         for (int task = 0; task < 1 << log_n_tasks_per_thread; task++)
         {
             const int offset = idx * (1 << log_n_tasks_per_thread) + task;
-            ExtField l = left[offset];
-            ExtField r = right[offset];
+            BigField l = left[offset];
+            BigField r = right[offset];
             TensorAlgebra res;
-            phi_0_times_phi_1(&l, &r, &res);
-            add_tensor_algebra(&sum, &res, &sum);
+            TensorAlgebra::phi_0_times_phi_1(&l, &r, &res);
+            TensorAlgebra::add(&sum, &res, &sum);
         }
         int shift = 0;
         for (int i = 0; i < EXT_DEGREE; i++)
@@ -739,7 +739,7 @@ extern "C" __global__ void tensor_algebra_dot_product(const ExtField *left, ExtF
             {
                 const int offset = (thread_index / half_size) << w;
                 const int m = thread_index % half_size;
-                buff[offset + m] = monty_field_add(buff[offset + m], buff[offset + m + half_size]);
+                buff[offset + m] = SmallField::add(buff[offset + m], buff[offset + m + half_size]);
             }
         }
     }
@@ -756,7 +756,7 @@ extern "C" __global__ void tensor_algebra_dot_product(const ExtField *left, ExtF
     }
 }
 
-extern "C" __global__ void sum_in_place(ExtField *terms, const uint32_t log_len)
+extern "C" __global__ void sum_in_place(BigField *terms, const uint32_t log_len)
 {
     // will alter terms. The final result will be in terms[0]
 
@@ -774,7 +774,7 @@ extern "C" __global__ void sum_in_place(ExtField *terms, const uint32_t log_len)
             const int thread_index = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
             if (thread_index < half_len)
             {
-                ext_field_add(&terms[thread_index], &terms[thread_index + half_len], &terms[thread_index]);
+                BigField::add(&terms[thread_index], &terms[thread_index + half_len], &terms[thread_index]);
             }
         }
         grid.sync();

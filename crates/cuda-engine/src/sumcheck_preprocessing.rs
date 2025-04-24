@@ -124,11 +124,11 @@ fn compute_unit_instructions_ext<F: PrimeField32>(
 
     let n_registers = max_stack_size(exprs);
     for i in 0..n_registers {
-        res += &format!("{}ExtField reg_{};\n", blank, i);
+        res += &format!("{}BigField reg_{};\n", blank, i);
     }
-    res += &format!("{}ExtField temp_a;\n", blank);
-    res += &format!("{}ExtField temp_b;\n", blank);
-    res += &format!("{}ExtField computed = {{0}};\n", blank);
+    res += &format!("{}BigField temp_a;\n", blank);
+    res += &format!("{}BigField temp_b;\n", blank);
+    res += &format!("{}BigField computed = {{0}};\n", blank);
 
     for (i, expr) in exprs[start..end].iter().enumerate() {
         res += &format!(
@@ -146,12 +146,12 @@ fn compute_unit_instructions_ext<F: PrimeField32>(
             match (&instr.left, &instr.right) {
                 (ComputationInput::Stack(stack_index), ComputationInput::Scalar(scalar)) => {
                     let func_name = match instr.op {
-                        CircuitOp::Product => "mul_prime_and_ext_field",
-                        CircuitOp::Sum => "add_prime_and_ext_field",
-                        CircuitOp::Sub => "sub_ext_field_and_prime",
+                        CircuitOp::Product => "BigField::mul_small_field",
+                        CircuitOp::Sum => "BigField::add_small_field",
+                        CircuitOp::Sub => "BigField::sub_from_small_field",
                     };
                     res += &format!(
-                        "{}{}(&reg_{}, to_monty({}), &reg_{});\n",
+                        "{}{}(&reg_{}, SmallField::from_canonical({}), &reg_{});\n",
                         blank,
                         func_name,
                         stack_index,
@@ -165,12 +165,12 @@ fn compute_unit_instructions_ext<F: PrimeField32>(
                         blank, node_index
                     );
                     let func_name = match instr.op {
-                        CircuitOp::Product => "mul_prime_and_ext_field",
-                        CircuitOp::Sum => "add_prime_and_ext_field",
-                        CircuitOp::Sub => "sub_ext_field_and_prime",
+                        CircuitOp::Product => "BigField::mul_small_field",
+                        CircuitOp::Sum => "BigField::add_small_field",
+                        CircuitOp::Sub => "BigField::sub_from_small_field",
                     };
                     res += &format!(
-                        "{}{}(&temp_a, to_monty({}), &reg_{});\n",
+                        "{}{}(&temp_a, SmallField::from_canonical({}), &reg_{});\n",
                         blank,
                         func_name,
                         scalar.as_canonical_u32(),
@@ -187,7 +187,7 @@ fn compute_unit_instructions_ext<F: PrimeField32>(
                         blank, node_right
                     );
                     res += &format!(
-                        "{}ext_field_{}(&temp_a, &temp_b, &reg_{});\n",
+                        "{}BigField::{}(&temp_a, &temp_b, &reg_{});\n",
                         blank, op_str, instr.result_location
                     )
                 }
@@ -197,7 +197,7 @@ fn compute_unit_instructions_ext<F: PrimeField32>(
                         blank, node_index
                     );
                     res += &format!(
-                        "{}ext_field_{}(&reg_{}, &temp_a, &reg_{});\n",
+                        "{}BigField::{}(&reg_{}, &temp_a, &reg_{});\n",
                         blank, op_str, stack_index, instr.result_location
                     )
                 }
@@ -207,13 +207,13 @@ fn compute_unit_instructions_ext<F: PrimeField32>(
                         blank, node_index
                     );
                     res += &format!(
-                        "{}ext_field_{}(&temp_a, &reg_{}, &reg_{});\n",
+                        "{}BigField::{}(&temp_a, &reg_{}, &reg_{});\n",
                         blank, op_str, stack_index, instr.result_location
                     )
                 }
                 (ComputationInput::Stack(stack_left), ComputationInput::Stack(stack_right)) => {
                     res += &format!(
-                        "{}ext_field_{}(&reg_{}, &reg_{}, &reg_{});\n",
+                        "{}BigField::{}(&reg_{}, &reg_{}, &reg_{});\n",
                         blank, op_str, stack_left, stack_right, instr.result_location
                     )
                 }
@@ -221,7 +221,7 @@ fn compute_unit_instructions_ext<F: PrimeField32>(
                     match instr.op {
                         CircuitOp::Product | CircuitOp::Sum => {
                             res += &format!(
-                                "{}{}_prime_and_ext_field(&reg_{}, to_monty({}), &reg_{});\n",
+                                "{}BigField::{}_small_field(&reg_{}, SmallField::from_canonical({}), &reg_{});\n",
                                 blank,
                                 op_str,
                                 stack_index,
@@ -231,7 +231,7 @@ fn compute_unit_instructions_ext<F: PrimeField32>(
                         }
                         CircuitOp::Sub => {
                             res += &format!(
-                                "{}sub_prime_and_ext_field(to_monty({}), &reg_{}, &reg_{});\n",
+                                "{}BigField::sub_to_small_field(SmallField::from_canonical({}), &reg_{}, &reg_{});\n",
                                 blank,
                                 scalar.as_canonical_u32(),
                                 stack_index,
@@ -248,7 +248,7 @@ fn compute_unit_instructions_ext<F: PrimeField32>(
                     match instr.op {
                         CircuitOp::Product | CircuitOp::Sum => {
                             res += &format!(
-                                "{}{}_prime_and_ext_field(&temp_a, to_monty({}), &reg_{});\n",
+                                "{}BigField::{}_small_field(&temp_a, SmallField::from_canonical({}), &reg_{});\n",
                                 blank,
                                 op_str,
                                 scalar.as_canonical_u32(),
@@ -257,7 +257,7 @@ fn compute_unit_instructions_ext<F: PrimeField32>(
                         }
                         CircuitOp::Sub => {
                             res += &format!(
-                                "{}sub_prime_and_ext_field(to_monty({}), &temp_a, &reg_{});\n",
+                                "{}BigField::sub_to_small_field(SmallField::from_canonical({}), &temp_a, &reg_{});\n",
                                 blank,
                                 scalar.as_canonical_u32(),
                                 instr.result_location
@@ -277,11 +277,11 @@ fn compute_unit_instructions_ext<F: PrimeField32>(
             // multiply by batching scalar
             res += &format!("{}temp_a = batching_scalars[{}];\n", blank, i + start,);
             res += &format!(
-                "{}ext_field_mul(&reg_{}, &temp_a, &temp_b);\n",
+                "{}BigField::mul(&reg_{}, &temp_a, &temp_b);\n",
                 blank,
                 expr.stack_size - 1,
             );
-            res += &format!("{}ext_field_add(&temp_b, &computed, &computed);\n", blank,);
+            res += &format!("{}BigField::add(&temp_b, &computed, &computed);\n", blank,);
         }
     }
 
@@ -302,15 +302,15 @@ fn compute_unit_instructions_prime<F: PrimeField32>(
 
     for i in all_nodes_involved(&exprs[start..end]) {
         res += &format!(
-            "{}uint32_t node_{} = multilinears[{}][hypercube_point];\n",
+            "{}SmallField node_{} = multilinears[{}][hypercube_point];\n",
             blank, i, i
         );
     }
     for i in 0..n_registers {
-        res += &format!("{}uint32_t reg_{};\n", blank, i);
+        res += &format!("{}SmallField reg_{};\n", blank, i);
     }
-    res += &format!("{}ExtField temp = {{0}};\n", blank);
-    res += &format!("{}ExtField computed = {{0}};\n", blank);
+    res += &format!("{}BigField temp = {{0}};\n", blank);
+    res += &format!("{}BigField computed = {{0}};\n", blank);
 
     for (i, expr) in exprs[start..end].iter().enumerate() {
         res += &format!(
@@ -328,7 +328,7 @@ fn compute_unit_instructions_prime<F: PrimeField32>(
             match (&instr.left, &instr.right) {
                 (ComputationInput::Stack(stack_index), ComputationInput::Scalar(scalar)) => {
                     res += &format!(
-                        "{}reg_{} = monty_field_{}(reg_{}, to_monty({}));\n",
+                        "{}reg_{} = SmallField::{}(reg_{}, SmallField::from_canonical({}));\n",
                         blank,
                         instr.result_location,
                         op_str,
@@ -338,7 +338,7 @@ fn compute_unit_instructions_prime<F: PrimeField32>(
                 }
                 (ComputationInput::Node(node_index), ComputationInput::Scalar(scalar)) => {
                     res += &format!(
-                        "{}reg_{} = monty_field_{}(node_{}, to_monty({}));\n",
+                        "{}reg_{} = SmallField::{}(node_{}, SmallField::from_canonical({}));\n",
                         blank,
                         instr.result_location,
                         op_str,
@@ -348,31 +348,31 @@ fn compute_unit_instructions_prime<F: PrimeField32>(
                 }
                 (ComputationInput::Node(node_left), ComputationInput::Node(node_right)) => {
                     res += &format!(
-                        "{}reg_{} = monty_field_{}(node_{}, node_{});\n",
+                        "{}reg_{} = SmallField::{}(node_{}, node_{});\n",
                         blank, instr.result_location, op_str, node_left, node_right,
                     )
                 }
                 (ComputationInput::Stack(stack_index), ComputationInput::Node(node_index)) => {
                     res += &format!(
-                        "{}reg_{} = monty_field_{}(reg_{}, node_{});\n",
+                        "{}reg_{} = SmallField::{}(reg_{}, node_{});\n",
                         blank, instr.result_location, op_str, stack_index, node_index,
                     )
                 }
                 (ComputationInput::Node(node_index), ComputationInput::Stack(stack_index)) => {
                     res += &format!(
-                        "{}reg_{} = monty_field_{}(node_{}, reg_{});\n",
+                        "{}reg_{} = SmallField::{}(node_{}, reg_{});\n",
                         blank, instr.result_location, op_str, node_index, stack_index,
                     )
                 }
                 (ComputationInput::Stack(stack_left), ComputationInput::Stack(stack_right)) => {
                     res += &format!(
-                        "{}reg_{} = monty_field_{}(reg_{}, reg_{});\n",
+                        "{}reg_{} = SmallField::{}(reg_{}, reg_{});\n",
                         blank, instr.result_location, op_str, stack_left, stack_right,
                     )
                 }
                 (ComputationInput::Scalar(scalar), ComputationInput::Stack(stack_index)) => {
                     res += &format!(
-                        "{}reg_{} = monty_field_{}(to_monty({}), reg_{});\n",
+                        "{}reg_{} = SmallField::{}(SmallField::from_canonical({}), reg_{});\n",
                         blank,
                         instr.result_location,
                         op_str,
@@ -382,7 +382,7 @@ fn compute_unit_instructions_prime<F: PrimeField32>(
                 }
                 (ComputationInput::Scalar(scalar), ComputationInput::Node(node_index)) => {
                     res += &format!(
-                        "{}reg_{} = monty_field_{}(to_monty({}), node_{});\n",
+                        "{}reg_{} = SmallField::{}(SmallField::from_canonical({}), node_{});\n",
                         blank,
                         instr.result_location,
                         op_str,
@@ -405,13 +405,13 @@ fn compute_unit_instructions_prime<F: PrimeField32>(
         } else {
             // multiply by batching scalar
             res += &format!(
-                "{}mul_prime_and_ext_field(&batching_scalars[{}], reg_{}, &temp);\n",
+                "{}BigField::mul_small_field(&batching_scalars[{}], reg_{}, &temp);\n",
                 blank,
                 i + start,
                 expr.stack_size - 1
             );
 
-            res += &format!("{}ext_field_add(&temp, &computed, &computed);\n", blank,);
+            res += &format!("{}BigField::add(&temp, &computed, &computed);\n", blank,);
         }
     }
 

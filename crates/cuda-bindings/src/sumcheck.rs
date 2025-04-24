@@ -53,7 +53,7 @@ pub fn cuda_sum_over_hypercube_of_computation<
 
     let module_name = format!("sumcheck_{:x}", comp.uuid());
     let mut call = CudaCall::new(&module_name, func_name, n_ops)
-        .shared_mem_bytes(batching_scalars.len() as u32 * ext_degree * 4); // cf: __shared__ ExtField cached_batching_scalars[N_BATCHING_SCALARS];;
+        .shared_mem_bytes(batching_scalars.len() as u32 * ext_degree * 4); // cf: __shared__ BigField cached_batching_scalars[N_BATCHING_SCALARS];;
     call.arg(&multilinears_ptrs_dev);
     call.arg(&mut sums_dev);
     call.arg(&batching_scalars_dev);
