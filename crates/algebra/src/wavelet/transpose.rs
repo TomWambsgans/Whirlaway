@@ -164,3 +164,36 @@ fn transpose_square_swap<F: Sized + Send>(mut a: MatrixMut<'_, F>, mut b: Matrix
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use cuda_bindings::cuda_transpose;
+    use cuda_engine::{cuda_init, cuda_sync, memcpy_dtoh, memcpy_htod};
+    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_koala_bear::KoalaBear;
+
+    use super::*;
+
+    #[test]
+    fn test_cuda_transpose() {
+        cuda_init();
+
+        type F = BinomialExtensionField<KoalaBear, 8>;
+        let log_n_rows = 7;
+        let log_n_cols = 6;
+        let n_rows = 1 << log_n_rows;
+        let n_cols = 1 << log_n_cols;
+        let mut matrix = vec![F::ZERO; n_rows * n_cols];
+        for i in 0..n_rows {
+            for j in 0..n_cols {
+                matrix[i * n_cols + j] = F::from_u64((i * n_cols + j) as u64);
+            }
+        }
+        let matrix_dev = memcpy_htod(&matrix);
+        let transdposed_dev = cuda_transpose(&matrix_dev, log_n_rows, log_n_cols);
+        let res_cuda = memcpy_dtoh(&transdposed_dev);
+        cuda_sync();
+        transpose(&mut matrix, n_rows, n_cols);
+        assert!(res_cuda == matrix);
+    }
+}

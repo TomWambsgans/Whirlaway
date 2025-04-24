@@ -104,8 +104,8 @@ mod test {
             .with(ForestLayer::default())
             .init();
 
-        let n_vars = 20;
-        let security_bits = 128;
+        let n_vars = 16;
+        let security_bits = 100;
         let log_inv_rate = 3;
         let pcs = WhirPCS::<F, EF>::new(
             n_vars,

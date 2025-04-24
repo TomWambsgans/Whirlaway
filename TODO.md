@@ -17,9 +17,4 @@
 - sparse preprocessed columns
 - MaybeUninit instead of allocating zeros when it's rewritten just after
 
-- https://github.com/tcoratger/whir-p3/pull/5/files
-- https://github.com/tcoratger/whir-p3/pull/7
-- https://github.com/WizardOfMenlo/whir/pull/85
-
-
 - Add ZK?

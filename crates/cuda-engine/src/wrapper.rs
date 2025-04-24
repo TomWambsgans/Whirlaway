@@ -80,6 +80,14 @@ pub fn memcpy_dtod<T: DeviceRepr, Dst: DevicePtrMut<T>>(src: &CudaSlice<T>, dst:
 }
 
 /// Async
+pub fn memcpy_dtod_to<T: DeviceRepr, Src: DevicePtr<T>, Dst: DevicePtrMut<T>>(
+    src: &Src,
+    dst: &mut Dst,
+) {
+    cuda_engine().stream.memcpy_dtod(src, dst).unwrap();
+}
+
+/// Async
 pub fn concat_pointers<T: DeviceRepr, S: Borrow<CudaSlice<T>>>(slices: &[S]) -> CudaSlice<u64> {
     let cuda = cuda_engine();
     memcpy_htod(
@@ -115,26 +123,6 @@ pub fn cuda_twiddles_two_adicity<F: Field>() -> usize {
     let n = cuda_twiddles::<F>().len();
     assert!((n + 1).is_power_of_two());
     (n + 1).ilog2() as usize - 1
-}
-
-pub fn cuda_correction_twiddles<F: Field>(whir_folding_factor: usize) -> CudaSlice<F> {
-    unsafe {
-        std::mem::transmute(
-            cuda_engine()
-                .correction_twiddles
-                .read()
-                .unwrap()
-                .get(&(TypeId::of::<F>(), whir_folding_factor))
-                .unwrap_or_else(|| {
-                    panic!(
-                        "twiddles have not been preprocessed for : {} and folding factor {}",
-                        std::any::type_name::<F>(),
-                        whir_folding_factor
-                    )
-                })
-                .clone(),
-        )
-    }
 }
 
 pub fn cuda_twiddles<F: Field>() -> CudaSlice<F> {

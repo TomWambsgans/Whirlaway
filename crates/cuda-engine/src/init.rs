@@ -15,7 +15,6 @@ pub(crate) struct CudaEngine {
     pub(crate) dev: Arc<CudaContext>,
     pub(crate) stream: Arc<CudaStream>,
     pub(crate) twiddles: RwLock<BTreeMap<TypeId, CudaSlice<u32>>>, // We restrain ourseleves to the 2-addic roots of unity in the 32-bits prime field
-    pub(crate) correction_twiddles: RwLock<BTreeMap<(TypeId, usize), CudaSlice<u32>>>, // (Field, whir folding factor) => correction twiddles
     pub(crate) functions: RwLock<HashMap<String, HashMap<String, CudaFunction>>>, // module => function_name => cuda_function
 }
 
@@ -54,7 +53,6 @@ impl CudaEngine {
             dev,
             stream,
             twiddles: Default::default(),
-            correction_twiddles: Default::default(),
             functions: RwLock::new(functions),
         }
     }

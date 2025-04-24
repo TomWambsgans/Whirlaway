@@ -95,7 +95,7 @@ __device__ void ntt_at_block_level(ExtField *buff, const int block, const int lo
     buff[threadId + blockDim.x * (2 * block + 1)] = cached_buff[threadId + blockDim.x];
 }
 
-__device__ void ntt(ExtField *buff, const int log_len, const int log_chunk_size, const uint32_t *twiddles)
+extern "C" __global__ void ntt(ExtField *buff, const int log_len, const int log_chunk_size, const uint32_t *twiddles)
 {
     // twiddles = 1
     // followed by w^0, w^1 where w is a 2-root of unity
@@ -166,34 +166,10 @@ __device__ void ntt(ExtField *buff, const int log_len, const int log_chunk_size,
     grid.sync();
 }
 
-extern "C" __global__ void expand_with_twiddles(ExtField *input, ExtField *result, const uint32_t log_len, const uint32_t log_extension_factor, const uint32_t *twiddles)
-{
-    const int len = 1 << log_len;
-    const int expansion_factor = 1 << log_extension_factor;
-    const int total_n_threads = blockDim.x * gridDim.x;
-    const uint32_t n_repetitions = ((1 << (log_len + log_extension_factor)) + total_n_threads - 1) / total_n_threads;
-
-    // 1) Expand input several times to fill result, multiplying by the appropriate twiddle factors
-    for (int rep = 0; rep < n_repetitions; rep++)
-    {
-        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
-
-        if (threadIndex < len)
-        {
-            result[threadIndex] = input[threadIndex];
-        }
-        else
-        {
-            uint32_t twidle = twiddles[(1 << (log_len + log_extension_factor)) - 1 + (threadIndex % len) * (threadIndex / len)];
-            mul_prime_and_ext_field(&input[threadIndex % len], twidle, &result[threadIndex]);
-        }
-    }
-}
-
 extern "C" __global__ void transpose(ExtField *input, ExtField *result, const uint32_t log_rows, const uint32_t log_cols)
 {
     const int n_total_n_threads = blockDim.x * gridDim.x;
-    const int n_ops = 1 << (log_rows + log_cols);
+    const int n_ops = 1 << (log_cols + log_rows);
     const int n_repetitions = (n_ops + n_total_n_threads - 1) / n_total_n_threads;
     const int rows = 1 << log_rows;
     const int cols = 1 << log_cols;
@@ -205,75 +181,6 @@ extern "C" __global__ void transpose(ExtField *input, ExtField *result, const ui
         {
             return;
         }
-        result[threadIndex] = input[(threadIndex % cols) * rows + (threadIndex / cols)];
+        result[threadIndex] = input[(threadIndex % rows) * cols + (threadIndex / rows)];
     }
-}
-
-extern "C" __global__ void restructure_evaluations(ExtField *input, ExtField *result, const uint32_t log_len, const uint32_t folding_factor, const uint32_t *twiddles, const uint32_t *correction_twiddles)
-{
-    // size_inv = inv(folding_size) (in the prime field)
-    // w_inv_i = inv(unit root selected in the ntt twiddles for the domain of size 2^(folding_factor + i))
-    // correction_twiddles_i = size_inv, size_inv, ..., size_inv (folding_size times)
-    //                         size_inv, size_inv.w_inv_i, size_inv.w_inv_i^2, ..., size_inv.w_inv_i^(folding_size - 1)]
-    //                         size_inv, size_inv.w_inv_i^2, (size_inv.w_inv_i^2)^2, ..., (size_inv.w_inv_i^2)^(folding_size - 1)]
-    //                         size_inv, size_inv.w_inv_i^3, (size_inv.w_inv_i^3)^2, ..., (size_inv.w_inv_i^3)^(folding_size - 1)]
-    //                         ...
-    //                         (2^i times)
-    // correction_twiddles = correction_twiddles_0 | by correction_twiddles_1 | by correction_twiddles_2 ...
-
-    namespace cg = cooperative_groups;
-    cg::grid_group grid = cg::this_grid();
-
-    // WARNING: We assume the number of blocks is a power of 2
-    const int n_repetitions = (1 << log_len) / (blockDim.x * gridDim.x * 2);
-    const int folding_size = 1 << folding_factor;
-    const int len = 1 << log_len;
-
-    // 1) Transpose
-    for (int rep = 0; rep < n_repetitions * 2; rep++)
-    {
-        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
-
-        result[threadIndex] = input[(threadIndex % folding_size) * (len / folding_size) + (threadIndex / folding_size)];
-    }
-    grid.sync();
-
-    // 2) Inverse NTT
-
-    // 2) a) For each chunck c of size folding_size in result, reverse c[1..]
-    for (int rep = 0; rep < n_repetitions; rep++)
-    {
-        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
-        int chunk_index = threadIndex / (folding_size / 2);
-        int chunk_offset = threadIndex % (folding_size / 2);
-        if (chunk_offset != 0)
-        {
-            // swap result[i] and result[j]
-            int i = chunk_index * folding_size + chunk_offset;
-            int j = (chunk_index + 1) * folding_size - chunk_offset;
-            ExtField temp = result[i];
-            result[i] = result[j];
-            result[j] = temp;
-        }
-    }
-    grid.sync();
-
-    // 2) b)
-    ntt(result, log_len, folding_factor, twiddles);
-
-    // 3) Apply coset and size correction
-
-    const int i = log_len - folding_factor;
-    const uint32_t *involded_correction_twiddles = &correction_twiddles[((1 << i) - 1) * folding_size];
-
-    for (int rep = 0; rep < n_repetitions * 2; rep++)
-    {
-        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
-        mul_prime_and_ext_field(&result[threadIndex], involded_correction_twiddles[threadIndex], &result[threadIndex]);
-    }
-}
-
-extern "C" __global__ void ntt_global(ExtField *buff, const int log_len, const int log_chunk_size, const uint32_t *twiddles)
-{
-    ntt(buff, log_len, log_chunk_size, twiddles);
 }

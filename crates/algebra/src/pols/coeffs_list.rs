@@ -2,12 +2,12 @@ use super::{Multilinear, MultilinearDevice};
 use crate::{pols::MultilinearHost, wavelet::wavelet_transform};
 use p3_dft::TwoAdicSubgroupDft;
 
-use cuda_bindings::cuda_restructure_evaluations;
+use cuda_bindings::cuda_transpose;
 use cuda_bindings::{
-    cuda_eval_multilinear_in_monomial_basis, cuda_expanded_ntt,
-    cuda_monomial_to_lagrange_basis_rev, cuda_whir_fold,
+    cuda_eval_multilinear_in_monomial_basis, cuda_monomial_to_lagrange_basis_rev, cuda_ntt,
+    cuda_whir_fold,
 };
-use cuda_engine::{HostOrDeviceBuffer, cuda_sync, memcpy_dtoh};
+use cuda_engine::{HostOrDeviceBuffer, cuda_alloc_zeros, cuda_sync, memcpy_dtod_to, memcpy_dtoh};
 use cudarc::driver::CudaSlice;
 use p3_dft::Radix2DitParallel;
 use p3_field::{ExtensionField, Field, TwoAdicField};
@@ -271,22 +271,40 @@ impl<F: Field> CoefficientList<F> {
         let _info =
             tracing::info_span!("expand_from_coeff_and_restructure", cuda = self.is_device())
                 .entered();
-        // TODO: `stack_evaluations` and `restructure_evaluations` are really in-place algorithms.
-        // They also partially overlap and undo one another. We should merge them.
         match self {
             Self::Device(coeffs) => {
-                let evals = cuda_expanded_ntt(coeffs.coeffs(), expansion);
-                let folded_evals = cuda_restructure_evaluations(&evals, folding_factor);
+                let expanded_size = coeffs.n_coefs() * expansion;
+                let log_expanded_size = expanded_size.trailing_zeros() as u32;
+                let mut extended_coeffs = cuda_alloc_zeros::<F>(expanded_size);
+                memcpy_dtod_to(
+                    &coeffs.coeffs,
+                    &mut extended_coeffs.slice_mut(..coeffs.n_coefs()),
+                );
+
+                let mut transposed = cuda_transpose(
+                    &extended_coeffs,
+                    log_expanded_size - folding_factor as u32,
+                    folding_factor as u32,
+                );
+
+                cuda_ntt(&mut transposed, log_expanded_size as usize - folding_factor);
+
+                let res = cuda_transpose(
+                    &transposed,
+                    folding_factor as u32,
+                    log_expanded_size - folding_factor as u32,
+                );
+
                 cuda_sync();
-                HostOrDeviceBuffer::Device(folded_evals)
+                HostOrDeviceBuffer::Device(res)
             }
-            Self::Host(my_coeffs) => {
-                let mut coeffs = my_coeffs.coeffs.clone();
-                coeffs.resize(my_coeffs.n_coefs() * expansion, F::ZERO);
+            Self::Host(coefds) => {
+                let mut extended_coeffs = coefds.coeffs.clone();
+                extended_coeffs.resize(coefds.n_coefs() * expansion, F::ZERO);
                 // TODO preprocess twiddles
                 HostOrDeviceBuffer::Host(
                     Radix2DitParallel::<F>::default()
-                        .dft_batch(RowMajorMatrix::new(coeffs, 1 << folding_factor))
+                        .dft_batch(RowMajorMatrix::new(extended_coeffs, 1 << folding_factor))
                         // Get natural order of rows.
                         .to_row_major_matrix()
                         .values,

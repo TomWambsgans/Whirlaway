@@ -170,7 +170,6 @@ dependencies = [
  "cudarc",
  "derive_more",
  "p3-field",
- "rayon",
  "tracing",
  "utils",
 ]

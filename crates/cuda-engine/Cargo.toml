@@ -5,7 +5,6 @@ edition.workspace = true
 
 [dependencies]
 cudarc.workspace = true
-rayon.workspace = true
 arithmetic-circuit.workspace = true
 tracing.workspace = true
 p3-field.workspace = true

@@ -2,8 +2,7 @@ use ::air::{AirBuilder, AirExpr};
 use algebra::pols::MultilinearHost;
 use arithmetic_circuit::ArithmeticCircuit;
 use cuda_engine::{
-    SumcheckComputation, cuda_init, cuda_preprocess_all_twiddles,
-    cuda_preprocess_sumcheck_computation,
+    SumcheckComputation, cuda_init, cuda_preprocess_sumcheck_computation, cuda_preprocess_twiddles,
 };
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::extension::BinomialExtensionField;
@@ -188,7 +187,7 @@ pub fn prove_poseidon2(
         cuda_preprocess_sumcheck_computation(&constraint_sumcheck_computations);
         cuda_preprocess_sumcheck_computation(&prod_sumcheck);
         cuda_preprocess_sumcheck_computation(&inner_air_sumcheck);
-        cuda_preprocess_all_twiddles::<F>(whir_params.folding_factor.as_constant().unwrap()); // TODO handle ConstantFromSecondRound
+        cuda_preprocess_twiddles::<F>();
     }
 
     let pcs = RingSwitch::<F, EF, WhirPCS<F, EF>>::new(

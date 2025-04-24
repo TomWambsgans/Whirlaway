@@ -1,7 +1,6 @@
 use arithmetic_circuit::ArithmeticCircuit;
 use cuda_engine::{
-    SumcheckComputation, cuda_init, cuda_preprocess_all_twiddles,
-    cuda_preprocess_sumcheck_computation,
+    SumcheckComputation, cuda_init, cuda_preprocess_sumcheck_computation, cuda_preprocess_twiddles,
 };
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::PrimeCharacteristicRing;
@@ -78,7 +77,7 @@ fn test_air_fibonacci() {
             cuda_preprocess_sumcheck_computation(&constraint_sumcheck_computations);
             cuda_preprocess_sumcheck_computation(&prod_sumcheck);
             cuda_preprocess_sumcheck_computation(&inner_air_sumcheck);
-            cuda_preprocess_all_twiddles::<F>(4);
+            cuda_preprocess_twiddles::<F>();
         }
 
         let mut col_1 = vec![F::ZERO];
@@ -205,7 +204,7 @@ fn test_air_complex() {
                 cuda_preprocess_sumcheck_computation(&constraint_sumcheck_computations);
                 cuda_preprocess_sumcheck_computation(&prod_sumcheck);
                 cuda_preprocess_sumcheck_computation(&inner_air_sumcheck);
-                cuda_preprocess_all_twiddles::<F>(4);
+                cuda_preprocess_twiddles::<F>();
             }
             let mut col_0 = vec![F::ZERO];
             let mut col_1 = vec![F::ONE];
