@@ -2,7 +2,8 @@ use ::air::{AirBuilder, AirExpr};
 use algebra::pols::MultilinearHost;
 use arithmetic_circuit::ArithmeticCircuit;
 use cuda_engine::{
-    SumcheckComputation, cuda_init, cuda_preprocess_sumcheck_computation, cuda_preprocess_twiddles,
+    CudaField, SumcheckComputation, cuda_init, cuda_preprocess_sumcheck_computation,
+    cuda_preprocess_twiddles,
 };
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::extension::BinomialExtensionField;
@@ -183,7 +184,7 @@ pub fn prove_poseidon2(
             n_multilinears: 5,
             eq_mle_multiplier: false,
         };
-        cuda_init();
+        cuda_init(CudaField::KoalaBear);
         cuda_preprocess_sumcheck_computation(&constraint_sumcheck_computations);
         cuda_preprocess_sumcheck_computation(&prod_sumcheck);
         cuda_preprocess_sumcheck_computation(&inner_air_sumcheck);

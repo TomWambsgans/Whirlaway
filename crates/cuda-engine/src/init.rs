@@ -1,6 +1,8 @@
 use cudarc::driver::sys::CUdevice_attribute;
 use cudarc::driver::{CudaContext, CudaFunction, CudaSlice, CudaStream};
 use cudarc::nvrtc::Ptx;
+use p3_field::{Field, PrimeField};
+use p3_koala_bear::KoalaBear;
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
@@ -15,7 +17,7 @@ pub(crate) struct CudaEngine {
     pub(crate) dev: Arc<CudaContext>,
     pub(crate) stream: Arc<CudaStream>,
     pub(crate) twiddles: RwLock<BTreeMap<TypeId, CudaSlice<u32>>>, // We restrain ourseleves to the 2-addic roots of unity in the 32-bits prime field
-    pub(crate) functions: RwLock<HashMap<String, HashMap<String, CudaFunction>>>, // module => function_name => cuda_function
+    pub(crate) functions: RwLock<HashMap<(CudaField, String), HashMap<String, CudaFunction>>>, // (field, module) => function_name => cuda_function
 }
 
 static CUDA_ENGINE: OnceLock<CudaEngine> = OnceLock::new();
@@ -30,20 +32,40 @@ pub(crate) fn try_get_cuda_engine() -> Option<&'static CudaEngine> {
     CUDA_ENGINE.get()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CudaField {
+    KoalaBear,
+}
+
+impl CudaField {
+    pub fn from_field<F: Field>() -> Self {
+        Self::from_prime_field::<F::PrimeSubfield>()
+    }
+
+    pub fn from_prime_field<F: PrimeField>() -> Self {
+        if TypeId::of::<F>() == TypeId::of::<KoalaBear>() {
+            CudaField::KoalaBear
+        } else {
+            panic!("Unsupported field type for CUDA")
+        }
+    }
+}
+
 #[instrument(name = "CUDA initialization", skip_all)]
-pub fn cuda_init() {
-    let _ = CUDA_ENGINE.get_or_init(|| CudaEngine::new());
+pub fn cuda_init(field: CudaField) {
+    let _ = CUDA_ENGINE.get_or_init(|| CudaEngine::new(field));
 }
 
 impl CudaEngine {
-    fn new() -> Self {
+    fn new(field: CudaField) -> Self {
         let dev = CudaContext::new(0).unwrap();
         let mut functions = HashMap::new();
         for module in ["keccak", "ntt", "multilinear"] {
             compile_module(
                 dev.clone(),
                 &kernels_folder(),
-                module,
+                field,
+                module.to_string(),
                 false,
                 &mut functions,
             );
@@ -61,9 +83,10 @@ impl CudaEngine {
 pub(crate) fn compile_module(
     dev: Arc<CudaContext>,
     cuda_folder: &PathBuf,
-    module: &str,
+    field: CudaField,
+    module: String,
     use_noinline: bool,
-    functions: &mut HashMap<String, HashMap<String, CudaFunction>>, // module => function_name => cuda_function
+    functions: &mut HashMap<(CudaField, String), HashMap<String, CudaFunction>>, // (field, module) => function_name => cuda_function
 ) {
     let cuda_file = cuda_folder.join(format!("{module}.cu"));
     let ptx_file = ptx_dir().join(format!("{module}.ptx"));
@@ -111,6 +134,7 @@ pub(crate) fn compile_module(
         if use_noinline {
             command.arg("-DUSE_NOINLINE");
         }
+        command.arg(format!("-DFIELD_TYPE={}", field as u32));
 
         let output = command
             .output()
@@ -127,9 +151,9 @@ pub(crate) fn compile_module(
     let func_names = extract_cuda_global_functions(&cuda_content);
     let ptx_content = std::fs::read_to_string(ptx_file).expect("Failed to read PTX file");
     let my_module = dev.load_module(Ptx::from_src(ptx_content)).unwrap();
-    assert!(!functions.contains_key(module));
+    assert!(!functions.contains_key(&(field, module.clone())));
     functions.insert(
-        module.to_string(),
+        (field, module),
         func_names
             .into_iter()
             .map(|func_name| {

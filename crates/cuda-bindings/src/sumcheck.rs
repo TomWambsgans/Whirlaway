@@ -42,9 +42,9 @@ pub fn cuda_sum_over_hypercube_of_computation<
     let koala_8_t = TypeId::of::<BinomialExtensionField<KoalaBear, 8>>();
     let current_t = (TypeId::of::<F>(), TypeId::of::<NF>(), TypeId::of::<EF>());
     let func_name = if current_t == (koala_t, koala_t, koala_8_t) {
-        "sum_over_hypercube_prime"
+        "sum_over_hypercube_in_small_field"
     } else if current_t == (koala_t, koala_8_t, koala_8_t) {
-        "sum_over_hypercube_ext"
+        "sum_over_hypercube_in_big_field"
     } else {
         unimplemented!("TODO handle other fields");
     };
@@ -52,7 +52,7 @@ pub fn cuda_sum_over_hypercube_of_computation<
     let n_ops = n_compute_units << n_vars.max(LOG_CUDA_WARP_SIZE);
 
     let module_name = format!("sumcheck_{:x}", comp.uuid());
-    let mut call = CudaCall::new(&module_name, func_name, n_ops)
+    let mut call = CudaCall::new::<F>(&module_name, func_name, n_ops)
         .shared_mem_bytes(batching_scalars.len() as u32 * ext_degree * 4); // cf: __shared__ BigField cached_batching_scalars[N_BATCHING_SCALARS];;
     call.arg(&multilinears_ptrs_dev);
     call.arg(&mut sums_dev);
@@ -81,7 +81,8 @@ mod test {
     use algebra::pols::{MultilinearDevice, MultilinearHost};
     use arithmetic_circuit::TransparentPolynomial;
     use cuda_engine::{
-        SumcheckComputation, cuda_init, cuda_preprocess_sumcheck_computation, memcpy_htod,
+        CudaField, SumcheckComputation, cuda_init, cuda_preprocess_sumcheck_computation,
+        memcpy_htod,
     };
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_koala_bear::KoalaBear;
@@ -112,7 +113,7 @@ mod test {
             eq_mle_multiplier: false,
         };
         let time = std::time::Instant::now();
-        cuda_init();
+        cuda_init(CudaField::KoalaBear);
         cuda_preprocess_sumcheck_computation(&sumcheck_computation);
         println!("CUDA initialized in {} ms", time.elapsed().as_millis());
 

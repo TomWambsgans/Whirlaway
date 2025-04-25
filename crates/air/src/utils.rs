@@ -101,7 +101,7 @@ pub(crate) fn column_down_host<F: Field>(column: &MultilinearHost<F>) -> Multili
 
 #[cfg(test)]
 mod test {
-    use cuda_engine::{cuda_init, cuda_sync, memcpy_htod};
+    use cuda_engine::{CudaField, cuda_init, cuda_sync, memcpy_htod};
     use p3_koala_bear::KoalaBear;
     use rand::{SeedableRng, rngs::StdRng};
 
@@ -111,7 +111,7 @@ mod test {
 
     #[test]
     fn test_cuda_air_columns_up_down() {
-        cuda_init();
+        cuda_init(CudaField::KoalaBear);
 
         let n_columns = 200;
         let n_vars = 15;

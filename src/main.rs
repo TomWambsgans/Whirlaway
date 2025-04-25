@@ -10,7 +10,7 @@ const USE_CUDA: bool = true;
 const SECURITY_BITS: usize = 128;
 
 fn main() {
-    for (log_n_rows, log_inv_rate) in [(15, 4), (16, 3), (17, 2), (17, 1)] {
+    for (log_n_rows, log_inv_rate) in [(16, 3)] {
         let benchmark = prove_poseidon2(
             log_n_rows,
             WhirParameters::standard(
@@ -19,7 +19,7 @@ fn main() {
                 log_inv_rate,
                 USE_CUDA,
             ),
-            false,
+            true,
         );
         println!("{}", benchmark.to_string());
     }

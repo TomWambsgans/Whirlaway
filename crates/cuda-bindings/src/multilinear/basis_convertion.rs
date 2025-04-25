@@ -12,7 +12,7 @@ pub fn cuda_monomial_to_lagrange_basis_rev<F: Field>(coeffs: &CudaSlice<F>) -> C
     let n_vars = coeffs.len().ilog2() as u32;
     let mut buff = cuda_alloc::<F>(coeffs.len());
     let mut result = cuda_alloc::<F>(coeffs.len());
-    let mut call = CudaCall::new(
+    let mut call = CudaCall::new::<F>(
         "multilinear",
         "monomial_to_lagrange_basis_rev",
         1 << (n_vars - 1),
@@ -54,7 +54,7 @@ fn cuda_lagrange_to_monomial_basis_core<F: Field>(
     } else {
         "lagrange_to_monomial_basis"
     };
-    let mut call = CudaCall::new("multilinear", func_name, evals.len() as u32 / 2);
+    let mut call = CudaCall::new::<F>("multilinear", func_name, evals.len() as u32 / 2);
     call.arg(evals);
 
     let mut buff;
@@ -85,7 +85,7 @@ mod tests {
         type F = KoalaBear;
         type EF = BinomialExtensionField<F, EXT_DEGREE>;
 
-        cuda_init();
+        cuda_init(CudaField::KoalaBear);
 
         let rng = &mut StdRng::seed_from_u64(0);
         let n_vars = 20;
@@ -120,7 +120,7 @@ mod tests {
         type F = KoalaBear;
         type EF = BinomialExtensionField<F, EXT_DEGREE>;
 
-        cuda_init();
+        cuda_init(CudaField::KoalaBear);
 
         let rng = &mut StdRng::seed_from_u64(0);
         let n_vars = 17;

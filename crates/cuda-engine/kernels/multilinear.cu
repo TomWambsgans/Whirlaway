@@ -144,7 +144,7 @@ extern "C" __global__ void lagrange_to_monomial_basis_rev(BigField *input_evals,
     }
 }
 
-extern "C" __global__ void eval_ext_multilinear_at_ext_point_in_monomial_basis(BigField *coeffs, BigField *point, const uint32_t n_vars, BigField *buff)
+extern "C" __global__ void eval_multilinear_in_monomial_basis(BigField *coeffs, BigField *point, const uint32_t n_vars, BigField *buff)
 {
     // coeffs and buff have size 2^n_vars
     // result is stored at the last index of the buffer
@@ -197,7 +197,7 @@ extern "C" __global__ void eq_mle(BigField *point, const uint32_t n_vars, BigFie
 
     if (threadIdx.x == 0 && blockIdx.x == 0)
     {
-        res[0] = BigField{0};
+        res[0] = {0};
         res[0].coeffs[0] = SmallField::from_canonical(1);
     }
     grid.sync();
@@ -219,7 +219,7 @@ extern "C" __global__ void eq_mle(BigField *point, const uint32_t n_vars, BigFie
     }
 }
 
-extern "C" __global__ void scale_ext_slice_in_place(BigField *slice, const uint32_t len, BigField *scalar)
+extern "C" __global__ void scale_big_field_in_place(BigField *slice, const uint32_t len, BigField *scalar)
 {
     const int total_n_threads = blockDim.x * gridDim.x;
 
@@ -236,7 +236,7 @@ extern "C" __global__ void scale_ext_slice_in_place(BigField *slice, const uint3
     }
 }
 
-extern "C" __global__ void scale_prime_slice_by_ext(SmallField *slice, const uint32_t len, BigField *scalar, BigField *res)
+extern "C" __global__ void scale_small_field_in_place(SmallField *slice, const uint32_t len, BigField *scalar, BigField *res)
 {
     const int total_n_threads = blockDim.x * gridDim.x;
 
@@ -398,7 +398,7 @@ extern "C" __global__ void fold_prime_by_prime(const SmallField **inputs, SmallF
         if (slice_index >= n_slices)
             return;
         const int slice_offset = thread_index % (1 << (slice_log_len - log_n_scalars));
-        SmallField sum = SmallField::from_canonical(0);
+        SmallField sum = {0};
         for (int i = 0; i < 1 << log_n_scalars; i++)
         {
             SmallField term = SmallField::mul(inputs[slice_index][slice_offset + (i << (slice_log_len - log_n_scalars))], scalars[i]);
@@ -408,7 +408,7 @@ extern "C" __global__ void fold_prime_by_prime(const SmallField **inputs, SmallF
     }
 }
 
-extern "C" __global__ void fold_prime_by_ext(const SmallField **inputs, BigField **res, const BigField *scalars, const uint32_t n_slices, const uint32_t slice_log_len, const uint32_t log_n_scalars)
+extern "C" __global__ void fold_small_by_big(const SmallField **inputs, BigField **res, const BigField *scalars, const uint32_t n_slices, const uint32_t slice_log_len, const uint32_t log_n_scalars)
 {
     // scalar contains 2^folding_factor elements
     const int total_n_threads = blockDim.x * gridDim.x;
@@ -432,7 +432,7 @@ extern "C" __global__ void fold_prime_by_ext(const SmallField **inputs, BigField
     }
 }
 
-extern "C" __global__ void fold_ext_by_prime(const BigField **inputs, BigField **res, const SmallField *scalars, const uint32_t n_slices, const uint32_t slice_log_len, const uint32_t log_n_scalars)
+extern "C" __global__ void fold_big_by_small(const BigField **inputs, BigField **res, const SmallField *scalars, const uint32_t n_slices, const uint32_t slice_log_len, const uint32_t log_n_scalars)
 {
     // scalar contains 2^folding_factor elements
     const int total_n_threads = blockDim.x * gridDim.x;
@@ -456,7 +456,7 @@ extern "C" __global__ void fold_ext_by_prime(const BigField **inputs, BigField *
     }
 }
 
-extern "C" __global__ void fold_ext_by_ext(const BigField **inputs, BigField **res, const BigField *scalars, const uint32_t n_slices, const uint32_t slice_log_len, const uint32_t log_n_scalars)
+extern "C" __global__ void fold_big_by_big(const BigField **inputs, BigField **res, const BigField *scalars, const uint32_t n_slices, const uint32_t slice_log_len, const uint32_t log_n_scalars)
 {
     // scalar contains 2^folding_factor elements
     const int total_n_threads = blockDim.x * gridDim.x;
@@ -480,7 +480,7 @@ extern "C" __global__ void fold_ext_by_ext(const BigField **inputs, BigField **r
     }
 }
 
-extern "C" __global__ void dot_product_ext_ext(BigField *a, BigField *b, BigField *res, const uint32_t log_len)
+extern "C" __global__ void dot_product_big_big(BigField *a, BigField *b, BigField *res, const uint32_t log_len)
 {
     // a, b and res have size 2^log_len
     // the final result is stored in res[0]
@@ -518,7 +518,7 @@ extern "C" __global__ void dot_product_ext_ext(BigField *a, BigField *b, BigFiel
     }
 }
 
-extern "C" __global__ void dot_product_ext_prime(BigField *a, SmallField *b, BigField *res, const uint32_t log_len)
+extern "C" __global__ void dot_product_big_small(BigField *a, SmallField *b, BigField *res, const uint32_t log_len)
 {
     // a, b and res have size 2^log_len
     // the final result is stored in res[0]
@@ -589,7 +589,7 @@ extern "C" __global__ void piecewise_linear_comb(const SmallField *input, BigFie
     }
 }
 
-extern "C" __global__ void linear_combination_of_prime_slices_by_ext_scalars(const SmallField **inputs, BigField *output, BigField *scalars, const uint32_t len, const uint32_t n_scalars)
+extern "C" __global__ void linear_combination(const SmallField **inputs, BigField *output, BigField *scalars, const uint32_t len, const uint32_t n_scalars)
 {
     // inputs has size n_scalars, and each inputs[i] has size len
     // output has size len
@@ -685,6 +685,38 @@ extern "C" __global__ void repeat_slice_from_inside(const BigField *input, BigFi
     }
 }
 
+struct TensorAlgebra
+{
+    SmallField coeffs[BigField::EXTENSION_DEGREE][BigField::EXTENSION_DEGREE];
+
+    __device__ static void add(const TensorAlgebra *a,
+                               const TensorAlgebra *b,
+                               TensorAlgebra *result)
+    {
+        // Works even if result is the same as a or b
+        for (int i = 0; i < BigField::EXTENSION_DEGREE; i++)
+        {
+            for (int j = 0; j < BigField::EXTENSION_DEGREE; j++)
+            {
+                result->coeffs[i][j] = SmallField::add(a->coeffs[i][j], b->coeffs[i][j]);
+            }
+        }
+    }
+
+    __device__ static void phi_0_times_phi_1(const BigField *a,
+                                             const BigField *b,
+                                             TensorAlgebra *result)
+    {
+        for (int i = 0; i < BigField::EXTENSION_DEGREE; i++)
+        {
+            for (int j = 0; j < BigField::EXTENSION_DEGREE; j++)
+            {
+                result->coeffs[i][j] = SmallField::mul(a->coeffs[i], b->coeffs[j]);
+            }
+        }
+    }
+};
+
 extern "C" __global__ void tensor_algebra_dot_product(const BigField *left, BigField *right, SmallField *buff, SmallField *result, const uint32_t log_len, const uint32_t log_n_tasks_per_thread)
 {
     // left and right have size 2^log_len
@@ -714,9 +746,9 @@ extern "C" __global__ void tensor_algebra_dot_product(const BigField *left, BigF
             TensorAlgebra::add(&sum, &res, &sum);
         }
         int shift = 0;
-        for (int i = 0; i < EXT_DEGREE; i++)
+        for (int i = 0; i < BigField::EXTENSION_DEGREE; i++)
         {
-            for (int j = 0; j < EXT_DEGREE; j++)
+            for (int j = 0; j < BigField::EXTENSION_DEGREE; j++)
             {
                 buff[shift + idx] = sum.coeffs[i][j];
                 shift += 1 << (log_len - log_n_tasks_per_thread);
@@ -730,7 +762,7 @@ extern "C" __global__ void tensor_algebra_dot_product(const BigField *left, BigF
     {
         grid.sync();
         const int half_size = 1 << (w - step - 1);
-        const int n_ops = half_size * EXT_DEGREE * EXT_DEGREE;
+        const int n_ops = half_size * BigField::EXTENSION_DEGREE * BigField::EXTENSION_DEGREE;
         n_reps = (n_ops + n_total_threads - 1) / n_total_threads;
         for (int rep = 0; rep < n_reps; rep++)
         {
@@ -745,11 +777,11 @@ extern "C" __global__ void tensor_algebra_dot_product(const BigField *left, BigF
     }
 
     grid.sync();
-    n_reps = (EXT_DEGREE * EXT_DEGREE + n_total_threads - 1) / n_total_threads;
+    n_reps = (BigField::EXTENSION_DEGREE * BigField::EXTENSION_DEGREE + n_total_threads - 1) / n_total_threads;
     for (int rep = 0; rep < n_reps; rep++)
     {
         const int idx = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
-        if (idx < EXT_DEGREE * EXT_DEGREE)
+        if (idx < BigField::EXTENSION_DEGREE * BigField::EXTENSION_DEGREE)
         {
             result[idx] = buff[idx << (log_len - log_n_tasks_per_thread)];
         }

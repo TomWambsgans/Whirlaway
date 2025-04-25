@@ -5,7 +5,7 @@ use algebra::pols::{
 };
 use arithmetic_circuit::{CircuitComputation, TransparentPolynomial};
 use cuda_engine::{
-    SumcheckComputation, cuda_init, cuda_preprocess_sumcheck_computation, memcpy_htod,
+    CudaField, SumcheckComputation, cuda_init, cuda_preprocess_sumcheck_computation, memcpy_htod,
 };
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
@@ -30,7 +30,7 @@ fn test_sumcheck() {
         .collect::<Vec<_>>();
     let eq_factor = (0..n_vars).map(|_| EF::random(rng)).collect::<Vec<_>>();
 
-    cuda_init();
+    cuda_init(CudaField::KoalaBear);
     let sumcheck_computation = SumcheckComputation {
         exprs: &exprs,
         n_multilinears: n_multilinears + 1,
@@ -123,7 +123,7 @@ fn test_univariate_skip() {
         .collect::<Vec<_>>();
     let selectors = univariate_selectors::<F>(skips);
 
-    cuda_init();
+    cuda_init(CudaField::KoalaBear);
     let sumcheck_computation = SumcheckComputation {
         exprs: &exprs,
         n_multilinears: n_multilinears + 1,

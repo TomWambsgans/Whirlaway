@@ -23,7 +23,7 @@ pub fn cuda_transpose<F: Field>(
     );
     let mut result_dev = cuda_alloc::<F>(input.len());
 
-    let mut call = CudaCall::new("ntt", "transpose", 1 << (log_rows + log_cols));
+    let mut call = CudaCall::new::<F>("ntt", "transpose", 1 << (log_rows + log_cols));
     call.arg(input);
     call.arg(&mut result_dev);
     call.arg(&log_rows);
@@ -53,7 +53,7 @@ pub fn cuda_ntt<F: Field>(coeffs: &mut CudaSlice<F>, log_chunck_size: usize) {
     let extension_degree = std::mem::size_of::<F>() / std::mem::size_of::<u32>(); // TODO improve
 
     let twiddles = cuda_twiddles::<F::PrimeSubfield>();
-    let mut call = CudaCall::new("ntt", "ntt", 1 << (log_len - 1)).shared_mem_bytes(
+    let mut call = CudaCall::new::<F>("ntt", "ntt", 1 << (log_len - 1)).shared_mem_bytes(
         (MAX_THREADS_PER_COOPERATIVE_BLOCK * 2) * (extension_degree as u32 + 1) * 4,
     ); // cf `ntt_at_block_level` in ntt.cu
     call.arg(coeffs);

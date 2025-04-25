@@ -46,9 +46,10 @@ pub fn cuda_preprocess_sumcheck_computation<F: PrimeField32>(
     sumcheck_computation: &SumcheckComputation<F>,
 ) {
     let cuda = cuda_engine();
+    let field = CudaField::from_prime_field::<F>();
     let mut guard = cuda.functions.write().unwrap();
     let module = format!("sumcheck_{:x}", sumcheck_computation.uuid());
-    if guard.contains_key(&module) {
+    if guard.contains_key(&(field, module.clone())) {
         return;
     }
     let cuda_file = cuda_synthetic_dir().join(format!("{module}.cu"));
@@ -67,7 +68,8 @@ pub fn cuda_preprocess_sumcheck_computation<F: PrimeField32>(
     compile_module(
         cuda.dev.clone(),
         &cuda_synthetic_dir(),
-        &module,
+        field,
+        module,
         use_noinline,
         &mut *guard,
     );

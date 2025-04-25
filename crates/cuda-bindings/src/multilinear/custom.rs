@@ -14,7 +14,7 @@ pub fn cuda_whir_fold<F: Field>(coeffs: &CudaSlice<F>, folding_randomness: &[F])
         .sum::<usize>();
     let mut buff = cuda_alloc::<F>(buff_size);
     let mut res = cuda_alloc::<F>(coeffs.len() / (1 << folding_factor) as usize);
-    let mut call = CudaCall::new("multilinear", "whir_fold", coeffs.len() as u32 / 2);
+    let mut call = CudaCall::new::<F>("multilinear", "whir_fold", coeffs.len() as u32 / 2);
     call.arg(coeffs);
     call.arg(&n_vars);
     call.arg(&folding_factor);
@@ -57,7 +57,7 @@ fn cuda_air_columns_up_or_down<F: Field, S: Borrow<CudaSlice<F>>>(
         "multilinears_down"
     };
     let n_columns = columns.len() as u32;
-    let mut call = CudaCall::new("multilinear", func_name, (columns.len() << n_vars) as u32);
+    let mut call = CudaCall::new::<F>("multilinear", func_name, (columns.len() << n_vars) as u32);
     call.arg(&column_ptrs);
     call.arg(&n_columns);
     call.arg(&n_vars);
@@ -81,7 +81,7 @@ mod tests {
 
         type F = KoalaBear;
         type EF = BinomialExtensionField<F, EXT_DEGREE>;
-        cuda_init();
+        cuda_init(CudaField::KoalaBear);
 
         let rng = &mut StdRng::seed_from_u64(0);
         let n_vars = 23;

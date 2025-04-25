@@ -27,9 +27,9 @@ pub fn cuda_eval_multilinear_in_monomial_basis<F: Field, EF: ExtensionField<F>>(
     let point_dev = memcpy_htod(&point);
     let mut buff = cuda_alloc::<EF>(coeffs.len() - 1);
 
-    let mut call = CudaCall::new(
+    let mut call = CudaCall::new::<F>(
         "multilinear",
-        "eval_ext_multilinear_at_ext_point_in_monomial_basis",
+        "eval_multilinear_in_monomial_basis",
         1 << (n_vars - 1),
     );
     call.arg(coeffs);
@@ -60,7 +60,7 @@ pub fn cuda_eq_mle<F: Field>(point: &[F]) -> CudaSlice<F> {
     let n_vars = point.len() as u32;
     let point_dev = memcpy_htod(&point);
     let mut res = cuda_alloc::<F>(1 << n_vars);
-    let mut call = CudaCall::new("multilinear", "eq_mle", 1 << (n_vars - 1));
+    let mut call = CudaCall::new::<F>("multilinear", "eq_mle", 1 << (n_vars - 1));
     call.arg(&point_dev);
     call.arg(&n_vars);
     call.arg(&mut res);
@@ -82,7 +82,7 @@ mod tests {
 
         type F = KoalaBear;
         type EF = BinomialExtensionField<F, EXT_DEGREE>;
-        cuda_init();
+        cuda_init(CudaField::KoalaBear);
 
         let rng = &mut StdRng::seed_from_u64(0);
         let n_vars = 20;
@@ -113,7 +113,7 @@ mod tests {
 
         type F = KoalaBear;
         type EF = BinomialExtensionField<F, EXT_DEGREE>;
-        cuda_init();
+        cuda_init(CudaField::KoalaBear);
 
         let rng = &mut StdRng::seed_from_u64(0);
         let n_vars = 20;
@@ -144,7 +144,7 @@ mod tests {
 
         type F = KoalaBear;
         type EF = BinomialExtensionField<F, EXT_DEGREE>;
-        cuda_init();
+        cuda_init(CudaField::KoalaBear);
 
         let rng = &mut StdRng::seed_from_u64(0);
         let n_vars = 3;

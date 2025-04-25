@@ -57,17 +57,17 @@ fn cuda_fold_rectangular<F1: Field, F2: Field, F3: Field, ML: Borrow<CudaSlice<F
     let func_name = if (f1_t, f2_t) == (koala_t, koala_t) {
         "fold_prime_by_prime"
     } else if (f1_t, f2_t) == (koala_8_t, koala_8_t) {
-        "fold_ext_by_ext"
+        "fold_big_by_big"
     } else if (f1_t, f2_t) == (koala_8_t, koala_t) {
-        "fold_ext_by_prime"
+        "fold_big_by_small"
     } else if (f1_t, f2_t) == (koala_t, koala_8_t) {
-        "fold_prime_by_ext"
+        "fold_small_by_big"
     } else {
         unimplemented!("TODO handle other fields");
     };
 
     let n_slices = slices.len() as u32;
-    let mut call = CudaCall::new(
+    let mut call = CudaCall::new::<F1>(
         "multilinear",
         func_name,
         (slices.len() as u32) << (n_vars - log_n_scalars),

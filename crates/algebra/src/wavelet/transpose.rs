@@ -168,7 +168,7 @@ fn transpose_square_swap<F: Sized + Send>(mut a: MatrixMut<'_, F>, mut b: Matrix
 #[cfg(test)]
 mod tests {
     use cuda_bindings::cuda_transpose;
-    use cuda_engine::{cuda_init, cuda_sync, memcpy_dtoh, memcpy_htod};
+    use cuda_engine::{CudaField, cuda_init, cuda_sync, memcpy_dtoh, memcpy_htod};
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_koala_bear::KoalaBear;
 
@@ -176,7 +176,7 @@ mod tests {
 
     #[test]
     fn test_cuda_transpose() {
-        cuda_init();
+        cuda_init(CudaField::KoalaBear);
 
         type F = BinomialExtensionField<KoalaBear, 8>;
         let log_n_rows = 7;

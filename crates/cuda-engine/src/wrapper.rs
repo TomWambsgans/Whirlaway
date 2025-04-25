@@ -1,7 +1,7 @@
 use std::any::TypeId;
 use std::{borrow::Borrow, ops::Range};
 
-use crate::{cuda_engine, try_get_cuda_engine};
+use crate::{CudaField, cuda_engine, try_get_cuda_engine};
 use cudarc::driver::{
     CudaFunction, DevicePtr, DevicePtrMut, LaunchArgs, LaunchConfig, ValidAsZeroBits,
 };
@@ -156,11 +156,12 @@ pub struct CudaCall<'a> {
 }
 
 impl<'a> CudaCall<'a> {
-    pub fn new(module: &str, func_name: &str, n_ops: u32) -> Self {
+    pub fn new<F: Field>(module: &str, func_name: &str, n_ops: u32) -> Self {
         let cuda = cuda_engine();
+        let field = CudaField::from_field::<F>();
         let guard = cuda.functions.read().unwrap();
         let function = guard
-            .get(module)
+            .get(&(field, module.to_string()))
             .and_then(|f| f.get(func_name))
             .unwrap_or_else(|| panic!("Function {func_name} not found in module {module}"));
 
