@@ -1,13 +1,14 @@
 use std::collections::HashSet;
 
-use cuda_engine::{CudaField, cuda_init, memcpy_htod};
+use cuda_engine::{CudaFunctionInfo, cuda_init, cuda_load_function, memcpy_htod};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
 use crate::MerkleTree;
 
 #[test]
 fn test_merkle_tree() {
-    cuda_init(CudaField::KoalaBear);
+    cuda_init();
+    cuda_load_function(CudaFunctionInfo::basic("keccak.cu", "batch_keccak256"));
     let rand = &mut StdRng::seed_from_u64(0);
     let height = 9;
     let batch_size = 3;

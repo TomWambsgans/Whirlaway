@@ -1,6 +1,5 @@
-use cuda_engine::CudaCall;
+use cuda_engine::{CudaCall, CudaFunctionInfo};
 use cudarc::driver::{CudaView, CudaViewMut, DeviceRepr, PushKernelArg};
-use p3_koala_bear::KoalaBear;
 use utils::KeccakDigest;
 
 pub fn cuda_keccak256<T: DeviceRepr>(
@@ -12,7 +11,10 @@ pub fn cuda_keccak256<T: DeviceRepr>(
     let n_inputs = (input.len() / batch_size) as u32;
     assert_eq!(n_inputs, output.len() as u32);
     let input_length = (batch_size * std::mem::size_of::<T>()) as u32;
-    let mut launch_args = CudaCall::new::<KoalaBear>("keccak", "batch_keccak256", n_inputs);
+    let mut launch_args = CudaCall::new(
+        CudaFunctionInfo::basic("keccak.cu", "batch_keccak256"),
+        n_inputs,
+    );
     launch_args.arg(input);
     launch_args.arg(&n_inputs);
     launch_args.arg(&input_length);
@@ -22,7 +24,10 @@ pub fn cuda_keccak256<T: DeviceRepr>(
 
 #[cfg(test)]
 mod tests {
-    use cuda_engine::{CudaField, cuda_alloc, cuda_init, cuda_sync, memcpy_dtoh, memcpy_htod};
+    use cuda_engine::{
+        CudaFunctionInfo, cuda_alloc, cuda_init, cuda_load_function, cuda_sync, memcpy_dtoh,
+        memcpy_htod,
+    };
     use rayon::prelude::*;
     use utils::{KeccakDigest, keccak256};
 
@@ -31,7 +36,9 @@ mod tests {
     #[test]
     fn test_cuda_keccak() {
         let t = std::time::Instant::now();
-        cuda_init(CudaField::KoalaBear);
+        cuda_init();
+        cuda_load_function(CudaFunctionInfo::basic("keccak.cu", "batch_keccak256"));
+
         println!("CUDA initialized in {} ms", t.elapsed().as_millis());
 
         let n_inputs = 4;

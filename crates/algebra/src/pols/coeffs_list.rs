@@ -10,9 +10,9 @@ use cuda_bindings::{
 use cuda_engine::{HostOrDeviceBuffer, cuda_alloc_zeros, cuda_sync, memcpy_dtod_to, memcpy_dtoh};
 use cudarc::driver::CudaSlice;
 use p3_dft::Radix2DitParallel;
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{Field, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
-use utils::switch_endianness;
+use utils::{default_hash, switch_endianness};
 
 use {
     rayon::{join, prelude::*},
@@ -260,13 +260,13 @@ impl<F: Field> CoefficientList<F> {
         matches!(self, Self::Host(_))
     }
 
-    pub fn expand_from_coeff_and_restructure<PrimeField: TwoAdicField>(
+    pub fn expand_from_coeff_and_restructure(
         &self,
         expansion: usize,
         folding_factor: usize,
     ) -> HostOrDeviceBuffer<F>
     where
-        F: ExtensionField<PrimeField> + TwoAdicField + Ord,
+        F: TwoAdicField + Ord,
     {
         let _info =
             tracing::info_span!("expand_from_coeff_and_restructure", cuda = self.is_device())
@@ -298,9 +298,9 @@ impl<F: Field> CoefficientList<F> {
                 cuda_sync();
                 HostOrDeviceBuffer::Device(res)
             }
-            Self::Host(coefds) => {
-                let mut extended_coeffs = coefds.coeffs.clone();
-                extended_coeffs.resize(coefds.n_coefs() * expansion, F::ZERO);
+            Self::Host(coeffs) => {
+                let mut extended_coeffs = coeffs.coeffs.clone();
+                extended_coeffs.resize(coeffs.n_coefs() * expansion, F::ZERO);
                 // TODO preprocess twiddles
                 HostOrDeviceBuffer::Host(
                     Radix2DitParallel::<F>::default()
@@ -333,6 +333,15 @@ impl<F: Field> CoefficientList<F> {
         match self {
             Self::Host(coeffs) => coeffs,
             Self::Device(coeffs) => coeffs.transfer_to_host(),
+        }
+    }
+
+    /// Debug purpose
+    /// Sync
+    pub fn hash(&self) -> u64 {
+        match self {
+            Self::Host(coeffs) => default_hash(&coeffs.coeffs),
+            Self::Device(coeffs) => default_hash(&coeffs.transfer_to_host().coeffs),
         }
     }
 }

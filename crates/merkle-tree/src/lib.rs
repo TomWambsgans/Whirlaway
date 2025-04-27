@@ -179,7 +179,8 @@ pub struct MerkleTree<F> {
 }
 
 impl<F: Sync> MerkleTree<F> {
-    /// // `leaves.len()` should be power of two.
+    /// `leaves.len()` should be power of two.
+    /// Sync
     pub fn new(leaves: &HostOrDeviceBuffer<F>, batch_size: usize) -> Self
     where
         F: DeviceRepr,

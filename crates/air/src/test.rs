@@ -1,8 +1,3 @@
-use arithmetic_circuit::ArithmeticCircuit;
-use cuda_engine::{
-    CudaField, SumcheckComputation, cuda_init, cuda_preprocess_sumcheck_computation,
-    cuda_preprocess_twiddles,
-};
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::PrimeCharacteristicRing;
 use p3_field::extension::BinomialExtensionField;
@@ -16,13 +11,14 @@ use crate::AirBuilder;
 
 type F = KoalaBear;
 type EF = BinomialExtensionField<KoalaBear, 8>;
+type WhirF = BinomialExtensionField<KoalaBear, 8>;
 
 #[test]
 fn test_air_fibonacci() {
-    let log_length = 12;
+    let log_length = 14;
     let security_bits = 45;
     let log_inv_rate = 2;
-    for cuda in [true, false] {
+    for cuda in [false, true] {
         let mut builder = AirBuilder::<F, 4>::new(log_length);
         let mut first_row_selector = vec![F::ZERO; 1 << log_length];
         first_row_selector[0] = F::ONE;
@@ -54,31 +50,7 @@ fn test_air_fibonacci() {
         let table = builder.build();
 
         if cuda {
-            let constraint_sumcheck_computations = SumcheckComputation::<F> {
-                exprs: &table.constraints,
-                n_multilinears: table.n_columns * 2 + 1,
-                eq_mle_multiplier: true,
-            };
-            let prod_sumcheck = SumcheckComputation::<F> {
-                exprs: &[(ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(1))
-                    .fix_computation(false)],
-                n_multilinears: 2,
-                eq_mle_multiplier: false,
-            };
-            let inner_air_sumcheck = SumcheckComputation::<F> {
-                exprs: &[(ArithmeticCircuit::Node(4)
-                    * ((ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
-                        + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3))))
-                .fix_computation(false)],
-                n_multilinears: 5,
-                eq_mle_multiplier: false,
-            };
-
-            cuda_init(CudaField::KoalaBear);
-            cuda_preprocess_sumcheck_computation(&constraint_sumcheck_computations);
-            cuda_preprocess_sumcheck_computation(&prod_sumcheck);
-            cuda_preprocess_sumcheck_computation(&inner_air_sumcheck);
-            cuda_preprocess_twiddles::<F>();
+            table.cuda_setup::<EF, WhirF>();
         }
 
         let mut col_1 = vec![F::ZERO];
@@ -92,7 +64,7 @@ fn test_air_fibonacci() {
 
         table.check_validity(&witnesses);
 
-        let pcs = RingSwitch::<F, EF, WhirPCS<F, EF>>::new(
+        let pcs = RingSwitch::<F, WhirF, WhirPCS<WhirF>>::new(
             log_length + 1,
             &WhirParameters::standard(
                 SoundnessType::ProvableList,
@@ -103,7 +75,7 @@ fn test_air_fibonacci() {
         );
 
         let mut fs_prover = FsProver::new();
-        table.prove(&mut fs_prover, &pcs, witnesses, cuda);
+        table.prove::<EF, _, _>(&mut fs_prover, &pcs, witnesses, cuda);
 
         let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
         table.verify(&mut fs_verifier, &pcs, log_length).unwrap();
@@ -112,10 +84,10 @@ fn test_air_fibonacci() {
 
 #[test]
 fn test_air_complex() {
-    for log_length in [4, 7, 12] {
+    for log_length in [4, 7, 13] {
         let security_bits = 45;
         let log_inv_rate = 2;
-        for cuda in [true, false] {
+        for cuda in [false, true] {
             let mut builder = AirBuilder::<F, 8>::new(log_length);
             let mut first_row_selector = vec![F::ZERO; 1 << log_length];
             first_row_selector[0] = F::ONE;
@@ -181,32 +153,9 @@ fn test_air_complex() {
             let table = builder.build();
 
             if cuda {
-                let constraint_sumcheck_computations = SumcheckComputation::<F> {
-                    exprs: &table.constraints,
-                    n_multilinears: table.n_columns * 2 + 1,
-                    eq_mle_multiplier: true,
-                };
-                let prod_sumcheck = SumcheckComputation::<F> {
-                    exprs: &[(ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(1))
-                        .fix_computation(false)],
-                    n_multilinears: 2,
-                    eq_mle_multiplier: false,
-                };
-                let inner_air_sumcheck = SumcheckComputation::<F> {
-                    exprs: &[(ArithmeticCircuit::Node(4)
-                        * ((ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
-                            + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3))))
-                    .fix_computation(false)],
-                    n_multilinears: 5,
-                    eq_mle_multiplier: false,
-                };
-
-                cuda_init(CudaField::KoalaBear);
-                cuda_preprocess_sumcheck_computation(&constraint_sumcheck_computations);
-                cuda_preprocess_sumcheck_computation(&prod_sumcheck);
-                cuda_preprocess_sumcheck_computation(&inner_air_sumcheck);
-                cuda_preprocess_twiddles::<F>();
+                table.cuda_setup::<EF, WhirF>();
             }
+
             let mut col_0 = vec![F::ZERO];
             let mut col_1 = vec![F::ONE];
             let mut col_2 = vec![F::NEG_ONE];
@@ -238,7 +187,7 @@ fn test_air_complex() {
 
             table.check_validity(&witnesses);
 
-            let pcs = RingSwitch::<F, EF, WhirPCS<F, EF>>::new(
+            let pcs = RingSwitch::<F, WhirF, WhirPCS<WhirF>>::new(
                 log_length + 3,
                 &WhirParameters::standard(
                     SoundnessType::ProvableList,
@@ -249,7 +198,7 @@ fn test_air_complex() {
             );
 
             let mut fs_prover = FsProver::new();
-            table.prove(&mut fs_prover, &pcs, witnesses, cuda);
+            table.prove::<EF, _, _>(&mut fs_prover, &pcs, witnesses, cuda);
 
             let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
             table.verify(&mut fs_verifier, &pcs, log_length).unwrap();

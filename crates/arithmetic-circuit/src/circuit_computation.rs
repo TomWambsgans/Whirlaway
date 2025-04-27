@@ -27,7 +27,7 @@ pub struct CircuitInstruction<F> {
     pub result_location: StackIndex,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum CircuitOp {
     Sum,
     Product,

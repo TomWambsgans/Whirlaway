@@ -1,10 +1,5 @@
 use ::air::{AirBuilder, AirExpr};
 use algebra::pols::MultilinearHost;
-use arithmetic_circuit::ArithmeticCircuit;
-use cuda_engine::{
-    CudaField, SumcheckComputation, cuda_init, cuda_preprocess_sumcheck_computation,
-    cuda_preprocess_twiddles,
-};
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear};
@@ -40,6 +35,7 @@ const COLS: usize =
 
 type F = KoalaBear;
 type EF = BinomialExtensionField<KoalaBear, 8>;
+type WhirF = BinomialExtensionField<KoalaBear, 8>;
 
 #[cfg(test)]
 mod tests {
@@ -164,41 +160,17 @@ pub fn prove_poseidon2(
     // table.check_validity(&witness);
 
     if whir_params.cuda {
-        let constraint_sumcheck_computations = SumcheckComputation::<F> {
-            exprs: &table.constraints,
-            n_multilinears: table.n_columns * 2 + 1,
-            eq_mle_multiplier: true,
-        };
-        let prod_sumcheck = SumcheckComputation::<F> {
-            exprs: &[
-                (ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(1)).fix_computation(false)
-            ],
-            n_multilinears: 2,
-            eq_mle_multiplier: false,
-        };
-        let inner_air_sumcheck = SumcheckComputation::<F> {
-            exprs: &[(ArithmeticCircuit::Node(4)
-                * ((ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
-                    + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3))))
-            .fix_computation(false)],
-            n_multilinears: 5,
-            eq_mle_multiplier: false,
-        };
-        cuda_init(CudaField::KoalaBear);
-        cuda_preprocess_sumcheck_computation(&constraint_sumcheck_computations);
-        cuda_preprocess_sumcheck_computation(&prod_sumcheck);
-        cuda_preprocess_sumcheck_computation(&inner_air_sumcheck);
-        cuda_preprocess_twiddles::<F>();
+        table.cuda_setup::<EF, WhirF>();
     }
 
-    let pcs = RingSwitch::<F, EF, WhirPCS<F, EF>>::new(
+    let pcs = RingSwitch::<F, WhirF, WhirPCS<WhirF>>::new(
         log_n_rows + table.log_n_witness_columns(),
         &whir_params,
     );
 
     let t = Instant::now();
     let mut fs_prover = FsProver::new();
-    table.prove(&mut fs_prover, &pcs, witness, whir_params.cuda);
+    table.prove::<EF, _, _>(&mut fs_prover, &pcs, witness, whir_params.cuda);
     let proof_size = fs_prover.transcript_len();
 
     let prover_time = t.elapsed();

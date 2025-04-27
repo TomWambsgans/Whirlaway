@@ -1,13 +1,11 @@
-use std::any::TypeId;
-
 use cuda_engine::{
-    CudaCall, MAX_THREADS_PER_COOPERATIVE_BLOCK, cuda_alloc, cuda_twiddles,
+    CudaCall, CudaFunctionInfo, MAX_THREADS_PER_COOPERATIVE_BLOCK, cuda_alloc, cuda_twiddles,
     cuda_twiddles_two_adicity,
 };
 use cudarc::driver::{CudaSlice, PushKernelArg};
 
-use p3_field::{Field, extension::BinomialExtensionField};
-use p3_koala_bear::KoalaBear;
+use p3_field::Field;
+use utils::extension_degree;
 
 pub fn cuda_transpose<F: Field>(
     input: &CudaSlice<F>,
@@ -16,14 +14,12 @@ pub fn cuda_transpose<F: Field>(
 ) -> CudaSlice<F> {
     assert!(input.len().is_power_of_two());
     assert_eq!(log_rows + log_cols, input.len().trailing_zeros() as u32);
-    assert_eq!(
-        TypeId::of::<F>(),
-        TypeId::of::<BinomialExtensionField<KoalaBear, 8>>(),
-        "TODO other fields"
-    );
     let mut result_dev = cuda_alloc::<F>(input.len());
 
-    let mut call = CudaCall::new::<F>("ntt", "transpose", 1 << (log_rows + log_cols));
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::one_field::<F>("ntt/transpose.cu", "transpose"),
+        1 << (log_rows + log_cols),
+    );
     call.arg(input);
     call.arg(&mut result_dev);
     call.arg(&log_rows);
@@ -34,11 +30,6 @@ pub fn cuda_transpose<F: Field>(
 }
 
 pub fn cuda_ntt<F: Field>(coeffs: &mut CudaSlice<F>, log_chunck_size: usize) {
-    assert_eq!(
-        TypeId::of::<F>(),
-        TypeId::of::<BinomialExtensionField<KoalaBear, 8>>(),
-        "TODO"
-    );
     assert!(coeffs.len().is_power_of_two());
 
     let log_len = coeffs.len().trailing_zeros() as u32;
@@ -50,11 +41,13 @@ pub fn cuda_ntt<F: Field>(coeffs: &mut CudaSlice<F>, log_chunck_size: usize) {
 
     assert_eq!(std::mem::size_of::<F>() % std::mem::size_of::<u32>(), 0);
 
-    let extension_degree = std::mem::size_of::<F>() / std::mem::size_of::<u32>(); // TODO improve
-
     let twiddles = cuda_twiddles::<F::PrimeSubfield>();
-    let mut call = CudaCall::new::<F>("ntt", "ntt", 1 << (log_len - 1)).shared_mem_bytes(
-        (MAX_THREADS_PER_COOPERATIVE_BLOCK * 2) * (extension_degree as u32 + 1) * 4,
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::two_fields::<F::PrimeSubfield, F>("ntt/ntt.cu", "ntt"),
+        1 << (log_len - 1),
+    )
+    .shared_mem_bytes(
+        (MAX_THREADS_PER_COOPERATIVE_BLOCK * 2) * (extension_degree::<F>() as u32 + 1) * 4,
     ); // cf `ntt_at_block_level` in ntt.cu
     call.arg(coeffs);
     call.arg(&log_len);

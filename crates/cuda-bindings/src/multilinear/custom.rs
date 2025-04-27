@@ -1,4 +1,4 @@
-use cuda_engine::{CudaCall, concat_pointers, cuda_alloc, memcpy_htod};
+use cuda_engine::{CudaCall, CudaFunctionInfo, concat_pointers, cuda_alloc, memcpy_htod};
 use cudarc::driver::{CudaSlice, PushKernelArg};
 use p3_field::Field;
 use std::borrow::Borrow;
@@ -14,7 +14,10 @@ pub fn cuda_whir_fold<F: Field>(coeffs: &CudaSlice<F>, folding_randomness: &[F])
         .sum::<usize>();
     let mut buff = cuda_alloc::<F>(buff_size);
     let mut res = cuda_alloc::<F>(coeffs.len() / (1 << folding_factor) as usize);
-    let mut call = CudaCall::new::<F>("multilinear", "whir_fold", coeffs.len() as u32 / 2);
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::one_field::<F>("multilinear.cu", "whir_fold"),
+        coeffs.len() as u32 / 2,
+    );
     call.arg(coeffs);
     call.arg(&n_vars);
     call.arg(&folding_factor);
@@ -42,7 +45,6 @@ fn cuda_air_columns_up_or_down<F: Field, S: Borrow<CudaSlice<F>>>(
     columns: &[S],
     up: bool,
 ) -> Vec<CudaSlice<F>> {
-    assert!(F::bits() <= 32);
     let columns: Vec<&CudaSlice<F>> = columns.iter().map(|m| m.borrow()).collect::<Vec<_>>();
     let n_vars = columns[0].len().ilog2() as u32;
     assert!(columns.iter().all(|c| c.len() == 1 << n_vars as usize));
@@ -57,7 +59,10 @@ fn cuda_air_columns_up_or_down<F: Field, S: Borrow<CudaSlice<F>>>(
         "multilinears_down"
     };
     let n_columns = columns.len() as u32;
-    let mut call = CudaCall::new::<F>("multilinear", func_name, (columns.len() << n_vars) as u32);
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::one_field::<F>("multilinear.cu", func_name),
+        (columns.len() << n_vars) as u32,
+    );
     call.arg(&column_ptrs);
     call.arg(&n_columns);
     call.arg(&n_vars);
@@ -81,8 +86,11 @@ mod tests {
 
         type F = KoalaBear;
         type EF = BinomialExtensionField<F, EXT_DEGREE>;
-        cuda_init(CudaField::KoalaBear);
-
+        cuda_init();
+        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+            "multilinear.cu",
+            "whir_fold",
+        ));
         let rng = &mut StdRng::seed_from_u64(0);
         let n_vars = 23;
         let folding_factor = 4;

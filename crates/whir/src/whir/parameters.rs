@@ -1,12 +1,16 @@
 use core::panic;
 use std::{f64::consts::LOG2_10, fmt::Display};
 
-use p3_field::{ExtensionField, TwoAdicField};
+use p3_field::{Field, TwoAdicField};
 
 use crate::parameters::{FoldingFactor, MultivariateParameters, SoundnessType, WhirParameters};
 
 #[derive(Clone)]
-pub struct WhirConfig<F: TwoAdicField, EF: ExtensionField<F>> {
+pub struct WhirConfig<EF: Field>
+where
+    EF: TwoAdicField + Ord,
+    EF::PrimeSubfield: TwoAdicField,
+{
     pub(crate) mv_parameters: MultivariateParameters<EF>,
     pub(crate) soundness_type: SoundnessType,
     pub(crate) security_level: usize,
@@ -31,7 +35,6 @@ pub struct WhirConfig<F: TwoAdicField, EF: ExtensionField<F>> {
     pub(crate) final_sumcheck_rounds: usize,
     pub(crate) final_folding_pow_bits: usize,
     pub(crate) cuda: bool,
-    _f: std::marker::PhantomData<F>,
 }
 
 #[derive(Debug, Clone)]
@@ -43,7 +46,11 @@ pub(crate) struct RoundConfig {
     pub(crate) log_inv_rate: usize,
 }
 
-impl<F: TwoAdicField, EF: ExtensionField<F>> WhirConfig<F, EF> {
+impl<EF: Field> WhirConfig<EF>
+where
+    EF: TwoAdicField + Ord,
+    EF::PrimeSubfield: TwoAdicField,
+{
     pub fn new(
         mv_parameters: MultivariateParameters<EF>,
         whir_parameters: &WhirParameters,
@@ -184,7 +191,6 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> WhirConfig<F, EF> {
             final_folding_pow_bits,
             final_log_inv_rate: log_inv_rate,
             cuda: whir_parameters.cuda,
-            _f: std::marker::PhantomData,
         }
     }
 
@@ -393,7 +399,11 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> WhirConfig<F, EF> {
     }
 }
 
-impl<F: TwoAdicField, EF: ExtensionField<F>> Display for WhirConfig<F, EF> {
+impl<EF: Field> Display for WhirConfig<EF>
+where
+    EF: TwoAdicField + Ord,
+    EF::PrimeSubfield: TwoAdicField,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.mv_parameters.fmt(f)?;
         writeln!(f, ", folding factor: {:?}", self.folding_factor)?;
@@ -425,7 +435,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Display for WhirConfig<F, EF> {
         writeln!(f, "Round by round soundness analysis:")?;
         writeln!(f, "------------------------------------")?;
 
-        let field_size_bits = F::bits() as usize;
+        let field_size_bits = EF::bits() as usize;
         let log_eta = Self::log_eta(self.soundness_type, self.starting_log_inv_rate);
         let mut num_variables = self.mv_parameters.num_variables;
 

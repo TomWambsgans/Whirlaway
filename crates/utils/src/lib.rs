@@ -11,6 +11,3 @@ pub use misc::*;
 
 mod keccak;
 pub use keccak::*;
-
-mod cuda_reader;
-pub use cuda_reader::*;

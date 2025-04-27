@@ -20,6 +20,13 @@ typedef struct KoalaBear
 {
     uint32_t x; // montgomery representation
 
+    const static int EXTENSION_DEGREE = 1;
+
+    __device__ static constexpr KoalaBear one() {
+        return KoalaBear::from_canonical(1);
+    }
+
+
     __device__ static constexpr KoalaBear from(uint64_t x)
     {
         KoalaBear field = {};
@@ -76,8 +83,13 @@ struct KoalaBearExtension
     const static int EXTENSION_DEGREE = N;
     KoalaBear coeffs[N]; // Polynomial coefficients
 
-public:
-    __device__ static MAYBE_NOINLINE void add(const KoalaBearExtension<N> *a, const KoalaBearExtension<N> *b, KoalaBearExtension<N> *result)
+    __device__ static constexpr KoalaBearExtension<N> one() {
+        KoalaBearExtension<N> res = {0};
+        res.coeffs[0] = KoalaBear::one();
+        return res;
+    }
+
+    __device__ static MAYBE_NOINLINE void add(KoalaBearExtension<N> *a, KoalaBearExtension<N> *b, KoalaBearExtension<N> *result)
     {
         // Works even if result is the same as a or b
         for (int i = 0; i < N; i++)
@@ -97,7 +109,7 @@ public:
 
     __device__ static MAYBE_NOINLINE void mul(const KoalaBearExtension<N> *a, const KoalaBearExtension<N> *b, KoalaBearExtension<N> *result);
 
-    __device__ static MAYBE_NOINLINE void mul_small_field(const KoalaBearExtension<N> *a, const KoalaBear b, KoalaBearExtension<N> *result)
+    __device__ static MAYBE_NOINLINE void mul_prime_field(const KoalaBearExtension<N> *a, const KoalaBear b, KoalaBearExtension<N> *result)
     {
         // Works even if result is the same as a
         for (int i = 0; i < N; i++)
@@ -106,7 +118,7 @@ public:
         }
     }
 
-    __device__ static MAYBE_NOINLINE void add_small_field(const KoalaBearExtension<N> *a, const KoalaBear b, KoalaBearExtension<N> *result)
+    __device__ static MAYBE_NOINLINE void add_prime_field(const KoalaBearExtension<N> *a, const KoalaBear b, KoalaBearExtension<N> *result)
     {
         // Works even if result is the same as a
         result->coeffs[0] = KoalaBear::add(a->coeffs[0], b);
@@ -116,7 +128,7 @@ public:
         }
     }
 
-    __device__ static MAYBE_NOINLINE void sub_to_small_field(const KoalaBear a, const KoalaBearExtension<N> *b, KoalaBearExtension<N> *result)
+    __device__ static MAYBE_NOINLINE void sub_prime_field(const KoalaBear a, const KoalaBearExtension<N> *b, KoalaBearExtension<N> *result)
     {
         // Works even if result is the same as b
         result->coeffs[0] = KoalaBear::sub(a, b->coeffs[0]);
@@ -126,7 +138,7 @@ public:
         }
     }
 
-    __device__ static MAYBE_NOINLINE void sub_from_small_field(const KoalaBearExtension<N> *a, const KoalaBear b, KoalaBearExtension<N> *result)
+    __device__ static MAYBE_NOINLINE void sub_prime_field(const KoalaBearExtension<N> *a, const KoalaBear b, KoalaBearExtension<N> *result)
     {
         // Works even if result is the same as a
         result->coeffs[0] = KoalaBear::sub(a->coeffs[0], b);
@@ -167,6 +179,9 @@ __device__ MAYBE_NOINLINE void KoalaBearExtension<4>::mul(const KoalaBearExtensi
         }
     }
 }
+
+
+
 
 // Specialization for KoalaBear8 (N=8)
 template <>
@@ -231,11 +246,10 @@ __device__ MAYBE_NOINLINE void KoalaBearExtension<8>::mul(const KoalaBearExtensi
     }
 
     KoalaBearExtension<8>::add(&A0_B0, result, result);
-    KoalaBearExtension<8>::mul_small_field(&A1_B1, W_EXT8, &A1_B1);
-    KoalaBearExtension<8>::add(result, &A1_B1, result);
+    KoalaBearExtension<8>::mul_prime_field(&A1_B1, W_EXT8, &A1_B1);
+    KoalaBearExtension<8>::add(&A1_B1, result, result);
 }
 
 // Define your specific field types
 typedef KoalaBearExtension<4> KoalaBear4;
 typedef KoalaBearExtension<8> KoalaBear8;
-

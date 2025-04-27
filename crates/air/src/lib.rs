@@ -2,6 +2,7 @@
 
 mod builder;
 mod prove;
+mod setup;
 mod table;
 mod utils;
 mod verify;

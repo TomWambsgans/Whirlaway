@@ -1,34 +1,26 @@
 use cuda_engine::{
-    CudaCall, concat_pointers, cuda_alloc, cuda_get_at_index, memcpy_dtoh, memcpy_htod,
+    CudaCall, CudaFunctionInfo, concat_pointers, cuda_alloc, cuda_get_at_index, memcpy_dtoh,
+    memcpy_htod,
 };
 use cudarc::driver::{CudaSlice, CudaView, PushKernelArg};
-use p3_field::{BasedVectorSpace, ExtensionField, Field, extension::BinomialExtensionField};
-use p3_koala_bear::KoalaBear;
-use std::{any::TypeId, borrow::Borrow};
+use p3_field::{BasedVectorSpace, ExtensionField, Field};
+use std::borrow::Borrow;
 
 use crate::cuda_eq_mle;
 
 // Async
 pub fn cuda_dot_product<F: Field, EF: ExtensionField<F>>(
-    a: &CudaSlice<EF>,
-    b: &CudaSlice<F>,
+    a: &CudaSlice<F>,
+    b: &CudaSlice<EF>,
 ) -> EF {
     assert_eq!(a.len(), b.len());
     assert!(a.len().is_power_of_two());
     let log_len = a.len().ilog2() as u32;
     let buff = cuda_alloc::<EF>(a.len());
-
-    let koala_t = TypeId::of::<KoalaBear>();
-    let koala_8_t = TypeId::of::<BinomialExtensionField<KoalaBear, 8>>();
-    let func_name = if (TypeId::of::<EF>(), TypeId::of::<F>()) == (koala_8_t, koala_t) {
-        "dot_product_big_small"
-    } else if (TypeId::of::<EF>(), TypeId::of::<F>()) == (koala_8_t, koala_8_t) {
-        "dot_product_big_big"
-    } else {
-        unimplemented!("TODO handle other fields");
-    };
-
-    let mut call = CudaCall::new::<F>("multilinear", func_name, a.len() as u32);
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::two_fields::<F, EF>("multilinear.cu", "dot_product"),
+        a.len() as u32,
+    );
     call.arg(a);
     call.arg(b);
     call.arg(&buff);
@@ -40,43 +32,21 @@ pub fn cuda_dot_product<F: Field, EF: ExtensionField<F>>(
 
 // Async
 pub fn cuda_scale_slice_in_place<F: Field>(slice: &mut CudaSlice<F>, scalar: F) {
-    assert!(F::bits() > 32, "TODO");
     let scalar = [scalar];
     let scalar_dev = memcpy_htod(&scalar);
     let n = slice.len() as u32;
-    let mut call = CudaCall::new::<F>("multilinear", "scale_big_field_in_place", n);
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::one_field::<F>("multilinear.cu", "scale_in_place"),
+        n,
+    );
     call.arg(slice);
     call.arg(&n);
     call.arg(&scalar_dev);
     call.launch();
-}
-
-// Async
-pub fn cuda_scale_slice<F: Field, EF: ExtensionField<F>>(
-    slice: &CudaSlice<F>,
-    scalar: EF,
-) -> CudaSlice<EF> {
-    assert!(TypeId::of::<F>() != TypeId::of::<EF>(), "TODO");
-    let scalar = [scalar];
-    let scalar_dev = memcpy_htod(&scalar);
-    let n = slice.len() as u32;
-    let mut res = cuda_alloc::<EF>(slice.len());
-    let mut call = CudaCall::new::<F>("multilinear", "scale_small_field_in_place", n);
-    call.arg(slice);
-    call.arg(&n);
-    call.arg(&scalar_dev);
-    call.arg(&mut res);
-    call.launch();
-    res
 }
 
 // Async
 pub fn cuda_add_slices<F: Field, S: Borrow<CudaSlice<F>>>(slices: &[S]) -> CudaSlice<F> {
-    assert_eq!(
-        TypeId::of::<F>(),
-        TypeId::of::<BinomialExtensionField<KoalaBear, 8>>(),
-        "TODO"
-    );
     let n_slices = slices.len() as u32;
     let len = slices[0].borrow().len() as u32;
     assert!(
@@ -86,7 +56,10 @@ pub fn cuda_add_slices<F: Field, S: Borrow<CudaSlice<F>>>(slices: &[S]) -> CudaS
     );
     let mut res = cuda_alloc::<F>(len as usize);
     let slices_ptrs = concat_pointers(slices);
-    let mut call = CudaCall::new::<F>("multilinear", "add_slices", len);
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::one_field::<F>("multilinear.cu", "add_slices"),
+        len,
+    );
     call.arg(&slices_ptrs);
     call.arg(&mut res);
     call.arg(&n_slices);
@@ -100,7 +73,10 @@ pub fn cuda_add_assign_slices<F: Field>(a: &mut CudaSlice<F>, b: &CudaSlice<F>) 
     // a += b;
     let n = a.len() as u32;
     assert_eq!(n, b.len() as u32);
-    let mut call = CudaCall::new::<F>("multilinear", "add_assign_slices", n);
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::one_field::<F>("multilinear.cu", "add_assign_slices"),
+        n,
+    );
     call.arg(a);
     call.arg(b);
     call.arg(&n);
@@ -109,11 +85,6 @@ pub fn cuda_add_assign_slices<F: Field>(a: &mut CudaSlice<F>, b: &CudaSlice<F>) 
 
 // Async
 pub fn cuda_piecewise_sum<F: Field>(input: &CudaSlice<F>, sum_size: usize) -> CudaSlice<F> {
-    assert_eq!(
-        TypeId::of::<F>(),
-        TypeId::of::<BinomialExtensionField<KoalaBear, 8>>(),
-        "TODO"
-    );
     assert!(
         sum_size <= 64,
         "current CUDA implementation is not optimized for large sum sizes"
@@ -123,7 +94,10 @@ pub fn cuda_piecewise_sum<F: Field>(input: &CudaSlice<F>, sum_size: usize) -> Cu
     let mut output = cuda_alloc::<F>(output_len);
     let len_u32 = input.len() as u32;
     let sum_size_u32 = sum_size as u32;
-    let mut call = CudaCall::new::<F>("multilinear", "piecewise_sum", output_len as u32);
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::one_field::<F>("multilinear.cu", "piecewise_sum"),
+        output_len as u32,
+    );
     call.arg(input);
     call.arg(&mut output);
     call.arg(&len_u32);
@@ -137,11 +111,6 @@ pub fn cuda_piecewise_linear_comb<F: Field, EF: ExtensionField<F>>(
     input: &CudaView<F>,
     scalars: &[EF],
 ) -> CudaSlice<EF> {
-    assert_eq!(
-        TypeId::of::<(F, EF)>(),
-        TypeId::of::<(KoalaBear, BinomialExtensionField<KoalaBear, 8>)>(),
-        "TODO"
-    );
     assert!(
         scalars.len() <= 64,
         "current CUDA implementation is not optimized for a large linear combination"
@@ -152,7 +121,10 @@ pub fn cuda_piecewise_linear_comb<F: Field, EF: ExtensionField<F>>(
     let len_u32 = input.len() as u32;
     let n_scalars_u32 = scalars.len() as u32;
     let scalars_dev = memcpy_htod(scalars);
-    let mut call = CudaCall::new::<F>("multilinear", "piecewise_linear_comb", output_len as u32);
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::two_fields::<F, EF>("multilinear.cu", "piecewise_linear_comb"),
+        output_len as u32,
+    );
     call.arg(input);
     call.arg(&mut output);
     call.arg(&scalars_dev);
@@ -163,15 +135,10 @@ pub fn cuda_piecewise_linear_comb<F: Field, EF: ExtensionField<F>>(
 }
 
 // Async
-pub fn cuda_linear_comb_of_slices<F: Field, EF: ExtensionField<F>, S: Borrow<CudaSlice<F>>>(
+pub fn cuda_linear_combination<F: Field, EF: ExtensionField<F>, S: Borrow<CudaSlice<F>>>(
     inputs: &[S],
     scalars: &[EF],
 ) -> CudaSlice<EF> {
-    assert_eq!(
-        TypeId::of::<(F, EF)>(),
-        TypeId::of::<(KoalaBear, BinomialExtensionField<KoalaBear, 8>)>(),
-        "TODO"
-    );
     assert!(
         scalars.len() <= 256,
         "current CUDA implementation is not optimized for a large linear combination"
@@ -184,7 +151,10 @@ pub fn cuda_linear_comb_of_slices<F: Field, EF: ExtensionField<F>, S: Borrow<Cud
     let n_scalars_u32 = scalars.len() as u32;
     let scalars_dev = memcpy_htod(scalars);
     let inputs_ptr = concat_pointers(inputs);
-    let mut call = CudaCall::new::<F>("multilinear", "linear_combination", len_u32);
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::two_fields::<F, EF>("multilinear.cu", "linear_combination"),
+        len_u32,
+    );
     call.arg(&inputs_ptr);
     call.arg(&mut output);
     call.arg(&scalars_dev);
@@ -220,12 +190,6 @@ fn cuda_repeat_slice<F: Field>(
     n_repetitions: usize,
     outside: bool,
 ) -> CudaSlice<F> {
-    assert_eq!(
-        TypeId::of::<F>(),
-        TypeId::of::<BinomialExtensionField<KoalaBear, 8>>(),
-        "TODO"
-    );
-
     let mut output = cuda_alloc::<F>(input.len() * n_repetitions);
     let len_u32 = input.len() as u32;
     let n_repetitions_u32 = n_repetitions as u32;
@@ -239,7 +203,10 @@ fn cuda_repeat_slice<F: Field>(
     } else {
         len_u32 * n_repetitions_u32
     };
-    let mut call = CudaCall::new::<F>("multilinear", func_name, n_ops);
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::one_field::<F>("multilinear.cu", func_name),
+        n_ops,
+    );
     call.arg(input);
     call.arg(&mut output);
     call.arg(&len_u32);
@@ -251,13 +218,15 @@ fn cuda_repeat_slice<F: Field>(
 // Async
 pub fn cuda_sum<F: Field>(terms: CudaSlice<F>) -> F {
     // we take owneship of `terms` because it will be aletered
-    assert!(F::bits() > 32, "TODO");
     assert!(terms.len().is_power_of_two());
     if terms.len() == 1 {
         return cuda_get_at_index(&terms, 0);
     }
     let log_len = terms.len().ilog2() as u32;
-    let mut call = CudaCall::new::<F>("multilinear", "sum_in_place", (terms.len() / 2) as u32);
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::one_field::<F>("multilinear.cu", "sum_in_place"),
+        (terms.len() / 2) as u32,
+    );
     call.arg(&terms);
     call.arg(&log_len);
     call.launch_cooperative();
@@ -269,16 +238,6 @@ pub fn cuda_eval_mixed_tensor<F: Field, EF: ExtensionField<F>>(
     terms: &CudaSlice<EF>,
     point: &[EF],
 ) -> Vec<Vec<F>> {
-    assert_eq!(
-        TypeId::of::<F>(),
-        TypeId::of::<KoalaBear>(),
-        "TODO other fields"
-    );
-    assert_eq!(
-        TypeId::of::<EF>(),
-        TypeId::of::<BinomialExtensionField<KoalaBear, 8>>(),
-        "TODO other fields"
-    );
     assert!(terms.len().is_power_of_two());
     let n_vars = terms.len().ilog2() as u32;
     assert_eq!(point.len(), n_vars as usize);
@@ -293,7 +252,10 @@ pub fn cuda_eval_mixed_tensor<F: Field, EF: ExtensionField<F>>(
     let mut buffer = cuda_alloc::<F>(n_ops * ext_degree.pow(2));
     let mut result = cuda_alloc::<F>(ext_degree.pow(2));
 
-    let mut call = CudaCall::new::<F>("multilinear", "tensor_algebra_dot_product", n_ops as u32);
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::two_fields::<F, EF>("tensor_algebra.cu", "tensor_algebra_dot_product"),
+        n_ops as u32,
+    );
     call.arg(&eq_mle);
     call.arg(terms);
     call.arg(&mut buffer);
@@ -325,13 +287,20 @@ mod tests {
 
     #[test]
     fn test_cuda_dot_product() {
-        cuda_init(CudaField::KoalaBear);
-        type F = BinomialExtensionField<KoalaBear, 8>;
+        type F = KoalaBear;
+        type EF = BinomialExtensionField<F, 8>;
+
+        cuda_init();
+        cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
+            "multilinear.cu",
+            "dot_product",
+        ));
+
         for log_len in [1, 3, 11, 15] {
             println!("Testing CUDA dot product with len = {}", 1 << log_len);
             let rng = &mut StdRng::seed_from_u64(0);
             let a = (0..1 << log_len).map(|_| rng.random()).collect::<Vec<F>>();
-            let b = (0..1 << log_len).map(|_| rng.random()).collect::<Vec<F>>();
+            let b = (0..1 << log_len).map(|_| rng.random()).collect::<Vec<EF>>();
             let a_dev = memcpy_htod(&a);
             let b_dev = memcpy_htod(&b);
             cuda_sync();
@@ -344,8 +313,8 @@ mod tests {
             let time = std::time::Instant::now();
             let res_cpu = (0..1 << log_len)
                 .into_par_iter()
-                .map(|i| a[i] * b[i])
-                .sum::<F>();
+                .map(|i| b[i] * a[i])
+                .sum::<EF>();
             println!("CPU time: {:?} ms", time.elapsed().as_millis());
 
             assert!(res_cuda == res_cpu);
@@ -354,9 +323,13 @@ mod tests {
 
     #[test]
     fn test_cuda_eval_mixed_tensor() {
-        cuda_init(CudaField::KoalaBear);
         type F = KoalaBear;
         type EF = BinomialExtensionField<F, 8>;
+        cuda_init();
+        cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
+            "tensor_algebra.cu",
+            "tensor_algebra_dot_product",
+        ));
         let n_vars = 20;
         let rng = &mut StdRng::seed_from_u64(0);
         let terms = MultilinearHost::random(rng, n_vars);
@@ -378,9 +351,13 @@ mod tests {
 
     #[test]
     fn test_cuda_piecewise_sum() {
-        cuda_init(CudaField::KoalaBear);
         let rng = &mut StdRng::seed_from_u64(0);
         type F = BinomialExtensionField<KoalaBear, 8>;
+        cuda_init();
+        cuda_load_function(CudaFunctionInfo::one_field::<F>(
+            "multilinear.cu",
+            "piecewise_sum",
+        ));
         for log_len in [1, 3, 11, 20] {
             for sum_size in [1, 2, 4, 64] {
                 let len = 1 << log_len;
@@ -416,10 +393,14 @@ mod tests {
 
     #[test]
     fn test_piecewise_linear_comb() {
-        cuda_init(CudaField::KoalaBear);
-        let rng = &mut StdRng::seed_from_u64(0);
         type F = KoalaBear;
         type EF = BinomialExtensionField<KoalaBear, 8>;
+        cuda_init();
+        cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
+            "multilinear.cu",
+            "piecewise_linear_comb",
+        ));
+        let rng = &mut StdRng::seed_from_u64(0);
         for log_len in [1, 3, 11, 20] {
             for n_scalars in [1, 2, 4, 64] {
                 let len = 1 << log_len;
@@ -455,12 +436,16 @@ mod tests {
     }
 
     #[test]
-    fn test_cuda_linear_comb_of_slices() {
-        cuda_init(CudaField::KoalaBear);
-        let rng = &mut StdRng::seed_from_u64(0);
+    fn test_cuda_linear_combination() {
         type F = KoalaBear;
         type EF = BinomialExtensionField<F, 8>;
-        cuda_init(CudaField::KoalaBear);
+        cuda_init();
+        cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
+            "multilinear.cu",
+            "linear_combination",
+        ));
+        let rng = &mut StdRng::seed_from_u64(0);
+        cuda_init();
         for len in [1, 11, 251, 700051] {
             for n_scalars in [1, 2, 7, 64] {
                 if n_scalars > len {
@@ -476,7 +461,7 @@ mod tests {
                 cuda_sync();
                 let scalars = (0..n_scalars).map(|_| rng.random()).collect::<Vec<EF>>();
                 let time = std::time::Instant::now();
-                let cuda_res = cuda_linear_comb_of_slices(&inputs_dev, &scalars);
+                let cuda_res = cuda_linear_combination(&inputs_dev, &scalars);
                 cuda_sync();
                 println!("CUDA time: {:?} ms", time.elapsed().as_millis());
                 let cuda_res = memcpy_dtoh(&cuda_res);
@@ -500,7 +485,7 @@ mod tests {
 
     #[test]
     fn test_cuda_sum_in_place() {
-        cuda_init(CudaField::KoalaBear);
+        cuda_init();
         let rng = &mut StdRng::seed_from_u64(0);
         type F = BinomialExtensionField<KoalaBear, 8>;
         for log_len in [1, 3, 11, 20] {

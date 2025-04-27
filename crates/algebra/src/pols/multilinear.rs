@@ -1,14 +1,13 @@
+use super::CoefficientListHost;
 use super::{CoefficientList, CoefficientListDevice};
-use super::{CoefficientListHost, UnivariatePolynomial};
 use crate::tensor_algebra::TensorAlgebra;
 use cuda_bindings::{
     cuda_add_assign_slices, cuda_add_slices, cuda_dot_product, cuda_eq_mle, cuda_eval_mixed_tensor,
     cuda_eval_multilinear_in_lagrange_basis, cuda_fold_rectangular_in_small_field,
-    cuda_lagrange_to_monomial_basis, cuda_lagrange_to_monomial_basis_rev,
-    cuda_linear_comb_of_slices, cuda_piecewise_linear_comb, cuda_repeat_slice_from_inside,
-    cuda_repeat_slice_from_outside, cuda_scale_slice, cuda_scale_slice_in_place,
+    cuda_lagrange_to_monomial_basis_rev, cuda_linear_combination, cuda_piecewise_linear_comb,
+    cuda_repeat_slice_from_inside, cuda_repeat_slice_from_outside, cuda_scale_slice_in_place,
 };
-use cuda_bindings::{cuda_fold_rectangular_in_large_field, cuda_sum_over_hypercube_of_computation};
+use cuda_bindings::{cuda_compute_over_hypercube, cuda_fold_rectangular_in_large_field};
 use cuda_engine::{
     SumcheckComputation, clone_dtod, cuda_alloc_zeros, cuda_get_at_index, cuda_sync, memcpy_dtod,
     memcpy_dtoh, memcpy_htod,
@@ -24,8 +23,8 @@ use std::any::TypeId;
 use std::borrow::Borrow;
 use std::ops::AddAssign;
 use tracing::instrument;
-use utils::dot_product;
 use utils::{HypercubePoint, PartialHypercubePoint};
+use utils::{default_hash, dot_product};
 
 /*
 
@@ -184,10 +183,6 @@ impl<F: Field> MultilinearHost<F> {
         CoefficientListHost::new(coeffs)
     }
 
-    pub fn as_univariate(self) -> UnivariatePolynomial<F> {
-        UnivariatePolynomial::new(self.to_monomial_basis().coeffs)
-    }
-
     pub fn eval_hypercube(&self, point: &HypercubePoint) -> F {
         assert_eq!(self.n_vars, point.n_vars);
         self.evals[point.val]
@@ -343,11 +338,6 @@ impl<F: Field> MultilinearDevice<F> {
     // Async
     pub fn scale_in_place(&mut self, scalar: F) {
         cuda_scale_slice_in_place(&mut self.evals, scalar);
-    }
-
-    // Async
-    pub fn to_monomial_basis(&self) -> CoefficientListDevice<F> {
-        CoefficientListDevice::new(cuda_lagrange_to_monomial_basis(&self.evals))
     }
 
     // Async
@@ -517,15 +507,6 @@ impl<F: Field> Multilinear<F> {
         }
     }
 
-    pub fn scale<EF: ExtensionField<F>>(&self, scalar: EF) -> Multilinear<EF> {
-        match self {
-            Self::Host(pol) => Multilinear::Host(pol.scale(scalar)),
-            Self::Device(pol) => {
-                Multilinear::Device(MultilinearDevice::new(cuda_scale_slice(&pol.evals, scalar)))
-            }
-        }
-    }
-
     pub fn is_device(&self) -> bool {
         matches!(self, Self::Device(_))
     }
@@ -559,14 +540,6 @@ impl<F: Field> Multilinear<F> {
         match self {
             Self::Host(pol) => pol,
             Self::Device(_) => panic!(""),
-        }
-    }
-
-    // Async
-    pub fn to_monomial_basis(&self) -> CoefficientList<F> {
-        match self {
-            Self::Host(pol) => CoefficientList::Host(pol.clone().to_monomial_basis()),
-            Self::Device(pol) => CoefficientList::Device(pol.to_monomial_basis()),
         }
     }
 
@@ -619,6 +592,15 @@ impl<F: Field> Multilinear<F> {
             Self::Device(pol) => {
                 Multilinear::Device(pol.piecewise_dot_product_at_field_level::<PrimeField>(scalars))
             }
+        }
+    }
+
+    /// Debug purpose
+    /// Sync
+    pub fn hash(&self) -> u64 {
+        match self {
+            Self::Host(pol) => default_hash(&pol.evals),
+            Self::Device(pol) => default_hash(&pol.transfer_to_host().evals),
         }
     }
 }
@@ -678,10 +660,7 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
     }
 
     /// Async
-    pub fn sum_over_hypercube_of_computation<
-        S: Field,
-        BigField: ExtensionField<F> + ExtensionField<S>,
-    >(
+    pub fn compute_over_hypercube<S: Field, BigField: ExtensionField<F> + ExtensionField<S>>(
         &self,
         comp: &SumcheckComputation<S>,
         batching_scalars: &[BigField],
@@ -707,12 +686,7 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
             }
             Self::Device(multilinears) => {
                 let eq_mle = eq_mle.map(|pol| &pol.as_device_ref().evals);
-                cuda_sum_over_hypercube_of_computation(
-                    comp,
-                    &multilinears,
-                    &batching_scalars,
-                    eq_mle,
-                )
+                cuda_compute_over_hypercube(comp, &multilinears, &batching_scalars, eq_mle)
             }
         }
     }
@@ -803,7 +777,7 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
                 Multilinear::Host(sum)
             }
             Self::Device(pols) => Multilinear::Device(MultilinearDevice::new(
-                cuda_linear_comb_of_slices(&pols, scalars),
+                cuda_linear_combination(&pols, scalars),
             )),
         }
     }
@@ -817,7 +791,7 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
                 let eq_mle = cuda_eq_mle(point);
                 let mut res = Vec::with_capacity(self.len());
                 for pol in pols {
-                    res.push(cuda_dot_product(&eq_mle, &pol.evals));
+                    res.push(cuda_dot_product(&pol.evals, &eq_mle));
                 }
                 res
             }

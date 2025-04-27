@@ -1,7 +1,22 @@
-use p3_field::{ExtensionField, Field};
+use std::any::TypeId;
+
+use p3_field::{BasedVectorSpace, ExtensionField, Field, extension::BinomialExtensionField};
+use p3_koala_bear::KoalaBear;
 use rayon::prelude::*;
 
 use crate::log2_up;
+
+// TODO this is ugly but to remove it we need BinomialExtensionField<2N, X> to implemnt ExtensionField<BinomialExtensionField<N, X>>
+pub fn small_to_big_extension<F: Field, SmallExt: ExtensionField<F>, BigExt: ExtensionField<F>>(
+    x: SmallExt,
+) -> BigExt {
+    let small_dim = <SmallExt as BasedVectorSpace<F>>::DIMENSION;
+    let big_dim = <BigExt as BasedVectorSpace<F>>::DIMENSION;
+    assert!(small_dim <= big_dim);
+    let mut res = x.as_basis_coefficients_slice().to_vec();
+    res.resize(big_dim, F::ZERO);
+    BigExt::from_basis_coefficients_slice(&res)
+}
 
 /// outputs the vector [1, base, base^2, base^3, ...] of length len.
 pub fn powers<F: Field>(base: F, len: usize) -> Vec<F> {
@@ -97,6 +112,19 @@ pub fn deserialize_field<F: Field>(bytes: &[u8]) -> Option<F> {
         std::ptr::copy_nonoverlapping(bytes.as_ptr(), result.as_mut_ptr() as *mut u8, bytes.len());
 
         Some(result.assume_init())
+    }
+}
+
+pub fn extension_degree<F: Field>() -> usize {
+    // TODO there must be a simpler way
+    if TypeId::of::<F>() == TypeId::of::<KoalaBear>() {
+        1
+    } else if TypeId::of::<F>() == TypeId::of::<BinomialExtensionField<KoalaBear, 4>>() {
+        4
+    } else if TypeId::of::<F>() == TypeId::of::<BinomialExtensionField<KoalaBear, 8>>() {
+        8
+    } else {
+        todo!("Add extension degree for this field")
     }
 }
 

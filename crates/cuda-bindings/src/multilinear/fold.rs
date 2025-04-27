@@ -1,8 +1,7 @@
-use cuda_engine::{CudaCall, concat_pointers, cuda_alloc, memcpy_htod};
+use cuda_engine::{CudaCall, CudaFunctionInfo, concat_pointers, cuda_alloc, memcpy_htod};
 use cudarc::driver::{CudaSlice, PushKernelArg};
-use p3_field::{ExtensionField, Field, extension::BinomialExtensionField};
-use p3_koala_bear::KoalaBear;
-use std::{any::TypeId, borrow::Borrow};
+use p3_field::{ExtensionField, Field};
+use std::borrow::Borrow;
 
 /// Async
 pub fn cuda_fold_rectangular_in_small_field<
@@ -49,27 +48,9 @@ fn cuda_fold_rectangular<F1: Field, F2: Field, F3: Field, ML: Borrow<CudaSlice<F
         .collect::<Vec<_>>();
     let mut res_ptrs_dev = concat_pointers(&res);
 
-    let koala_t = TypeId::of::<KoalaBear>();
-    let koala_8_t = TypeId::of::<BinomialExtensionField<KoalaBear, 8>>();
-    let f1_t = TypeId::of::<F1>();
-    let f2_t = TypeId::of::<F2>();
-
-    let func_name = if (f1_t, f2_t) == (koala_t, koala_t) {
-        "fold_prime_by_prime"
-    } else if (f1_t, f2_t) == (koala_8_t, koala_8_t) {
-        "fold_big_by_big"
-    } else if (f1_t, f2_t) == (koala_8_t, koala_t) {
-        "fold_big_by_small"
-    } else if (f1_t, f2_t) == (koala_t, koala_8_t) {
-        "fold_small_by_big"
-    } else {
-        unimplemented!("TODO handle other fields");
-    };
-
     let n_slices = slices.len() as u32;
-    let mut call = CudaCall::new::<F1>(
-        "multilinear",
-        func_name,
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::two_fields::<F1, F2>("multilinear.cu", "fold_rectangular"),
         (slices.len() as u32) << (n_vars - log_n_scalars),
     );
     call.arg(&slices_ptrs_dev);

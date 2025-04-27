@@ -42,7 +42,6 @@ p3-dft = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "koala-
 p3-poseidon2 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "koala-bear-8" }
 p3-matrix = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "koala-bear-8" }
 cudarc = { version = "0.14.0", features = ["cuda-12040", "std", "cublas", "cublaslt", "curand", "driver", "runtime", "nvrtc"] }
-regex = { version = "1.11.1" }
 
 [dependencies]
 pcs.workspace = true
@@ -59,5 +58,3 @@ rayon.workspace = true
 p3-matrix.workspace = true
 tracing-forest.workspace = true
 tracing-subscriber.workspace = true
-arithmetic-circuit.workspace = true
-cuda-engine.workspace = true

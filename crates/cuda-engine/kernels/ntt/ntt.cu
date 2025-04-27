@@ -5,14 +5,14 @@
 #include <cooperative_groups.h>
 #include <algorithm>
 
-#include "finite_field.cu"
+#include "../ff_wrapper.cu"
 
 // we need: N_THREADS_PER_BLOCK * 2 * (EXT_DEGREE + 1) * 4 bytes <= shared memory
 // TODO avoid hardcoding
 #define MAX_LOG_N_THREADS_PER_BLOCK 8
 #define MAX_N_THREADS_PER_BLOCK (1 << MAX_LOG_N_THREADS_PER_BLOCK)
 
-__device__ void reverse_bit_order(WhirField *data, int block, int bits)
+__device__ void reverse_bit_order(Field_B *data, int block, int bits)
 {
     int idx = (block * blockDim.x + threadIdx.x) % (1 << bits);
     int rev_idx = __brev(idx) >> (32 - bits);
@@ -20,23 +20,23 @@ __device__ void reverse_bit_order(WhirField *data, int block, int bits)
     // Only process when idx < rev_idx to avoid swapping twice
     if (idx < rev_idx)
     {
-        WhirField temp = data[idx];
+        Field_B temp = data[idx];
         data[idx] = data[rev_idx];
         data[rev_idx] = temp;
     }
 }
 
-__device__ void batch_reverse_bit_order(WhirField *data, int block, int bits)
+__device__ void batch_reverse_bit_order(Field_B *data, int block, int bits)
 {
     int idx = block * blockDim.x + threadIdx.x;
     int len = (1 << bits);
     reverse_bit_order(&data[(idx / len) * len], block, bits);
 }
 
-__device__ void ntt_at_block_level(WhirField *buff, const int block, const int log_chunck_size, const SmallField *twiddles)
+__device__ void ntt_at_block_level(Field_B *buff, const int block, const int log_chunck_size, const Field_A *twiddles)
 {
     // the initial steps of the NTT are done at block level, to make use of shared memory
-    // *buff constains N_THREADS_PER_BLOCK * 2 WhirField elements
+    // *buff constains N_THREADS_PER_BLOCK * 2 Field_B elements
     // *twiddles: w^0, w^1, w^2, w^3, ..., w^(N_THREADS_PER_BLOCK * 2 - 1) where w is a "2 * N_THREADS_PER_BLOCK" root of unity
     // block is not necessarily blockIdx.x
     // we should have log_chunck_size <= LOG_N_THREADS_PER_BLOCK + 1
@@ -44,12 +44,12 @@ __device__ void ntt_at_block_level(WhirField *buff, const int block, const int l
     const int threadId = threadIdx.x;
     const int n_threads = blockDim.x;
 
-    __shared__ WhirField cached_buff[MAX_N_THREADS_PER_BLOCK * 2];
+    __shared__ Field_B cached_buff[MAX_N_THREADS_PER_BLOCK * 2];
 
     cached_buff[threadId] = buff[threadId + n_threads * 2 * block];
     cached_buff[threadId + n_threads] = buff[threadId + n_threads * (2 * block + 1)];
 
-    __shared__ SmallField cached_twiddles[MAX_N_THREADS_PER_BLOCK * 2]; // TODO use constant memory instead
+    __shared__ Field_A cached_twiddles[MAX_N_THREADS_PER_BLOCK * 2]; // TODO use constant memory instead
 
     cached_twiddles[threadId] = twiddles[threadId];
     cached_twiddles[threadId + n_threads] = twiddles[threadId + n_threads];
@@ -58,11 +58,11 @@ __device__ void ntt_at_block_level(WhirField *buff, const int block, const int l
 
     // step 0
 
-    WhirField even = cached_buff[threadId * 2];
-    WhirField odd = cached_buff[threadId * 2 + 1];
+    Field_B even = cached_buff[threadId * 2];
+    Field_B odd = cached_buff[threadId * 2 + 1];
 
-    WhirField::add(&even, &odd, &cached_buff[threadId * 2]);
-    WhirField::sub(&even, &odd, &cached_buff[threadId * 2 + 1]);
+    ADD_BB(even, odd, cached_buff[threadId * 2]);
+    SUB_BB(even, odd, cached_buff[threadId * 2 + 1]);
 
     for (int step = 1; step < log_chunck_size; step++)
     {
@@ -70,22 +70,22 @@ __device__ void ntt_at_block_level(WhirField *buff, const int block, const int l
         int even_index = threadId + (threadId / packet_size) * packet_size;
         int odd_index = even_index + packet_size;
 
-        WhirField even = cached_buff[even_index];
-        WhirField odd = cached_buff[odd_index];
+        Field_B even = cached_buff[even_index];
+        Field_B odd = cached_buff[odd_index];
 
         int i = threadId % packet_size;
         // w^i where w is a "2 * packet_size" root of unity
-        SmallField first_twiddle = cached_twiddles[i * blockDim.x / packet_size];
+        Field_A first_twiddle = cached_twiddles[i * blockDim.x / packet_size];
         // w^(i + packet_size) where w is a "2 * packet_size" root of unity
-        SmallField second_twiddle = cached_twiddles[(i + packet_size) * blockDim.x / packet_size];
+        Field_A second_twiddle = cached_twiddles[(i + packet_size) * blockDim.x / packet_size];
 
         // cached_buff[even_index] = even + first_twiddle * odd
-        WhirField::mul_small_field(&odd, first_twiddle, &cached_buff[even_index]);
-        WhirField::add(&even, &cached_buff[even_index], &cached_buff[even_index]);
+        MUL_BA(odd, first_twiddle, cached_buff[even_index]);
+        ADD_BB(even, cached_buff[even_index], cached_buff[even_index]);
 
         // cached_buff[odd_index] = even + second_twiddle * odd
-        WhirField::mul_small_field(&odd, second_twiddle, &cached_buff[odd_index]);
-        WhirField::add(&even, &cached_buff[odd_index], &cached_buff[odd_index]);
+        MUL_BA(odd, second_twiddle, cached_buff[odd_index]);
+        ADD_BB(even, cached_buff[odd_index], cached_buff[odd_index]);
 
         __syncthreads();
     }
@@ -95,7 +95,7 @@ __device__ void ntt_at_block_level(WhirField *buff, const int block, const int l
     buff[threadId + blockDim.x * (2 * block + 1)] = cached_buff[threadId + blockDim.x];
 }
 
-extern "C" __global__ void ntt(WhirField *buff, const int log_len, const int log_chunk_size, const SmallField *twiddles)
+extern "C" __global__ void ntt(Field_B *buff, const int log_len, const int log_chunk_size, const Field_A *twiddles)
 {
     // twiddles = 1
     // followed by w^0, w^1 where w is a 2-root of unity
@@ -143,44 +143,25 @@ extern "C" __global__ void ntt(WhirField *buff, const int log_len, const int log
             int even_index = threadIndex + (threadIndex / packet_size) * packet_size;
             int odd_index = even_index + packet_size;
 
-            WhirField even = buff[even_index];
-            WhirField odd = buff[odd_index];
+            Field_B even = buff[even_index];
+            Field_B odd = buff[odd_index];
 
             int i = threadIndex % packet_size;
             // w^i where w is a "2 * packet_size" root of unity
-            SmallField first_twiddle = twiddles[packet_size * 2 - 1 + i];
+            Field_A first_twiddle = twiddles[packet_size * 2 - 1 + i];
             // w^(i + packet_size) where w is a "2 * packet_size" root of unity
-            SmallField second_twiddle = twiddles[packet_size * 2 - 1 + i + packet_size];
+            Field_A second_twiddle = twiddles[packet_size * 2 - 1 + i + packet_size];
 
             // result[even_index] = even + first_twiddle * odd
-            WhirField temp;
-            WhirField::mul_small_field(&odd, first_twiddle, &temp);
-            WhirField::add(&even, &temp, &buff[even_index]);
+            Field_B temp;
+            MUL_BA(odd, first_twiddle, temp);
+            ADD_BB(even, temp, buff[even_index]);
 
             // result[odd_index] = even + second_twiddle * odd
-            WhirField::mul_small_field(&odd, second_twiddle, &temp);
-            WhirField::add(&even, &temp, &buff[odd_index]);
+            MUL_BA(odd, second_twiddle, temp);
+            ADD_BB(even, temp, buff[odd_index]);
         }
     }
 
     grid.sync();
-}
-
-extern "C" __global__ void transpose(WhirField *input, WhirField *result, const uint32_t log_rows, const uint32_t log_cols)
-{
-    const int n_total_n_threads = blockDim.x * gridDim.x;
-    const int n_ops = 1 << (log_cols + log_rows);
-    const int n_repetitions = (n_ops + n_total_n_threads - 1) / n_total_n_threads;
-    const int rows = 1 << log_rows;
-    const int cols = 1 << log_cols;
-
-    for (int rep = 0; rep < n_repetitions; rep++)
-    {
-        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
-        if (threadIndex >= n_ops)
-        {
-            return;
-        }
-        result[threadIndex] = input[(threadIndex % rows) * cols + (threadIndex / rows)];
-    }
 }

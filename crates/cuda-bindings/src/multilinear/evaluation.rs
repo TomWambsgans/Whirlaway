@@ -1,35 +1,27 @@
-use cuda_engine::{CudaCall, cuda_alloc, cuda_get_at_index, cuda_sync, memcpy_htod};
+use cuda_engine::{
+    CudaCall, CudaFunctionInfo, cuda_alloc, cuda_get_at_index, cuda_sync, memcpy_htod,
+};
 use cudarc::driver::{CudaSlice, PushKernelArg};
-use p3_field::{ExtensionField, Field, extension::BinomialExtensionField};
-use p3_koala_bear::KoalaBear;
-use std::any::TypeId;
+use p3_field::{ExtensionField, Field};
 
 use super::cuda_dot_product;
 
 // Async
-pub fn cuda_eval_multilinear_in_monomial_basis<F: Field, EF: ExtensionField<F>>(
-    coeffs: &CudaSlice<F>,
-    point: &[EF],
-) -> EF {
+pub fn cuda_eval_multilinear_in_monomial_basis<F: Field>(coeffs: &CudaSlice<F>, point: &[F]) -> F {
     // TODO simplify
-    let koala_8_t = TypeId::of::<BinomialExtensionField<KoalaBear, 8>>();
-    if (TypeId::of::<F>(), TypeId::of::<EF>()) != (koala_8_t, koala_8_t) {
-        unimplemented!("TODO handle other fields");
-    }
     assert!(coeffs.len().is_power_of_two());
     let n_vars = coeffs.len().ilog2() as u32;
     assert_eq!(n_vars, point.len() as u32);
 
     if n_vars == 0 {
-        return EF::from(cuda_get_at_index(coeffs, 0));
+        return F::from(cuda_get_at_index(coeffs, 0));
     }
 
     let point_dev = memcpy_htod(&point);
-    let mut buff = cuda_alloc::<EF>(coeffs.len() - 1);
+    let mut buff = cuda_alloc::<F>(coeffs.len() - 1);
 
-    let mut call = CudaCall::new::<F>(
-        "multilinear",
-        "eval_multilinear_in_monomial_basis",
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::one_field::<F>("multilinear.cu", "eval_multilinear_in_monomial_basis"),
         1 << (n_vars - 1),
     );
     call.arg(coeffs);
@@ -47,7 +39,7 @@ pub fn cuda_eval_multilinear_in_lagrange_basis<F: Field, EF: ExtensionField<F>>(
     point: &[EF],
 ) -> EF {
     let eq_mle = cuda_eq_mle(point);
-    cuda_dot_product(&eq_mle, coeffs)
+    cuda_dot_product(coeffs, &eq_mle)
 }
 
 // Async
@@ -60,7 +52,10 @@ pub fn cuda_eq_mle<F: Field>(point: &[F]) -> CudaSlice<F> {
     let n_vars = point.len() as u32;
     let point_dev = memcpy_htod(&point);
     let mut res = cuda_alloc::<F>(1 << n_vars);
-    let mut call = CudaCall::new::<F>("multilinear", "eq_mle", 1 << (n_vars - 1));
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::one_field::<F>("multilinear.cu", "eq_mle"),
+        1 << (n_vars - 1),
+    );
     call.arg(&point_dev);
     call.arg(&n_vars);
     call.arg(&mut res);
@@ -82,8 +77,11 @@ mod tests {
 
         type F = KoalaBear;
         type EF = BinomialExtensionField<F, EXT_DEGREE>;
-        cuda_init(CudaField::KoalaBear);
-
+        cuda_init();
+        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+            "multilinear.cu",
+            "eval_multilinear_in_monomial_basis",
+        ));
         let rng = &mut StdRng::seed_from_u64(0);
         let n_vars = 20;
         let len = 1 << n_vars;
@@ -113,8 +111,7 @@ mod tests {
 
         type F = KoalaBear;
         type EF = BinomialExtensionField<F, EXT_DEGREE>;
-        cuda_init(CudaField::KoalaBear);
-
+        cuda_init();
         let rng = &mut StdRng::seed_from_u64(0);
         let n_vars = 20;
         let len = 1 << n_vars;
@@ -144,8 +141,11 @@ mod tests {
 
         type F = KoalaBear;
         type EF = BinomialExtensionField<F, EXT_DEGREE>;
-        cuda_init(CudaField::KoalaBear);
-
+        cuda_init();
+        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+            "multilinear.cu",
+            "eq_mle",
+        ));
         let rng = &mut StdRng::seed_from_u64(0);
         let n_vars = 3;
         let point = (0..n_vars).map(|_| rng.random()).collect::<Vec<EF>>();

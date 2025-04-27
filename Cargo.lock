@@ -898,7 +898,6 @@ dependencies = [
  "p3-koala-bear",
  "rand",
  "rayon",
- "regex",
  "sha3",
 ]
 
@@ -945,8 +944,6 @@ version = "0.1.0"
 dependencies = [
  "air",
  "algebra",
- "arithmetic-circuit",
- "cuda-engine",
  "fiat-shamir",
  "p3-field",
  "p3-koala-bear",

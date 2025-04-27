@@ -4,16 +4,24 @@ use arithmetic_circuit::TransparentPolynomial;
 use cuda_engine::{HostOrDeviceBuffer, cuda_sync};
 use fiat_shamir::FsProver;
 use merkle_tree::MerkleTree;
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, PrimeCharacteristicRing};
+use p3_field::{Field, TwoAdicField};
 use tracing::instrument;
 use utils::powers;
 use utils::{dot_product, multilinear_point_from_univariate};
 
 use crate::whir::fs_utils::get_challenge_stir_queries;
 
-pub struct Prover<F: TwoAdicField, EF: ExtensionField<F>>(pub WhirConfig<F, EF>);
+pub struct Prover<EF: Field>(pub WhirConfig<EF>)
+where
+    EF: TwoAdicField + Ord,
+    EF::PrimeSubfield: TwoAdicField;
 
-impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField + Ord> Prover<F, EF> {
+impl<EF: Field> Prover<EF>
+where
+    EF: TwoAdicField + Ord,
+    EF::PrimeSubfield: TwoAdicField,
+{
     fn validate_parameters(&self) -> bool {
         self.0.mv_parameters.num_variables
             == self.0.folding_factor.total_number(self.0.n_rounds()) + self.0.final_sumcheck_rounds
@@ -39,12 +47,15 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField + Ord> Prover<F, EF> 
     }
 
     #[instrument(name = "whir: prove", skip_all)]
-    pub fn prove(
+    pub fn prove<PrimeField: Field>(
         &self,
         fs_prover: &mut FsProver,
         mut statement: Statement<EF>,
         witness: Witness<EF>,
-    ) -> Option<()> {
+    ) -> Option<()>
+    where
+        EF: ExtensionField<PrimeField>,
+    {
         for point in &mut statement.points {
             point.reverse();
         }
@@ -82,22 +93,23 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField + Ord> Prover<F, EF> 
             let pow_bits = self.0.starting_folding_pow_bits;
             let sum = dot_product(&initial_answers, &combination_randomness);
             let mut folding_randomness;
-            (folding_randomness, sumcheck_mles, hypercube_sum) = sumcheck::prove(
-                1,
-                &nodes,
-                &[
-                    (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
-                        .fix_computation(false),
-                ],
-                &[EF::ONE],
-                None,
-                false,
-                fs_prover,
-                sum,
-                n_rounds,
-                pow_bits,
-                None,
-            );
+            (folding_randomness, sumcheck_mles, hypercube_sum) =
+                sumcheck::prove::<PrimeField, _, _, _>(
+                    1,
+                    &nodes,
+                    &[
+                        (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
+                            .fix_computation(false),
+                    ],
+                    &[EF::ONE],
+                    None,
+                    false,
+                    fs_prover,
+                    sum,
+                    n_rounds,
+                    pow_bits,
+                    None,
+                );
             folding_randomness.reverse();
             folding_randomness
         };
@@ -110,13 +122,19 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField + Ord> Prover<F, EF> 
             coefficients: witness.polynomial,
             prev_merkle: witness.merkle_tree,
             prev_merkle_answers: witness.merkle_leaves,
-            _f: std::marker::PhantomData,
         };
 
-        self.round(fs_prover, round_state)
+        self.round::<PrimeField>(fs_prover, round_state)
     }
 
-    fn round(&self, fs_prover: &mut FsProver, mut round_state: RoundState<F, EF>) -> Option<()> {
+    fn round<PrimeField: Field>(
+        &self,
+        fs_prover: &mut FsProver,
+        mut round_state: RoundState<EF>,
+    ) -> Option<()>
+    where
+        EF: ExtensionField<PrimeField>,
+    {
         // Fold the coefficients
         let folded_coefficients = round_state
             .coefficients
@@ -167,7 +185,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField + Ord> Prover<F, EF> 
             if self.0.final_sumcheck_rounds > 0 {
                 let n_rounds = Some(self.0.final_sumcheck_rounds);
                 let pow_bits = self.0.final_folding_pow_bits;
-                (_, round_state.sumcheck_mles, _) = sumcheck::prove(
+                (_, round_state.sumcheck_mles, _) = sumcheck::prove::<PrimeField, _, _, _>(
                     1,
                     &round_state.sumcheck_mles,
                     &[
@@ -228,7 +246,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField + Ord> Prover<F, EF> 
             fs_prover,
         );
         // Compute the generator of the folded domain, in the extension field
-        let domain_scaled_gen = F::two_adic_generator(
+        let domain_scaled_gen = EF::PrimeSubfield::two_adic_generator(
             round_state.domain_size.trailing_zeros() as usize
                 - self.0.folding_factor.at_round(round_state.round),
         );
@@ -237,7 +255,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField + Ord> Prover<F, EF> 
             .chain(
                 stir_challenges_indexes
                     .iter()
-                    .map(|i| EF::from(domain_scaled_gen.exp_u64(*i as u64))),
+                    .map(|i| EF::from_prime_subfield(domain_scaled_gen.exp_u64(*i as u64))),
             )
             .map(|univariate| multilinear_point_from_univariate(univariate, num_variables))
             .collect();
@@ -309,14 +327,17 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField + Ord> Prover<F, EF> 
             coefficients: folded_coefficients, // TODO: Is this redundant with `sumcheck_prover.coeff` ?
             prev_merkle: merkle_tree,
             prev_merkle_answers: folded_evals,
-            _f: std::marker::PhantomData,
         };
 
         self.round(fs_prover, round_state)
     }
 }
 
-struct RoundState<F: TwoAdicField, EF: ExtensionField<F>> {
+struct RoundState<EF: Field>
+where
+    EF: TwoAdicField + Ord,
+    EF::PrimeSubfield: TwoAdicField,
+{
     round: usize,
     sumcheck_mles: Vec<Multilinear<EF>>,
     hypercube_sum: EF,
@@ -325,7 +346,6 @@ struct RoundState<F: TwoAdicField, EF: ExtensionField<F>> {
     coefficients: CoefficientList<EF>,
     prev_merkle: MerkleTree<EF>,
     prev_merkle_answers: HostOrDeviceBuffer<EF>,
-    _f: std::marker::PhantomData<F>,
 }
 
 #[instrument(name = "randomized_eq_extensions", skip_all)]

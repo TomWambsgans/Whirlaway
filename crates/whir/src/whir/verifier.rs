@@ -1,7 +1,8 @@
 use algebra::pols::{CoefficientListHost, UnivariatePolynomial};
 use fiat_shamir::{FsError, FsVerifier};
 use merkle_tree::MultiPath;
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::PrimeCharacteristicRing;
+use p3_field::{Field, TwoAdicField};
 use std::iter;
 use tracing::instrument;
 use utils::{KeccakDigest, powers};
@@ -10,8 +11,12 @@ use utils::{eq_extension, multilinear_point_from_univariate};
 use super::{Statement, parameters::WhirConfig};
 use crate::whir::fs_utils::get_challenge_stir_queries;
 
-pub struct Verifier<F: TwoAdicField, EF: ExtensionField<F>> {
-    params: WhirConfig<F, EF>,
+pub struct Verifier<EF: Field>
+where
+    EF: TwoAdicField + Ord,
+    EF::PrimeSubfield: TwoAdicField,
+{
+    params: WhirConfig<EF>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,8 +64,12 @@ struct ParsedRound<F: Field> {
     sumcheck_rounds: Vec<(UnivariatePolynomial<F>, F)>,
 }
 
-impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
-    pub fn new(params: WhirConfig<F, EF>) -> Self {
+impl<EF: Field> Verifier<EF>
+where
+    EF: TwoAdicField + Ord,
+    EF::PrimeSubfield: TwoAdicField,
+{
+    pub fn new(params: WhirConfig<EF>) -> Self {
         Verifier { params }
     }
 
@@ -119,7 +128,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
             .collect();
 
         let mut prev_root = parsed_commitment.root.clone();
-        let mut domain_gen = F::two_adic_generator(
+        let mut domain_gen = EF::PrimeSubfield::two_adic_generator(
             self.params.mv_parameters.num_variables + self.params.starting_log_inv_rate,
         );
         let mut exp_domain_gen = domain_gen.exp_u64(1 << self.params.folding_factor.at_round(0));
@@ -148,7 +157,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
 
             let stir_challenges_points = stir_challenges_indexes
                 .iter()
-                .map(|index| EF::from(exp_domain_gen.exp_u64(*index as u64)))
+                .map(|index| EF::from_prime_subfield(exp_domain_gen.exp_u64(*index as u64)))
                 .collect();
 
             let merkle_proof = MultiPath::<EF>::from_bytes(&fs_verifier.next_variable_bytes()?)
@@ -219,7 +228,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F>> Verifier<F, EF> {
         );
         let final_randomness_points = final_randomness_indexes
             .iter()
-            .map(|index| EF::from(exp_domain_gen.exp_u64(*index as u64)))
+            .map(|index| EF::from_prime_subfield(exp_domain_gen.exp_u64(*index as u64)))
             .collect();
 
         let final_merkle_proof = MultiPath::<EF>::from_bytes(&fs_verifier.next_variable_bytes()?)

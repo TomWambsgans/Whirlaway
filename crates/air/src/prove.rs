@@ -2,11 +2,11 @@ use algebra::pols::{Multilinear, MultilinearDevice, MultilinearHost, Multilinear
 use arithmetic_circuit::ArithmeticCircuit;
 use cuda_engine::{cuda_sync, memcpy_htod};
 use fiat_shamir::FsProver;
-use p3_field::{ExtensionField, Field};
+use p3_field::{ExtensionField, Field, PrimeField};
 use pcs::PCS;
 use rayon::prelude::*;
 use tracing::{Level, instrument, span};
-use utils::{Evaluation, HypercubePoint, dot_product, powers};
+use utils::{Evaluation, HypercubePoint, dot_product, powers, small_to_big_extension};
 
 use crate::{UNIVARIATE_SKIPS, utils::columns_up_and_down};
 
@@ -18,9 +18,9 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 
 */
 
-impl<F: Field> AirTable<F> {
+impl<F: PrimeField> AirTable<F> {
     #[instrument(name = "air: prove", skip_all)]
-    pub fn prove<EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
+    pub fn prove<EF: ExtensionField<F>, WhirF: ExtensionField<F>, Pcs: PCS<F, WhirF>>(
         &self,
         fs_prover: &mut FsProver,
         pcs: &Pcs,
@@ -199,13 +199,16 @@ impl<F: Field> AirTable<F> {
         )
         .evaluate(&final_random_scalars);
         let packed_eval = Evaluation {
-            point: final_point,
-            value: packed_value,
+            point: final_point
+                .into_iter()
+                .map(small_to_big_extension)
+                .collect(),
+            value: small_to_big_extension(packed_value),
         };
 
         std::mem::drop(_span);
 
-        pcs.open(packed_pol_witness, &packed_eval, fs_prover);
+        pcs.open::<F>(packed_pol_witness, &packed_eval, fs_prover);
     }
 }
 

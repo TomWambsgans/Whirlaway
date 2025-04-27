@@ -20,8 +20,12 @@ use super::{PCS, PcsWitness};
 pub use whir::parameters::WhirParameters;
 
 #[derive(Clone)]
-pub struct WhirPCS<F: TwoAdicField, EF: ExtensionField<F>> {
-    config: WhirConfig<F, EF>,
+pub struct WhirPCS<EF: Field>
+where
+    EF: TwoAdicField + Ord,
+    EF::PrimeSubfield: TwoAdicField,
+{
+    config: WhirConfig<EF>,
 }
 
 impl<'a, EF: Field> PcsWitness<EF> for WhirWitness<EF> {
@@ -30,7 +34,11 @@ impl<'a, EF: Field> PcsWitness<EF> for WhirWitness<EF> {
     }
 }
 
-impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField + Ord> PCS<EF, EF> for WhirPCS<F, EF> {
+impl<EF: Field> PCS<EF, EF> for WhirPCS<EF>
+where
+    EF: TwoAdicField + Ord,
+    EF::PrimeSubfield: TwoAdicField,
+{
     type Witness = WhirWitness<EF>;
     type ParsedCommitment = ParsedCommitment<EF, KeccakDigest>;
     type VerifError = WhirError;
@@ -38,7 +46,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField + Ord> PCS<EF, EF> fo
 
     fn new(n_vars: usize, params: &Self::Params) -> Self {
         let mv_params = MultivariateParameters::<EF>::new(n_vars);
-        let config = WhirConfig::<F, EF>::new(mv_params, params);
+        let config = WhirConfig::<EF>::new(mv_params, params);
         // println!("WhirPCS config: {}", config);
         Self { config }
     }
@@ -53,10 +61,17 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField + Ord> PCS<EF, EF> fo
         &self,
         fs_verifier: &mut FsVerifier,
     ) -> Result<Self::ParsedCommitment, Self::VerifError> {
-        Verifier::<F, EF>::new(self.config.clone()).parse_commitment(fs_verifier)
+        Verifier::<EF>::new(self.config.clone()).parse_commitment(fs_verifier)
     }
 
-    fn open(&self, witness: Self::Witness, eval: &Evaluation<EF>, fs_prover: &mut FsProver) {
+    fn open<PrimeField: Field>(
+        &self,
+        witness: Self::Witness,
+        eval: &Evaluation<EF>,
+        fs_prover: &mut FsProver,
+    ) where
+        EF: ExtensionField<PrimeField>,
+    {
         let statement = Statement {
             points: vec![eval.point.clone()],
             evaluations: vec![eval.value],
@@ -107,7 +122,7 @@ mod test {
         let n_vars = 16;
         let security_bits = 100;
         let log_inv_rate = 3;
-        let pcs = WhirPCS::<F, EF>::new(
+        let pcs = WhirPCS::<EF>::new(
             n_vars,
             &WhirParameters::standard(
                 SoundnessType::ProvableList,
@@ -129,7 +144,7 @@ mod test {
         let value = pol.evaluate(&point);
         let eval = Evaluation { point, value };
         let witness = pcs.commit(pol, &mut fs_prover);
-        pcs.open(witness, &eval, &mut fs_prover);
+        pcs.open::<F>(witness, &eval, &mut fs_prover);
 
         let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
         let parsed_commitment = pcs.parse_commitment(&mut fs_verifier).unwrap();

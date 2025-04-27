@@ -6,6 +6,7 @@ use cuda_engine::{SumcheckComputation, cuda_sync};
 use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};
 use rayon::prelude::*;
+use tracing::instrument;
 
 pub const MIN_VARS_FOR_GPU: usize = 0; // When there are a small number of variables, it's not worth using GPU
 
@@ -96,6 +97,7 @@ pub fn prove<
     (challenges, folded_multilinears.decompose(), sum)
 }
 
+#[instrument(name = "sumcheck_round", skip_all, fields(round))]
 pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionField<F>>(
     skips: usize, // the first round will fold 2^skips (instead of 2 in the basic sumcheck)
     multilinears: &MultilinearsSlice<'a, NF>,
@@ -112,11 +114,6 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
     round: usize,
     missing_mul_factor: &mut Option<EF>,
 ) -> MultilinearsVec<EF> {
-    let _span = if round < 30 {
-        Some(tracing::span!(tracing::Level::INFO, "Sumcheck round").entered())
-    } else {
-        None
-    };
     let eq_mle = eq_factor
         .map(|eq_factor| Multilinear::eq_mle(&eq_factor[1 + round..], multilinears.is_device()));
 
@@ -147,7 +144,7 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
                 .collect::<Vec<_>>();
             // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication below: TODO not urgent)
             let folded = multilinears.fold_rectangular_in_small_field(&folding_scalars);
-            let mut sum_z = folded.as_ref().sum_over_hypercube_of_computation(
+            let mut sum_z = folded.as_ref().compute_over_hypercube(
                 &sumcheck_computation,
                 batching_scalars,
                 eq_mle.as_ref(),

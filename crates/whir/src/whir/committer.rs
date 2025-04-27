@@ -4,7 +4,7 @@ use cuda_engine::{HostOrDeviceBuffer, cuda_sync};
 use fiat_shamir::FsProver;
 use merkle_tree::MerkleTree;
 
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{Field, TwoAdicField};
 use tracing::instrument;
 use utils::multilinear_point_from_univariate;
 
@@ -17,10 +17,17 @@ pub struct Witness<EF: Field> {
     pub(crate) ood_answers: Vec<EF>,
 }
 
-pub struct Committer<F: TwoAdicField, EF: ExtensionField<F>>(WhirConfig<F, EF>);
+pub struct Committer<EF: Field>(WhirConfig<EF>)
+where
+    EF: TwoAdicField + Ord,
+    EF::PrimeSubfield: TwoAdicField;
 
-impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField + Ord> Committer<F, EF> {
-    pub fn new(config: WhirConfig<F, EF>) -> Self {
+impl<EF: Field + TwoAdicField + Ord> Committer<EF>
+where
+    EF: TwoAdicField + Ord,
+    EF::PrimeSubfield: TwoAdicField,
+{
+    pub fn new(config: WhirConfig<EF>) -> Self {
         Self(config)
     }
 
@@ -43,7 +50,6 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField + Ord> Committer<F, E
         let merkle_tree = MerkleTree::new(&folded_evals, fold_size);
 
         let root = merkle_tree.root();
-        // dbg!(root.to_string());
         fs_prover.add_bytes(&root.0);
 
         let mut ood_points = vec![EF::ZERO; self.0.committment_ood_samples];

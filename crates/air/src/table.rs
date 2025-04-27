@@ -1,5 +1,5 @@
 use arithmetic_circuit::CircuitComputation;
-use p3_field::Field;
+use p3_field::{Field, PrimeField};
 use tracing::instrument;
 
 use algebra::pols::{MultilinearHost, UnivariatePolynomial};
@@ -16,7 +16,7 @@ pub struct AirTable<F: Field> {
     pub(crate) lde_matrix_down: CircuitComputation<F>,
 }
 
-impl<F: Field> AirTable<F> {
+impl<F: PrimeField> AirTable<F> {
     pub fn n_witness_columns(&self) -> usize {
         self.n_columns - self.preprocessed_columns.len()
     }

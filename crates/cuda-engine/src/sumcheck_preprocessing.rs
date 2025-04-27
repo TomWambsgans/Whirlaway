@@ -1,10 +1,9 @@
-use std::hash::{DefaultHasher, Hasher};
-
 use arithmetic_circuit::{
     CircuitComputation, CircuitOp, ComputationInput, all_nodes_involved, max_stack_size,
 };
 use p3_field::PrimeField32;
 use std::hash::Hash;
+use utils::default_hash;
 
 use crate::*;
 
@@ -24,6 +23,11 @@ impl<'a, F> SumcheckComputation<'a, F> {
         self.exprs.iter().map(|c| c.instructions.len()).sum()
     }
 
+    pub fn no_inline_cuda_ops(&self) -> bool {
+        // To avoid huge PTX file, and reduce compilation time, we may remove inlining
+        self.total_n_instructions() > MAX_SUMCHECK_INSTRUCTIONS_TO_REMOVE_INLINING
+    }
+
     pub fn n_cuda_compute_units(&self) -> usize {
         self.exprs
             .len()
@@ -35,65 +39,63 @@ impl<'a, F> SumcheckComputation<'a, F> {
         F: Hash,
     {
         // TODO avoid, use a custom string instead
-        let mut hasher = DefaultHasher::new();
-        self.hash(&mut hasher);
-        MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT.hash(&mut hasher);
-        hasher.finish()
+        default_hash(&(self, MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT))
+    }
+}
+
+pub fn cuda_preprocess_many_sumcheck_computations<F: PrimeField32>(
+    sumcheck_computation: &SumcheckComputation<F>,
+    ext_degrees: &[(usize, usize, usize)],
+) {
+    for (extension_degree_a, extension_degree_b, extension_degree_c) in ext_degrees {
+        cuda_preprocess_sumcheck_computation(
+            sumcheck_computation,
+            *extension_degree_a,
+            *extension_degree_b,
+            *extension_degree_c,
+        );
     }
 }
 
 pub fn cuda_preprocess_sumcheck_computation<F: PrimeField32>(
     sumcheck_computation: &SumcheckComputation<F>,
+    extension_degree_a: usize,
+    extension_degree_b: usize,
+    extension_degree_c: usize,
 ) {
     let cuda = cuda_engine();
-    let field = CudaField::from_prime_field::<F>();
-    let mut guard = cuda.functions.write().unwrap();
+    let field = CudaField::guess::<F>();
     let module = format!("sumcheck_{:x}", sumcheck_computation.uuid());
-    if guard.contains_key(&(field, module.clone())) {
+    let cache_memory_reads = extension_degree_b == 1; // TODO: use a better heuristic
+    let cuda_file = cuda_synthetic_dir().join(format!("{module}.cu"));
+    let options = CudaFunctionInfo {
+        cuda_file: cuda_file.clone(),
+        function_name: "compute_over_hypercube".to_string(),
+        field: Some(field),
+        extension_degree_a: Some(extension_degree_a),
+        extension_degree_b: Some(extension_degree_b),
+        extension_degree_c: Some(extension_degree_c),
+        no_inline: sumcheck_computation.no_inline_cuda_ops(),
+        cache_memory_reads,
+    };
+    let mut functions = cuda.functions.write().unwrap();
+    if functions.contains_key(&options) {
         return;
     }
-    let cuda_file = cuda_synthetic_dir().join(format!("{module}.cu"));
     if !cuda_file.exists() {
-        let specialized_sumcheck_template =
+        let template =
             std::fs::read_to_string(kernels_folder().join("sumcheck_template.txt")).unwrap();
-        let cuda_code =
-            get_sumcheck_cuda_code(&specialized_sumcheck_template, sumcheck_computation);
+        let cuda_code = template.replace(
+            "COMPOSITION_PLACEHOLDER",
+            &get_cuda_instructions(sumcheck_computation),
+        );
         std::fs::write(&cuda_file, &cuda_code).unwrap();
     }
 
-    // To avoid huge PTX file, and reduce compilation time, we may remove inlining
-    let use_noinline =
-        sumcheck_computation.total_n_instructions() > MAX_SUMCHECK_INSTRUCTIONS_TO_REMOVE_INLINING;
-
-    compile_module(
-        cuda.dev.clone(),
-        &cuda_synthetic_dir(),
-        field,
-        module,
-        use_noinline,
-        &mut *guard,
-    );
+    load_function(options, &mut *functions);
 }
 
-fn get_sumcheck_cuda_code<F: PrimeField32>(
-    template: &str,
-    composition: &SumcheckComputation<F>,
-) -> String {
-    let instructions_prime = get_cuda_instructions(composition, true);
-    let instructions_ext = get_cuda_instructions(composition, false);
-    template
-        .replace(
-            "N_BATCHING_SCALARS_PLACEHOLDER",
-            &composition.exprs.len().to_string(),
-        )
-        .replace("COMPOSITION_PLACEHOLDER_PRIME", &instructions_prime)
-        .replace("COMPOSITION_PLACEHOLDER_EXT", &instructions_ext)
-}
-
-fn get_cuda_instructions<F: PrimeField32>(
-    sumcheck_computation: &SumcheckComputation<F>,
-    prime_field: bool,
-) -> String {
+fn get_cuda_instructions<F: PrimeField32>(sumcheck_computation: &SumcheckComputation<F>) -> String {
     let mut res = String::new();
     let n_compute_units = sumcheck_computation.n_cuda_compute_units();
     let blank = "        ";
@@ -101,22 +103,15 @@ fn get_cuda_instructions<F: PrimeField32>(
         let start = compute_unit * MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT;
         let end = ((compute_unit + 1) * MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT)
             .min(sumcheck_computation.exprs.len());
-        let instructions = if prime_field {
-            compute_unit_instructions_prime(sumcheck_computation.exprs, start, end)
-        } else {
-            compute_unit_instructions_ext(sumcheck_computation.exprs, start, end)
-        };
         res += &format!("\n{blank}case {}:\n{blank}{{\n", compute_unit);
-        res += &instructions;
+        res += &compute_unit_instructions(sumcheck_computation.exprs, start, end);
         res += &format!("{blank}    break;\n{blank}}}\n");
     }
 
     res
 }
 
-// TODO unify/simplify cuda generation
-
-fn compute_unit_instructions_ext<F: PrimeField32>(
+fn compute_unit_instructions<F: PrimeField32>(
     exprs: &[CircuitComputation<F>],
     start: usize,
     end: usize,
@@ -125,12 +120,24 @@ fn compute_unit_instructions_ext<F: PrimeField32>(
     let blank = "            ";
 
     let n_registers = max_stack_size(exprs);
-    for i in 0..n_registers {
-        res += &format!("{}BigField reg_{};\n", blank, i);
+
+    res += &format!("{blank}#if CACHED\n");
+    for i in all_nodes_involved(&exprs[start..end]) {
+        res += &format!(
+            "{}Field_B node_{} = multilinears[{}][hypercube_point];\n",
+            blank, i, i
+        );
     }
-    res += &format!("{}BigField temp_a;\n", blank);
-    res += &format!("{}BigField temp_b;\n", blank);
-    res += &format!("{}BigField computed = {{0}};\n", blank);
+    res += &format!("{blank}#endif\n\n");
+
+    for i in 0..n_registers {
+        res += &format!("{}Field_B reg_{};\n", blank, i);
+    }
+    res += &format!("{}Field_B temp_b0;\n", blank);
+    res += &format!("{}Field_B temp_b1;\n", blank);
+    res += &format!("{}Field_C temp_c0;\n", blank);
+    res += &format!("{}Field_C temp_c1;\n", blank);
+    res += &format!("{}Field_C computed = {{0}};\n", blank);
 
     for (i, expr) in exprs[start..end].iter().enumerate() {
         res += &format!(
@@ -140,150 +147,36 @@ fn compute_unit_instructions_ext<F: PrimeField32>(
         );
         for instr in &expr.instructions {
             let op_str = match instr.op {
-                CircuitOp::Product => "mul",
-                CircuitOp::Sum => "add",
-                CircuitOp::Sub => "sub",
+                CircuitOp::Product => "MUL",
+                CircuitOp::Sum => "ADD",
+                CircuitOp::Sub => "SUB",
             };
+            let (left_type, left) =
+                type_and_input_str(instr.op, &instr.left, &mut res, blank, true);
+            let (right_type, right) =
+                type_and_input_str(instr.op, &instr.right, &mut res, blank, false);
 
-            match (&instr.left, &instr.right) {
-                (ComputationInput::Stack(stack_index), ComputationInput::Scalar(scalar)) => {
-                    let func_name = match instr.op {
-                        CircuitOp::Product => "BigField::mul_small_field",
-                        CircuitOp::Sum => "BigField::add_small_field",
-                        CircuitOp::Sub => "BigField::sub_from_small_field",
-                    };
-                    res += &format!(
-                        "{}{}(&reg_{}, SmallField::from_canonical({}), &reg_{});\n",
-                        blank,
-                        func_name,
-                        stack_index,
-                        scalar.as_canonical_u32(),
-                        instr.result_location
-                    )
-                }
-                (ComputationInput::Node(node_index), ComputationInput::Scalar(scalar)) => {
-                    res += &format!(
-                        "{}temp_a = multilinears[{}][hypercube_point];\n",
-                        blank, node_index
-                    );
-                    let func_name = match instr.op {
-                        CircuitOp::Product => "BigField::mul_small_field",
-                        CircuitOp::Sum => "BigField::add_small_field",
-                        CircuitOp::Sub => "BigField::sub_from_small_field",
-                    };
-                    res += &format!(
-                        "{}{}(&temp_a, SmallField::from_canonical({}), &reg_{});\n",
-                        blank,
-                        func_name,
-                        scalar.as_canonical_u32(),
-                        instr.result_location
-                    )
-                }
-                (ComputationInput::Node(node_left), ComputationInput::Node(node_right)) => {
-                    res += &format!(
-                        "{}temp_a = multilinears[{}][hypercube_point];\n",
-                        blank, node_left
-                    );
-                    res += &format!(
-                        "{}temp_b = multilinears[{}][hypercube_point];\n",
-                        blank, node_right
-                    );
-                    res += &format!(
-                        "{}BigField::{}(&temp_a, &temp_b, &reg_{});\n",
-                        blank, op_str, instr.result_location
-                    )
-                }
-                (ComputationInput::Stack(stack_index), ComputationInput::Node(node_index)) => {
-                    res += &format!(
-                        "{}temp_a = multilinears[{}][hypercube_point];\n",
-                        blank, node_index
-                    );
-                    res += &format!(
-                        "{}BigField::{}(&reg_{}, &temp_a, &reg_{});\n",
-                        blank, op_str, stack_index, instr.result_location
-                    )
-                }
-                (ComputationInput::Node(node_index), ComputationInput::Stack(stack_index)) => {
-                    res += &format!(
-                        "{}temp_a = multilinears[{}][hypercube_point];\n",
-                        blank, node_index
-                    );
-                    res += &format!(
-                        "{}BigField::{}(&temp_a, &reg_{}, &reg_{});\n",
-                        blank, op_str, stack_index, instr.result_location
-                    )
-                }
-                (ComputationInput::Stack(stack_left), ComputationInput::Stack(stack_right)) => {
-                    res += &format!(
-                        "{}BigField::{}(&reg_{}, &reg_{}, &reg_{});\n",
-                        blank, op_str, stack_left, stack_right, instr.result_location
-                    )
-                }
-                (ComputationInput::Scalar(scalar), ComputationInput::Stack(stack_index)) => {
-                    match instr.op {
-                        CircuitOp::Product | CircuitOp::Sum => {
-                            res += &format!(
-                                "{}BigField::{}_small_field(&reg_{}, SmallField::from_canonical({}), &reg_{});\n",
-                                blank,
-                                op_str,
-                                stack_index,
-                                scalar.as_canonical_u32(),
-                                instr.result_location
-                            )
-                        }
-                        CircuitOp::Sub => {
-                            res += &format!(
-                                "{}BigField::sub_to_small_field(SmallField::from_canonical({}), &reg_{}, &reg_{});\n",
-                                blank,
-                                scalar.as_canonical_u32(),
-                                stack_index,
-                                instr.result_location
-                            )
-                        }
-                    };
-                }
-                (ComputationInput::Scalar(scalar), ComputationInput::Node(node_index)) => {
-                    res += &format!(
-                        "{}temp_a = multilinears[{}][hypercube_point];\n",
-                        blank, node_index
-                    );
-                    match instr.op {
-                        CircuitOp::Product | CircuitOp::Sum => {
-                            res += &format!(
-                                "{}BigField::{}_small_field(&temp_a, SmallField::from_canonical({}), &reg_{});\n",
-                                blank,
-                                op_str,
-                                scalar.as_canonical_u32(),
-                                instr.result_location
-                            )
-                        }
-                        CircuitOp::Sub => {
-                            res += &format!(
-                                "{}BigField::sub_to_small_field(SmallField::from_canonical({}), &temp_a, &reg_{});\n",
-                                blank,
-                                scalar.as_canonical_u32(),
-                                instr.result_location
-                            )
-                        }
-                    };
-                }
-                (ComputationInput::Scalar(_), ComputationInput::Scalar(_)) => {
-                    unreachable!("Useless computation")
-                }
-            }
+            res += &format!(
+                "{blank}{op_str}_{left_type}{right_type}({left}, {right}, reg_{});\n",
+                instr.result_location
+            )
         }
 
         if i == 0 && start == 0 {
-            res += &format!("{}computed = reg_{};\n", blank, expr.stack_size - 1);
+            res += &format!(
+                "{}FIELD_CONVERSION_B_C(reg_{}, computed);\n",
+                blank,
+                expr.stack_size - 1
+            );
         } else {
             // multiply by batching scalar
-            res += &format!("{}temp_a = batching_scalars[{}];\n", blank, i + start,);
+            res += &format!("{}temp_c0 = batching_scalars[{}];\n", blank, i + start,);
             res += &format!(
-                "{}BigField::mul(&reg_{}, &temp_a, &temp_b);\n",
+                "{}MUL_BC(reg_{}, temp_c0, temp_c1);\n",
                 blank,
                 expr.stack_size - 1,
             );
-            res += &format!("{}BigField::add(&temp_b, &computed, &computed);\n", blank,);
+            res += &format!("{}ADD_CC(temp_c1, computed, computed);\n", blank,);
         }
     }
 
@@ -292,132 +185,27 @@ fn compute_unit_instructions_ext<F: PrimeField32>(
     res
 }
 
-fn compute_unit_instructions_prime<F: PrimeField32>(
-    exprs: &[CircuitComputation<F>],
-    start: usize,
-    end: usize,
-) -> String {
-    let mut res = String::new();
-    let blank = "            ";
-
-    let n_registers = max_stack_size(exprs);
-
-    for i in all_nodes_involved(&exprs[start..end]) {
-        res += &format!(
-            "{}SmallField node_{} = multilinears[{}][hypercube_point];\n",
-            blank, i, i
-        );
-    }
-    for i in 0..n_registers {
-        res += &format!("{}SmallField reg_{};\n", blank, i);
-    }
-    res += &format!("{}BigField temp = {{0}};\n", blank);
-    res += &format!("{}BigField computed = {{0}};\n", blank);
-
-    for (i, expr) in exprs[start..end].iter().enumerate() {
-        res += &format!(
-            "\n{blank}// computation {}/{}\n\n",
-            i + start + 1,
-            exprs.len()
-        );
-        for instr in &expr.instructions {
-            let op_str = match instr.op {
-                CircuitOp::Product => "mul",
-                CircuitOp::Sum => "add",
-                CircuitOp::Sub => "sub",
-            };
-
-            match (&instr.left, &instr.right) {
-                (ComputationInput::Stack(stack_index), ComputationInput::Scalar(scalar)) => {
-                    res += &format!(
-                        "{}reg_{} = SmallField::{}(reg_{}, SmallField::from_canonical({}));\n",
-                        blank,
-                        instr.result_location,
-                        op_str,
-                        stack_index,
-                        scalar.as_canonical_u32(),
-                    )
-                }
-                (ComputationInput::Node(node_index), ComputationInput::Scalar(scalar)) => {
-                    res += &format!(
-                        "{}reg_{} = SmallField::{}(node_{}, SmallField::from_canonical({}));\n",
-                        blank,
-                        instr.result_location,
-                        op_str,
-                        node_index,
-                        scalar.as_canonical_u32(),
-                    )
-                }
-                (ComputationInput::Node(node_left), ComputationInput::Node(node_right)) => {
-                    res += &format!(
-                        "{}reg_{} = SmallField::{}(node_{}, node_{});\n",
-                        blank, instr.result_location, op_str, node_left, node_right,
-                    )
-                }
-                (ComputationInput::Stack(stack_index), ComputationInput::Node(node_index)) => {
-                    res += &format!(
-                        "{}reg_{} = SmallField::{}(reg_{}, node_{});\n",
-                        blank, instr.result_location, op_str, stack_index, node_index,
-                    )
-                }
-                (ComputationInput::Node(node_index), ComputationInput::Stack(stack_index)) => {
-                    res += &format!(
-                        "{}reg_{} = SmallField::{}(node_{}, reg_{});\n",
-                        blank, instr.result_location, op_str, node_index, stack_index,
-                    )
-                }
-                (ComputationInput::Stack(stack_left), ComputationInput::Stack(stack_right)) => {
-                    res += &format!(
-                        "{}reg_{} = SmallField::{}(reg_{}, reg_{});\n",
-                        blank, instr.result_location, op_str, stack_left, stack_right,
-                    )
-                }
-                (ComputationInput::Scalar(scalar), ComputationInput::Stack(stack_index)) => {
-                    res += &format!(
-                        "{}reg_{} = SmallField::{}(SmallField::from_canonical({}), reg_{});\n",
-                        blank,
-                        instr.result_location,
-                        op_str,
-                        stack_index,
-                        scalar.as_canonical_u32(),
-                    )
-                }
-                (ComputationInput::Scalar(scalar), ComputationInput::Node(node_index)) => {
-                    res += &format!(
-                        "{}reg_{} = SmallField::{}(SmallField::from_canonical({}), node_{});\n",
-                        blank,
-                        instr.result_location,
-                        op_str,
-                        scalar.as_canonical_u32(),
-                        node_index,
-                    )
-                }
-                (ComputationInput::Scalar(_), ComputationInput::Scalar(_)) => {
-                    unreachable!("Useless computation")
-                }
+fn type_and_input_str<F: PrimeField32>(
+    op: CircuitOp,
+    input: &ComputationInput<F>,
+    res: &mut String,
+    blank: &str,
+    left: bool,
+) -> (&'static str, String) {
+    match input {
+        ComputationInput::Scalar(scalar) => (
+            "A",
+            format!("Field_A::from_canonical({})", scalar.as_canonical_u32()),
+        ),
+        ComputationInput::Stack(stack_index) => ("B", format!("reg_{}", stack_index)),
+        ComputationInput::Node(node_index) => ("B", {
+            if op == CircuitOp::Product {
+                let temp_var = if left { "temp_b0" } else { "temp_b1" };
+                *res += &format!("{}{temp_var} = NODE({});\n", blank, node_index);
+                temp_var.to_string()
+            } else {
+                format!("NODE({})", node_index)
             }
-        }
-
-        if i == 0 && start == 0 {
-            res += &format!(
-                "{}computed.coeffs[0] = reg_{};\n",
-                blank,
-                expr.stack_size - 1
-            );
-        } else {
-            // multiply by batching scalar
-            res += &format!(
-                "{}BigField::mul_small_field(&batching_scalars[{}], reg_{}, &temp);\n",
-                blank,
-                i + start,
-                expr.stack_size - 1
-            );
-
-            res += &format!("{}BigField::add(&temp, &computed, &computed);\n", blank,);
-        }
+        }),
     }
-
-    res += &format!("\n{}sums[thread_index] = computed;\n", blank);
-
-    res
 }

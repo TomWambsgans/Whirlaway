@@ -1,7 +1,7 @@
 use algebra::pols::MultilinearHost;
 use arithmetic_circuit::max_composition_degree;
 use fiat_shamir::{FsError, FsVerifier};
-use p3_field::{ExtensionField, Field};
+use p3_field::{ExtensionField, PrimeField};
 use pcs::PCS;
 use sumcheck::SumcheckError;
 use tracing::instrument;
@@ -36,7 +36,7 @@ impl From<SumcheckError> for AirVerifError {
     }
 }
 
-impl<F: Field> AirTable<F> {
+impl<F: PrimeField> AirTable<F> {
     #[instrument(name = "air table: verify", skip_all)]
     pub fn verify<EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
         &self,

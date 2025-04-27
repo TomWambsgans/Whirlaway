@@ -94,7 +94,7 @@ impl<F: Field> TransparentPolynomial<F> {
             let b = (circuit.clone() + a.clone() * rand_f(rng)) * rand_n(rng);
             let c =
                 (a.clone() + b.clone() + circuit.clone() * rand_f(rng)) * rand_n(rng) + rand_n(rng);
-            let d = b.clone() + (c.clone() * rand_f(rng)) * rand_n(rng);
+            let d = b.clone() * c.clone() + (c.clone() * rand_f(rng)) * rand_n(rng);
             let e = (c.clone() + d.clone()) * rand_n(rng);
             circuit = e.clone() + (d.clone() * rand_f(rng)) * rand_n(rng);
             circuit = circuit.clone() + (circuit.clone() * rand_f(rng)) * rand_n(rng);

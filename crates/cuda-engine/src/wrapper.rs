@@ -1,12 +1,14 @@
 use std::any::TypeId;
+use std::hash::Hash;
 use std::{borrow::Borrow, ops::Range};
 
-use crate::{CudaField, cuda_engine, try_get_cuda_engine};
+use crate::{CudaFunctionInfo, cuda_engine, try_get_cuda_engine};
 use cudarc::driver::{
     CudaFunction, DevicePtr, DevicePtrMut, LaunchArgs, LaunchConfig, ValidAsZeroBits,
 };
 use cudarc::driver::{CudaSlice, DeviceRepr};
 use p3_field::Field;
+use utils::default_hash;
 
 // TODO Avoid hardcoding : This is GPU dependent
 pub const LOG_MAX_THREADS_PER_COOPERATIVE_BLOCK: u32 = 8;
@@ -43,6 +45,21 @@ impl<T: DeviceRepr + Clone + Default> HostOrDeviceBuffer<T> {
                     .memcpy_dtoh(&slice.slice(range), &mut dst)
                     .unwrap();
                 dst
+            }
+        }
+    }
+}
+
+impl<T: DeviceRepr + Default + Clone + Hash> HostOrDeviceBuffer<T> {
+    /// Debug purpose
+    /// Sync
+    pub fn hash(&self) -> u64 {
+        match self {
+            Self::Host(host_buff) => default_hash(host_buff),
+            Self::Device(dev_buff) => {
+                let host_buff = memcpy_dtoh(dev_buff);
+                cuda_sync();
+                default_hash(&host_buff)
             }
         }
     }
@@ -152,18 +169,16 @@ pub struct CudaCall<'a> {
     pub args: LaunchArgs<'a>,
     pub n_ops: u32,
     pub shared_mem_bytes: u32,
-    pub func_name: String,
+    pub info: CudaFunctionInfo,
 }
 
 impl<'a> CudaCall<'a> {
-    pub fn new<F: Field>(module: &str, func_name: &str, n_ops: u32) -> Self {
+    pub fn new(info: CudaFunctionInfo, n_ops: u32) -> Self {
         let cuda = cuda_engine();
-        let field = CudaField::from_field::<F>();
         let guard = cuda.functions.read().unwrap();
         let function = guard
-            .get(&(field, module.to_string()))
-            .and_then(|f| f.get(func_name))
-            .unwrap_or_else(|| panic!("Function {func_name} not found in module {module}"));
+            .get(&info)
+            .unwrap_or_else(|| panic!("{info:?} not found"));
 
         // we never overwite a function so it can be safely statically borrowed (TODO avoid unsafe)
         let function =
@@ -175,7 +190,7 @@ impl<'a> CudaCall<'a> {
             args,
             n_ops,
             shared_mem_bytes: 0,
-            func_name: func_name.to_string(),
+            info,
         }
     }
 
@@ -207,11 +222,11 @@ impl<'a> CudaCall<'a> {
 
     pub fn launch(mut self) {
         unsafe { self.args.launch(self.launch_config(false)) }
-            .unwrap_or_else(|e| panic!("{} failed with: {}", self.func_name, e));
+            .unwrap_or_else(|e| panic!("{:?} failed with: {}", self.info, e));
     }
 
     pub fn launch_cooperative(mut self) {
         unsafe { self.args.launch_cooperative(self.launch_config(true)) }
-            .unwrap_or_else(|e| panic!("{} failed with: {}", self.func_name, e));
+            .unwrap_or_else(|e| panic!("{:?} failed with: {}", self.info, e));
     }
 }

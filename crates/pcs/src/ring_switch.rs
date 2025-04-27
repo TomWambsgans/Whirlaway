@@ -85,7 +85,14 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
     }
 
     #[allow(non_snake_case)]
-    fn open(&self, witness: Self::Witness, eval: &Evaluation<EF>, fs_prover: &mut FsProver) {
+    fn open<PrimeField: Field>(
+        &self,
+        witness: Self::Witness,
+        eval: &Evaluation<EF>,
+        fs_prover: &mut FsProver,
+    ) where
+        EF: ExtensionField<PrimeField>,
+    {
         let _span = tracing::info_span!("RingSwitch::open").entered();
         let two_pow_kappa = <EF as BasedVectorSpace<F>>::DIMENSION;
         assert!(two_pow_kappa.is_power_of_two());
@@ -94,7 +101,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
         let point = &eval.point;
         let packed_point = &point[..point.len() - kappa];
 
-        let s_hat = packed_pol.eval_mixed_tensor(&packed_point);
+        let s_hat = packed_pol.eval_mixed_tensor::<F>(&packed_point);
         cuda_sync();
         fs_prover.add_scalar_matrix(&s_hat.data, true);
 
@@ -105,12 +112,13 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
             .piecewise_dot_product_at_field_level::<F>(&lagranged_r_pp);
 
         let s0 = dot_product(&s_hat.rows(), &lagranged_r_pp);
+
         let (r_p, _, _) = sumcheck::prove::<F, EF, EF, _>(
             1,
             &vec![packed_pol, &A_pol],
             &[
                 (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
-                    .fix_computation(true),
+                    .fix_computation(false),
             ],
             &[EF::ONE],
             None,
@@ -127,11 +135,12 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
             point: r_p.clone(),
             value: packed_value,
         };
+
         fs_prover.add_scalars(&[packed_value]);
         std::mem::drop(_span);
 
         self.inner
-            .open(witness.inner_witness, &packed_eval, fs_prover)
+            .open::<PrimeField>(witness.inner_witness, &packed_eval, fs_prover)
     }
 
     fn verify(
@@ -214,7 +223,7 @@ mod test {
         let log_inv_rate = 4;
 
         let rng = &mut StdRng::seed_from_u64(0);
-        let ring_switch = RingSwitch::<F, EF, WhirPCS<F, EF>>::new(
+        let ring_switch = RingSwitch::<F, EF, WhirPCS<EF>>::new(
             n_vars,
             &WhirParameters::standard(
                 SoundnessType::ProvableList,
@@ -232,7 +241,7 @@ mod test {
             point: point.clone(),
             value,
         };
-        ring_switch.open(commitment, &eval, &mut fs_prover);
+        ring_switch.open::<F>(commitment, &eval, &mut fs_prover);
 
         let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
         let parsed_commitment = ring_switch.parse_commitment(&mut fs_verifier).unwrap();

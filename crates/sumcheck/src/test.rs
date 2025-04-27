@@ -5,10 +5,13 @@ use algebra::pols::{
 };
 use arithmetic_circuit::{CircuitComputation, TransparentPolynomial};
 use cuda_engine::{
-    CudaField, SumcheckComputation, cuda_init, cuda_preprocess_sumcheck_computation, memcpy_htod,
+    CudaFunctionInfo, SumcheckComputation, cuda_init, cuda_load_function,
+    cuda_preprocess_sumcheck_computation, memcpy_htod,
 };
 use fiat_shamir::{FsProver, FsVerifier};
-use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, extension::BinomialExtensionField};
+use p3_field::{
+    ExtensionField, Field, PrimeCharacteristicRing, PrimeField32, extension::BinomialExtensionField,
+};
 use p3_koala_bear::KoalaBear;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
@@ -18,6 +21,40 @@ type F = KoalaBear;
 type EF = BinomialExtensionField<KoalaBear, 8>;
 
 // TODO make it work with multilinears in the prime field
+
+fn setup<F: PrimeField32, EF: ExtensionField<F>>(sumcheck_computation: &SumcheckComputation<F>) {
+    cuda_init();
+    cuda_preprocess_sumcheck_computation(sumcheck_computation, 1, 1, 8);
+    cuda_preprocess_sumcheck_computation(sumcheck_computation, 1, 8, 8);
+    cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+        "multilinear.cu",
+        "eq_mle",
+    ));
+    cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+        "multilinear.cu",
+        "piecewise_sum",
+    ));
+    cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
+        "multilinear.cu",
+        "dot_product",
+    ));
+    cuda_load_function(CudaFunctionInfo::two_fields::<EF, F>(
+        "multilinear.cu",
+        "fold_rectangular",
+    ));
+    cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
+        "multilinear.cu",
+        "fold_rectangular",
+    ));
+    cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
+        "multilinear.cu",
+        "fold_rectangular",
+    ));
+    cuda_load_function(CudaFunctionInfo::two_fields::<F, F>(
+        "multilinear.cu",
+        "fold_rectangular",
+    ));
+}
 
 #[test]
 fn test_sumcheck() {
@@ -30,13 +67,13 @@ fn test_sumcheck() {
         .collect::<Vec<_>>();
     let eq_factor = (0..n_vars).map(|_| EF::random(rng)).collect::<Vec<_>>();
 
-    cuda_init(CudaField::KoalaBear);
     let sumcheck_computation = SumcheckComputation {
         exprs: &exprs,
         n_multilinears: n_multilinears + 1,
         eq_mle_multiplier: true,
     };
-    cuda_preprocess_sumcheck_computation(&sumcheck_computation);
+
+    setup::<F, EF>(&sumcheck_computation);
 
     for gpu in [true, false] {
         let multilinears_host = (0..n_multilinears)
@@ -56,7 +93,7 @@ fn test_sumcheck() {
         let batching_scalar: EF = rng.random();
         let batching_scalars = powers(batching_scalar, n_exprs);
         let eq_mle = Multilinear::eq_mle(&eq_factor, gpu);
-        let sum = multilinears.as_ref().sum_over_hypercube_of_computation(
+        let sum = multilinears.as_ref().compute_over_hypercube(
             &sumcheck_computation,
             &batching_scalars,
             Some(&eq_mle),
@@ -123,94 +160,103 @@ fn test_univariate_skip() {
         .collect::<Vec<_>>();
     let selectors = univariate_selectors::<F>(skips);
 
-    cuda_init(CudaField::KoalaBear);
     let sumcheck_computation = SumcheckComputation {
         exprs: &exprs,
         n_multilinears: n_multilinears + 1,
         eq_mle_multiplier: true,
     };
-    cuda_preprocess_sumcheck_computation(&sumcheck_computation);
+    setup::<F, EF>(&sumcheck_computation);
 
-    let multilinears_host = (0..n_multilinears)
-        .map(|_| MultilinearHost::<F>::random(rng, n_vars))
-        .collect::<Vec<_>>();
-    let multilinears = MultilinearsVec::Host(multilinears_host.clone());
-
-    let batching_scalar: EF = rng.random();
-    let batching_scalars = powers(batching_scalar, n_exprs);
-
-    let eval_eq_factor = |point: &[EF]| {
-        assert_eq!(point.len(), n_vars - skips + 1);
-        selectors
-            .iter()
-            .map(|sel| sel.eval(&point[0]) * sel.eval(&eq_factor[0]))
-            .sum::<EF>()
-            * eq_extension(&point[1..], &eq_factor[1..])
-    };
-
-    let sum = HypercubePoint::par_iter(n_vars)
-        .map(|x| {
-            let point = multilinears_host
-                .iter()
-                .map(|pol| pol.eval_hypercube(&x))
-                .collect::<Vec<_>>();
-            assert!(x.val >> (n_vars - skips) < (1 << skips));
-            let mut eq_point = vec![EF::from_usize(x.val >> (n_vars - skips))];
-            eq_point.extend_from_slice(&x.to_vec()[skips..]);
-            let eq_mle_eval = eval_eq_factor(&eq_point);
-            eval_sumcheck_computation(
-                &sumcheck_computation,
-                &batching_scalars,
-                &point,
-                Some(eq_mle_eval),
+    for gpu in [false, true] {
+        let multilinears_host = (0..n_multilinears)
+            .map(|_| MultilinearHost::<F>::random(rng, n_vars))
+            .collect::<Vec<_>>();
+        let multilinears = if gpu {
+            MultilinearsVec::Device(
+                multilinears_host
+                    .iter()
+                    .map(|m| MultilinearDevice::new(memcpy_htod(&m.evals)))
+                    .collect::<Vec<_>>(),
             )
-        })
-        .sum::<EF>();
+        } else {
+            MultilinearsVec::Host(multilinears_host.clone())
+        };
+        let batching_scalar: EF = rng.random();
+        let batching_scalars = powers(batching_scalar, n_exprs);
 
-    let mut fs_prover = FsProver::new();
+        let eval_eq_factor = |point: &[EF]| {
+            assert_eq!(point.len(), n_vars - skips + 1);
+            selectors
+                .iter()
+                .map(|sel| sel.eval(&point[0]) * sel.eval(&eq_factor[0]))
+                .sum::<EF>()
+                * eq_extension(&point[1..], &eq_factor[1..])
+        };
 
-    prove(
-        skips,
-        multilinears.as_ref(),
-        &exprs,
-        &batching_scalars,
-        Some(&eq_factor),
-        false,
-        &mut fs_prover,
-        sum,
-        None,
-        0,
-        None,
-    );
+        let sum = HypercubePoint::par_iter(n_vars)
+            .map(|x| {
+                let point = multilinears_host
+                    .iter()
+                    .map(|pol| pol.eval_hypercube(&x))
+                    .collect::<Vec<_>>();
+                assert!(x.val >> (n_vars - skips) < (1 << skips));
+                let mut eq_point = vec![EF::from_usize(x.val >> (n_vars - skips))];
+                eq_point.extend_from_slice(&x.to_vec()[skips..]);
+                let eq_mle_eval = eval_eq_factor(&eq_point);
+                eval_sumcheck_computation(
+                    &sumcheck_computation,
+                    &batching_scalars,
+                    &point,
+                    Some(eq_mle_eval),
+                )
+            })
+            .sum::<EF>();
 
-    let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
-    let degree = 1 + exprs
-        .iter()
-        .map(|expr| expr.composition_degree)
-        .max()
-        .unwrap();
-    let (claimed_sum, postponed_verification) =
-        verify_with_univariate_skip::<EF>(&mut fs_verifier, degree, n_vars, skips, 0).unwrap();
-    assert_eq!(sum, claimed_sum);
+        let mut fs_prover = FsProver::new();
 
-    let selector_evals = selectors
-        .iter()
-        .map(|s| s.eval(&postponed_verification.point[0]))
-        .collect::<Vec<_>>();
-    let folded_multilinears_host = multilinears_host
-        .iter()
-        .map(|m| m.fold_rectangular_in_large_field(&selector_evals))
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        eval_batched_exprs_of_multilinears(
-            &folded_multilinears_host,
+        prove(
+            skips,
+            multilinears.as_ref(),
             &exprs,
             &batching_scalars,
-            &postponed_verification.point[1..]
-        ) * eval_eq_factor(&postponed_verification.point),
-        postponed_verification.value
-    );
+            Some(&eq_factor),
+            false,
+            &mut fs_prover,
+            sum,
+            None,
+            0,
+            None,
+        );
+
+        let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
+        let degree = 1 + exprs
+            .iter()
+            .map(|expr| expr.composition_degree)
+            .max()
+            .unwrap();
+        let (claimed_sum, postponed_verification) =
+            verify_with_univariate_skip::<EF>(&mut fs_verifier, degree, n_vars, skips, 0).unwrap();
+        assert_eq!(sum, claimed_sum);
+
+        let selector_evals = selectors
+            .iter()
+            .map(|s| s.eval(&postponed_verification.point[0]))
+            .collect::<Vec<_>>();
+        let folded_multilinears_host = multilinears_host
+            .iter()
+            .map(|m| m.fold_rectangular_in_large_field(&selector_evals))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            eval_batched_exprs_of_multilinears(
+                &folded_multilinears_host,
+                &exprs,
+                &batching_scalars,
+                &postponed_verification.point[1..]
+            ) * eval_eq_factor(&postponed_verification.point),
+            postponed_verification.value
+        );
+    }
 }
 
 pub fn eval_batched_exprs<
