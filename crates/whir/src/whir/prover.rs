@@ -4,7 +4,7 @@ use arithmetic_circuit::TransparentPolynomial;
 use cuda_engine::{HostOrDeviceBuffer, cuda_sync};
 use fiat_shamir::FsProver;
 use merkle_tree::MerkleTree;
-use p3_field::{ExtensionField, PrimeCharacteristicRing};
+use p3_field::ExtensionField;
 use p3_field::{Field, TwoAdicField};
 use sumcheck::SumcheckGrinding;
 use tracing::instrument;
@@ -244,7 +244,7 @@ where
             fs_prover,
         );
         // Compute the generator of the folded domain, in the extension field
-        let domain_scaled_gen = EF::PrimeSubfield::two_adic_generator(
+        let domain_scaled_gen = EF::two_adic_generator(
             round_state.domain_size.trailing_zeros() as usize
                 - self.0.folding_factor.at_round(round_state.round),
         );
@@ -253,7 +253,7 @@ where
             .chain(
                 stir_challenges_indexes
                     .iter()
-                    .map(|i| EF::from_prime_subfield(domain_scaled_gen.exp_u64(*i as u64))),
+                    .map(|i| domain_scaled_gen.exp_u64(*i as u64)),
             )
             .map(|univariate| multilinear_point_from_univariate(univariate, num_variables))
             .collect();

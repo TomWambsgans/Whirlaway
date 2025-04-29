@@ -1,7 +1,6 @@
 use algebra::pols::{CoefficientListHost, UnivariatePolynomial};
 use fiat_shamir::{FsError, FsVerifier};
 use merkle_tree::MultiPath;
-use p3_field::PrimeCharacteristicRing;
 use p3_field::{Field, TwoAdicField};
 use std::iter;
 use tracing::instrument;
@@ -126,7 +125,7 @@ where
             .collect();
 
         let mut prev_root = parsed_commitment.root.clone();
-        let mut domain_gen = EF::PrimeSubfield::two_adic_generator(
+        let mut domain_gen = EF::two_adic_generator(
             self.params.mv_parameters.num_variables + self.params.starting_log_inv_rate,
         );
         let mut exp_domain_gen = domain_gen.exp_u64(1 << self.params.folding_factor.at_round(0));
@@ -155,7 +154,7 @@ where
 
             let stir_challenges_points = stir_challenges_indexes
                 .iter()
-                .map(|index| EF::from_prime_subfield(exp_domain_gen.exp_u64(*index as u64)))
+                .map(|index| exp_domain_gen.exp_u64(*index as u64))
                 .collect();
 
             let merkle_proof = MultiPath::<EF>::from_bytes(&fs_verifier.next_variable_bytes()?)
@@ -222,7 +221,7 @@ where
         );
         let final_randomness_points = final_randomness_indexes
             .iter()
-            .map(|index| EF::from_prime_subfield(exp_domain_gen.exp_u64(*index as u64)))
+            .map(|index| exp_domain_gen.exp_u64(*index as u64))
             .collect();
 
         let final_merkle_proof = MultiPath::<EF>::from_bytes(&fs_verifier.next_variable_bytes()?)

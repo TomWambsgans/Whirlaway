@@ -392,7 +392,7 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 [[package]]
 name = "p3-baby-bear"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#88113cba24514aaaf0ce3be38f90110973c71bee"
 dependencies = [
  "p3-field",
  "p3-mds",
@@ -405,7 +405,7 @@ dependencies = [
 [[package]]
 name = "p3-dft"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#88113cba24514aaaf0ce3be38f90110973c71bee"
 dependencies = [
  "itertools",
  "p3-field",
@@ -418,7 +418,7 @@ dependencies = [
 [[package]]
 name = "p3-field"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#88113cba24514aaaf0ce3be38f90110973c71bee"
 dependencies = [
  "cudarc",
  "itertools",
@@ -434,7 +434,7 @@ dependencies = [
 [[package]]
 name = "p3-koala-bear"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#88113cba24514aaaf0ce3be38f90110973c71bee"
 dependencies = [
  "p3-field",
  "p3-monty-31",
@@ -446,7 +446,7 @@ dependencies = [
 [[package]]
 name = "p3-matrix"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#88113cba24514aaaf0ce3be38f90110973c71bee"
 dependencies = [
  "itertools",
  "p3-field",
@@ -461,12 +461,12 @@ dependencies = [
 [[package]]
 name = "p3-maybe-rayon"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#88113cba24514aaaf0ce3be38f90110973c71bee"
 
 [[package]]
 name = "p3-mds"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#88113cba24514aaaf0ce3be38f90110973c71bee"
 dependencies = [
  "p3-dft",
  "p3-field",
@@ -478,7 +478,7 @@ dependencies = [
 [[package]]
 name = "p3-monty-31"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#88113cba24514aaaf0ce3be38f90110973c71bee"
 dependencies = [
  "cudarc",
  "itertools",
@@ -501,7 +501,7 @@ dependencies = [
 [[package]]
 name = "p3-poseidon2"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#88113cba24514aaaf0ce3be38f90110973c71bee"
 dependencies = [
  "p3-field",
  "p3-mds",
@@ -513,7 +513,7 @@ dependencies = [
 [[package]]
 name = "p3-symmetric"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#88113cba24514aaaf0ce3be38f90110973c71bee"
 dependencies = [
  "itertools",
  "p3-field",
@@ -523,7 +523,7 @@ dependencies = [
 [[package]]
 name = "p3-util"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#88113cba24514aaaf0ce3be38f90110973c71bee"
 dependencies = [
  "serde",
 ]
