@@ -11,5 +11,38 @@ mod verify;
 mod test;
 
 pub use builder::*;
+use p3_field::{ExtensionField, PrimeField};
+use whir::parameters::{FoldingFactor, SoundnessType};
 
-const UNIVARIATE_SKIPS: usize = 3;
+#[derive(Clone, Debug)]
+pub struct AirSettings<F: PrimeField, EF: ExtensionField<F>, WhirF: ExtensionField<F>> {
+    pub security_bits: usize,
+    pub whir_soudness_type: SoundnessType,
+    pub whir_folding_factor: FoldingFactor,
+    pub whir_log_inv_rate: usize,
+    pub univariate_skips: usize,
+    prime_field: std::marker::PhantomData<F>,
+    extension_field: std::marker::PhantomData<EF>,
+    whir_extension_field: std::marker::PhantomData<WhirF>,
+}
+
+impl<F: PrimeField, EF: ExtensionField<F>, WhirF: ExtensionField<F>> AirSettings<F, EF, WhirF> {
+    pub fn new(
+        security_bits: usize,
+        whir_soudness_type: SoundnessType,
+        whir_folding_factor: FoldingFactor,
+        whir_log_inv_rate: usize,
+        univariate_skips: usize,
+    ) -> Self {
+        Self {
+            security_bits,
+            whir_soudness_type,
+            whir_folding_factor,
+            whir_log_inv_rate,
+            univariate_skips,
+            prime_field: std::marker::PhantomData,
+            extension_field: std::marker::PhantomData,
+            whir_extension_field: std::marker::PhantomData,
+        }
+    }
+}

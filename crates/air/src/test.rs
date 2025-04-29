@@ -2,22 +2,27 @@ use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::PrimeCharacteristicRing;
 use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::KoalaBear;
-use pcs::{PCS, RingSwitch, WhirPCS, WhirParameters};
 
 use algebra::pols::MultilinearHost;
-use whir::parameters::SoundnessType;
+use whir::parameters::{FoldingFactor, SoundnessType};
 
-use crate::AirBuilder;
+use crate::{AirBuilder, AirSettings};
 
 type F = KoalaBear;
-type EF = BinomialExtensionField<KoalaBear, 8>;
+type EF = BinomialExtensionField<KoalaBear, 4>;
 type WhirF = BinomialExtensionField<KoalaBear, 8>;
 
 #[test]
 fn test_air_fibonacci() {
     let log_length = 14;
-    let security_bits = 45;
-    let log_inv_rate = 2;
+    let settings = AirSettings::<F, EF, WhirF>::new(
+        60,
+        SoundnessType::ProvableList,
+        FoldingFactor::Constant(4),
+        3,
+        3,
+    );
+
     for cuda in [false, true] {
         let mut builder = AirBuilder::<F, 4>::new(log_length);
         let mut first_row_selector = vec![F::ZERO; 1 << log_length];
@@ -47,7 +52,7 @@ fn test_air_fibonacci() {
             last_row_selector_down,
         );
 
-        let table = builder.build();
+        let table = builder.build(settings.univariate_skips);
 
         if cuda {
             table.cuda_setup::<EF, WhirF>();
@@ -64,29 +69,26 @@ fn test_air_fibonacci() {
 
         table.check_validity(&witnesses);
 
-        let pcs = RingSwitch::<F, WhirF, WhirPCS<WhirF>>::new(
-            log_length + 1,
-            &WhirParameters::standard(
-                SoundnessType::ProvableList,
-                security_bits,
-                log_inv_rate,
-                cuda,
-            ),
-        );
-
         let mut fs_prover = FsProver::new();
-        table.prove::<EF, _, _>(&mut fs_prover, &pcs, witnesses, cuda);
+        table.prove::<EF, _>(&settings, &mut fs_prover, witnesses, cuda);
 
         let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
-        table.verify(&mut fs_verifier, &pcs, log_length).unwrap();
+        table
+            .verify::<EF, WhirF>(&settings, &mut fs_verifier, log_length)
+            .unwrap();
     }
 }
 
 #[test]
 fn test_air_complex() {
+    let settings = AirSettings::<F, EF, WhirF>::new(
+        60,
+        SoundnessType::ProvableList,
+        FoldingFactor::Constant(4),
+        3,
+        3,
+    );
     for log_length in [4, 7, 13] {
-        let security_bits = 45;
-        let log_inv_rate = 2;
         for cuda in [false, true] {
             let mut builder = AirBuilder::<F, 8>::new(log_length);
             let mut first_row_selector = vec![F::ZERO; 1 << log_length];
@@ -150,7 +152,7 @@ fn test_air_complex() {
                 counter_up.clone().cube() * F::new(1111) + c1_up.clone(),
             );
 
-            let table = builder.build();
+            let table = builder.build(settings.univariate_skips);
 
             if cuda {
                 table.cuda_setup::<EF, WhirF>();
@@ -187,21 +189,13 @@ fn test_air_complex() {
 
             table.check_validity(&witnesses);
 
-            let pcs = RingSwitch::<F, WhirF, WhirPCS<WhirF>>::new(
-                log_length + 3,
-                &WhirParameters::standard(
-                    SoundnessType::ProvableList,
-                    security_bits,
-                    log_inv_rate,
-                    cuda,
-                ),
-            );
-
             let mut fs_prover = FsProver::new();
-            table.prove::<EF, _, _>(&mut fs_prover, &pcs, witnesses, cuda);
+            table.prove::<EF, _>(&settings, &mut fs_prover, witnesses, cuda);
 
             let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
-            table.verify(&mut fs_verifier, &pcs, log_length).unwrap();
+            table
+                .verify::<EF, WhirF>(&settings, &mut fs_verifier, log_length)
+                .unwrap();
         }
     }
 }

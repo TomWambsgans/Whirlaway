@@ -25,9 +25,10 @@ arithmetic-circuit = { path = "crates/arithmetic-circuit" }
 utils = { path = "crates/utils" }
 
 # External
-rand = "0.9.0"
+rand = "0.9.1"
 sha3 = "0.10.8"
 rayon = "1.5.1"
+colored = "3.0.0"
 ahash = { version = "0.8", default-features = false }
 fnv = { version = "1.0", default-features = false }
 serde = { version = "1.0.219", features = ["derive"] }
@@ -44,7 +45,6 @@ p3-matrix = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "koa
 cudarc = { version = "0.14.0", features = ["cuda-12040", "std", "cublas", "cublaslt", "curand", "driver", "runtime", "nvrtc"] }
 
 [dependencies]
-pcs.workspace = true
 whir.workspace = true
 fiat-shamir.workspace = true
 algebra.workspace = true
@@ -58,3 +58,4 @@ rayon.workspace = true
 p3-matrix.workspace = true
 tracing-forest.workspace = true
 tracing-subscriber.workspace = true
+colored.workspace = true

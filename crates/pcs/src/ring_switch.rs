@@ -4,17 +4,18 @@ use arithmetic_circuit::TransparentPolynomial;
 use cuda_engine::cuda_sync;
 use fiat_shamir::{FsError, FsProver, FsVerifier};
 use p3_field::{BasedVectorSpace, ExtensionField, Field};
-use sumcheck::SumcheckError;
+use sumcheck::{SumcheckError, SumcheckGrinding};
 use utils::Evaluation;
 use utils::dot_product;
 
-use crate::PcsWitness;
+use crate::{PcsParams, PcsWitness};
 
 use super::PCS;
 
 #[derive(Clone)]
 pub struct RingSwitch<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> {
     inner: Pcs,
+    security_bits: usize,
     _small_field: std::marker::PhantomData<F>,
     _extension_field: std::marker::PhantomData<EF>,
 }
@@ -64,6 +65,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
         let inner = Pcs::new(n_vars - kappa, params);
         Self {
             inner,
+            security_bits: params.security_bits(),
             _small_field: std::marker::PhantomData,
             _extension_field: std::marker::PhantomData,
         }
@@ -105,7 +107,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
         cuda_sync();
         fs_prover.add_scalar_matrix(&s_hat.data, true);
 
-        let r_pp = fs_prover.challenge_scalars::<EF>(kappa);
+        let r_pp = fs_prover.challenge_scalars::<EF>(kappa); // PoW grinding required ?
 
         let lagranged_r_pp = MultilinearHost::eq_mle(&r_pp).evals;
         let A_pol = Multilinear::eq_mle(&packed_point, packed_pol.is_device())
@@ -126,7 +128,9 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
             fs_prover,
             s0,
             None,
-            0,
+            SumcheckGrinding::Auto {
+                security_bits: self.security_bits,
+            },
             None,
         );
         let packed_value = witness.inner_witness.pol().evaluate(&r_p);
@@ -171,7 +175,14 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
         let lagranged_r_pp = MultilinearHost::eq_mle(&r_pp).evals;
         let s0 = dot_product(&rows, &lagranged_r_pp);
 
-        let (claimed_s0, sc_claim) = sumcheck::verify(fs_verifier, n_packed_vars, 2, 0)?;
+        let (claimed_s0, sc_claim) = sumcheck::verify(
+            fs_verifier,
+            n_packed_vars,
+            2,
+            SumcheckGrinding::Auto {
+                security_bits: self.security_bits,
+            },
+        )?;
         if claimed_s0 != s0 {
             return Err(RingSwitchError::Outer);
         }
@@ -208,7 +219,7 @@ mod test {
     use p3_field::extension::BinomialExtensionField;
     use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
-    use whir::parameters::{SoundnessType, WhirParameters};
+    use whir::parameters::{FoldingFactor, SoundnessType, WhirParameters};
 
     use crate::WhirPCS;
 
@@ -229,6 +240,7 @@ mod test {
                 SoundnessType::ProvableList,
                 security_bits,
                 log_inv_rate,
+                FoldingFactor::Constant(4),
                 false,
             ),
         );

@@ -116,9 +116,7 @@ where
             let folding_randomness_single = fs_verifier.challenge_scalars::<EF>(1)[0];
             initial_sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
 
-            if self.params.starting_folding_pow_bits > 0 {
-                fs_verifier.challenge_pow(self.params.starting_folding_pow_bits)?;
-            }
+            fs_verifier.challenge_pow(self.params.starting_folding_pow_bits)?;
         }
 
         folding_randomness = initial_sumcheck_rounds
@@ -173,9 +171,7 @@ where
                 return Err(WhirError::MerkleTree);
             }
 
-            if round_params.pow_bits > 0 {
-                fs_verifier.challenge_pow(round_params.pow_bits)?;
-            }
+            fs_verifier.challenge_pow(round_params.pow_bits)?;
 
             let combination_randomness_gen = fs_verifier.challenge_scalars::<EF>(1)[0];
             let combination_randomness = powers(
@@ -190,9 +186,7 @@ where
                 let folding_randomness_single = fs_verifier.challenge_scalars::<EF>(1)[0];
                 sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
 
-                if round_params.folding_pow_bits > 0 {
-                    fs_verifier.challenge_pow(round_params.folding_pow_bits)?;
-                }
+                fs_verifier.challenge_pow(round_params.folding_pow_bits)?;
             }
 
             let new_folding_randomness = sumcheck_rounds.iter().map(|&(_, r)| r).rev().collect();
@@ -243,9 +237,7 @@ where
             return Err(WhirError::MerkleTree);
         }
 
-        if self.params.final_pow_bits > 0 {
-            fs_verifier.challenge_pow(self.params.final_pow_bits)?;
-        }
+        fs_verifier.challenge_pow(self.params.final_pow_bits)?;
 
         let mut final_sumcheck_rounds = Vec::with_capacity(self.params.final_sumcheck_rounds);
         for _ in 0..self.params.final_sumcheck_rounds {
@@ -253,9 +245,7 @@ where
             let folding_randomness_single = fs_verifier.challenge_scalars::<EF>(1)[0];
             final_sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
 
-            if self.params.final_folding_pow_bits > 0 {
-                fs_verifier.challenge_pow(self.params.final_folding_pow_bits)?;
-            }
+            fs_verifier.challenge_pow(self.params.final_folding_pow_bits)?;
         }
         let final_sumcheck_randomness = final_sumcheck_rounds
             .iter()

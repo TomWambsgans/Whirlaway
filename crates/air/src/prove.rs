@@ -2,13 +2,14 @@ use algebra::pols::{Multilinear, MultilinearDevice, MultilinearHost, Multilinear
 use arithmetic_circuit::ArithmeticCircuit;
 use cuda_engine::{cuda_sync, memcpy_htod};
 use fiat_shamir::FsProver;
-use p3_field::{ExtensionField, Field, PrimeField};
-use pcs::PCS;
+use p3_field::{ExtensionField, Field, PrimeField, TwoAdicField};
+use pcs::{PCS, RingSwitch, WhirPCS, WhirParameters};
 use rayon::prelude::*;
+use sumcheck::SumcheckGrinding;
 use tracing::{Level, instrument, span};
 use utils::{Evaluation, HypercubePoint, dot_product, powers, small_to_big_extension};
 
-use crate::{UNIVARIATE_SKIPS, utils::columns_up_and_down};
+use crate::{AirSettings, utils::columns_up_and_down};
 
 use super::table::AirTable;
 
@@ -20,31 +21,44 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 
 impl<F: PrimeField> AirTable<F> {
     #[instrument(name = "air: prove", skip_all)]
-    pub fn prove<EF: ExtensionField<F>, WhirF: ExtensionField<F>, Pcs: PCS<F, WhirF>>(
+    pub fn prove<EF: ExtensionField<F>, WhirF: ExtensionField<F> + TwoAdicField + Ord>(
         &self,
+        settings: &AirSettings<F, EF, WhirF>,
         fs_prover: &mut FsProver,
-        pcs: &Pcs,
-        witness_: Vec<MultilinearHost<F>>,
+        witness_host: Vec<MultilinearHost<F>>,
         cuda: bool,
-    ) {
+    ) where
+        WhirF::PrimeSubfield: TwoAdicField,
+    {
         assert!(
-            UNIVARIATE_SKIPS < self.log_length,
+            settings.univariate_skips < self.log_length,
             "TODO handle the case UNIVARIATE_SKIPS == log_length"
         );
         let log_length = self.log_length;
-        assert!(witness_.iter().all(|w| w.n_vars == log_length));
+        assert!(witness_host.iter().all(|w| w.n_vars == log_length));
+
+        let pcs = RingSwitch::<F, WhirF, WhirPCS<WhirF>>::new(
+            log_length + self.log_n_witness_columns(),
+            &WhirParameters::standard(
+                settings.whir_soudness_type,
+                settings.security_bits,
+                settings.whir_log_inv_rate,
+                settings.whir_folding_factor,
+                cuda,
+            ),
+        );
 
         // 1) Commit to the witness columns
 
         let witness = if cuda {
             MultilinearsVec::Device(
-                witness_
+                witness_host
                     .iter()
                     .map(|w| MultilinearDevice::new(memcpy_htod(&w.evals)))
                     .collect(),
             )
         } else {
-            MultilinearsVec::Host(witness_)
+            MultilinearsVec::Host(witness_host)
         };
 
         // TODO avoid cloning (use a row major matrix for the witness)
@@ -53,12 +67,18 @@ impl<F: PrimeField> AirTable<F> {
         cuda_sync();
         let packed_pol_witness = pcs.commit(packed_pol, fs_prover);
 
+        self.constraints_batching_pow(fs_prover, settings, cuda)
+            .unwrap();
+
         let constraints_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
+
         let constraints_batching_scalars =
             powers(constraints_batching_scalar, self.constraints.len());
 
+        self.zerocheck_pow(fs_prover, settings, cuda).unwrap();
+
         let zerocheck_challenges =
-            fs_prover.challenge_scalars::<EF>(log_length + 1 - UNIVARIATE_SKIPS);
+            fs_prover.challenge_scalars::<EF>(log_length + 1 - settings.univariate_skips);
 
         let preprocessed_columns = if cuda {
             MultilinearsVec::Device(
@@ -72,9 +92,9 @@ impl<F: PrimeField> AirTable<F> {
         };
         let preprocessed_and_witness = preprocessed_columns.as_ref().chain(&witness.as_ref());
         let (outer_challenges, all_inner_sums, _) = {
-            let _span = span!(Level::INFO, "outer sumcheck").entered();
+            let _span = span!(Level::INFO, "zerocheck").entered();
             sumcheck::prove(
-                UNIVARIATE_SKIPS,
+                settings.univariate_skips,
                 columns_up_and_down(&preprocessed_and_witness).as_ref(),
                 &self.constraints,
                 &constraints_batching_scalars,
@@ -83,7 +103,9 @@ impl<F: PrimeField> AirTable<F> {
                 fs_prover,
                 EF::ZERO,
                 None,
-                0,
+                SumcheckGrinding::Auto {
+                    security_bits: settings.security_bits,
+                },
                 None,
             )
         };
@@ -102,14 +124,18 @@ impl<F: PrimeField> AirTable<F> {
         std::mem::drop(_span_evals);
         fs_prover.add_scalars(&inner_sums);
 
-        let inner_sumcheck_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
+        self.secondary_sumchecks_batching_pow(fs_prover, settings, cuda)
+            .unwrap();
+        let secondary_sumcheck_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
 
         let mles_for_inner_sumcheck = {
             let _span_mles = span!(Level::INFO, "constructing MLEs").entered();
             let mut nodes = Vec::<Multilinear<EF>>::new();
             let _span_linear_comb = span!(Level::INFO, "linear combination of columns").entered();
-            let expanded_scalars =
-                powers(inner_sumcheck_batching_scalar, 2 * self.n_witness_columns());
+            let expanded_scalars = powers(
+                secondary_sumcheck_batching_scalar,
+                2 * self.n_witness_columns(),
+            );
             for i in 0..2 {
                 // up and down
                 let sum = witness
@@ -118,7 +144,7 @@ impl<F: PrimeField> AirTable<F> {
                         &expanded_scalars
                             [i * self.n_witness_columns()..(i + 1) * self.n_witness_columns()],
                     )
-                    .add_dummy_starting_variables(UNIVARIATE_SKIPS); // TODO this is not efficient
+                    .add_dummy_starting_variables(settings.univariate_skips); // TODO this is not efficient
                 nodes.push(sum);
             }
             cuda_sync();
@@ -126,12 +152,12 @@ impl<F: PrimeField> AirTable<F> {
             nodes.push(matrix_up_folded_with_univariate_skips(
                 &outer_challenges,
                 cuda,
-                UNIVARIATE_SKIPS,
+                settings.univariate_skips,
             ));
             nodes.push(matrix_down_folded_with_univariate_skips(
                 &outer_challenges,
                 cuda,
-                UNIVARIATE_SKIPS,
+                settings.univariate_skips,
             ));
 
             // TODO remove
@@ -158,7 +184,10 @@ impl<F: PrimeField> AirTable<F> {
 
         let inner_sum = dot_product(
             &inner_sums,
-            &powers(inner_sumcheck_batching_scalar, self.n_witness_columns() * 2),
+            &powers(
+                secondary_sumcheck_batching_scalar,
+                self.n_witness_columns() * 2,
+            ),
         );
 
         let (inner_challenges, _, _) = sumcheck::prove(
@@ -171,23 +200,25 @@ impl<F: PrimeField> AirTable<F> {
             fs_prover,
             inner_sum,
             None,
-            0,
+            SumcheckGrinding::Auto {
+                security_bits: settings.security_bits,
+            },
             None,
         );
 
         let _span_evals = span!(Level::INFO, "evaluating witness").entered();
         let values = witness
             .as_ref()
-            .batch_evaluate(&inner_challenges[UNIVARIATE_SKIPS..]);
+            .batch_evaluate(&inner_challenges[settings.univariate_skips..]);
 
         cuda_sync();
         std::mem::drop(_span_evals);
         fs_prover.add_scalars(&values);
 
-        let final_random_scalars = fs_prover.challenge_scalars::<EF>(self.log_n_witness_columns());
+        let final_random_scalars = fs_prover.challenge_scalars::<EF>(self.log_n_witness_columns()); // PoW grinding required ?
         let final_point = [
             final_random_scalars.clone(),
-            inner_challenges[UNIVARIATE_SKIPS..].to_vec(),
+            inner_challenges[settings.univariate_skips..].to_vec(),
         ]
         .concat();
         let packed_value = MultilinearHost::new(

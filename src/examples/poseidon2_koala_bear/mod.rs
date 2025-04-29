@@ -1,10 +1,10 @@
-use ::air::{AirBuilder, AirExpr};
+use ::air::{AirBuilder, AirExpr, AirSettings};
 use algebra::pols::MultilinearHost;
-use fiat_shamir::{FsProver, FsVerifier};
+use colored::Colorize;
+use fiat_shamir::{FsProver, FsVerifier, get_total_grinding_time, reset_total_grinding_time};
 use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear};
 use p3_matrix::Matrix;
-use pcs::{PCS, RingSwitch, WhirPCS, WhirParameters};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::{
     borrow::Borrow,
@@ -13,6 +13,7 @@ use std::{
 use tracing::level_filters::LevelFilter;
 use tracing_forest::ForestLayer;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
+use whir::parameters::FoldingFactor;
 use {
     air::{Poseidon2Air, write_constraints},
     columns::{Poseidon2Cols, num_cols},
@@ -34,7 +35,7 @@ const COLS: usize =
     num_cols::<WIDTH, SBOX_DEGREE, SBOX_REGISTERS, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>();
 
 type F = KoalaBear;
-type EF = BinomialExtensionField<KoalaBear, 8>;
+type EF = BinomialExtensionField<KoalaBear, 4>;
 type WhirF = BinomialExtensionField<KoalaBear, 8>;
 
 #[cfg(test)]
@@ -46,29 +47,42 @@ mod tests {
     fn test_poseidon2() {
         prove_poseidon2(
             4,
-            WhirParameters::standard(SoundnessType::ProvableList, 100, 2, false),
+            AirSettings::new(
+                100,
+                SoundnessType::ProvableList,
+                FoldingFactor::Constant(4),
+                2,
+                3,
+            ),
+            false,
             false,
         );
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Poseidon2Benchmark {
     pub log_n_rows: usize,
-    pub whir_params: WhirParameters,
+    pub settings: AirSettings<F, EF, WhirF>,
     pub prover_time: Duration,
     pub verifier_time: Duration,
     pub proof_size: usize,
+    pub total_grinding_time: Duration,
 }
 
 impl ToString for Poseidon2Benchmark {
     fn to_string(&self) -> String {
         let mut res = String::new();
         res += &format!(
-            "Security level: {} bits ({}), starting rate: 1/{}\n",
-            self.whir_params.security_level,
-            self.whir_params.soundness_type,
-            1 << self.whir_params.starting_log_inv_rate
+            "Security level: {} bits ({}), starting rate: 1/{}, folding factor: {}\n",
+            self.settings.security_bits,
+            self.settings.whir_soudness_type,
+            1 << self.settings.whir_log_inv_rate,
+            match self.settings.whir_folding_factor {
+                FoldingFactor::Constant(f) => format!("{}", f),
+                FoldingFactor::ConstantFromSecondRound(first, then) =>
+                    format!("1st: {} then {}", first, then),
+            }
         );
         let n_rows = 1 << self.log_n_rows;
         res += &format!(
@@ -79,13 +93,22 @@ impl ToString for Poseidon2Benchmark {
         );
         res += &format!("Proof size: {:.1} KiB\n", self.proof_size as f64 / 1024.0);
         res += &format!("Verification: {} ms\n", self.verifier_time.as_millis());
+
+        res += &format!(
+            "\nTotal grinding time: {:.3} s\n",
+            self.total_grinding_time.as_millis() as f64 / 1000.0
+        )
+        .blue()
+        .to_string();
+
         res
     }
 }
 
 pub fn prove_poseidon2(
     log_n_rows: usize,
-    whir_params: WhirParameters,
+    settings: AirSettings<F, EF, WhirF>,
+    cuda: bool,
     display_logs: bool,
 ) -> Poseidon2Benchmark {
     if display_logs {
@@ -98,6 +121,7 @@ pub fn prove_poseidon2(
             .with(ForestLayer::default())
             .init();
     }
+    reset_total_grinding_time();
 
     let n_rows = 1 << log_n_rows;
 
@@ -155,35 +179,33 @@ pub fn prove_poseidon2(
         .map(|col| MultilinearHost::new(col.collect()))
         .collect::<Vec<_>>();
 
-    let table = air_builder.build();
+    let table = air_builder.build(settings.univariate_skips);
     // println!("Constraints degree: {}", table.constraint_degree());
     // table.check_validity(&witness);
 
-    if whir_params.cuda {
+    if cuda {
         table.cuda_setup::<EF, WhirF>();
     }
 
-    let pcs = RingSwitch::<F, WhirF, WhirPCS<WhirF>>::new(
-        log_n_rows + table.log_n_witness_columns(),
-        &whir_params,
-    );
-
     let t = Instant::now();
     let mut fs_prover = FsProver::new();
-    table.prove::<EF, _, _>(&mut fs_prover, &pcs, witness, whir_params.cuda);
+    table.prove::<EF, _>(&settings, &mut fs_prover, witness, cuda);
     let proof_size = fs_prover.transcript_len();
 
     let prover_time = t.elapsed();
     let time = Instant::now();
     let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
-    table.verify(&mut fs_verifier, &pcs, log_n_rows).unwrap();
+    table
+        .verify::<EF, WhirF>(&settings, &mut fs_verifier, log_n_rows)
+        .unwrap();
     let verifier_time = time.elapsed();
 
     Poseidon2Benchmark {
         log_n_rows,
-        whir_params,
+        settings,
         prover_time,
         verifier_time,
         proof_size,
+        total_grinding_time: get_total_grinding_time(),
     }
 }

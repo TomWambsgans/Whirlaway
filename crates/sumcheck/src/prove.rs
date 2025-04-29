@@ -8,6 +8,8 @@ use p3_field::{ExtensionField, Field};
 use rayon::prelude::*;
 use tracing::instrument;
 
+use crate::SumcheckGrinding;
+
 pub const MIN_VARS_FOR_GPU: usize = 0; // When there are a small number of variables, it's not worth using GPU
 
 pub fn prove<
@@ -26,7 +28,7 @@ pub fn prove<
     fs_prover: &mut FsProver,
     mut sum: EF,
     n_rounds: Option<usize>,
-    pow_bits: usize,
+    grinding: SumcheckGrinding,
     mut missing_mul_factor: Option<EF>,
 ) -> (Vec<EF>, Vec<Multilinear<EF>>, EF) {
     let multilinears: MultilinearsSlice<'_, _> = multilinears.into();
@@ -58,7 +60,7 @@ pub fn prove<
         fs_prover,
         comp_degree,
         &mut sum,
-        pow_bits,
+        grinding,
         &mut challenges,
         0,
         &mut missing_mul_factor,
@@ -84,7 +86,7 @@ pub fn prove<
             fs_prover,
             comp_degree,
             &mut sum,
-            pow_bits,
+            grinding,
             &mut challenges,
             i,
             &mut missing_mul_factor,
@@ -107,9 +109,9 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
     eq_factor: Option<&[EF]>,
     is_zerofier: bool,
     fs_prover: &mut FsProver,
-    degree: usize,
+    comp_degree: usize,
     sum: &mut EF,
-    pow_bits: usize,
+    grinding: SumcheckGrinding,
     challenges: &mut Vec<EF>,
     round: usize,
     missing_mul_factor: &mut Option<EF>,
@@ -126,7 +128,7 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
     } else {
         0
     };
-    for z in start..=degree * ((1 << skips) - 1) {
+    for z in start..=comp_degree * ((1 << skips) - 1) {
         let sum_z = if z == (1 << skips) - 1 {
             if let Some(eq_factor) = eq_factor {
                 (*sum
@@ -180,10 +182,9 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
     *sum = p.eval(&challenge);
     *n_vars -= skips;
 
-    // Do PoW if needed
-    if pow_bits > 0 {
-        fs_prover.challenge_pow(pow_bits);
-    }
+    let pow_bits = grinding
+        .pow_bits::<EF>((comp_degree + (eq_factor.is_some() as usize)) * ((1 << skips) - 1));
+    fs_prover.challenge_pow(pow_bits, multilinears.is_device());
 
     let folding_scalars = selectors
         .iter()

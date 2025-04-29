@@ -15,6 +15,8 @@ use whir::{
 
 use whir::whir::committer::Witness as WhirWitness;
 
+use crate::PcsParams;
+
 use super::{PCS, PcsWitness};
 
 pub use whir::parameters::WhirParameters;
@@ -31,6 +33,12 @@ where
 impl<'a, EF: Field> PcsWitness<EF> for WhirWitness<EF> {
     fn pol(&self) -> &Multilinear<EF> {
         &self.lagrange_polynomial
+    }
+}
+
+impl PcsParams for WhirParameters {
+    fn security_bits(&self) -> usize {
+        self.security_level
     }
 }
 
@@ -103,7 +111,7 @@ mod test {
     use p3_koala_bear::KoalaBear;
     use tracing_forest::{ForestLayer, util::LevelFilter};
     use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
-    use whir::parameters::SoundnessType;
+    use whir::parameters::{FoldingFactor, SoundnessType};
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, 8>;
@@ -128,6 +136,7 @@ mod test {
                 SoundnessType::ProvableList,
                 security_bits,
                 log_inv_rate,
+                FoldingFactor::Constant(4),
                 false,
             ),
         );

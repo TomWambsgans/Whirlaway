@@ -194,6 +194,11 @@ impl<'a> CudaCall<'a> {
         }
     }
 
+    pub fn total_n_threads(&self, cooperative: bool) -> u32 {
+        let launch_config = self.launch_config(cooperative);
+        launch_config.block_dim.0 * launch_config.grid_dim.0
+    }
+
     pub fn shared_mem_bytes(mut self, n: u32) -> Self {
         self.shared_mem_bytes = n;
         self

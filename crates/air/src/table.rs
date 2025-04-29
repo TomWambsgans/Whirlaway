@@ -23,7 +23,7 @@ impl<F: PrimeField> AirTable<F> {
 
     pub fn log_n_witness_columns(&self) -> usize {
         // rounded up
-        log2_up(self.n_witness_columns()) as usize
+        log2_up(self.n_witness_columns())
     }
 
     pub fn n_preprocessed_columns(&self) -> usize {

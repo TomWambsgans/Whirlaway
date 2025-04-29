@@ -18,7 +18,11 @@
 Source: https://github.com/MrSpike63/vanity-eth-address
 */
 
+#include <stdio.h>
+#include <stdint.h>
 #include <cinttypes>
+#include <device_launch_parameters.h>
+#include <cooperative_groups.h>
 
 int main()
 {
@@ -259,6 +263,70 @@ extern "C" __global__ void batch_keccak256(
             // Compute the hash
 
             keccak256(input, input_length, output);
+        }
+    }
+}
+
+__device__ size_t count_ending_zero_bits(const uint8_t *buff, size_t len)
+{
+    size_t count = 0;
+
+    // Process bytes from the end of the buffer
+    for (int i = len - 1; i >= 0; i--)
+    {
+        uint8_t byte = buff[i];
+
+        // Process bits from least significant to most significant
+        for (int j = 0; j < 8; j++)
+        {
+            if (byte & (1 << j))
+            {
+                return count;
+            }
+            count++;
+        }
+    }
+
+    return count;
+}
+
+extern "C" __global__ void pow_grinding(
+    uint8_t *seed, // 32-byte seed
+    uint32_t ending_zeros_count,
+    uint64_t starting_nonce,
+    uint32_t n_iters,
+    size_t *solution_increment)
+{
+
+    namespace cg = cooperative_groups;
+    cg::grid_group grid = cg::this_grid();
+
+    uint64_t total_threads = blockDim.x * gridDim.x;
+    uint64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // uint64_t n_total_expected_iterations = ((1ULL << ending_zeros_count) + total_threads - 1) / total_threads;
+    // uint64_t n_iterations_for_this_attempt = (n_total_expected_iterations + 4ULL) / 5ULL;
+
+    uint8_t input[32 + 8];
+    for (int i = 0; i < 32; i++)
+    {
+        input[i] = seed[i];
+    }
+
+    uint8_t output[32];
+
+    for (int i = 0; i < n_iters; i++)
+    {
+        uint64_t nonce = starting_nonce + idx + i * total_threads;
+        for (int j = 0; j < 8; j++)
+        {
+            input[32 + j] = (nonce >> (56 - j * 8)) & 0xFF;
+        }
+        keccak256(input, 32 + 8, output);
+        size_t count = count_ending_zero_bits(output, 32);
+        if (count >= ending_zeros_count)
+        {
+            *solution_increment = (size_t)(nonce - starting_nonce);
         }
     }
 }

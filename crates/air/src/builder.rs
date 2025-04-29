@@ -4,10 +4,7 @@ use algebra::pols::{MultilinearHost, univariate_selectors};
 use arithmetic_circuit::ArithmeticCircuit;
 use p3_field::Field;
 
-use crate::{
-    UNIVARIATE_SKIPS,
-    utils::{matrix_down_lde, matrix_up_lde},
-};
+use crate::utils::{matrix_down_lde, matrix_up_lde};
 
 use super::table::AirTable;
 
@@ -88,7 +85,7 @@ impl<F: Field, const COLS: usize> AirBuilder<F, COLS> {
         )
     }
 
-    pub fn build(mut self) -> AirTable<F> {
+    pub fn build(mut self, univariate_skips: usize) -> AirTable<F> {
         let constraints = std::mem::take(&mut self.constraints)
             .into_iter()
             .map(|expr| {
@@ -109,7 +106,7 @@ impl<F: Field, const COLS: usize> AirBuilder<F, COLS> {
                 .into_iter()
                 .map(MultilinearHost::new)
                 .collect(),
-            univariate_selectors: univariate_selectors(UNIVARIATE_SKIPS),
+            univariate_selectors: univariate_selectors(univariate_skips),
             lde_matrix_up: matrix_up_lde(self.log_length).fix_computation(true),
             lde_matrix_down: matrix_down_lde(self.log_length).fix_computation(true),
         }

@@ -1,38 +1,59 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+use std::{
+    sync::{Mutex, OnceLock},
+    time::Duration,
+};
+
+use cuda_bindings::cuda_pow_grinding;
 use rand::{SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
-use tracing::instrument;
-use utils::{deserialize_field, serialize_field};
+use utils::{KeccakDigest, count_ending_zero_bits, deserialize_field, keccak256, serialize_field};
 
 use p3_field::Field;
-use sha3::{Digest, Keccak256};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FsError;
 
 pub struct FsProver {
-    state: [u8; 32],
+    state: KeccakDigest,
     transcript: Vec<u8>,
 }
 
 pub struct FsVerifier {
-    state: [u8; 32],
+    state: KeccakDigest,
     transcript: Vec<u8>,
     cursor: usize,
+}
+
+static TOTAL_GRINDING_TIME: OnceLock<Mutex<Duration>> = OnceLock::new();
+
+pub fn get_total_grinding_time() -> Duration {
+    TOTAL_GRINDING_TIME
+        .get_or_init(|| Mutex::new(Duration::default()))
+        .lock()
+        .unwrap()
+        .clone()
+}
+
+pub fn reset_total_grinding_time() {
+    *TOTAL_GRINDING_TIME
+        .get_or_init(|| Mutex::new(Duration::default()))
+        .lock()
+        .unwrap() = Duration::default();
 }
 
 impl FsProver {
     pub fn new() -> Self {
         FsProver {
-            state: [0u8; 32],
+            state: KeccakDigest::default(),
             transcript: Vec::new(),
         }
     }
 
     pub fn state_hex(&self) -> String {
-        self.state.iter().map(|b| format!("{:02x}", b)).collect()
+        self.state.to_string()
     }
 
     pub fn transcript_len(&self) -> usize {
@@ -40,7 +61,7 @@ impl FsProver {
     }
 
     fn update_state(&mut self, data: &[u8]) {
-        self.state = hash_sha3(&[&self.state[..], data].concat());
+        self.state = keccak256(&[&self.state.0, data].concat());
     }
 
     pub fn add_bytes(&mut self, bytes: &[u8]) {
@@ -49,7 +70,7 @@ impl FsProver {
     }
 
     pub fn add_variable_bytes(&mut self, bytes: &[u8]) {
-        self.add_bytes(&(bytes.len() as u32).to_le_bytes());
+        self.add_bytes(&(bytes.len() as u32).to_be_bytes());
         self.add_bytes(bytes);
     }
 
@@ -70,8 +91,8 @@ impl FsProver {
         let m = scalars[0].len();
         assert!(scalars.iter().all(|v| v.len() == m));
         if !fixed_dims {
-            self.add_bytes(&(n as u32).to_le_bytes());
-            self.add_bytes(&(m as u32).to_le_bytes());
+            self.add_bytes(&(n as u32).to_be_bytes());
+            self.add_bytes(&(m as u32).to_be_bytes());
         }
         for row in scalars {
             for scalar in row {
@@ -85,16 +106,33 @@ impl FsProver {
         (0..len).map(|_| F::random(&mut rng)).collect::<Vec<_>>()
     }
 
-    #[instrument(name = "Fiat SHamir pow", skip(self))]
-    pub fn challenge_pow(&mut self, bits: usize) {
-        let nonce = (0..u64::MAX)
-            .into_par_iter()
-            .find_any(|&nonce| {
-                let hash = hash_sha3(&[&self.state[..], &nonce.to_le_bytes()].concat());
-                count_ending_zero_bits(&hash) >= bits
-            })
-            .expect("Failed to find a nonce");
-        self.add_bytes(&nonce.to_le_bytes())
+    pub fn challenge_pow(&mut self, bits: usize, cuda: bool) {
+        if bits == 0 {
+            return;
+        }
+        let time = std::time::Instant::now();
+        let nonce = if cuda && bits > 18 {
+            cuda_pow_grinding(&self.state, bits)
+        } else {
+            (0..u64::MAX)
+                .into_par_iter()
+                .find_any(|&nonce| {
+                    let hash = keccak256(&[&self.state.0[..], &nonce.to_be_bytes()].concat());
+                    count_ending_zero_bits(&hash.0) >= bits
+                })
+                .expect("Failed to find a nonce")
+        };
+        let grinding_time = time.elapsed();
+        if grinding_time > Duration::from_millis(10) {
+            tracing::warn!("long PoW grinding: {} ms", grinding_time.as_millis());
+        }
+        let mut total_time = TOTAL_GRINDING_TIME
+            .get_or_init(|| Default::default())
+            .lock()
+            .unwrap();
+        *total_time += grinding_time;
+
+        self.add_bytes(&nonce.to_be_bytes())
     }
 
     pub fn transcript(self) -> Vec<u8> {
@@ -105,17 +143,17 @@ impl FsProver {
 impl FsVerifier {
     pub fn new(transcript: Vec<u8>) -> Self {
         FsVerifier {
-            state: [0u8; 32],
+            state: KeccakDigest::default(),
             transcript,
             cursor: 0,
         }
     }
     fn update_state(&mut self, data: &[u8]) {
-        self.state = hash_sha3(&[&self.state[..], data].concat());
+        self.state = keccak256(&[&self.state.0, data].concat());
     }
 
     pub fn state_hex(&self) -> String {
-        self.state.iter().map(|b| format!("{:02x}", b)).collect()
+        self.state.to_string()
     }
 
     pub fn next_bytes(&mut self, len: usize) -> Result<Vec<u8>, FsError> {
@@ -130,7 +168,7 @@ impl FsVerifier {
     }
 
     pub fn next_variable_bytes(&mut self) -> Result<Vec<u8>, FsError> {
-        let len = u32::from_le_bytes(self.next_bytes(4)?.try_into().unwrap()) as usize;
+        let len = u32::from_be_bytes(self.next_bytes(4)?.try_into().unwrap()) as usize;
         self.next_bytes(len)
     }
 
@@ -156,8 +194,8 @@ impl FsVerifier {
         let (n, m) = match dims {
             Some((n, m)) => (n, m),
             None => {
-                let n = u32::from_le_bytes(self.next_bytes(4)?.try_into().unwrap()) as usize;
-                let m = u32::from_le_bytes(self.next_bytes(4)?.try_into().unwrap()) as usize;
+                let n = u32::from_be_bytes(self.next_bytes(4)?.try_into().unwrap()) as usize;
+                let m = u32::from_be_bytes(self.next_bytes(4)?.try_into().unwrap()) as usize;
                 (n, m)
             }
         };
@@ -179,11 +217,14 @@ impl FsVerifier {
     }
 
     pub fn challenge_pow(&mut self, bits: usize) -> Result<(), FsError> {
-        let initial_state = self.state;
-        let nonce = u64::from_le_bytes(self.next_bytes(8).unwrap().try_into().unwrap());
-        if count_ending_zero_bits(&hash_sha3(
-            &[&initial_state[..], &nonce.to_le_bytes()].concat(),
-        )) >= bits
+        if bits == 0 {
+            return Ok(());
+        }
+        let initial_state = self.state.clone();
+        let nonce = u64::from_be_bytes(self.next_bytes(8).unwrap().try_into().unwrap());
+        if count_ending_zero_bits(
+            &keccak256(&[&initial_state.0[..], &nonce.to_be_bytes()].concat()).0,
+        ) >= bits
         {
             Ok(())
         } else {
@@ -195,6 +236,7 @@ impl FsVerifier {
 pub trait FsParticipant {
     fn challenge_bytes(&mut self, len: usize) -> Vec<u8>;
     fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F>;
+    fn challenge_pow(&mut self, bits: usize, cuda: bool) -> Result<(), FsError>;
 }
 
 impl FsParticipant for FsProver {
@@ -204,6 +246,11 @@ impl FsParticipant for FsProver {
 
     fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F> {
         FsProver::challenge_scalars(self, len)
+    }
+
+    fn challenge_pow(&mut self, bits: usize, cuda: bool) -> Result<(), FsError> {
+        FsProver::challenge_pow(self, bits, cuda);
+        Ok(())
     }
 }
 
@@ -215,19 +262,13 @@ impl FsParticipant for FsVerifier {
     fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F> {
         FsVerifier::challenge_scalars(self, len)
     }
+
+    fn challenge_pow(&mut self, bits: usize, _cuda: bool) -> Result<(), FsError> {
+        FsVerifier::challenge_pow(self, bits)
+    }
 }
 
-fn hash_sha3(data: &[u8]) -> [u8; 32] {
-    use sha3::{Digest, Sha3_256};
-    let mut hasher = Sha3_256::new();
-    hasher.update(data);
-    let result = hasher.finalize();
-    let mut output = [0u8; 32];
-    output.copy_from_slice(&result);
-    output
-}
-
-pub fn generate_pseudo_random(seed: &[u8; 32], len: usize) -> Vec<u8> {
+fn generate_pseudo_random(seed: &KeccakDigest, len: usize) -> Vec<u8> {
     if len == 0 {
         return Vec::new();
     }
@@ -236,30 +277,13 @@ pub fn generate_pseudo_random(seed: &[u8; 32], len: usize) -> Vec<u8> {
     let mut counter = 0u32;
 
     while result.len() < len {
-        let mut hasher = Keccak256::default();
-        hasher.update(seed);
-        hasher.update(&counter.to_be_bytes());
-        let hash_result = hasher.finalize();
+        let hash_result = keccak256(&[&seed.0[..], &counter.to_be_bytes()].concat()).0;
         let bytes_to_take = std::cmp::min(hash_result.len(), len - result.len());
         result.extend_from_slice(&hash_result[..bytes_to_take]);
         counter += 1;
     }
 
     result
-}
-
-fn count_ending_zero_bits(buff: &[u8]) -> usize {
-    let mut count = 0;
-    'outer: for byte in buff {
-        for i in 0..8 {
-            if byte & (1 << i) == 0 {
-                count += 1;
-            } else {
-                break 'outer;
-            }
-        }
-    }
-    count
 }
 
 #[cfg(test)]
@@ -270,7 +294,7 @@ mod tests {
     fn benchmark_pow() {
         let mut prover = FsProver::new();
         let time = std::time::Instant::now();
-        prover.challenge_pow(16);
+        prover.challenge_pow(12, false);
         println!("Time: {:?}", time.elapsed());
     }
 }

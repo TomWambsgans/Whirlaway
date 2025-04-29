@@ -16,3 +16,4 @@ rand.workspace = true
 algebra.workspace = true
 p3-koala-bear.workspace = true
 arithmetic-circuit.workspace = true
+utils.workspace = true

@@ -1,21 +1,41 @@
 use std::any::TypeId;
 
-use p3_field::{BasedVectorSpace, ExtensionField, Field, extension::BinomialExtensionField};
+use p3_field::{
+    BasedVectorSpace, ExtensionField, Field, PrimeField, extension::BinomialExtensionField,
+};
 use p3_koala_bear::KoalaBear;
 use rayon::prelude::*;
 
 use crate::log2_up;
 
-// TODO this is ugly but to remove it we need BinomialExtensionField<2N, X> to implemnt ExtensionField<BinomialExtensionField<N, X>>
-pub fn small_to_big_extension<F: Field, SmallExt: ExtensionField<F>, BigExt: ExtensionField<F>>(
+// TODO this is ugly but to remove it we need BinomialExtensionField<2N, X> to implement ExtensionField<BinomialExtensionField<N, X>>
+pub fn small_to_big_extension<
+    F: PrimeField,
+    SmallExt: ExtensionField<F>,
+    BigExt: ExtensionField<F>,
+>(
     x: SmallExt,
 ) -> BigExt {
     let small_dim = <SmallExt as BasedVectorSpace<F>>::DIMENSION;
     let big_dim = <BigExt as BasedVectorSpace<F>>::DIMENSION;
-    assert!(small_dim <= big_dim);
-    let mut res = x.as_basis_coefficients_slice().to_vec();
-    res.resize(big_dim, F::ZERO);
-    BigExt::from_basis_coefficients_slice(&res)
+    assert!(big_dim % small_dim == 0);
+
+    if small_dim == 1 {
+        let mut coeffs = x.as_basis_coefficients_slice().to_vec();
+        coeffs.resize(big_dim, F::ZERO);
+        return BigExt::from_basis_coefficients_slice(&coeffs);
+    } else if TypeId::of::<SmallExt>() == TypeId::of::<BigExt>() {
+        return BigExt::from_basis_coefficients_slice(x.as_basis_coefficients_slice());
+    } else if TypeId::of::<F>() == TypeId::of::<KoalaBear>() && small_dim == 4 && big_dim == 8 {
+        let small_coeffs = x.as_basis_coefficients_slice();
+        let mut big_coeffs = vec![F::ZERO; big_dim];
+        for i in 0..small_dim {
+            big_coeffs[2 * i] = small_coeffs[i];
+        }
+        return BigExt::from_basis_coefficients_slice(&big_coeffs);
+    } else {
+        todo!()
+    }
 }
 
 /// outputs the vector [1, base, base^2, base^3, ...] of length len.
@@ -34,7 +54,7 @@ pub fn powers<F: Field>(base: F, len: usize) -> Vec<F> {
 pub fn powers_parallel<F: Field>(base: F, len: usize) -> Vec<F> {
     let num_threads = rayon::current_num_threads().next_power_of_two();
 
-    if len <= num_threads * log2_up(num_threads) as usize {
+    if len <= num_threads * log2_up(num_threads) {
         powers(base, len)
     } else {
         let chunk_size = (len + num_threads - 1) / num_threads;
@@ -151,5 +171,23 @@ mod tests {
         let bytes = serialize_field(&f);
         let deserialized: F = deserialize_field(&bytes).unwrap();
         assert_eq!(f, deserialized);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use p3_field::extension::BinomialExtensionField;
+    use p3_koala_bear::KoalaBear;
+    use rand::{Rng, SeedableRng, rngs::StdRng};
+
+    #[test]
+    fn test_small_to_big_extension() {
+        type F = KoalaBear;
+        type EF = BinomialExtensionField<F, 4>;
+        type NF = BinomialExtensionField<F, 8>;
+        let a: EF = StdRng::seed_from_u64(0).random();
+        let b = small_to_big_extension::<F, EF, NF>(a);
+        assert_eq!(b * b + b, small_to_big_extension::<F, EF, NF>(a * a + a))
     }
 }

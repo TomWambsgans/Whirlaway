@@ -1,4 +1,6 @@
-use cuda_engine::{CudaCall, CudaFunctionInfo};
+use cuda_engine::{
+    CudaCall, CudaFunctionInfo, cuda_alloc_zeros, cuda_sync, memcpy_dtoh, memcpy_htod,
+};
 use cudarc::driver::{CudaView, CudaViewMut, DeviceRepr, PushKernelArg};
 use utils::KeccakDigest;
 
@@ -22,16 +24,70 @@ pub fn cuda_keccak256<T: DeviceRepr>(
     launch_args.launch();
 }
 
+// Sync
+// Non deterministic
+pub fn cuda_pow_grinding(seed: &KeccakDigest, ending_zeros_count: usize) -> u64 {
+    let seed_dev = memcpy_htod(&seed.0);
+    let mut solution_increment_dev = cuda_alloc_zeros::<u64>(1); // TODO it's size_t, not u64
+    let ending_zeros_count_u32 = ending_zeros_count as u32;
+
+    let mut starting_nonce = 0u64;
+    loop {
+        let mut launch_args = CudaCall::new(
+            CudaFunctionInfo::basic("keccak.cu", "pow_grinding"),
+            1 << ending_zeros_count,
+        );
+
+        let total_n_threads = launch_args.total_n_threads(false) as u64;
+        let n_iters = (1_u64 << ending_zeros_count).div_ceil(10 * total_n_threads) as u32; // each kernel has 10 % chance of finding a correct nonce
+
+        launch_args.arg(&seed_dev);
+        launch_args.arg(&ending_zeros_count_u32);
+        launch_args.arg(&starting_nonce);
+        launch_args.arg(&n_iters);
+        launch_args.arg(&mut solution_increment_dev);
+        launch_args.launch();
+        let solution_increment = memcpy_dtoh(&solution_increment_dev)[0];
+        cuda_sync();
+        if solution_increment != 0 {
+            return solution_increment + starting_nonce;
+        }
+        starting_nonce += n_iters as u64 * total_n_threads;
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use cuda_engine::{
-        CudaFunctionInfo, cuda_alloc, cuda_init, cuda_load_function, cuda_sync, memcpy_dtoh,
-        memcpy_htod,
-    };
+    use cuda_engine::*;
+    use rand::{Rng, SeedableRng, rngs::StdRng};
     use rayon::prelude::*;
-    use utils::{KeccakDigest, keccak256};
+    use utils::{KeccakDigest, count_ending_zero_bits, keccak256};
 
-    use crate::cuda_keccak256;
+    use super::*;
+
+    #[test]
+    fn test_cuda_pow_grinding() {
+        let ending_zeros_count = 18;
+
+        cuda_init();
+        cuda_load_function(CudaFunctionInfo::basic("keccak.cu", "pow_grinding"));
+        let mut rng = StdRng::seed_from_u64(0);
+        let seed: [u8; 32] = rng.random();
+        cuda_sync();
+        let time = std::time::Instant::now();
+        let nonce = cuda_pow_grinding(&KeccakDigest(seed), ending_zeros_count);
+        cuda_sync();
+        println!(
+            "CUDA pow grinding took {} ms for {} bits (nonce = {})",
+            time.elapsed().as_millis(),
+            ending_zeros_count,
+            nonce
+        );
+        assert!(
+            count_ending_zero_bits(&keccak256(&[&seed[..], &nonce.to_be_bytes()].concat()).0)
+                >= ending_zeros_count as usize
+        );
+    }
 
     #[test]
     fn test_cuda_keccak() {

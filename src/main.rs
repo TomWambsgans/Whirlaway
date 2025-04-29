@@ -2,9 +2,9 @@
 
 mod examples;
 
+use air::AirSettings;
 use examples::poseidon2_koala_bear::prove_poseidon2;
-use pcs::WhirParameters;
-use whir::parameters::SoundnessType;
+use whir::parameters::{FoldingFactor, SoundnessType};
 
 const USE_CUDA: bool = true;
 const SECURITY_BITS: usize = 128;
@@ -13,14 +13,16 @@ fn main() {
     for (log_n_rows, log_inv_rate) in [(16, 3)] {
         let benchmark = prove_poseidon2(
             log_n_rows,
-            WhirParameters::standard(
-                SoundnessType::ProvableList,
+            AirSettings::new(
                 SECURITY_BITS,
+                SoundnessType::ProvableList,
+                FoldingFactor::Constant(4),
                 log_inv_rate,
-                USE_CUDA,
+                3,
             ),
+            USE_CUDA,
             true,
         );
-        println!("{}", benchmark.to_string());
+        println!("\n{}", benchmark.to_string());
     }
 }

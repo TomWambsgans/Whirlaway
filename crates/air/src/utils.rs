@@ -1,8 +1,12 @@
 use algebra::pols::{MultilinearDevice, MultilinearHost, MultilinearsSlice, MultilinearsVec};
 use arithmetic_circuit::{ArithmeticCircuit, TransparentPolynomial};
 use cuda_bindings::{cuda_air_columns_down, cuda_air_columns_up};
-use p3_field::Field;
+use fiat_shamir::{FsError, FsParticipant};
+use p3_field::{ExtensionField, Field, PrimeField};
 use rayon::prelude::*;
+use utils::log2_up;
+
+use crate::{AirSettings, table::AirTable};
 
 pub(crate) fn matrix_up_lde<F: Field>(log_length: usize) -> TransparentPolynomial<F> {
     /*
@@ -97,6 +101,62 @@ pub(crate) fn column_down_host<F: Field>(column: &MultilinearHost<F>) -> Multili
     let mut down = column.evals[1..].to_vec();
     down.push(*down.last().unwrap());
     MultilinearHost::new(down)
+}
+
+impl<F: PrimeField> AirTable<F> {
+    pub(crate) fn constraints_batching_pow<
+        FS: FsParticipant,
+        EF: ExtensionField<F>,
+        WhirF: ExtensionField<F>,
+    >(
+        &self,
+        fs: &mut FS,
+        settings: &AirSettings<F, EF, WhirF>,
+        cuda: bool,
+    ) -> Result<(), FsError> {
+        fs.challenge_pow(
+            settings
+                .security_bits
+                .saturating_sub(EF::bits().saturating_sub(log2_up(self.constraints.len()))),
+            cuda,
+        )
+    }
+
+    pub(crate) fn zerocheck_pow<
+        FS: FsParticipant,
+        EF: ExtensionField<F>,
+        WhirF: ExtensionField<F>,
+    >(
+        &self,
+        fs: &mut FS,
+        settings: &AirSettings<F, EF, WhirF>,
+        cuda: bool,
+    ) -> Result<(), FsError> {
+        fs.challenge_pow(
+            settings
+                .security_bits
+                .saturating_sub(EF::bits().saturating_sub(self.log_length)),
+            cuda,
+        )
+    }
+
+    pub(crate) fn secondary_sumchecks_batching_pow<
+        FS: FsParticipant,
+        EF: ExtensionField<F>,
+        WhirF: ExtensionField<F>,
+    >(
+        &self,
+        fs: &mut FS,
+        settings: &AirSettings<F, EF, WhirF>,
+        cuda: bool,
+    ) -> Result<(), FsError> {
+        fs.challenge_pow(
+            settings
+                .security_bits
+                .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_witness_columns() * 2))),
+            cuda,
+        )
+    }
 }
 
 #[cfg(test)]

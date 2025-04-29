@@ -6,6 +6,7 @@ use fiat_shamir::FsProver;
 use merkle_tree::MerkleTree;
 use p3_field::{ExtensionField, PrimeCharacteristicRing};
 use p3_field::{Field, TwoAdicField};
+use sumcheck::SumcheckGrinding;
 use tracing::instrument;
 use utils::powers;
 use utils::{dot_product, multilinear_point_from_univariate};
@@ -107,7 +108,7 @@ where
                     fs_prover,
                     sum,
                     n_rounds,
-                    pow_bits,
+                    SumcheckGrinding::Custom(pow_bits),
                     None,
                 );
             folding_randomness.reverse();
@@ -176,10 +177,7 @@ where
             fs_prover.add_variable_bytes(&merkle_proof.to_bytes());
             fs_prover.add_scalar_matrix(&answers, false);
 
-            // PoW
-            if self.0.final_pow_bits > 0 {
-                fs_prover.challenge_pow(self.0.final_pow_bits);
-            }
+            fs_prover.challenge_pow(self.0.final_pow_bits, self.0.cuda);
 
             // Final sumcheck
             if self.0.final_sumcheck_rounds > 0 {
@@ -198,7 +196,7 @@ where
                     fs_prover,
                     round_state.hypercube_sum,
                     n_rounds,
-                    pow_bits,
+                    SumcheckGrinding::Custom(pow_bits),
                     None,
                 ); // TODO sum could be known, currently it is recomputed
             }
@@ -285,10 +283,8 @@ where
 
         fs_prover.add_variable_bytes(&merkle_proof.to_bytes());
         fs_prover.add_scalar_matrix(&answers, false);
-        // PoW
-        if round_params.pow_bits > 0 {
-            fs_prover.challenge_pow(round_params.pow_bits);
-        }
+
+        fs_prover.challenge_pow(round_params.pow_bits, self.0.cuda);
 
         // Randomness for combination
         let combination_randomness_gen = fs_prover.challenge_scalars::<EF>(1)[0];
@@ -313,7 +309,7 @@ where
             fs_prover,
             round_state.hypercube_sum + dot_product(&combination_randomness, &stir_evaluations),
             Some(self.0.folding_factor.at_round(round_state.round + 1)),
-            round_params.folding_pow_bits,
+            SumcheckGrinding::Custom(round_params.folding_pow_bits),
             None,
         );
         folding_randomness.reverse();

@@ -112,7 +112,7 @@ fn test_sumcheck() {
             &mut fs_prover,
             sum,
             None,
-            0,
+            SumcheckGrinding::None,
             None,
         );
         println!(
@@ -127,8 +127,13 @@ fn test_sumcheck() {
             .map(|expr| expr.composition_degree)
             .max()
             .unwrap();
-        let (claimed_sum, postponed_verification) =
-            verify::<EF>(&mut fs_verifier, n_vars, 1 + max_degree_per_vars, 0).unwrap();
+        let (claimed_sum, postponed_verification) = verify::<EF>(
+            &mut fs_verifier,
+            n_vars,
+            1 + max_degree_per_vars,
+            SumcheckGrinding::None,
+        )
+        .unwrap();
         assert_eq!(sum, claimed_sum);
 
         assert_eq!(
@@ -224,7 +229,7 @@ fn test_univariate_skip() {
             &mut fs_prover,
             sum,
             None,
-            0,
+            SumcheckGrinding::None,
             None,
         );
 
@@ -234,8 +239,14 @@ fn test_univariate_skip() {
             .map(|expr| expr.composition_degree)
             .max()
             .unwrap();
-        let (claimed_sum, postponed_verification) =
-            verify_with_univariate_skip::<EF>(&mut fs_verifier, degree, n_vars, skips, 0).unwrap();
+        let (claimed_sum, postponed_verification) = verify_with_univariate_skip::<EF>(
+            &mut fs_verifier,
+            degree,
+            n_vars,
+            skips,
+            SumcheckGrinding::None,
+        )
+        .unwrap();
         assert_eq!(sum, claimed_sum);
 
         let selector_evals = selectors

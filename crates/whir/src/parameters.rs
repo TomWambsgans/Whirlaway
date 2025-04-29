@@ -184,12 +184,13 @@ impl WhirParameters {
         soundness_type: SoundnessType,
         security_bits: usize,
         log_inv_rate: usize,
+        folding_factor: FoldingFactor,
         cuda: bool,
     ) -> Self {
         Self {
             security_level: security_bits,
             pow_bits: 16,
-            folding_factor: FoldingFactor::Constant(4),
+            folding_factor,
             soundness_type,
             starting_log_inv_rate: log_inv_rate,
             cuda,

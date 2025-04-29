@@ -15,11 +15,15 @@ pub trait PcsWitness<F: Field> {
     fn pol(&self) -> &Multilinear<F>;
 }
 
+pub trait PcsParams {
+    fn security_bits(&self) -> usize;
+}
+
 pub trait PCS<F: Field, EF: ExtensionField<F>> {
     type ParsedCommitment;
     type Witness: PcsWitness<F>;
     type VerifError: Debug;
-    type Params;
+    type Params: PcsParams;
     fn new(n_vars: usize, params: &Self::Params) -> Self;
     fn commit(&self, pol: Multilinear<F>, fs_prover: &mut FsProver) -> Self::Witness;
     fn parse_commitment(
