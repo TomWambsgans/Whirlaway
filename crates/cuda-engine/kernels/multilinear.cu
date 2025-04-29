@@ -326,7 +326,7 @@ extern "C" __global__ void multilinears_down(Field_A **columns, const uint32_t n
     }
 }
 
-extern "C" __global__ void fold_rectangular(const Field_A **inputs, LARGER_TYPE(Field_A, Field_B) * *res, const Field_B *scalars, const uint32_t n_slices, const uint32_t slice_log_len, const uint32_t log_n_scalars)
+extern "C" __global__ void fold_rectangular(const Field_A **inputs, LARGER_AB **res, const Field_B *scalars, const uint32_t n_slices, const uint32_t slice_log_len, const uint32_t log_n_scalars)
 {
     const int total_n_threads = blockDim.x * gridDim.x;
     const int n_folding_ops = n_slices << (slice_log_len - log_n_scalars);
@@ -338,21 +338,19 @@ extern "C" __global__ void fold_rectangular(const Field_A **inputs, LARGER_TYPE(
         if (slice_index >= n_slices)
             return;
         const int slice_offset = thread_index % (1 << (slice_log_len - log_n_scalars));
-        LARGER_TYPE(Field_A, Field_B)
-        sum = {0};
+        LARGER_AB sum = {0};
         for (int i = 0; i < 1 << log_n_scalars; i++)
         {
-            LARGER_TYPE(Field_A, Field_B)
-            term;
+            LARGER_AB term;
             Field_B scalar = scalars[i];
             Field_A factor = inputs[slice_index][slice_offset + (i << (slice_log_len - log_n_scalars))];
             MUL_BA(scalar, factor, term);
-            ADD_MAX_AB (sum, term, sum);
+            ADD_MAX_AB(sum, term, sum);
         }
         res[slice_index][slice_offset] = sum;
     }
 }
-extern "C" __global__ void dot_product(Field_A *a, Field_B *b, LARGER_TYPE(Field_A, Field_B) *res, const uint32_t log_len)
+extern "C" __global__ void dot_product(Field_A *a, Field_B *b, LARGER_AB *res, const uint32_t log_len)
 {
     // a, b and res have size 2^log_len
     // the final result is stored in res[0]
@@ -390,7 +388,7 @@ extern "C" __global__ void dot_product(Field_A *a, Field_B *b, LARGER_TYPE(Field
     }
 }
 
-extern "C" __global__ void piecewise_linear_comb(const Field_A *input, LARGER_TYPE(Field_A, Field_B) *output, Field_B *scalars, const uint32_t len, const uint32_t n_scalars)
+extern "C" __global__ void piecewise_linear_comb(const Field_A *input, LARGER_AB *output, Field_B *scalars, const uint32_t len, const uint32_t n_scalars)
 {
     // len must be a multiple of n_scalars
     // input has size len
@@ -410,11 +408,11 @@ extern "C" __global__ void piecewise_linear_comb(const Field_A *input, LARGER_TY
         const int idx = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
         if (idx < output_len)
         {
-            LARGER_TYPE(Field_A, Field_B) comb = {0};
+            LARGER_AB comb = {0};
             for (int i = 0; i < n_scalars; i++)
             {
                 Field_B scalar = scalars[i];
-                LARGER_TYPE(Field_A, Field_B) prod;
+                LARGER_AB prod;
                 MUL_BA(scalar, input[idx * n_scalars + i], prod);
                 ADD_MAX_AB(comb, prod, comb);
             }
@@ -423,7 +421,7 @@ extern "C" __global__ void piecewise_linear_comb(const Field_A *input, LARGER_TY
     }
 }
 
-extern "C" __global__ void linear_combination(const Field_A **inputs, LARGER_TYPE(Field_A, Field_B) *output, Field_B *scalars, const uint32_t len, const uint32_t n_scalars)
+extern "C" __global__ void linear_combination(const Field_A **inputs, LARGER_AB *output, Field_B *scalars, const uint32_t len, const uint32_t n_scalars)
 {
     // inputs has size n_scalars, and each inputs[i] has size len
     // output has size len
@@ -444,11 +442,11 @@ extern "C" __global__ void linear_combination(const Field_A **inputs, LARGER_TYP
         {
             return;
         }
-        LARGER_TYPE(Field_A, Field_B) comb = {0};
+        LARGER_AB comb = {0};
         for (int i = 0; i < n_scalars; i++)
         {
             Field_B scalar = scalars[i];
-            LARGER_TYPE(Field_A, Field_B) prod;
+            LARGER_AB prod;
             MUL_BA(scalar, inputs[i][idx], prod);
             ADD_MAX_AB(comb, prod, comb);
         }

@@ -1,4 +1,4 @@
-#include "koala_bear.cu"
+#include "monty_fields.cu"
 
 // TODO avoid duplications
 
@@ -18,40 +18,66 @@
 #define EXTENSION_DEGREE_C 1
 #endif
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Choose the family (KoalaBear   ↔ FIELD == 0
+//                     BabyBear   ↔ FIELD == 1)
+// ──────────────────────────────────────────────────────────────────────────────
 #if FIELD == 0
-// KoalaBear
-#if EXTENSION_DEGREE_A == 1
-typedef KoalaBear Field_A;
-#elif EXTENSION_DEGREE_A == 4
-typedef KoalaBear4 Field_A;
-#elif EXTENSION_DEGREE_A == 8
-typedef KoalaBear8 Field_A;
-#else
-#error "Invalid value for EXTENSION_DEGREE_A."
-#endif
-#else
-error "Invalid value for FIELD."
-#endif
+// ─── KoalaBear family ────────────────────────────────────────────────────
+template <unsigned Degree>
+struct FieldSelector; // forward-declare
 
-#if EXTENSION_DEGREE_B == 1
-typedef KoalaBear Field_B;
-#elif EXTENSION_DEGREE_B == 4
-    typedef KoalaBear4 Field_B;
-#elif EXTENSION_DEGREE_B == 8
-typedef KoalaBear8 Field_B;
-#else
-#error "Invalid value for EXTENSION_DEGREE_B."
-#endif
+template <>
+struct FieldSelector<1>
+{
+    using type = KoalaBear;
+};
+template <>
+struct FieldSelector<4>
+{
+    using type = KoalaBear4;
+};
+template <>
+struct FieldSelector<8>
+{
+    using type = KoalaBear8;
+};
 
-#if EXTENSION_DEGREE_C == 1
-typedef KoalaBear Field_C;
-#elif EXTENSION_DEGREE_C == 4
-typedef KoalaBear4 Field_C;
-#elif EXTENSION_DEGREE_C == 8
-typedef KoalaBear8 Field_C;
+#elif FIELD == 1
+// ─── BabyBear family ─────────────────────────────────────────────────────
+template <unsigned Degree>
+struct FieldSelector; // forward-declare
+
+template <>
+struct FieldSelector<1>
+{
+    using type = BabyBear;
+};
+template <>
+struct FieldSelector<4>
+{
+    using type = BabyBear4;
+};
+template <>
+struct FieldSelector<8>
+{
+    using type = BabyBear8;
+};
+
 #else
-#error "Invalid value for EXTENSION_DEGREE_B."
+#error "Invalid value for FIELD."
 #endif
+// ──────────────────────────────────────────────────────────────────────────────
+
+// Helper alias to avoid the verbose `typename …::type`
+template <unsigned Degree>
+using Field_t = typename FieldSelector<Degree>::type;
+
+// ─── The three public aliases requested by the original code ─────────────────
+using Field_A = Field_t<EXTENSION_DEGREE_A>;
+using Field_B = Field_t<EXTENSION_DEGREE_B>;
+using Field_C = Field_t<EXTENSION_DEGREE_C>;
+
 
 #if EXTENSION_DEGREE_B == EXTENSION_DEGREE_C
 #define FIELD_CONVERSION_B_C(src, dst) dst = src;
@@ -298,6 +324,7 @@ typedef KoalaBear8 Field_C;
 #endif
 
 #define LARGER_TYPE(T1, T2) typename std::conditional<(sizeof(T1) > sizeof(T2)), T1, T2>::type
+typedef LARGER_TYPE(Field_A, Field_B) LARGER_AB;
 
 #if EXTENSION_DEGREE_A > EXTENSION_DEGREE_B
 #define ADD_MAX_AB(x, y, res) ADD_AA(x, y, res);

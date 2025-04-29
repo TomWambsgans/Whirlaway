@@ -1,11 +1,21 @@
-use ::air::{AirBuilder, AirExpr, AirSettings};
+use ::air::{AirBuilder, AirExpr, AirSettings, ConstraintVariable};
 use algebra::pols::MultilinearHost;
+use arithmetic_circuit::ArithmeticCircuit;
 use colored::Colorize;
 use fiat_shamir::{FsProver, FsVerifier, get_total_grinding_time, reset_total_grinding_time};
-use p3_field::extension::BinomialExtensionField;
+use p3_baby_bear::{BabyBear, GenericPoseidon2LinearLayersBabyBear};
+use p3_field::{
+    ExtensionField, PrimeCharacteristicRing, PrimeField32, TwoAdicField,
+    extension::BinomialExtensionField,
+};
 use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear};
 use p3_matrix::Matrix;
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use p3_poseidon2::GenericPoseidon2LinearLayers;
+use rand::{
+    Rng, SeedableRng,
+    distr::{Distribution, StandardUniform},
+    rngs::StdRng,
+};
 use std::{
     borrow::Borrow,
     time::{Duration, Instant},
@@ -13,6 +23,7 @@ use std::{
 use tracing::level_filters::LevelFilter;
 use tracing_forest::ForestLayer;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
+use utils::SupportedField;
 use whir::parameters::FoldingFactor;
 use {
     air::{Poseidon2Air, write_constraints},
@@ -26,18 +37,6 @@ mod columns;
 mod constants;
 mod generation;
 
-const WIDTH: usize = 16;
-const SBOX_DEGREE: u64 = 3;
-const SBOX_REGISTERS: usize = 0;
-const HALF_FULL_ROUNDS: usize = 4;
-const PARTIAL_ROUNDS: usize = 20;
-const COLS: usize =
-    num_cols::<WIDTH, SBOX_DEGREE, SBOX_REGISTERS, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>();
-
-type F = KoalaBear;
-type EF = BinomialExtensionField<KoalaBear, 4>;
-type WhirF = BinomialExtensionField<KoalaBear, 8>;
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -45,25 +44,22 @@ mod tests {
 
     #[test]
     fn test_poseidon2() {
-        prove_poseidon2(
-            4,
-            AirSettings::new(
-                100,
-                SoundnessType::ProvableList,
-                FoldingFactor::Constant(4),
-                2,
-                3,
-            ),
-            false,
-            false,
+        let settings = AirSettings::new(
+            100,
+            SoundnessType::ProvableList,
+            FoldingFactor::Constant(4),
+            2,
+            3,
         );
+        prove_poseidon2_baby_bear(7, settings.clone(), false, false);
+        prove_poseidon2_koala_bear(7, settings.clone(), false, false);
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct Poseidon2Benchmark {
     pub log_n_rows: usize,
-    pub settings: AirSettings<F, EF, WhirF>,
+    pub settings: AirSettings,
     pub prover_time: Duration,
     pub verifier_time: Duration,
     pub proof_size: usize,
@@ -105,12 +101,107 @@ impl ToString for Poseidon2Benchmark {
     }
 }
 
-pub fn prove_poseidon2(
+pub fn prove_poseidon2_with(
+    field: SupportedField,
     log_n_rows: usize,
-    settings: AirSettings<F, EF, WhirF>,
+    settings: AirSettings,
     cuda: bool,
     display_logs: bool,
 ) -> Poseidon2Benchmark {
+    match field {
+        SupportedField::KoalaBear => {
+            prove_poseidon2_koala_bear(log_n_rows, settings, cuda, display_logs)
+        }
+        SupportedField::BabyBear => {
+            prove_poseidon2_baby_bear(log_n_rows, settings, cuda, display_logs)
+        }
+    }
+}
+
+fn prove_poseidon2_koala_bear(
+    log_n_rows: usize,
+    settings: AirSettings,
+    cuda: bool,
+    display_logs: bool,
+) -> Poseidon2Benchmark {
+    const WIDTH: usize = 16;
+    const SBOX_DEGREE: u64 = 3;
+    const SBOX_REGISTERS: usize = 0;
+    const HALF_FULL_ROUNDS: usize = 4;
+    const PARTIAL_ROUNDS: usize = 20;
+    const COLS: usize =
+        num_cols::<WIDTH, SBOX_DEGREE, SBOX_REGISTERS, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>();
+    type F = KoalaBear;
+    type EF = BinomialExtensionField<F, 4>;
+    type WhirF = BinomialExtensionField<F, 8>;
+    type LinearLayers = GenericPoseidon2LinearLayersKoalaBear;
+    prove_poseidon2::<
+        F,
+        EF,
+        WhirF,
+        LinearLayers,
+        WIDTH,
+        SBOX_DEGREE,
+        SBOX_REGISTERS,
+        HALF_FULL_ROUNDS,
+        PARTIAL_ROUNDS,
+        COLS,
+    >(log_n_rows, settings, cuda, display_logs)
+}
+
+fn prove_poseidon2_baby_bear(
+    log_n_rows: usize,
+    settings: AirSettings,
+    cuda: bool,
+    display_logs: bool,
+) -> Poseidon2Benchmark {
+    const WIDTH: usize = 16;
+    const SBOX_DEGREE: u64 = 7;
+    const SBOX_REGISTERS: usize = 1;
+    const HALF_FULL_ROUNDS: usize = 4;
+    const PARTIAL_ROUNDS: usize = 13;
+    const COLS: usize =
+        num_cols::<WIDTH, SBOX_DEGREE, SBOX_REGISTERS, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>();
+    type F = BabyBear;
+    type EF = BinomialExtensionField<F, 4>;
+    type WhirF = BinomialExtensionField<F, 8>;
+    type LinearLayers = GenericPoseidon2LinearLayersBabyBear;
+    prove_poseidon2::<
+        F,
+        EF,
+        WhirF,
+        LinearLayers,
+        WIDTH,
+        SBOX_DEGREE,
+        SBOX_REGISTERS,
+        HALF_FULL_ROUNDS,
+        PARTIAL_ROUNDS,
+        COLS,
+    >(log_n_rows, settings, cuda, display_logs)
+}
+
+fn prove_poseidon2<
+    F: TwoAdicField + PrimeField32,
+    EF: ExtensionField<F>,
+    WhirF: ExtensionField<F> + TwoAdicField + Ord,
+    LinearLayers: GenericPoseidon2LinearLayers<F, WIDTH>
+        + GenericPoseidon2LinearLayers<ArithmeticCircuit<F, ConstraintVariable>, WIDTH>,
+    const WIDTH: usize,
+    const SBOX_DEGREE: u64,
+    const SBOX_REGISTERS: usize,
+    const HALF_FULL_ROUNDS: usize,
+    const PARTIAL_ROUNDS: usize,
+    const COLS: usize,
+>(
+    log_n_rows: usize,
+    settings: AirSettings,
+    cuda: bool,
+    display_logs: bool,
+) -> Poseidon2Benchmark
+where
+    StandardUniform: Distribution<F>,
+    <WhirF as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+{
     if display_logs {
         let env_filter = EnvFilter::builder()
             .with_default_directive(LevelFilter::INFO.into())
@@ -129,7 +220,7 @@ pub fn prove_poseidon2(
     let constants = RoundConstants::<F, WIDTH, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>::from_rng(rng);
     let poseidon_air = Poseidon2Air::<
         F,
-        GenericPoseidon2LinearLayersKoalaBear,
+        LinearLayers,
         WIDTH,
         SBOX_DEGREE,
         SBOX_REGISTERS,
@@ -140,16 +231,26 @@ pub fn prove_poseidon2(
     let mut air_builder = AirBuilder::<F, COLS>::new(log_n_rows);
     let (up, down) = air_builder.vars();
 
-    type Columns = Poseidon2Cols<
-        AirExpr<F>,
-        WIDTH,
-        SBOX_DEGREE,
-        SBOX_REGISTERS,
-        HALF_FULL_ROUNDS,
-        PARTIAL_ROUNDS,
-    >;
-    let columns_up = Borrow::<Columns>::borrow(&up[..]);
-    let _columns_down = Borrow::<Columns>::borrow(&down[..]);
+    let columns_up = Borrow::<
+        Poseidon2Cols<
+            AirExpr<F>,
+            WIDTH,
+            SBOX_DEGREE,
+            SBOX_REGISTERS,
+            HALF_FULL_ROUNDS,
+            PARTIAL_ROUNDS,
+        >,
+    >::borrow(&up[..]);
+    let _columns_down = Borrow::<
+        Poseidon2Cols<
+            AirExpr<F>,
+            WIDTH,
+            SBOX_DEGREE,
+            SBOX_REGISTERS,
+            HALF_FULL_ROUNDS,
+            PARTIAL_ROUNDS,
+        >,
+    >::borrow(&down[..]);
 
     write_constraints(&poseidon_air, &mut air_builder, &columns_up);
 
@@ -165,7 +266,7 @@ pub fn prove_poseidon2(
 
     let witness_matrix = generate_trace_rows::<
         F,
-        GenericPoseidon2LinearLayersKoalaBear,
+        LinearLayers,
         WIDTH,
         SBOX_DEGREE,
         SBOX_REGISTERS,
@@ -189,7 +290,7 @@ pub fn prove_poseidon2(
 
     let t = Instant::now();
     let mut fs_prover = FsProver::new();
-    table.prove::<EF, _>(&settings, &mut fs_prover, witness, cuda);
+    table.prove::<EF, WhirF>(&settings, &mut fs_prover, witness, cuda);
     let proof_size = fs_prover.transcript_len();
 
     let prover_time = t.elapsed();

@@ -15,7 +15,7 @@ type WhirF = BinomialExtensionField<KoalaBear, 8>;
 #[test]
 fn test_air_fibonacci() {
     let log_length = 14;
-    let settings = AirSettings::<F, EF, WhirF>::new(
+    let settings = AirSettings::new(
         60,
         SoundnessType::ProvableList,
         FoldingFactor::Constant(4),
@@ -70,7 +70,7 @@ fn test_air_fibonacci() {
         table.check_validity(&witnesses);
 
         let mut fs_prover = FsProver::new();
-        table.prove::<EF, _>(&settings, &mut fs_prover, witnesses, cuda);
+        table.prove::<EF, WhirF>(&settings, &mut fs_prover, witnesses, cuda);
 
         let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
         table
@@ -81,7 +81,7 @@ fn test_air_fibonacci() {
 
 #[test]
 fn test_air_complex() {
-    let settings = AirSettings::<F, EF, WhirF>::new(
+    let settings = AirSettings::new(
         60,
         SoundnessType::ProvableList,
         FoldingFactor::Constant(4),
@@ -190,7 +190,7 @@ fn test_air_complex() {
             table.check_validity(&witnesses);
 
             let mut fs_prover = FsProver::new();
-            table.prove::<EF, _>(&settings, &mut fs_prover, witnesses, cuda);
+            table.prove::<EF, WhirF>(&settings, &mut fs_prover, witnesses, cuda);
 
             let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
             table

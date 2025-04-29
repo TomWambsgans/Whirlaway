@@ -1,5 +1,6 @@
-use std::any::TypeId;
+use std::{any::TypeId, fmt::Display};
 
+use p3_baby_bear::BabyBear;
 use p3_field::{
     BasedVectorSpace, ExtensionField, Field, PrimeField, extension::BinomialExtensionField,
 };
@@ -7,6 +8,33 @@ use p3_koala_bear::KoalaBear;
 use rayon::prelude::*;
 
 use crate::log2_up;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SupportedField {
+    KoalaBear,
+    BabyBear,
+}
+
+impl Display for SupportedField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SupportedField::KoalaBear => write!(f, "KoalaBear"),
+            SupportedField::BabyBear => write!(f, "BabyBear"),
+        }
+    }
+}
+
+impl SupportedField {
+    pub fn guess<F: Field>() -> Self {
+        if TypeId::of::<F::PrimeSubfield>() == TypeId::of::<KoalaBear>() {
+            SupportedField::KoalaBear
+        } else if TypeId::of::<F::PrimeSubfield>() == TypeId::of::<BabyBear>() {
+            SupportedField::BabyBear
+        } else {
+            panic!("Unsupported field type for CUDA")
+        }
+    }
+}
 
 // TODO this is ugly but to remove it we need BinomialExtensionField<2N, X> to implement ExtensionField<BinomialExtensionField<N, X>>
 pub fn small_to_big_extension<
@@ -23,16 +51,18 @@ pub fn small_to_big_extension<
     if small_dim == 1 {
         let mut coeffs = x.as_basis_coefficients_slice().to_vec();
         coeffs.resize(big_dim, F::ZERO);
-        return BigExt::from_basis_coefficients_slice(&coeffs);
+        return BigExt::from_basis_coefficients_slice(&coeffs).unwrap();
     } else if TypeId::of::<SmallExt>() == TypeId::of::<BigExt>() {
-        return BigExt::from_basis_coefficients_slice(x.as_basis_coefficients_slice());
-    } else if TypeId::of::<F>() == TypeId::of::<KoalaBear>() && small_dim == 4 && big_dim == 8 {
+        return BigExt::from_basis_coefficients_slice(x.as_basis_coefficients_slice()).unwrap();
+    } else if [TypeId::of::<BabyBear>(), TypeId::of::<KoalaBear>()].contains(&TypeId::of::<F>())
+        && small_dim * 2 == big_dim
+    {
         let small_coeffs = x.as_basis_coefficients_slice();
         let mut big_coeffs = vec![F::ZERO; big_dim];
         for i in 0..small_dim {
             big_coeffs[2 * i] = small_coeffs[i];
         }
-        return BigExt::from_basis_coefficients_slice(&big_coeffs);
+        return BigExt::from_basis_coefficients_slice(&big_coeffs).unwrap();
     } else {
         todo!()
     }
@@ -137,11 +167,21 @@ pub fn deserialize_field<F: Field>(bytes: &[u8]) -> Option<F> {
 
 pub fn extension_degree<F: Field>() -> usize {
     // TODO there must be a simpler way
-    if TypeId::of::<F>() == TypeId::of::<KoalaBear>() {
+    if [TypeId::of::<KoalaBear>(), TypeId::of::<BabyBear>()].contains(&TypeId::of::<F>()) {
         1
-    } else if TypeId::of::<F>() == TypeId::of::<BinomialExtensionField<KoalaBear, 4>>() {
+    } else if [
+        TypeId::of::<BinomialExtensionField<KoalaBear, 4>>(),
+        TypeId::of::<BinomialExtensionField<BabyBear, 4>>(),
+    ]
+    .contains(&TypeId::of::<F>())
+    {
         4
-    } else if TypeId::of::<F>() == TypeId::of::<BinomialExtensionField<KoalaBear, 8>>() {
+    } else if [
+        TypeId::of::<BinomialExtensionField<KoalaBear, 8>>(),
+        TypeId::of::<BinomialExtensionField<BabyBear, 8>>(),
+    ]
+    .contains(&TypeId::of::<F>())
+    {
         8
     } else {
         todo!("Add extension degree for this field")

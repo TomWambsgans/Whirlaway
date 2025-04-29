@@ -2,7 +2,7 @@ use algebra::pols::{MultilinearDevice, MultilinearHost, MultilinearsSlice, Multi
 use arithmetic_circuit::{ArithmeticCircuit, TransparentPolynomial};
 use cuda_bindings::{cuda_air_columns_down, cuda_air_columns_up};
 use fiat_shamir::{FsError, FsParticipant};
-use p3_field::{ExtensionField, Field, PrimeField};
+use p3_field::{Field, PrimeField};
 use rayon::prelude::*;
 use utils::log2_up;
 
@@ -104,14 +104,10 @@ pub(crate) fn column_down_host<F: Field>(column: &MultilinearHost<F>) -> Multili
 }
 
 impl<F: PrimeField> AirTable<F> {
-    pub(crate) fn constraints_batching_pow<
-        FS: FsParticipant,
-        EF: ExtensionField<F>,
-        WhirF: ExtensionField<F>,
-    >(
+    pub(crate) fn constraints_batching_pow<EF: Field, FS: FsParticipant>(
         &self,
         fs: &mut FS,
-        settings: &AirSettings<F, EF, WhirF>,
+        settings: &AirSettings,
         cuda: bool,
     ) -> Result<(), FsError> {
         fs.challenge_pow(
@@ -122,14 +118,10 @@ impl<F: PrimeField> AirTable<F> {
         )
     }
 
-    pub(crate) fn zerocheck_pow<
-        FS: FsParticipant,
-        EF: ExtensionField<F>,
-        WhirF: ExtensionField<F>,
-    >(
+    pub(crate) fn zerocheck_pow<EF: Field, FS: FsParticipant>(
         &self,
         fs: &mut FS,
-        settings: &AirSettings<F, EF, WhirF>,
+        settings: &AirSettings,
         cuda: bool,
     ) -> Result<(), FsError> {
         fs.challenge_pow(
@@ -140,14 +132,10 @@ impl<F: PrimeField> AirTable<F> {
         )
     }
 
-    pub(crate) fn secondary_sumchecks_batching_pow<
-        FS: FsParticipant,
-        EF: ExtensionField<F>,
-        WhirF: ExtensionField<F>,
-    >(
+    pub(crate) fn secondary_sumchecks_batching_pow<EF: Field, FS: FsParticipant>(
         &self,
         fs: &mut FS,
-        settings: &AirSettings<F, EF, WhirF>,
+        settings: &AirSettings,
         cuda: bool,
     ) -> Result<(), FsError> {
         fs.challenge_pow(

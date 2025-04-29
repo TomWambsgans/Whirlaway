@@ -86,7 +86,7 @@ pub fn cuda_add_assign_slices<F: Field>(a: &mut CudaSlice<F>, b: &CudaSlice<F>) 
 // Async
 pub fn cuda_piecewise_sum<F: Field>(input: &CudaSlice<F>, sum_size: usize) -> CudaSlice<F> {
     assert!(
-        sum_size <= 64,
+        sum_size <= 128,
         "current CUDA implementation is not optimized for large sum sizes"
     );
     assert!(input.len() % sum_size == 0);
@@ -140,7 +140,7 @@ pub fn cuda_linear_combination<F: Field, EF: ExtensionField<F>, S: Borrow<CudaSl
     scalars: &[EF],
 ) -> CudaSlice<EF> {
     assert!(
-        scalars.len() <= 256,
+        scalars.len() <= 512,
         "current CUDA implementation is not optimized for a large linear combination"
     );
     assert_eq!(inputs.len(), scalars.len());

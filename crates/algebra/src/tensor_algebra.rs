@@ -64,7 +64,7 @@ impl<F: Field, EF: ExtensionField<F>> TensorAlgebra<F, EF> {
     pub fn rows(&self) -> Vec<EF> {
         self.data
             .iter()
-            .map(|row| EF::from_basis_coefficients_slice(row))
+            .map(|row| EF::from_basis_coefficients_slice(row).unwrap())
             .collect()
     }
 
@@ -72,7 +72,7 @@ impl<F: Field, EF: ExtensionField<F>> TensorAlgebra<F, EF> {
         let rotated = switch_lines_columns(self.data.clone());
         rotated
             .iter()
-            .map(|row| EF::from_basis_coefficients_slice(row))
+            .map(|row| EF::from_basis_coefficients_slice(row).unwrap())
             .collect()
     }
 

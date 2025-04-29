@@ -3,11 +3,11 @@ use std::borrow::Borrow;
 use cudarc::driver::{CudaSlice, PushKernelArg};
 
 use cuda_engine::{
-    CudaCall, CudaField, CudaFunctionInfo, SumcheckComputation, concat_pointers, cuda_alloc,
+    CudaCall, CudaFunctionInfo, SumcheckComputation, concat_pointers, cuda_alloc,
     cuda_synthetic_dir, memcpy_htod,
 };
 use p3_field::{ExtensionField, Field};
-use utils::extension_degree;
+use utils::{SupportedField, extension_degree};
 
 use crate::{cuda_dot_product, cuda_piecewise_sum, cuda_sum};
 
@@ -47,7 +47,7 @@ pub fn cuda_compute_over_hypercube<
     let cuda_function_info = CudaFunctionInfo {
         cuda_file,
         function_name: "compute_over_hypercube".to_string(),
-        field: Some(CudaField::guess::<F>()),
+        field: Some(SupportedField::guess::<F>()),
         extension_degree_a: Some(extension_degree::<F>()),
         extension_degree_b: Some(extension_degree::<NF>()),
         extension_degree_c: Some(extension_degree::<EF>()),

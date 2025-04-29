@@ -10,4 +10,3 @@ tracing.workspace = true
 p3-field.workspace = true
 utils.workspace = true
 derive_more.workspace = true
-p3-koala-bear.workspace = true

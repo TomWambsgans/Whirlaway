@@ -3,7 +3,7 @@ use arithmetic_circuit::{
 };
 use p3_field::PrimeField32;
 use std::hash::Hash;
-use utils::default_hash;
+use utils::{SupportedField, default_hash};
 
 use crate::*;
 
@@ -64,7 +64,7 @@ pub fn cuda_preprocess_sumcheck_computation<F: PrimeField32>(
     extension_degree_c: usize,
 ) {
     let cuda = cuda_engine();
-    let field = CudaField::guess::<F>();
+    let field = SupportedField::guess::<F>();
     let module = format!("sumcheck_{:x}", sumcheck_computation.uuid());
     let cache_memory_reads = extension_degree_b == 1; // TODO: use a better heuristic
     let cuda_file = cuda_synthetic_dir().join(format!("{module}.cu"));

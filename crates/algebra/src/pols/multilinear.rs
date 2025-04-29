@@ -85,7 +85,7 @@ impl<F: Field> MultilinearHost<F> {
         let packed_evals = self
             .evals
             .chunks(ext_degree)
-            .map(|chunk| EF::from_basis_coefficients_slice(chunk))
+            .map(|chunk| EF::from_basis_coefficients_slice(chunk).unwrap())
             .collect();
         MultilinearHost::new(packed_evals)
     }

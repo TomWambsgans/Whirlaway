@@ -5,7 +5,6 @@ edition.workspace = true
 
 [dependencies]
 cudarc.workspace = true
-# tracing.workspace = true
 p3-field.workspace = true
 utils.workspace = true
 cuda-engine.workspace = true
@@ -16,4 +15,3 @@ rand.workspace = true
 algebra.workspace = true
 p3-koala-bear.workspace = true
 arithmetic-circuit.workspace = true
-utils.workspace = true

@@ -2,23 +2,21 @@ use cudarc::driver::sys::CUdevice_attribute;
 use cudarc::driver::{CudaContext, CudaFunction, CudaSlice, CudaStream};
 use cudarc::nvrtc::Ptx;
 use p3_field::Field;
-use p3_koala_bear::KoalaBear;
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
-use std::fmt::Display;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, OnceLock, RwLock};
 use tracing::instrument;
-use utils::extension_degree;
+use utils::{SupportedField, extension_degree};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct CudaFunctionInfo {
     pub cuda_file: PathBuf,
     pub function_name: String,
-    pub field: Option<CudaField>,
+    pub field: Option<SupportedField>,
     pub extension_degree_a: Option<usize>,
     pub extension_degree_b: Option<usize>,
     pub extension_degree_c: Option<usize>,
@@ -39,7 +37,7 @@ impl CudaFunctionInfo {
         Self {
             cuda_file: kernels_folder().join(cuda_file.into()),
             function_name: function_name.to_string(),
-            field: Some(CudaField::guess::<FieldA>()),
+            field: Some(SupportedField::guess::<FieldA>()),
             extension_degree_a: Some(extension_degree::<FieldA>()),
             ..Default::default()
         }
@@ -56,7 +54,7 @@ impl CudaFunctionInfo {
         Self {
             cuda_file: kernels_folder().join(cuda_file.into()),
             function_name: function_name.to_string(),
-            field: Some(CudaField::guess::<FieldA>()),
+            field: Some(SupportedField::guess::<FieldA>()),
             extension_degree_a: Some(extension_degree::<FieldA>()),
             extension_degree_b: Some(extension_degree::<FieldB>()),
             ..Default::default()
@@ -81,29 +79,6 @@ pub(crate) fn cuda_engine() -> &'static CudaEngine {
 
 pub(crate) fn try_get_cuda_engine() -> Option<&'static CudaEngine> {
     CUDA_ENGINE.get()
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum CudaField {
-    KoalaBear,
-}
-
-impl Display for CudaField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CudaField::KoalaBear => write!(f, "KoalaBear"),
-        }
-    }
-}
-
-impl CudaField {
-    pub fn guess<F: Field>() -> Self {
-        if TypeId::of::<F::PrimeSubfield>() == TypeId::of::<KoalaBear>() {
-            CudaField::KoalaBear
-        } else {
-            panic!("Unsupported field type for CUDA")
-        }
-    }
 }
 
 #[instrument(name = "CUDA initialization", skip_all)]

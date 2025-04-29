@@ -23,7 +23,7 @@ impl<F: PrimeField> AirTable<F> {
     #[instrument(name = "air: prove", skip_all)]
     pub fn prove<EF: ExtensionField<F>, WhirF: ExtensionField<F> + TwoAdicField + Ord>(
         &self,
-        settings: &AirSettings<F, EF, WhirF>,
+        settings: &AirSettings,
         fs_prover: &mut FsProver,
         witness_host: Vec<MultilinearHost<F>>,
         cuda: bool,
@@ -67,7 +67,7 @@ impl<F: PrimeField> AirTable<F> {
         cuda_sync();
         let packed_pol_witness = pcs.commit(packed_pol, fs_prover);
 
-        self.constraints_batching_pow(fs_prover, settings, cuda)
+        self.constraints_batching_pow::<EF, _>(fs_prover, settings, cuda)
             .unwrap();
 
         let constraints_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
@@ -75,7 +75,8 @@ impl<F: PrimeField> AirTable<F> {
         let constraints_batching_scalars =
             powers(constraints_batching_scalar, self.constraints.len());
 
-        self.zerocheck_pow(fs_prover, settings, cuda).unwrap();
+        self.zerocheck_pow::<EF, _>(fs_prover, settings, cuda)
+            .unwrap();
 
         let zerocheck_challenges =
             fs_prover.challenge_scalars::<EF>(log_length + 1 - settings.univariate_skips);
@@ -124,7 +125,7 @@ impl<F: PrimeField> AirTable<F> {
         std::mem::drop(_span_evals);
         fs_prover.add_scalars(&inner_sums);
 
-        self.secondary_sumchecks_batching_pow(fs_prover, settings, cuda)
+        self.secondary_sumchecks_batching_pow::<EF, _>(fs_prover, settings, cuda)
             .unwrap();
         let secondary_sumcheck_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
 

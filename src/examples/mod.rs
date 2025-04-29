@@ -1,1 +1,1 @@
-pub mod poseidon2_koala_bear;
+pub mod poseidon2;

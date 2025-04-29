@@ -95,7 +95,7 @@ __device__ void ntt_at_block_level(Field_B *buff, const int block, const int log
     buff[threadId + blockDim.x * (2 * block + 1)] = cached_buff[threadId + blockDim.x];
 }
 
-extern "C" __global__ void ntt(Field_B *buff, const int log_len, const int log_chunk_size, const Field_A *twiddles)
+extern "C" __global__ void ntt(Field_B *buff, uint32_t log_len, uint32_t log_chunk_size, const Field_A *twiddles)
 {
     // twiddles = 1
     // followed by w^0, w^1 where w is a 2-root of unity

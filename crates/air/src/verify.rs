@@ -40,7 +40,7 @@ impl<F: PrimeField> AirTable<F> {
     #[instrument(name = "air table: verify", skip_all)]
     pub fn verify<EF: ExtensionField<F>, WhirF: ExtensionField<F> + TwoAdicField + Ord>(
         &self,
-        settings: &AirSettings<F, EF, WhirF>,
+        settings: &AirSettings,
         fs_verifier: &mut FsVerifier,
         log_length: usize,
     ) -> Result<(), AirVerifError>
@@ -62,11 +62,12 @@ impl<F: PrimeField> AirTable<F> {
             .parse_commitment(fs_verifier)
             .map_err(|_| AirVerifError::InvalidPcsCommitment)?;
 
-        self.constraints_batching_pow(fs_verifier, settings, false)?;
+        self.constraints_batching_pow::<EF, _>(fs_verifier, settings, false)?;
 
         let constraints_batching_scalar = fs_verifier.challenge_scalars::<EF>(1)[0];
 
-        self.zerocheck_pow(fs_verifier, settings, false).unwrap();
+        self.zerocheck_pow::<EF, _>(fs_verifier, settings, false)
+            .unwrap();
 
         let zerocheck_challenges =
             fs_verifier.challenge_scalars::<EF>(log_length - settings.univariate_skips + 1);
@@ -142,7 +143,7 @@ impl<F: PrimeField> AirTable<F> {
             return Err(AirVerifError::SumMismatch);
         }
 
-        self.secondary_sumchecks_batching_pow(fs_verifier, settings, false)?;
+        self.secondary_sumchecks_batching_pow::<EF, _>(fs_verifier, settings, false)?;
         let secondary_sumcheck_batching_scalar = fs_verifier.challenge_scalars::<EF>(1)[0];
 
         let (batched_inner_sum, inner_sumcheck_challenge) = sumcheck::verify::<EF>(

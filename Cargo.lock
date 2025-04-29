@@ -179,16 +179,15 @@ dependencies = [
  "cudarc",
  "derive_more",
  "p3-field",
- "p3-koala-bear",
  "tracing",
  "utils",
 ]
 
 [[package]]
 name = "cudarc"
-version = "0.14.0"
+version = "0.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d50f5a3770c380b8b4303a5588b06a53d31a8170dc7f09cfcfb2dcb9fd807fa"
+checksum = "e4ed411343abcb4dd6fd1fbc32db3533d76c2af0fd40735a9e5e39e778a81254"
 dependencies = [
  "libloading",
 ]
@@ -291,9 +290,9 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "libc"
-version = "0.2.171"
+version = "0.2.172"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c19937216e9d3aa9956d9bb8dfc0b0c8beb6058fc4f7a4dc4d850edf86a237d6"
+checksum = "d750af042f7ef4f724306de029d18836c26c1765a54a6a3f094cbd23a7267ffa"
 
 [[package]]
 name = "libloading"
@@ -391,9 +390,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 
 [[package]]
+name = "p3-baby-bear"
+version = "0.1.0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
+dependencies = [
+ "p3-field",
+ "p3-mds",
+ "p3-monty-31",
+ "p3-poseidon2",
+ "p3-symmetric",
+ "rand",
+]
+
+[[package]]
 name = "p3-dft"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#0b3b3d78cee46925b922f70b49023109e55af4a0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
 dependencies = [
  "itertools",
  "p3-field",
@@ -406,12 +418,11 @@ dependencies = [
 [[package]]
 name = "p3-field"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#0b3b3d78cee46925b922f70b49023109e55af4a0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
 dependencies = [
  "cudarc",
  "itertools",
  "num-bigint",
- "num-traits",
  "p3-maybe-rayon",
  "p3-util",
  "paste",
@@ -423,21 +434,19 @@ dependencies = [
 [[package]]
 name = "p3-koala-bear"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#0b3b3d78cee46925b922f70b49023109e55af4a0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
 dependencies = [
  "p3-field",
- "p3-mds",
  "p3-monty-31",
  "p3-poseidon2",
  "p3-symmetric",
  "rand",
- "serde",
 ]
 
 [[package]]
 name = "p3-matrix"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#0b3b3d78cee46925b922f70b49023109e55af4a0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
 dependencies = [
  "itertools",
  "p3-field",
@@ -452,17 +461,15 @@ dependencies = [
 [[package]]
 name = "p3-maybe-rayon"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#0b3b3d78cee46925b922f70b49023109e55af4a0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
 
 [[package]]
 name = "p3-mds"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#0b3b3d78cee46925b922f70b49023109e55af4a0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
 dependencies = [
- "itertools",
  "p3-dft",
  "p3-field",
- "p3-matrix",
  "p3-symmetric",
  "p3-util",
  "rand",
@@ -471,7 +478,7 @@ dependencies = [
 [[package]]
 name = "p3-monty-31"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#0b3b3d78cee46925b922f70b49023109e55af4a0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
 dependencies = [
  "cudarc",
  "itertools",
@@ -494,7 +501,7 @@ dependencies = [
 [[package]]
 name = "p3-poseidon2"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#0b3b3d78cee46925b922f70b49023109e55af4a0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
 dependencies = [
  "p3-field",
  "p3-mds",
@@ -506,7 +513,7 @@ dependencies = [
 [[package]]
 name = "p3-symmetric"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#0b3b3d78cee46925b922f70b49023109e55af4a0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
 dependencies = [
  "itertools",
  "p3-field",
@@ -516,7 +523,7 @@ dependencies = [
 [[package]]
 name = "p3-util"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=koala-bear-8#0b3b3d78cee46925b922f70b49023109e55af4a0"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=bigger_fields#6eeb4a74d8b8856797a72a5a45a3ffda5fe37f33"
 dependencies = [
  "serde",
 ]
@@ -566,9 +573,9 @@ dependencies = [
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.94"
+version = "1.0.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a31971752e70b8b2686d7e46ec17fb38dad4051d94024c88df49b667caea9c84"
+checksum = "02b3e5e68a3a1a02aad3ec490a98007cbc13c37cbe84a3cd7b8e406d76e7f778"
 dependencies = [
  "unicode-ident",
 ]
@@ -750,9 +757,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.100"
+version = "2.0.101"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b09a44accad81e1ba1cd74a32461ba89dee89095ba17b32f5d03683b1b1fc2a0"
+checksum = "8ce2b7fc941b3a24138a0a7cf8e858bfc6a992e7978a068a5c760deb0ed43caf"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -902,6 +909,7 @@ name = "utils"
 version = "0.1.0"
 dependencies = [
  "cudarc",
+ "p3-baby-bear",
  "p3-field",
  "p3-koala-bear",
  "rand",
@@ -952,8 +960,10 @@ version = "0.1.0"
 dependencies = [
  "air",
  "algebra",
+ "arithmetic-circuit",
  "colored",
  "fiat-shamir",
+ "p3-baby-bear",
  "p3-field",
  "p3-koala-bear",
  "p3-matrix",
@@ -963,6 +973,7 @@ dependencies = [
  "tracing",
  "tracing-forest",
  "tracing-subscriber",
+ "utils",
  "whir",
 ]
 
@@ -1072,18 +1083,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.24"
+version = "0.8.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2586fea28e186957ef732a5f8b3be2da217d65c5969d4b1e17f973ebbe876879"
+checksum = "a1702d9583232ddb9174e01bb7c15a2ab8fb1bc6f227aa1233858c351a3ba0cb"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.24"
+version = "0.8.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a996a8f63c5c4448cd959ac1bab0aaa3306ccfd060472f85943ee0750f0169be"
+checksum = "28a6e20d751156648aa063f3800b706ee209a32c0b4d9f24be3d980b01be55ef"
 dependencies = [
  "proc-macro2",
  "quote",

@@ -32,10 +32,11 @@ pub fn cuda_transpose<F: Field>(
 pub fn cuda_ntt<F: Field>(coeffs: &mut CudaSlice<F>, log_chunck_size: usize) {
     assert!(coeffs.len().is_power_of_two());
 
-    let log_len = coeffs.len().trailing_zeros() as u32;
+    let log_chunck_size_u32 = log_chunck_size as u32;
+    let log_len_u32 = coeffs.len().trailing_zeros() as u32;
 
     assert!(
-        log_len <= cuda_twiddles_two_adicity::<F::PrimeSubfield>() as u32,
+        log_chunck_size <= cuda_twiddles_two_adicity::<F::PrimeSubfield>(),
         "NTT to big"
     );
 
@@ -44,14 +45,15 @@ pub fn cuda_ntt<F: Field>(coeffs: &mut CudaSlice<F>, log_chunck_size: usize) {
     let twiddles = cuda_twiddles::<F::PrimeSubfield>();
     let mut call = CudaCall::new(
         CudaFunctionInfo::two_fields::<F::PrimeSubfield, F>("ntt/ntt.cu", "ntt"),
-        1 << (log_len - 1),
+        1 << (log_len_u32 - 1),
     )
     .shared_mem_bytes(
         (MAX_THREADS_PER_COOPERATIVE_BLOCK * 2) * (extension_degree::<F>() as u32 + 1) * 4,
     ); // cf `ntt_at_block_level` in ntt.cu
+
     call.arg(coeffs);
-    call.arg(&log_len);
-    call.arg(&log_chunck_size);
+    call.arg(&log_len_u32);
+    call.arg(&log_chunck_size_u32);
     call.arg(&twiddles);
     call.launch_cooperative();
 }
