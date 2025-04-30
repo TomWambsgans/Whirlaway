@@ -4,7 +4,7 @@ use arithmetic_circuit::TransparentPolynomial;
 use cuda_engine::{HostOrDeviceBuffer, cuda_sync};
 use fiat_shamir::FsProver;
 use merkle_tree::MerkleTree;
-use p3_field::ExtensionField;
+use p3_field::{ExtensionField, PrimeCharacteristicRing};
 use p3_field::{Field, TwoAdicField};
 use sumcheck::SumcheckGrinding;
 use tracing::instrument;
@@ -18,9 +18,9 @@ where
     EF: TwoAdicField + Ord,
     EF::PrimeSubfield: TwoAdicField;
 
-impl<EF: Field> Prover<EF>
+impl<EF: ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield> + TwoAdicField + Ord>
+    Prover<EF>
 where
-    EF: TwoAdicField + Ord,
     EF::PrimeSubfield: TwoAdicField,
 {
     fn validate_parameters(&self) -> bool {
@@ -48,15 +48,12 @@ where
     }
 
     #[instrument(name = "whir: prove", skip_all)]
-    pub fn prove<PrimeField: Field>(
+    pub fn prove(
         &self,
         fs_prover: &mut FsProver,
         mut statement: Statement<EF>,
         witness: Witness<EF>,
-    ) -> Option<()>
-    where
-        EF: ExtensionField<PrimeField>,
-    {
+    ) -> Option<()> {
         for point in &mut statement.points {
             point.reverse();
         }
@@ -95,7 +92,7 @@ where
             let sum = dot_product(&initial_answers, &combination_randomness);
             let mut folding_randomness;
             (folding_randomness, sumcheck_mles, hypercube_sum) =
-                sumcheck::prove::<PrimeField, _, _, _>(
+                sumcheck::prove::<EF::PrimeSubfield, _, _, _>(
                     1,
                     &nodes,
                     &[
@@ -125,17 +122,10 @@ where
             prev_merkle_answers: witness.merkle_leaves,
         };
 
-        self.round::<PrimeField>(fs_prover, round_state)
+        self.round(fs_prover, round_state)
     }
 
-    fn round<PrimeField: Field>(
-        &self,
-        fs_prover: &mut FsProver,
-        mut round_state: RoundState<EF>,
-    ) -> Option<()>
-    where
-        EF: ExtensionField<PrimeField>,
-    {
+    fn round(&self, fs_prover: &mut FsProver, mut round_state: RoundState<EF>) -> Option<()> {
         // Fold the coefficients
         let folded_coefficients = round_state
             .coefficients
@@ -183,7 +173,7 @@ where
             if self.0.final_sumcheck_rounds > 0 {
                 let n_rounds = Some(self.0.final_sumcheck_rounds);
                 let pow_bits = self.0.final_folding_pow_bits;
-                (_, round_state.sumcheck_mles, _) = sumcheck::prove::<PrimeField, _, _, _>(
+                (_, round_state.sumcheck_mles, _) = sumcheck::prove::<EF::PrimeSubfield, _, _, _>(
                     1,
                     &round_state.sumcheck_mles,
                     &[

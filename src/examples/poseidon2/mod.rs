@@ -183,7 +183,10 @@ fn prove_poseidon2_baby_bear(
 fn prove_poseidon2<
     F: TwoAdicField + PrimeField32,
     EF: ExtensionField<F>,
-    WhirF: ExtensionField<F> + TwoAdicField + Ord,
+    WhirF: ExtensionField<F>
+        + ExtensionField<<WhirF as PrimeCharacteristicRing>::PrimeSubfield>
+        + TwoAdicField
+        + Ord,
     LinearLayers: GenericPoseidon2LinearLayers<F, WIDTH>
         + GenericPoseidon2LinearLayers<ArithmeticCircuit<F, ConstraintVariable>, WIDTH>,
     const WIDTH: usize,

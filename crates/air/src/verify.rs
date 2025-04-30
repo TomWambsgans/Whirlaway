@@ -1,7 +1,7 @@
 use algebra::pols::MultilinearHost;
 use arithmetic_circuit::max_composition_degree;
 use fiat_shamir::{FsError, FsVerifier};
-use p3_field::{ExtensionField, PrimeField, TwoAdicField};
+use p3_field::{ExtensionField, PrimeCharacteristicRing, PrimeField, TwoAdicField};
 use pcs::{PCS, RingSwitch, WhirPCS, WhirParameters};
 use sumcheck::{SumcheckError, SumcheckGrinding};
 use tracing::instrument;
@@ -38,7 +38,13 @@ impl From<SumcheckError> for AirVerifError {
 
 impl<F: PrimeField> AirTable<F> {
     #[instrument(name = "air table: verify", skip_all)]
-    pub fn verify<EF: ExtensionField<F>, WhirF: ExtensionField<F> + TwoAdicField + Ord>(
+    pub fn verify<
+        EF: ExtensionField<F>,
+        WhirF: ExtensionField<F>
+            + ExtensionField<<WhirF as PrimeCharacteristicRing>::PrimeSubfield>
+            + TwoAdicField
+            + Ord,
+    >(
         &self,
         settings: &AirSettings,
         fs_verifier: &mut FsVerifier,
@@ -47,7 +53,7 @@ impl<F: PrimeField> AirTable<F> {
     where
         WhirF::PrimeSubfield: TwoAdicField,
     {
-        let pcs = RingSwitch::<F, WhirF, WhirPCS<WhirF>>::new(
+        let pcs = RingSwitch::<WhirF, WhirPCS<WhirF>>::new(
             log_length + self.log_n_witness_columns(),
             &WhirParameters::standard(
                 settings.whir_soudness_type,

@@ -1,6 +1,6 @@
 use algebra::pols::Multilinear;
 use fiat_shamir::{FsProver, FsVerifier};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField};
 use utils::{Evaluation, KeccakDigest};
 use whir::{
     parameters::MultivariateParameters,
@@ -42,24 +42,24 @@ impl PcsParams for WhirParameters {
     }
 }
 
-impl<EF: Field> PCS<EF, EF> for WhirPCS<EF>
+impl<F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield> + TwoAdicField + Ord>
+    PCS<F, F> for WhirPCS<F>
 where
-    EF: TwoAdicField + Ord,
-    EF::PrimeSubfield: TwoAdicField,
+    F::PrimeSubfield: TwoAdicField,
 {
-    type Witness = WhirWitness<EF>;
-    type ParsedCommitment = ParsedCommitment<EF, KeccakDigest>;
+    type Witness = WhirWitness<F>;
+    type ParsedCommitment = ParsedCommitment<F, KeccakDigest>;
     type VerifError = WhirError;
     type Params = WhirParameters;
 
     fn new(n_vars: usize, params: &Self::Params) -> Self {
-        let mv_params = MultivariateParameters::<EF>::new(n_vars);
-        let config = WhirConfig::<EF>::new(mv_params, params);
+        let mv_params = MultivariateParameters::<F>::new(n_vars);
+        let config = WhirConfig::<F>::new(mv_params, params);
         // println!("WhirPCS config: {}", config);
         Self { config }
     }
 
-    fn commit(&self, pol: Multilinear<EF>, fs_prover: &mut FsProver) -> Self::Witness {
+    fn commit(&self, pol: Multilinear<F>, fs_prover: &mut FsProver) -> Self::Witness {
         Committer::new(self.config.clone())
             .commit(fs_prover, pol)
             .unwrap()
@@ -69,30 +69,23 @@ where
         &self,
         fs_verifier: &mut FsVerifier,
     ) -> Result<Self::ParsedCommitment, Self::VerifError> {
-        Verifier::<EF>::new(self.config.clone()).parse_commitment(fs_verifier)
+        Verifier::<F>::new(self.config.clone()).parse_commitment(fs_verifier)
     }
 
-    fn open<PrimeField: Field>(
-        &self,
-        witness: Self::Witness,
-        eval: &Evaluation<EF>,
-        fs_prover: &mut FsProver,
-    ) where
-        EF: ExtensionField<PrimeField>,
-    {
+    fn open(&self, witness: Self::Witness, eval: &Evaluation<F>, fs_prover: &mut FsProver) {
         let statement = Statement {
             points: vec![eval.point.clone()],
             evaluations: vec![eval.value],
         };
         Prover(self.config.clone())
-            .prove::<PrimeField>(fs_prover, statement, witness)
+            .prove(fs_prover, statement, witness)
             .unwrap();
     }
 
     fn verify(
         &self,
         parsed_commitment: &Self::ParsedCommitment,
-        eval: &Evaluation<EF>,
+        eval: &Evaluation<F>,
         fs_verifier: &mut FsVerifier,
     ) -> Result<(), Self::VerifError> {
         let statement = Statement {
@@ -153,7 +146,7 @@ mod test {
         let value = pol.evaluate(&point);
         let eval = Evaluation { point, value };
         let witness = pcs.commit(pol, &mut fs_prover);
-        pcs.open::<F>(witness, &eval, &mut fs_prover);
+        pcs.open(witness, &eval, &mut fs_prover);
 
         let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
         let parsed_commitment = pcs.parse_commitment(&mut fs_verifier).unwrap();

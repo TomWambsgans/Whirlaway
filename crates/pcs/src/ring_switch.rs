@@ -3,7 +3,7 @@ use algebra::{pols::MultilinearHost, tensor_algebra::TensorAlgebra};
 use arithmetic_circuit::TransparentPolynomial;
 use cuda_engine::cuda_sync;
 use fiat_shamir::{FsError, FsProver, FsVerifier};
-use p3_field::{BasedVectorSpace, ExtensionField, Field};
+use p3_field::{BasedVectorSpace, ExtensionField, Field, PrimeCharacteristicRing};
 use sumcheck::{SumcheckError, SumcheckGrinding};
 use utils::Evaluation;
 use utils::dot_product;
@@ -13,10 +13,9 @@ use crate::{PcsParams, PcsWitness};
 use super::PCS;
 
 #[derive(Clone)]
-pub struct RingSwitch<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> {
+pub struct RingSwitch<EF: Field, Pcs: PCS<EF, EF>> {
     inner: Pcs,
     security_bits: usize,
-    _small_field: std::marker::PhantomData<F>,
     _extension_field: std::marker::PhantomData<EF>,
 }
 
@@ -51,14 +50,16 @@ impl<InnerError> From<SumcheckError> for RingSwitchError<InnerError> {
     }
 }
 
-impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitch<F, EF, Pcs> {
+impl<EF: ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>, Pcs: PCS<EF, EF>>
+    PCS<EF::PrimeSubfield, EF> for RingSwitch<EF, Pcs>
+{
     type ParsedCommitment = Pcs::ParsedCommitment;
-    type Witness = RingSwitchWitness<F, Pcs::Witness>;
+    type Witness = RingSwitchWitness<EF::PrimeSubfield, Pcs::Witness>;
     type VerifError = RingSwitchError<Pcs::VerifError>;
     type Params = Pcs::Params;
 
     fn new(n_vars: usize, params: &Self::Params) -> Self {
-        let two_pow_kappa = <EF as BasedVectorSpace<F>>::DIMENSION;
+        let two_pow_kappa = <EF as BasedVectorSpace<EF::PrimeSubfield>>::DIMENSION;
         assert!(two_pow_kappa.is_power_of_two());
         let kappa = two_pow_kappa.ilog2() as usize;
         assert!(n_vars > kappa);
@@ -66,13 +67,16 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
         Self {
             inner,
             security_bits: params.security_bits(),
-            _small_field: std::marker::PhantomData,
             _extension_field: std::marker::PhantomData,
         }
     }
 
-    fn commit(&self, pol: Multilinear<F>, fs_prover: &mut FsProver) -> Self::Witness {
-        let pol: Multilinear<F> = pol.into();
+    fn commit(
+        &self,
+        pol: Multilinear<EF::PrimeSubfield>,
+        fs_prover: &mut FsProver,
+    ) -> Self::Witness {
+        let pol: Multilinear<EF::PrimeSubfield> = pol.into();
         let inner_witness = self.inner.commit(pol.packed::<EF>(), fs_prover);
         RingSwitchWitness { pol, inner_witness }
     }
@@ -87,23 +91,16 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
     }
 
     #[allow(non_snake_case)]
-    fn open<PrimeField: Field>(
-        &self,
-        witness: Self::Witness,
-        eval: &Evaluation<EF>,
-        fs_prover: &mut FsProver,
-    ) where
-        EF: ExtensionField<PrimeField>,
-    {
+    fn open(&self, witness: Self::Witness, eval: &Evaluation<EF>, fs_prover: &mut FsProver) {
         let _span = tracing::info_span!("RingSwitch::open").entered();
-        let two_pow_kappa = <EF as BasedVectorSpace<F>>::DIMENSION;
+        let two_pow_kappa = <EF as BasedVectorSpace<EF::PrimeSubfield>>::DIMENSION;
         assert!(two_pow_kappa.is_power_of_two());
         let kappa = two_pow_kappa.ilog2() as usize;
         let packed_pol = witness.inner_witness.pol();
         let point = &eval.point;
         let packed_point = &point[..point.len() - kappa];
 
-        let s_hat = packed_pol.eval_mixed_tensor::<F>(&packed_point);
+        let s_hat = packed_pol.eval_mixed_tensor::<EF::PrimeSubfield>(&packed_point);
         cuda_sync();
         fs_prover.add_scalar_matrix(&s_hat.data, true);
 
@@ -111,11 +108,11 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
 
         let lagranged_r_pp = MultilinearHost::eq_mle(&r_pp).evals;
         let A_pol = Multilinear::eq_mle(&packed_point, packed_pol.is_device())
-            .piecewise_dot_product_at_field_level::<F>(&lagranged_r_pp);
+            .piecewise_dot_product_at_field_level(&lagranged_r_pp);
 
         let s0 = dot_product(&s_hat.rows(), &lagranged_r_pp);
 
-        let (r_p, _, _) = sumcheck::prove::<F, EF, EF, _>(
+        let (r_p, _, _) = sumcheck::prove::<EF::PrimeSubfield, EF, EF, _>(
             1,
             &vec![packed_pol, &A_pol],
             &[
@@ -144,7 +141,7 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
         std::mem::drop(_span);
 
         self.inner
-            .open::<PrimeField>(witness.inner_witness, &packed_eval, fs_prover)
+            .open(witness.inner_witness, &packed_eval, fs_prover)
     }
 
     fn verify(
@@ -153,12 +150,12 @@ impl<F: Field, EF: ExtensionField<F>, Pcs: PCS<EF, EF>> PCS<F, EF> for RingSwitc
         eval: &Evaluation<EF>,
         fs_verifier: &mut FsVerifier,
     ) -> Result<(), RingSwitchError<Pcs::VerifError>> {
-        let two_pow_kappa = <EF as BasedVectorSpace<F>>::DIMENSION;
+        let two_pow_kappa = <EF as BasedVectorSpace<EF::PrimeSubfield>>::DIMENSION;
         assert!(two_pow_kappa.is_power_of_two());
         let kappa = two_pow_kappa.ilog2() as usize;
         let n_packed_vars = eval.point.len() - kappa;
 
-        let s_hat = TensorAlgebra::<F, EF>::new(
+        let s_hat = TensorAlgebra::<EF::PrimeSubfield, EF>::new(
             fs_verifier.next_scalar_matrix(Some((two_pow_kappa, two_pow_kappa)))?,
         );
 
@@ -234,7 +231,7 @@ mod test {
         let log_inv_rate = 4;
 
         let rng = &mut StdRng::seed_from_u64(0);
-        let ring_switch = RingSwitch::<F, EF, WhirPCS<EF>>::new(
+        let ring_switch = RingSwitch::<EF, WhirPCS<EF>>::new(
             n_vars,
             &WhirParameters::standard(
                 SoundnessType::ProvableList,
@@ -253,7 +250,7 @@ mod test {
             point: point.clone(),
             value,
         };
-        ring_switch.open::<F>(commitment, &eval, &mut fs_prover);
+        ring_switch.open(commitment, &eval, &mut fs_prover);
 
         let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
         let parsed_commitment = ring_switch.parse_commitment(&mut fs_verifier).unwrap();

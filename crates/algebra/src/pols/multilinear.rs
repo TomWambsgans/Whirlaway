@@ -14,13 +14,12 @@ use cuda_engine::{
     memcpy_dtoh, memcpy_htod,
 };
 use cudarc::driver::CudaSlice;
-use p3_field::{BasedVectorSpace, ExtensionField, Field};
+use p3_field::{BasedVectorSpace, ExtensionField, Field, PrimeCharacteristicRing};
 use rand::{
     Rng,
     distr::{Distribution, StandardUniform},
 };
 use rayon::prelude::*;
-use std::any::TypeId;
 use std::borrow::Borrow;
 use std::ops::AddAssign;
 use tracing::instrument;
@@ -269,19 +268,20 @@ impl<F: Field> MultilinearHost<F> {
         Self::new(evals)
     }
 
-    pub fn piecewise_dot_product_at_field_level<PrimeField: Field>(&self, scalars: &[F]) -> Self
+    pub fn piecewise_dot_product_at_field_level(&self, scalars: &[F]) -> Self
     where
-        F: ExtensionField<PrimeField>,
+        F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
     {
-        assert_eq!(TypeId::of::<F::PrimeSubfield>(), TypeId::of::<PrimeField>()); // TODO this a limitation from Plonky3
         assert_eq!(
-            <F as BasedVectorSpace<PrimeField>>::DIMENSION,
+            <F as BasedVectorSpace<F::PrimeSubfield>>::DIMENSION,
             scalars.len()
         );
         let prime_composed = self
             .evals
             .par_iter()
-            .map(|e| <F as BasedVectorSpace<PrimeField>>::as_basis_coefficients_slice(e).to_vec())
+            .map(|e| {
+                <F as BasedVectorSpace<F::PrimeSubfield>>::as_basis_coefficients_slice(e).to_vec()
+            })
             .collect::<Vec<_>>();
 
         let mut res = Vec::new();
@@ -397,17 +397,16 @@ impl<F: Field> MultilinearDevice<F> {
     }
 
     // Async
-    pub fn piecewise_dot_product_at_field_level<PrimeField: Field>(&self, scalars: &[F]) -> Self
+    pub fn piecewise_dot_product_at_field_level(&self, scalars: &[F]) -> Self
     where
-        F: ExtensionField<PrimeField>,
+        F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
     {
-        assert_eq!(TypeId::of::<F::PrimeSubfield>(), TypeId::of::<PrimeField>()); // TODO this a limitation from Plonky3
         let evals_prime = unsafe {
             self.evals
-                .transmute::<PrimeField>(self.n_coefs() * scalars.len())
+                .transmute::<F::PrimeSubfield>(self.n_coefs() * scalars.len())
                 .unwrap()
         };
-        Self::new(cuda_linear_combination_at_row_level::<PrimeField, F>(
+        Self::new(cuda_linear_combination_at_row_level::<F::PrimeSubfield, F>(
             &evals_prime,
             scalars,
         ))
@@ -581,17 +580,14 @@ impl<F: Field> Multilinear<F> {
     }
 
     // Async
-    pub fn piecewise_dot_product_at_field_level<PrimeField: Field>(&self, scalars: &[F]) -> Self
+    pub fn piecewise_dot_product_at_field_level(&self, scalars: &[F]) -> Self
     where
-        F: ExtensionField<PrimeField>,
+        F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
     {
-        assert_eq!(TypeId::of::<F::PrimeSubfield>(), TypeId::of::<PrimeField>()); // TODO this a limitation from Plonky3
         match self {
-            Self::Host(pol) => {
-                Multilinear::Host(pol.piecewise_dot_product_at_field_level::<PrimeField>(scalars))
-            }
+            Self::Host(pol) => Multilinear::Host(pol.piecewise_dot_product_at_field_level(scalars)),
             Self::Device(pol) => {
-                Multilinear::Device(pol.piecewise_dot_product_at_field_level::<PrimeField>(scalars))
+                Multilinear::Device(pol.piecewise_dot_product_at_field_level(scalars))
             }
         }
     }

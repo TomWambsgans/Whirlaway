@@ -2,7 +2,7 @@ use algebra::pols::{Multilinear, MultilinearDevice, MultilinearHost, Multilinear
 use arithmetic_circuit::ArithmeticCircuit;
 use cuda_engine::{cuda_sync, memcpy_htod};
 use fiat_shamir::FsProver;
-use p3_field::{ExtensionField, Field, PrimeField, TwoAdicField};
+use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, PrimeField, TwoAdicField};
 use pcs::{PCS, RingSwitch, WhirPCS, WhirParameters};
 use rayon::prelude::*;
 use sumcheck::SumcheckGrinding;
@@ -21,7 +21,13 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 
 impl<F: PrimeField> AirTable<F> {
     #[instrument(name = "air: prove", skip_all)]
-    pub fn prove<EF: ExtensionField<F>, WhirF: ExtensionField<F> + TwoAdicField + Ord>(
+    pub fn prove<
+        EF: ExtensionField<F>,
+        WhirF: ExtensionField<F>
+            + ExtensionField<<WhirF as PrimeCharacteristicRing>::PrimeSubfield>
+            + TwoAdicField
+            + Ord,
+    >(
         &self,
         settings: &AirSettings,
         fs_prover: &mut FsProver,
@@ -37,7 +43,7 @@ impl<F: PrimeField> AirTable<F> {
         let log_length = self.log_length;
         assert!(witness_host.iter().all(|w| w.n_vars == log_length));
 
-        let pcs = RingSwitch::<F, WhirF, WhirPCS<WhirF>>::new(
+        let pcs = RingSwitch::<WhirF, WhirPCS<WhirF>>::new(
             log_length + self.log_n_witness_columns(),
             &WhirParameters::standard(
                 settings.whir_soudness_type,
@@ -63,7 +69,9 @@ impl<F: PrimeField> AirTable<F> {
 
         // TODO avoid cloning (use a row major matrix for the witness)
 
-        let packed_pol = witness.as_ref().packed();
+        // transmute is safe because WhirF::PrimeSubField == F
+        let packed_pol = unsafe { std::mem::transmute(witness.as_ref().packed()) };
+
         cuda_sync();
         let packed_pol_witness = pcs.commit(packed_pol, fs_prover);
 
@@ -240,7 +248,7 @@ impl<F: PrimeField> AirTable<F> {
 
         std::mem::drop(_span);
 
-        pcs.open::<F>(packed_pol_witness, &packed_eval, fs_prover);
+        pcs.open(packed_pol_witness, &packed_eval, fs_prover);
     }
 }
 

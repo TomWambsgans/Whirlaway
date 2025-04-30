@@ -30,13 +30,7 @@ pub trait PCS<F: Field, EF: ExtensionField<F>> {
         &self,
         fs_verifier: &mut FsVerifier,
     ) -> Result<Self::ParsedCommitment, Self::VerifError>;
-    fn open<PrimeField: Field>(
-        &self,
-        witness: Self::Witness,
-        eval: &Evaluation<EF>,
-        fs_prover: &mut FsProver,
-    ) where
-        EF: ExtensionField<PrimeField>;
+    fn open(&self, witness: Self::Witness, eval: &Evaluation<EF>, fs_prover: &mut FsProver);
     fn verify(
         &self,
         parsed_commitment: &Self::ParsedCommitment,

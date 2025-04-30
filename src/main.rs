@@ -11,7 +11,7 @@ const USE_CUDA: bool = true;
 const SECURITY_BITS: usize = 128;
 
 fn main() {
-    for (log_n_rows, log_inv_rate) in [(16, 3)] {
+    for (log_n_rows, log_inv_rate) in [(17, 3)] {
         let benchmark = prove_poseidon2_with(
             SupportedField::KoalaBear,
             log_n_rows,
