@@ -1,4 +1,4 @@
-use std::{fmt::Display, marker::PhantomData, str::FromStr};
+use std::{fmt::Display, str::FromStr};
 
 use serde::Serialize;
 
@@ -39,27 +39,6 @@ impl FromStr for SoundnessType {
         } else {
             Err(format!("Invalid soundness specification: {}", s))
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct MultivariateParameters<F> {
-    pub(crate) num_variables: usize,
-    _field: PhantomData<F>,
-}
-
-impl<F> MultivariateParameters<F> {
-    pub fn new(num_variables: usize) -> Self {
-        Self {
-            num_variables,
-            _field: PhantomData,
-        }
-    }
-}
-
-impl<F> Display for MultivariateParameters<F> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Number of variables: {}", self.num_variables)
     }
 }
 

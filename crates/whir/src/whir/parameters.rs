@@ -1,17 +1,16 @@
 use core::panic;
-use std::{f64::consts::LOG2_10, fmt::Display};
+use std::{f64::consts::LOG2_10, fmt::Display, marker::PhantomData};
 
-use p3_field::{Field, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 
-use crate::parameters::{FoldingFactor, MultivariateParameters, SoundnessType, WhirParameters};
+use crate::parameters::{FoldingFactor, SoundnessType, WhirParameters};
 
 #[derive(Clone)]
-pub struct WhirConfig<EF: Field>
-where
-    EF: TwoAdicField + Ord,
-    EF::PrimeSubfield: TwoAdicField,
-{
-    pub(crate) mv_parameters: MultivariateParameters<EF>,
+pub struct WhirConfig<F: Field, EF: ExtensionField<F>> {
+    pub(crate) num_variables: usize,
+    _coeffs_field: PhantomData<F>,
+    _opening_field: PhantomData<EF>,
+
     pub(crate) soundness_type: SoundnessType,
     pub(crate) security_level: usize,
     pub(crate) max_pow_bits: usize,
@@ -46,18 +45,11 @@ pub(crate) struct RoundConfig {
     pub(crate) log_inv_rate: usize,
 }
 
-impl<EF: Field> WhirConfig<EF>
-where
-    EF: TwoAdicField + Ord,
-    EF::PrimeSubfield: TwoAdicField,
-{
-    pub fn new(
-        mv_parameters: MultivariateParameters<EF>,
-        whir_parameters: &WhirParameters,
-    ) -> Self {
+impl<F: Field, EF: ExtensionField<F>> WhirConfig<F, EF> {
+    pub fn new(num_variables: usize, whir_parameters: &WhirParameters) -> Self {
         whir_parameters
             .folding_factor
-            .check_validity(mv_parameters.num_variables)
+            .check_validity(num_variables)
             .unwrap();
 
         let protocol_security_level =
@@ -65,14 +57,14 @@ where
 
         let (num_rounds, final_sumcheck_rounds) = whir_parameters
             .folding_factor
-            .compute_number_of_rounds(mv_parameters.num_variables);
+            .compute_number_of_rounds(num_variables);
 
         let field_size_bits = EF::bits() as usize;
 
         let committment_ood_samples = Self::ood_samples(
             whir_parameters.security_level,
             whir_parameters.soundness_type,
-            mv_parameters.num_variables,
+            num_variables,
             whir_parameters.starting_log_inv_rate,
             Self::log_eta(
                 whir_parameters.soundness_type,
@@ -85,7 +77,7 @@ where
             whir_parameters.security_level,
             whir_parameters.soundness_type,
             field_size_bits,
-            mv_parameters.num_variables,
+            num_variables,
             whir_parameters.starting_log_inv_rate,
             Self::log_eta(
                 whir_parameters.soundness_type,
@@ -94,8 +86,7 @@ where
         );
 
         let mut round_parameters = Vec::with_capacity(num_rounds);
-        let mut num_variables =
-            mv_parameters.num_variables - whir_parameters.folding_factor.at_round(0);
+        let mut num_variables_new = num_variables - whir_parameters.folding_factor.at_round(0);
         let mut log_inv_rate = whir_parameters.starting_log_inv_rate;
         for round in 0..num_rounds {
             // Queries are set w.r.t. to old rate, while the rest to the new rate
@@ -111,7 +102,7 @@ where
             let ood_samples = Self::ood_samples(
                 whir_parameters.security_level,
                 whir_parameters.soundness_type,
-                num_variables,
+                num_variables_new,
                 next_rate,
                 log_next_eta,
                 field_size_bits,
@@ -122,7 +113,7 @@ where
             let combination_error = Self::rbr_soundness_queries_combination(
                 whir_parameters.soundness_type,
                 field_size_bits,
-                num_variables,
+                num_variables_new,
                 next_rate,
                 log_next_eta,
                 ood_samples,
@@ -137,7 +128,7 @@ where
                 whir_parameters.security_level,
                 whir_parameters.soundness_type,
                 field_size_bits,
-                num_variables,
+                num_variables_new,
                 next_rate,
                 log_next_eta,
             );
@@ -150,7 +141,7 @@ where
                 log_inv_rate,
             });
 
-            num_variables -= whir_parameters.folding_factor.at_round(round + 1);
+            num_variables_new -= whir_parameters.folding_factor.at_round(round + 1);
             log_inv_rate = next_rate;
         }
 
@@ -176,10 +167,12 @@ where
             .ceil() as usize;
 
         WhirConfig {
+            num_variables,
+            _coeffs_field: PhantomData,
+            _opening_field: PhantomData,
             security_level: whir_parameters.security_level,
             max_pow_bits: whir_parameters.pow_bits,
             committment_ood_samples,
-            mv_parameters,
             soundness_type: whir_parameters.soundness_type,
             starting_log_inv_rate: whir_parameters.starting_log_inv_rate,
             starting_folding_pow_bits,
@@ -399,13 +392,13 @@ where
     }
 }
 
-impl<EF: Field> Display for WhirConfig<EF>
+impl<F: Field, EF: ExtensionField<F>> Display for WhirConfig<F, EF>
 where
     EF: TwoAdicField + Ord,
     EF::PrimeSubfield: TwoAdicField,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.mv_parameters.fmt(f)?;
+        writeln!(f, "num variables: {}", self.num_variables)?;
         writeln!(f, ", folding factor: {:?}", self.folding_factor)?;
         writeln!(
             f,
@@ -437,7 +430,7 @@ where
 
         let field_size_bits = EF::bits() as usize;
         let log_eta = Self::log_eta(self.soundness_type, self.starting_log_inv_rate);
-        let mut num_variables = self.mv_parameters.num_variables;
+        let mut num_variables = self.num_variables;
 
         if self.committment_ood_samples > 0 {
             writeln!(

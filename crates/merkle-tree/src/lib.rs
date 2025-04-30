@@ -34,16 +34,14 @@ fn two_to_one_hash(left_input: &KeccakDigest, right_input: &KeccakDigest) -> Kec
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct MultiPath<F> {
+pub struct MultiPath {
     /// For node i path, stores at index i the suffix of the path for Incremental Encoding
     pub auth_paths_suffixes: Vec<Vec<KeccakDigest>>,
     /// stores the leaf indexes of the nodes to prove
     pub leaf_indexes: Vec<usize>,
-
-    _field: std::marker::PhantomData<F>,
 }
 
-impl<F: Default + Debug> MultiPath<F> {
+impl MultiPath {
     pub fn to_bytes(&self) -> Vec<u8> {
         let n = self.auth_paths_suffixes.len();
         assert_eq!(n, self.leaf_indexes.len());
@@ -92,7 +90,12 @@ impl<F: Default + Debug> MultiPath<F> {
         Some(res)
     }
 
-    pub fn verify(&self, root_hash: &KeccakDigest, leaves: &[Vec<F>], tree_height: usize) -> bool {
+    pub fn verify<F>(
+        &self,
+        root_hash: &KeccakDigest,
+        leaves: &[Vec<F>],
+        tree_height: usize,
+    ) -> bool {
         let n = leaves.len();
         if n != self.leaf_indexes.len() || n != self.auth_paths_suffixes.len() {
             return false;
@@ -298,7 +301,7 @@ impl<F: Sync> MerkleTree<F> {
         path
     }
 
-    pub fn generate_multi_proof(&self, mut indexes: Vec<usize>) -> MultiPath<F> {
+    pub fn generate_multi_proof(&self, mut indexes: Vec<usize>) -> MultiPath {
         // pruned and sorted for encoding efficiency
 
         assert_eq!(
@@ -342,7 +345,6 @@ impl<F: Sync> MerkleTree<F> {
         MultiPath {
             leaf_indexes,
             auth_paths_suffixes,
-            _field: std::marker::PhantomData,
         }
     }
 }

@@ -13,18 +13,20 @@ use utils::{dot_product, multilinear_point_from_univariate};
 
 use crate::whir::fs_utils::get_challenge_stir_queries;
 
-pub struct Prover<EF: Field>(pub WhirConfig<EF>)
-where
-    EF: TwoAdicField + Ord,
-    EF::PrimeSubfield: TwoAdicField;
+pub struct Prover<F: Field, EF: ExtensionField<F>>(pub WhirConfig<F, EF>);
 
-impl<EF: ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield> + TwoAdicField + Ord>
-    Prover<EF>
+impl<
+    F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield> + TwoAdicField + Ord,
+    EF: ExtensionField<F>
+        + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>
+        + TwoAdicField
+        + Ord,
+> Prover<F, EF>
 where
-    EF::PrimeSubfield: TwoAdicField,
+    F::PrimeSubfield: TwoAdicField,
 {
     fn validate_parameters(&self) -> bool {
-        self.0.mv_parameters.num_variables
+        self.0.num_variables
             == self.0.folding_factor.total_number(self.0.n_rounds()) + self.0.final_sumcheck_rounds
     }
 
@@ -35,16 +37,16 @@ where
         if !statement
             .points
             .iter()
-            .all(|point| point.len() == self.0.mv_parameters.num_variables)
+            .all(|point| point.len() == self.0.num_variables)
         {
             return false;
         }
         true
     }
 
-    fn validate_witness(&self, witness: &Witness<EF>) -> bool {
+    fn validate_witness(&self, witness: &Witness<F, EF>) -> bool {
         assert_eq!(witness.ood_points.len(), witness.ood_answers.len());
-        witness.polynomial.n_vars() == self.0.mv_parameters.num_variables
+        witness.polynomial.n_vars() == self.0.num_variables
     }
 
     #[instrument(name = "whir: prove", skip_all)]
@@ -52,7 +54,7 @@ where
         &self,
         fs_prover: &mut FsProver,
         mut statement: Statement<EF>,
-        witness: Witness<EF>,
+        witness: Witness<F, EF>,
     ) -> Option<()> {
         for point in &mut statement.points {
             point.reverse();
@@ -62,19 +64,20 @@ where
         debug_assert!(self.validate_statement(&statement));
         assert!(self.validate_witness(&witness));
 
-        let initial_claims: Vec<_> = witness
+        let initial_claims = witness
             .ood_points
             .into_iter()
             .map(|ood_point| {
-                multilinear_point_from_univariate(ood_point, self.0.mv_parameters.num_variables)
+                multilinear_point_from_univariate(EF::from(ood_point), self.0.num_variables)
             })
             .chain(statement.points)
-            .collect();
-        let initial_answers: Vec<_> = witness
+            .collect::<Vec<_>>();
+        let initial_answers = witness
             .ood_answers
             .into_iter()
+            .map(EF::from)
             .chain(statement.evaluations)
-            .collect();
+            .collect::<Vec<_>>();
 
         let sumcheck_mles;
         let hypercube_sum;
@@ -86,13 +89,14 @@ where
 
             let liner_comb =
                 randomized_eq_extensions(&initial_claims, &combination_randomness, self.0.cuda);
-            let nodes = vec![&witness.lagrange_polynomial, &liner_comb];
+            let embbedded_lagrange_polynomial = witness.lagrange_polynomial.embed::<EF>(); // TODO remove
+            let nodes = vec![&embbedded_lagrange_polynomial, &liner_comb];
             let n_rounds = Some(self.0.folding_factor.at_round(0));
             let pow_bits = self.0.starting_folding_pow_bits;
             let sum = dot_product(&initial_answers, &combination_randomness);
             let mut folding_randomness;
             (folding_randomness, sumcheck_mles, hypercube_sum) =
-                sumcheck::prove::<EF::PrimeSubfield, _, _, _>(
+                sumcheck::prove::<F::PrimeSubfield, _, _, _>(
                     1,
                     &nodes,
                     &[
@@ -111,28 +115,38 @@ where
             folding_randomness.reverse();
             folding_randomness
         };
-        let round_state = RoundState {
+        let round_state = RoundState::<F, EF> {
             round: 0,
             sumcheck_mles,
             hypercube_sum,
-            domain_size: 1 << (self.0.mv_parameters.num_variables + self.0.starting_log_inv_rate),
+            domain_size: 1 << (self.0.num_variables + self.0.starting_log_inv_rate),
             folding_randomness,
             coefficients: witness.polynomial,
             prev_merkle: witness.merkle_tree,
             prev_merkle_answers: witness.merkle_leaves,
         };
 
-        self.round(fs_prover, round_state)
+        self.round::<F>(fs_prover, round_state)
     }
 
-    fn round(&self, fs_prover: &mut FsProver, mut round_state: RoundState<EF>) -> Option<()> {
+    fn round<IF: ExtensionField<F>>(
+        &self,
+        fs_prover: &mut FsProver,
+        mut round_state: RoundState<IF, EF>,
+    ) -> Option<()>
+    where
+        EF: ExtensionField<IF>,
+    {
         // Fold the coefficients
+        let _fold_span = tracing::info_span!("whir folding").entered();
         let folded_coefficients = round_state
             .coefficients
             .whir_fold(&round_state.folding_randomness);
+        cuda_sync();
+        std::mem::drop(_fold_span);
 
-        let num_variables = self.0.mv_parameters.num_variables
-            - self.0.folding_factor.total_number(round_state.round);
+        let num_variables =
+            self.0.num_variables - self.0.folding_factor.total_number(round_state.round);
         // num_variables should match the folded_coefficients here.
         assert_eq!(num_variables, folded_coefficients.n_vars());
 
@@ -173,7 +187,7 @@ where
             if self.0.final_sumcheck_rounds > 0 {
                 let n_rounds = Some(self.0.final_sumcheck_rounds);
                 let pow_bits = self.0.final_folding_pow_bits;
-                (_, round_state.sumcheck_mles, _) = sumcheck::prove::<EF::PrimeSubfield, _, _, _>(
+                (_, round_state.sumcheck_mles, _) = sumcheck::prove::<F::PrimeSubfield, _, _, _>(
                     1,
                     &round_state.sumcheck_mles,
                     &[
@@ -286,22 +300,23 @@ where
         let mut folding_randomness;
         let hypercube_sum;
         let sumcheck_mles;
-        (folding_randomness, sumcheck_mles, hypercube_sum) = sumcheck::prove(
-            1,
-            &round_state.sumcheck_mles,
-            &[
-                (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
-                    .fix_computation(true),
-            ],
-            &[EF::ONE],
-            None,
-            false,
-            fs_prover,
-            round_state.hypercube_sum + dot_product(&combination_randomness, &stir_evaluations),
-            Some(self.0.folding_factor.at_round(round_state.round + 1)),
-            SumcheckGrinding::Custom(round_params.folding_pow_bits),
-            None,
-        );
+        (folding_randomness, sumcheck_mles, hypercube_sum) =
+            sumcheck::prove::<F::PrimeSubfield, _, _, _>(
+                1,
+                &round_state.sumcheck_mles,
+                &[
+                    (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
+                        .fix_computation(true),
+                ],
+                &[EF::ONE],
+                None,
+                false,
+                fs_prover,
+                round_state.hypercube_sum + dot_product(&combination_randomness, &stir_evaluations),
+                Some(self.0.folding_factor.at_round(round_state.round + 1)),
+                SumcheckGrinding::Custom(round_params.folding_pow_bits),
+                None,
+            );
         folding_randomness.reverse();
 
         let round_state = RoundState {
@@ -315,23 +330,19 @@ where
             prev_merkle_answers: folded_evals,
         };
 
-        self.round(fs_prover, round_state)
+        self.round::<EF>(fs_prover, round_state)
     }
 }
 
-struct RoundState<EF: Field>
-where
-    EF: TwoAdicField + Ord,
-    EF::PrimeSubfield: TwoAdicField,
-{
+struct RoundState<F: Field, EF: ExtensionField<F>> {
     round: usize,
     sumcheck_mles: Vec<Multilinear<EF>>,
     hypercube_sum: EF,
     domain_size: usize,
     folding_randomness: Vec<EF>,
-    coefficients: CoefficientList<EF>,
-    prev_merkle: MerkleTree<EF>,
-    prev_merkle_answers: HostOrDeviceBuffer<EF>,
+    coefficients: CoefficientList<F>,
+    prev_merkle: MerkleTree<F>,
+    prev_merkle_answers: HostOrDeviceBuffer<F>,
 }
 
 #[instrument(name = "randomized_eq_extensions", skip_all)]

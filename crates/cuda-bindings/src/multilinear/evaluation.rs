@@ -11,7 +11,6 @@ pub fn cuda_eval_multilinear_in_monomial_basis<F: Field, EF: ExtensionField<F>>(
     coeffs: &CudaSlice<F>,
     point: &[EF],
 ) -> EF {
-    // TODO simplify
     assert!(coeffs.len().is_power_of_two());
     let n_vars = coeffs.len().ilog2() as u32;
     assert_eq!(n_vars, point.len() as u32);

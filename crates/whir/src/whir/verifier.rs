@@ -1,7 +1,8 @@
 use algebra::pols::{CoefficientListHost, UnivariatePolynomial};
+use core::panic;
 use fiat_shamir::{FsError, FsVerifier};
 use merkle_tree::MultiPath;
-use p3_field::{Field, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use std::iter;
 use tracing::instrument;
 use utils::{KeccakDigest, powers};
@@ -10,12 +11,8 @@ use utils::{eq_extension, multilinear_point_from_univariate};
 use super::{Statement, parameters::WhirConfig};
 use crate::whir::fs_utils::get_challenge_stir_queries;
 
-pub struct Verifier<EF: Field>
-where
-    EF: TwoAdicField + Ord,
-    EF::PrimeSubfield: TwoAdicField,
-{
-    params: WhirConfig<EF>,
+pub struct Verifier<F: TwoAdicField, EF: ExtensionField<F>> {
+    params: WhirConfig<F, EF>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,12 +60,8 @@ struct ParsedRound<F: Field> {
     sumcheck_rounds: Vec<(UnivariatePolynomial<F>, F)>,
 }
 
-impl<EF: Field> Verifier<EF>
-where
-    EF: TwoAdicField + Ord,
-    EF::PrimeSubfield: TwoAdicField,
-{
-    pub fn new(params: WhirConfig<EF>) -> Self {
+impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
+    pub fn new(params: WhirConfig<F, EF>) -> Self {
         Verifier { params }
     }
 
@@ -90,6 +83,101 @@ where
             ood_points,
             ood_answers,
         })
+    }
+
+    fn parse_round<IF: ExtensionField<F>>(
+        &self,
+        r: usize,
+        fs_verifier: &mut FsVerifier,
+        domain_size: &mut usize,
+        rounds: &mut Vec<ParsedRound<EF>>,
+        exp_domain_gen: &mut EF,
+        prev_root: &mut KeccakDigest,
+        folding_randomness: &mut Vec<EF>,
+        domain_gen: &mut EF,
+    ) -> Result<(), WhirError>
+    where
+        EF: ExtensionField<IF>,
+    {
+        let round_params = &self.params.round_parameters[r];
+
+        let new_root = KeccakDigest(fs_verifier.next_bytes(32)?.try_into().unwrap()); // TODO avoid harcoding 32
+
+        let mut ood_points = vec![EF::ZERO; round_params.ood_samples];
+        let mut ood_answers = vec![EF::ZERO; round_params.ood_samples];
+        if round_params.ood_samples > 0 {
+            ood_points = fs_verifier.challenge_scalars::<EF>(round_params.ood_samples);
+            ood_answers = fs_verifier.next_scalars(round_params.ood_samples)?;
+        }
+
+        let stir_challenges_indexes = get_challenge_stir_queries(
+            *domain_size,
+            self.params.folding_factor.at_round(r),
+            round_params.num_queries,
+            fs_verifier,
+        );
+
+        let stir_challenges_points = stir_challenges_indexes
+            .iter()
+            .map(|index| exp_domain_gen.exp_u64(*index as u64))
+            .collect();
+
+        let merkle_proof = MultiPath::from_bytes(&fs_verifier.next_variable_bytes()?)
+            .ok_or(WhirError::Decoding)?;
+
+        let answers: Vec<Vec<IF>> = fs_verifier.next_scalar_matrix(None).unwrap();
+
+        let merkle_tree_height =
+            domain_size.trailing_zeros() as usize - self.params.folding_factor.at_round(r);
+        if !merkle_proof.verify(&prev_root, &answers, merkle_tree_height)
+            || merkle_proof.leaf_indexes != stir_challenges_indexes
+        {
+            panic!("Merkle tree verification failed");
+        }
+
+        fs_verifier.challenge_pow(round_params.pow_bits)?;
+
+        let combination_randomness_gen = fs_verifier.challenge_scalars::<EF>(1)[0];
+        let combination_randomness = powers(
+            combination_randomness_gen,
+            stir_challenges_indexes.len() + round_params.ood_samples,
+        );
+
+        let mut sumcheck_rounds = Vec::with_capacity(self.params.folding_factor.at_round(r + 1));
+        for _ in 0..self.params.folding_factor.at_round(r + 1) {
+            let sumcheck_poly = UnivariatePolynomial::new(fs_verifier.next_scalars(3)?);
+            let folding_randomness_single = fs_verifier.challenge_scalars::<EF>(1)[0];
+            sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
+
+            fs_verifier.challenge_pow(round_params.folding_pow_bits)?;
+        }
+
+        let new_folding_randomness = sumcheck_rounds
+            .iter()
+            .map(|&(_, r)| r)
+            .rev()
+            .collect::<Vec<_>>();
+
+        rounds.push(ParsedRound {
+            folding_randomness: std::mem::take(folding_randomness),
+            ood_points,
+            ood_answers,
+            stir_challenges_points,
+            stir_challenges_answers: answers
+                .into_iter()
+                .map(|v| v.into_iter().map(|x| EF::from(x)).collect())
+                .collect(),
+            combination_randomness,
+            sumcheck_rounds,
+        });
+
+        *folding_randomness = new_folding_randomness;
+
+        *prev_root = new_root;
+        *domain_gen = domain_gen.square();
+        *exp_domain_gen = domain_gen.exp_u64(1 << self.params.folding_factor.at_round(r + 1));
+        *domain_size /= 2;
+        Ok(())
     }
 
     fn parse_proof(
@@ -125,87 +213,35 @@ where
             .collect();
 
         let mut prev_root = parsed_commitment.root.clone();
-        let mut domain_gen = EF::two_adic_generator(
-            self.params.mv_parameters.num_variables + self.params.starting_log_inv_rate,
-        );
+        let mut domain_gen =
+            EF::two_adic_generator(self.params.num_variables + self.params.starting_log_inv_rate);
         let mut exp_domain_gen = domain_gen.exp_u64(1 << self.params.folding_factor.at_round(0));
-        let mut domain_size =
-            1 << (self.params.mv_parameters.num_variables + self.params.starting_log_inv_rate);
+        let mut domain_size = 1 << (self.params.num_variables + self.params.starting_log_inv_rate);
         let mut rounds = vec![];
 
-        for r in 0..self.params.n_rounds() {
-            let round_params = &self.params.round_parameters[r];
-
-            let new_root = KeccakDigest(fs_verifier.next_bytes(32)?.try_into().unwrap()); // TODO avoid harcoding 32
-
-            let mut ood_points = vec![EF::ZERO; round_params.ood_samples];
-            let mut ood_answers = vec![EF::ZERO; round_params.ood_samples];
-            if round_params.ood_samples > 0 {
-                ood_points = fs_verifier.challenge_scalars::<EF>(round_params.ood_samples);
-                ood_answers = fs_verifier.next_scalars(round_params.ood_samples)?;
-            }
-
-            let stir_challenges_indexes = get_challenge_stir_queries(
-                domain_size,
-                self.params.folding_factor.at_round(r),
-                round_params.num_queries,
+        if self.params.n_rounds() > 0 {
+            self.parse_round::<F>(
+                0,
                 fs_verifier,
-            );
-
-            let stir_challenges_points = stir_challenges_indexes
-                .iter()
-                .map(|index| exp_domain_gen.exp_u64(*index as u64))
-                .collect();
-
-            let merkle_proof = MultiPath::<EF>::from_bytes(&fs_verifier.next_variable_bytes()?)
-                .ok_or(WhirError::Decoding)?;
-
-            let answers: Vec<Vec<EF>> = fs_verifier.next_scalar_matrix(None).unwrap();
-
-            let merkle_tree_height =
-                domain_size.trailing_zeros() as usize - self.params.folding_factor.at_round(r);
-            if !merkle_proof.verify(&prev_root, &answers, merkle_tree_height)
-                || merkle_proof.leaf_indexes != stir_challenges_indexes
-            {
-                return Err(WhirError::MerkleTree);
-            }
-
-            fs_verifier.challenge_pow(round_params.pow_bits)?;
-
-            let combination_randomness_gen = fs_verifier.challenge_scalars::<EF>(1)[0];
-            let combination_randomness = powers(
-                combination_randomness_gen,
-                stir_challenges_indexes.len() + round_params.ood_samples,
-            );
-
-            let mut sumcheck_rounds =
-                Vec::with_capacity(self.params.folding_factor.at_round(r + 1));
-            for _ in 0..self.params.folding_factor.at_round(r + 1) {
-                let sumcheck_poly = UnivariatePolynomial::new(fs_verifier.next_scalars(3)?);
-                let folding_randomness_single = fs_verifier.challenge_scalars::<EF>(1)[0];
-                sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
-
-                fs_verifier.challenge_pow(round_params.folding_pow_bits)?;
-            }
-
-            let new_folding_randomness = sumcheck_rounds.iter().map(|&(_, r)| r).rev().collect();
-
-            rounds.push(ParsedRound {
-                folding_randomness,
-                ood_points,
-                ood_answers,
-                stir_challenges_points,
-                stir_challenges_answers: answers.to_vec(),
-                combination_randomness,
-                sumcheck_rounds,
-            });
-
-            folding_randomness = new_folding_randomness;
-
-            prev_root = new_root.clone();
-            domain_gen = domain_gen * domain_gen;
-            exp_domain_gen = domain_gen.exp_u64(1 << self.params.folding_factor.at_round(r + 1));
-            domain_size /= 2;
+                &mut domain_size,
+                &mut rounds,
+                &mut exp_domain_gen,
+                &mut prev_root,
+                &mut folding_randomness,
+                &mut domain_gen,
+            )?;
+        }
+        for r in 1..self.params.n_rounds() {
+            self.parse_round::<EF>(
+                r,
+                fs_verifier,
+                &mut domain_size,
+                &mut rounds,
+                &mut exp_domain_gen,
+                &mut prev_root,
+                &mut folding_randomness,
+                &mut domain_gen,
+            )?;
         }
 
         let final_coefficients =
@@ -224,7 +260,7 @@ where
             .map(|index| exp_domain_gen.exp_u64(*index as u64))
             .collect();
 
-        let final_merkle_proof = MultiPath::<EF>::from_bytes(&fs_verifier.next_variable_bytes()?)
+        let final_merkle_proof = MultiPath::from_bytes(&fs_verifier.next_variable_bytes()?)
             .ok_or(WhirError::Decoding)?;
         let final_randomness_answers: Vec<Vec<EF>> = fs_verifier.next_scalar_matrix(None).unwrap();
 
@@ -240,7 +276,7 @@ where
 
         let mut final_sumcheck_rounds = Vec::with_capacity(self.params.final_sumcheck_rounds);
         for _ in 0..self.params.final_sumcheck_rounds {
-            let sumcheck_poly = UnivariatePolynomial::new(fs_verifier.next_scalars(3)?);
+            let sumcheck_poly = UnivariatePolynomial::new(fs_verifier.next_scalars::<EF>(3)?);
             let folding_randomness_single = fs_verifier.challenge_scalars::<EF>(1)[0];
             final_sumcheck_rounds.push((sumcheck_poly, folding_randomness_single));
 
@@ -271,7 +307,7 @@ where
         statement: &Statement<EF>,
         proof: &ParsedProof<EF>,
     ) -> EF {
-        let mut num_variables = self.params.mv_parameters.num_variables;
+        let mut num_variables = self.params.num_variables;
 
         let mut folding_randomness = iter::once(&proof.final_sumcheck_randomness)
             .chain(iter::once(&proof.final_folding_randomness))
@@ -375,6 +411,7 @@ where
                     .ood_answers
                     .iter()
                     .copied()
+                    .map(EF::from)
                     .chain(statement.evaluations.clone())
                     .zip(&parsed.initial_combination_randomness)
                     .map(|(ans, rand)| ans * *rand)

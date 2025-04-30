@@ -3,11 +3,12 @@ use arithmetic_circuit::ArithmeticCircuit;
 use cuda_engine::{cuda_sync, memcpy_htod};
 use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, PrimeField, TwoAdicField};
-use pcs::{PCS, RingSwitch, WhirPCS, WhirParameters};
+use pcs::{PCS, RingSwitch, WhirParameters};
 use rayon::prelude::*;
 use sumcheck::SumcheckGrinding;
 use tracing::{Level, instrument, span};
 use utils::{Evaluation, HypercubePoint, dot_product, powers, small_to_big_extension};
+use whir::whir::parameters::WhirConfig;
 
 use crate::{AirSettings, utils::columns_up_and_down};
 
@@ -43,7 +44,7 @@ impl<F: PrimeField> AirTable<F> {
         let log_length = self.log_length;
         assert!(witness_host.iter().all(|w| w.n_vars == log_length));
 
-        let pcs = RingSwitch::<WhirF, WhirPCS<WhirF>>::new(
+        let pcs = RingSwitch::<WhirF, WhirConfig<WhirF, WhirF>>::new(
             log_length + self.log_n_witness_columns(),
             &WhirParameters::standard(
                 settings.whir_soudness_type,

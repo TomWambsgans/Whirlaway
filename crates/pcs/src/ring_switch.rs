@@ -216,9 +216,10 @@ mod test {
     use p3_field::extension::BinomialExtensionField;
     use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
-    use whir::parameters::{FoldingFactor, SoundnessType, WhirParameters};
-
-    use crate::WhirPCS;
+    use whir::{
+        parameters::{FoldingFactor, SoundnessType, WhirParameters},
+        whir::parameters::WhirConfig,
+    };
 
     use super::*;
     type F = KoalaBear;
@@ -231,7 +232,7 @@ mod test {
         let log_inv_rate = 4;
 
         let rng = &mut StdRng::seed_from_u64(0);
-        let ring_switch = RingSwitch::<EF, WhirPCS<EF>>::new(
+        let ring_switch = RingSwitch::<EF, WhirConfig<EF, EF>>::new(
             n_vars,
             &WhirParameters::standard(
                 SoundnessType::ProvableList,

@@ -20,6 +20,7 @@ use rand::{
     distr::{Distribution, StandardUniform},
 };
 use rayon::prelude::*;
+use std::any::TypeId;
 use std::borrow::Borrow;
 use std::ops::AddAssign;
 use tracing::instrument;
@@ -294,6 +295,11 @@ impl<F: Field> MultilinearHost<F> {
     // Async
     pub fn transfer_to_device(&self) -> MultilinearDevice<F> {
         MultilinearDevice::new(memcpy_htod(&self.evals))
+    }
+
+    // TODO remove
+    pub fn embed<EF: ExtensionField<F>>(&self) -> MultilinearHost<EF> {
+        MultilinearHost::new(self.evals.par_iter().map(|e| EF::from(*e)).collect())
     }
 }
 
@@ -598,6 +604,21 @@ impl<F: Field> Multilinear<F> {
         match self {
             Self::Host(pol) => default_hash(&pol.evals),
             Self::Device(pol) => default_hash(&pol.transfer_to_host().evals),
+        }
+    }
+
+    /// TODO remove
+    /// Async
+    pub fn embed<EF: ExtensionField<F>>(&self) -> Multilinear<EF> {
+        if TypeId::of::<F>() == TypeId::of::<EF>() {
+            return unsafe { std::mem::transmute::<&Self, &Multilinear<EF>>(self).clone() };
+        }
+
+        match self {
+            Self::Host(pol) => Multilinear::Host(pol.embed()),
+            Self::Device(pol) => {
+                Multilinear::Device(pol.transfer_to_host().embed::<EF>().transfer_to_device())
+            }
         }
     }
 }
