@@ -61,10 +61,6 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
             "multilinear.cu",
             "lagrange_to_monomial_basis_rev",
         ));
-        cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
-            "multilinear.cu",
-            "whir_fold",
-        ));
         cuda_load_function(CudaFunctionInfo::one_field::<F>(
             "multilinear.cu",
             "multilinears_up",
@@ -147,7 +143,11 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
         ));
         cuda_load_function(CudaFunctionInfo::two_fields::<F, WhirF>(
             "multilinear.cu",
-            "piecewise_linear_comb",
+            "linear_combination_at_row_level",
+        ));
+        cuda_load_function(CudaFunctionInfo::two_fields::<WhirF, WhirF>(
+            "multilinear.cu",
+            "linear_combination_at_row_level",
         ));
         cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
             "multilinear.cu",

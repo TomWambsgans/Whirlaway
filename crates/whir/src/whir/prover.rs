@@ -139,7 +139,7 @@ where
         // Fold the coefficients
         let folded_coefficients = round_state
             .coefficients
-            .fold(&round_state.folding_randomness);
+            .whir_fold(&round_state.folding_randomness);
 
         let num_variables = self.0.mv_parameters.num_variables
             - self.0.folding_factor.total_number(round_state.round);

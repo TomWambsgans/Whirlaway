@@ -227,65 +227,6 @@ extern "C" __global__ void add_assign_slices(Field_A *a, Field_A *b, const uint3
     }
 }
 
-extern "C" __global__ void whir_fold(Field_A *coeffs, const uint32_t n_vars, const uint32_t folding_factor, Field_A *folding_randomness, Field_A *buff, Field_A *res)
-{
-    // coeffs has length 2^n_vars
-
-    namespace cg = cooperative_groups;
-    cg::grid_group grid = cg::this_grid();
-
-    const int total_n_threads = blockDim.x * gridDim.x;
-
-    for (int step = 0; step < folding_factor; step++)
-    {
-        Field_A *input;
-        Field_A *output;
-
-        if (folding_factor == 1)
-        {
-            input = coeffs;
-            output = res;
-        }
-        else if (step == 0)
-        {
-            input = coeffs;
-            output = buff;
-        }
-        else
-        {
-            // 2^(nvars - 1) + 2^(nvars - 2) + ... + 2^(nvars - step + 1) = 2^(nvars - step + 1) (2^(step - 1) - 1) = 2^nvars - 2^(nvars - step + 1)
-            input = &buff[(1 << n_vars) - (1 << (n_vars - step + 1))];
-            if (step == folding_factor - 1)
-            {
-                output = res;
-            }
-            else
-            {
-                // same formula, just shifted by one
-                output = &buff[(1 << n_vars) - (1 << (n_vars - step))];
-            }
-        }
-
-        const int helf_step_size = 1 << (folding_factor - step - 1);
-
-        const int n_iters = (1 << (n_vars - step - 1));
-        const int n_repetitions = (n_iters + total_n_threads - 1) / total_n_threads;
-        for (int rep = 0; rep < n_repetitions; rep++)
-        {
-            const int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
-            if (threadIndex < n_iters)
-            {
-                const int x = (threadIndex / helf_step_size) * 2 * helf_step_size;
-                const int y = threadIndex % helf_step_size;
-                Field_A prod;
-                MUL_AA(input[x + y + helf_step_size], folding_randomness[step], prod);
-                ADD_AA(input[x + y], prod, output[threadIndex]);
-            }
-        }
-        grid.sync();
-    }
-}
-
 // for the AIR columns
 extern "C" __global__ void multilinears_up(const Field_A **columns, const uint32_t n_columns, const int n_vars, Field_A **result)
 {
@@ -388,13 +329,13 @@ extern "C" __global__ void dot_product(Field_A *a, Field_B *b, LARGER_AB *res, c
     }
 }
 
-extern "C" __global__ void piecewise_linear_comb(const Field_A *input, LARGER_AB *output, Field_B *scalars, const uint32_t len, const uint32_t n_scalars)
+extern "C" __global__ void linear_combination_at_row_level(const Field_A *input, LARGER_AB *output, Field_B *scalars, const uint32_t len, const uint32_t n_scalars)
 {
     // len must be a multiple of n_scalars
     // input has size len
     // output has size len / n_scalars
-    // output[0] = input[0].scalars[0] + input[output_len].scalars[1] + ... + input[output_len * (n_scalars - 1)].scalars[n_scalars - 1]
-    // output[1] = input[1].scalars[0] + input[output_len + 1].scalars[1] + ... + input[output_len * (n_scalars - 1) + 1].scalars[n_scalars - 1]
+    // output[0] = input[0].scalars[0] + input[1].scalars[1] + ... + input[n_scalars - 1].scalars[n_scalars - 1]
+    // output[1] = input[n_scalars].scalars[0] + input[n_scalars + 1].scalars[1] + ... + input[2.n_scalars - 1].scalars[n_scalars - 1]
     // ...
     // Current implem is suited for small values of n_scalars
 
@@ -412,8 +353,9 @@ extern "C" __global__ void piecewise_linear_comb(const Field_A *input, LARGER_AB
             for (int i = 0; i < n_scalars; i++)
             {
                 Field_B scalar = scalars[i];
+                Field_A curr_input = input[idx * n_scalars + i];
                 LARGER_AB prod;
-                MUL_BA(scalar, input[idx * n_scalars + i], prod);
+                MUL_BA(scalar, curr_input, prod);
                 ADD_MAX_AB(comb, prod, comb);
             }
             output[idx] = comb;

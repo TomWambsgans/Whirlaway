@@ -107,3 +107,19 @@ pub struct Evaluation<F> {
     pub point: Vec<F>,
     pub value: F,
 }
+
+pub fn expanded_point_for_multilinear_monomial_evaluation<F: Field>(point: &[F]) -> Vec<F> {
+    if point.len() == 0 {
+        return vec![F::ONE];
+    }
+    let sub = expanded_point_for_multilinear_monomial_evaluation(&point[1..]);
+    let mut res = vec![F::ZERO; 1 << point.len()];
+    res[..sub.len()].copy_from_slice(&sub);
+    res[sub.len()..]
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(i, x)| {
+            *x = sub[i] * point[0];
+        });
+    res
+}

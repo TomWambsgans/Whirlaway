@@ -10,7 +10,7 @@ use cuda_bindings::{
 use cuda_engine::{HostOrDeviceBuffer, cuda_alloc_zeros, cuda_sync, memcpy_dtod_to, memcpy_dtoh};
 use cudarc::driver::CudaSlice;
 use p3_dft::Radix2DitParallel;
-use p3_field::{Field, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use utils::{default_hash, switch_endianness};
 
@@ -99,7 +99,10 @@ impl<F: Field> CoefficientListHost<F> {
     /// Namely, when self is interpreted as a multi-linear polynomial f in X_0, ..., X_{n-1},
     /// it partially evaluates f at the provided `folding_randomness`.
     /// Our ordering convention is to evaluate at the higher indices, i.e. we return f(X_0,X_1,..., folding_randomness[0], folding_randomness[1],...)
-    pub fn fold(&self, folding_randomness: &[F]) -> Self {
+    pub fn whir_fold<EF: ExtensionField<F>>(
+        &self,
+        folding_randomness: &[EF],
+    ) -> CoefficientListHost<EF> {
         let folding_factor = folding_randomness.len();
         let coeffs = self
             .coeffs
@@ -114,41 +117,41 @@ impl<F: Field> CoefficientListHost<F> {
     }
 
     /// Multivariate evaluation in coefficient form.
-    fn eval_multivariate(coeffs: &[F], point: &[F]) -> F {
+    fn eval_multivariate<EF: ExtensionField<F>>(coeffs: &[F], point: &[EF]) -> EF {
         debug_assert_eq!(coeffs.len(), 1 << point.len());
         match point {
-            [] => coeffs[0],
-            [x] => coeffs[0] + coeffs[1] * *x,
+            [] => EF::from(coeffs[0]),
+            [x] => *x * coeffs[1] + coeffs[0],
             [x0, x1] => {
-                let b0 = coeffs[0] + coeffs[1] * *x1;
-                let b1 = coeffs[2] + coeffs[3] * *x1;
-                b0 + b1 * *x0
+                let b0 = *x1 * coeffs[1] + coeffs[0];
+                let b1 = *x1 * coeffs[3] + coeffs[2];
+                *x0 * b1 + b0
             }
             [x0, x1, x2] => {
-                let b00 = coeffs[0] + coeffs[1] * *x2;
-                let b01 = coeffs[2] + coeffs[3] * *x2;
-                let b10 = coeffs[4] + coeffs[5] * *x2;
-                let b11 = coeffs[6] + coeffs[7] * *x2;
-                let b0 = b00 + b01 * *x1;
-                let b1 = b10 + b11 * *x1;
-                b0 + b1 * *x0
+                let b00 = *x2 * coeffs[1] + coeffs[0];
+                let b01 = *x2 * coeffs[3] + coeffs[2];
+                let b10 = *x2 * coeffs[5] + coeffs[4];
+                let b11 = *x2 * coeffs[7] + coeffs[6];
+                let b0 = b00 + *x1 * b01;
+                let b1 = b10 + *x1 * b11;
+                *x0 * b1 + b0
             }
             [x0, x1, x2, x3] => {
-                let b000 = coeffs[0] + coeffs[1] * *x3;
-                let b001 = coeffs[2] + coeffs[3] * *x3;
-                let b010 = coeffs[4] + coeffs[5] * *x3;
-                let b011 = coeffs[6] + coeffs[7] * *x3;
-                let b100 = coeffs[8] + coeffs[9] * *x3;
-                let b101 = coeffs[10] + coeffs[11] * *x3;
-                let b110 = coeffs[12] + coeffs[13] * *x3;
-                let b111 = coeffs[14] + coeffs[15] * *x3;
-                let b00 = b000 + b001 * *x2;
-                let b01 = b010 + b011 * *x2;
-                let b10 = b100 + b101 * *x2;
-                let b11 = b110 + b111 * *x2;
-                let b0 = b00 + b01 * *x1;
-                let b1 = b10 + b11 * *x1;
-                b0 + b1 * *x0
+                let b000 = *x3 * coeffs[1] + coeffs[0];
+                let b001 = *x3 * coeffs[3] + coeffs[2];
+                let b010 = *x3 * coeffs[5] + coeffs[4];
+                let b011 = *x3 * coeffs[7] + coeffs[6];
+                let b100 = *x3 * coeffs[9] + coeffs[8];
+                let b101 = *x3 * coeffs[11] + coeffs[10];
+                let b110 = *x3 * coeffs[13] + coeffs[12];
+                let b111 = *x3 * coeffs[15] + coeffs[14];
+                let b00 = b000 + *x2 * b001;
+                let b01 = b010 + *x2 * b011;
+                let b10 = b100 + *x2 * b101;
+                let b11 = b110 + *x2 * b111;
+                let b0 = b00 + *x1 * b01;
+                let b1 = b10 + *x1 * b11;
+                *x0 * b1 + b0
             }
             [x, tail @ ..] => {
                 let (b0t, b1t) = coeffs.split_at(coeffs.len() / 2);
@@ -219,8 +222,11 @@ impl<F: Field> CoefficientListDevice<F> {
     /// Our ordering convention is to evaluate at the higher indices, i.e. we return f(X_0,X_1,..., folding_randomness[0], folding_randomness[1],...)
     ///
     /// Async
-    pub fn fold(&self, folding_randomness: &[F]) -> Self {
-        Self::new(cuda_whir_fold(&self.coeffs, folding_randomness))
+    pub fn whir_fold<EF: ExtensionField<F>>(
+        &self,
+        folding_randomness: &[EF],
+    ) -> CoefficientListDevice<EF> {
+        CoefficientListDevice::new(cuda_whir_fold(&self.coeffs, folding_randomness))
     }
 }
 
@@ -321,10 +327,13 @@ impl<F: Field> CoefficientList<F> {
         }
     }
 
-    pub fn fold(&self, folding_randomness: &[F]) -> Self {
+    pub fn whir_fold<EF: ExtensionField<F>>(
+        &self,
+        folding_randomness: &[EF],
+    ) -> CoefficientList<EF> {
         match self {
-            Self::Host(coeffs) => Self::Host(coeffs.fold(folding_randomness)),
-            Self::Device(coeffs) => Self::Device(coeffs.fold(folding_randomness)),
+            Self::Host(coeffs) => CoefficientList::Host(coeffs.whir_fold(folding_randomness)),
+            Self::Device(coeffs) => CoefficientList::Device(coeffs.whir_fold(folding_randomness)),
         }
     }
 

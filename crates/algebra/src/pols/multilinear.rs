@@ -4,8 +4,9 @@ use crate::tensor_algebra::TensorAlgebra;
 use cuda_bindings::{
     cuda_add_assign_slices, cuda_add_slices, cuda_dot_product, cuda_eq_mle, cuda_eval_mixed_tensor,
     cuda_eval_multilinear_in_lagrange_basis, cuda_fold_rectangular_in_small_field,
-    cuda_lagrange_to_monomial_basis_rev, cuda_linear_combination, cuda_piecewise_linear_comb,
-    cuda_repeat_slice_from_inside, cuda_repeat_slice_from_outside, cuda_scale_slice_in_place,
+    cuda_lagrange_to_monomial_basis_rev, cuda_linear_combination,
+    cuda_linear_combination_at_row_level, cuda_repeat_slice_from_inside,
+    cuda_repeat_slice_from_outside, cuda_scale_slice_in_place,
 };
 use cuda_bindings::{cuda_compute_over_hypercube, cuda_fold_rectangular_in_large_field};
 use cuda_engine::{
@@ -406,7 +407,7 @@ impl<F: Field> MultilinearDevice<F> {
                 .transmute::<PrimeField>(self.n_coefs() * scalars.len())
                 .unwrap()
         };
-        Self::new(cuda_piecewise_linear_comb::<PrimeField, F>(
+        Self::new(cuda_linear_combination_at_row_level::<PrimeField, F>(
             &evals_prime,
             scalars,
         ))

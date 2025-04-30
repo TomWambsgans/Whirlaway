@@ -107,7 +107,7 @@ pub fn cuda_piecewise_sum<F: Field>(input: &CudaSlice<F>, sum_size: usize) -> Cu
 }
 
 // Async
-pub fn cuda_piecewise_linear_comb<F: Field, EF: ExtensionField<F>>(
+pub fn cuda_linear_combination_at_row_level<F: Field, EF: ExtensionField<F>>(
     input: &CudaView<F>,
     scalars: &[EF],
 ) -> CudaSlice<EF> {
@@ -122,7 +122,7 @@ pub fn cuda_piecewise_linear_comb<F: Field, EF: ExtensionField<F>>(
     let n_scalars_u32 = scalars.len() as u32;
     let scalars_dev = memcpy_htod(scalars);
     let mut call = CudaCall::new(
-        CudaFunctionInfo::two_fields::<F, EF>("multilinear.cu", "piecewise_linear_comb"),
+        CudaFunctionInfo::two_fields::<F, EF>("multilinear.cu", "linear_combination_at_row_level"),
         output_len as u32,
     );
     call.arg(input);
@@ -392,13 +392,13 @@ mod tests {
     }
 
     #[test]
-    fn test_piecewise_linear_comb() {
+    fn test_linear_combination_at_row_level() {
         type F = KoalaBear;
         type EF = BinomialExtensionField<KoalaBear, 8>;
         cuda_init();
         cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
             "multilinear.cu",
-            "piecewise_linear_comb",
+            "linear_combination_at_row_level",
         ));
         let rng = &mut StdRng::seed_from_u64(0);
         for log_len in [1, 3, 11, 20] {
@@ -412,7 +412,7 @@ mod tests {
                 cuda_sync();
                 let scalars = (0..n_scalars).map(|_| rng.random()).collect::<Vec<EF>>();
                 let time = std::time::Instant::now();
-                let cuda_res = cuda_piecewise_linear_comb(&input_dev.as_view(), &scalars);
+                let cuda_res = cuda_linear_combination_at_row_level(&input_dev.as_view(), &scalars);
                 cuda_sync();
                 println!("CUDA time: {:?} ms", time.elapsed().as_millis());
                 let cuda_res = memcpy_dtoh(&cuda_res);

@@ -85,7 +85,7 @@ where
             evaluations: vec![eval.value],
         };
         Prover(self.config.clone())
-            .prove(fs_prover, statement, witness)
+            .prove::<PrimeField>(fs_prover, statement, witness)
             .unwrap();
     }
 
