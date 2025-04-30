@@ -327,9 +327,13 @@ using Field_C = Field_t<EXTENSION_DEGREE_C>;
 typedef LARGER_TYPE(Field_A, Field_B) LARGER_AB;
 
 #if EXTENSION_DEGREE_A > EXTENSION_DEGREE_B
+#define ADD_A_AND_MAX_AB(x, y, res) ADD_AA(x, y, res);
+#define MUL_B_and_MAX_AB(x, y, res) MUL_BA(x, y, res);
 #define ADD_MAX_AB(x, y, res) ADD_AA(x, y, res);
 #define MUL_MAX_AB(x, y, res) MUL_AA(x, y, res);
 #else
+#define ADD_A_AND_MAX_AB(x, y, res) ADD_AB(x, y, res);
+#define MUL_B_and_MAX_AB(x, y, res) MUL_BB(x, y, res);
 #define ADD_MAX_AB(x, y, res) ADD_BB(x, y, res);
 #define MUL_MAX_AB(x, y, res) MUL_BB(x, y, res);
 #endif

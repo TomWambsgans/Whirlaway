@@ -101,44 +101,56 @@ extern "C" __global__ void lagrange_to_monomial_basis_rev(Field_A *input_evals, 
     }
 }
 
-extern "C" __global__ void eval_multilinear_in_monomial_basis(Field_A *coeffs, Field_A *point, const uint32_t n_vars, Field_A *buff)
+extern "C" __global__ void eval_multilinear_in_monomial_basis(Field_A *coeffs, Field_B *point, uint32_t n_vars, LARGER_AB *buff)
 {
-    // coeffs and buff have size 2^n_vars
+    // coeffs has size 2^n_vars
+    // buff has size 2^n_vars - 1
     // result is stored at the last index of the buffer
 
     namespace cg = cooperative_groups;
     cg::grid_group grid = cg::this_grid();
 
-    const int total_n_threads = blockDim.x * gridDim.x;
+    int total_n_threads = blockDim.x * gridDim.x;
 
-    for (int step = 0; step < n_vars; step++)
+    int n_iters = (1 << (n_vars - 1));
+    int n_repetitions = (n_iters + total_n_threads - 1) / total_n_threads;
+    for (int rep = 0; rep < n_repetitions; rep++)
     {
-        Field_A *input;
-        Field_A *output;
-
-        if (step == 0)
+        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
+        if (threadIndex < n_iters)
         {
-            input = coeffs;
-            output = buff;
+            Field_A left = coeffs[threadIndex];
+            Field_A right = coeffs[threadIndex + (1 << (n_vars - 1))];
+            Field_B p = point[0];
+            LARGER_AB prod;
+            MUL_AB(right, p, prod);
+            ADD_A_AND_MAX_AB(left, prod, buff[threadIndex]);
         }
-        else
-        {
-            // 2^(nvars - 1) + 2^(nvars - 2) + ... + 2^(nvars - step + 1) = 2^(nvars - step + 1) (2^(step - 1) - 1) = 2^nvars - 2^(nvars - step + 1)
-            input = &buff[(1 << n_vars) - (1 << (n_vars - step + 1))];
-            // same formula, just shifted by one
-            output = &buff[(1 << n_vars) - (1 << (n_vars - step))];
-        }
+    }
 
-        const int n_iters = (1 << (n_vars - step - 1));
-        const int n_repetitions = (n_iters + total_n_threads - 1) / total_n_threads;
+    grid.sync();
+
+    for (int step = 1; step < n_vars; step++)
+    {
+
+        // 2^(nvars - 1) + 2^(nvars - 2) + ... + 2^(nvars - step + 1) = 2^(nvars - step + 1) (2^(step - 1) - 1) = 2^nvars - 2^(nvars - step + 1)
+        LARGER_AB *input = &buff[(1 << n_vars) - (1 << (n_vars - step + 1))];
+        // same formula, just shifted by one
+        LARGER_AB *output = &buff[(1 << n_vars) - (1 << (n_vars - step))];
+
+        int n_iters = (1 << (n_vars - step - 1));
+        int n_repetitions = (n_iters + total_n_threads - 1) / total_n_threads;
         for (int rep = 0; rep < n_repetitions; rep++)
         {
             const int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
             if (threadIndex < n_iters)
             {
-                Field_A prod;
-                MUL_AA(input[threadIndex + (1 << (n_vars - 1 - step))], point[step], prod);
-                ADD_AA(input[threadIndex], prod, output[threadIndex]);
+                LARGER_AB left = input[threadIndex];
+                LARGER_AB right = input[threadIndex + (1 << (n_vars - 1 - step))];
+                Field_B p = point[step];
+                LARGER_AB prod;
+                MUL_B_and_MAX_AB(p, right, prod);
+                ADD_MAX_AB(left, prod, output[threadIndex]);
             }
         }
         grid.sync();

@@ -7,21 +7,27 @@ use p3_field::{ExtensionField, Field};
 use super::cuda_dot_product;
 
 // Async
-pub fn cuda_eval_multilinear_in_monomial_basis<F: Field>(coeffs: &CudaSlice<F>, point: &[F]) -> F {
+pub fn cuda_eval_multilinear_in_monomial_basis<F: Field, EF: ExtensionField<F>>(
+    coeffs: &CudaSlice<F>,
+    point: &[EF],
+) -> EF {
     // TODO simplify
     assert!(coeffs.len().is_power_of_two());
     let n_vars = coeffs.len().ilog2() as u32;
     assert_eq!(n_vars, point.len() as u32);
 
     if n_vars == 0 {
-        return F::from(cuda_get_at_index(coeffs, 0));
+        return EF::from(cuda_get_at_index(coeffs, 0));
     }
 
     let point_dev = memcpy_htod(&point);
-    let mut buff = cuda_alloc::<F>(coeffs.len() - 1);
+    let mut buff = cuda_alloc::<EF>(coeffs.len() - 1);
 
     let mut call = CudaCall::new(
-        CudaFunctionInfo::one_field::<F>("multilinear.cu", "eval_multilinear_in_monomial_basis"),
+        CudaFunctionInfo::two_fields::<F, EF>(
+            "multilinear.cu",
+            "eval_multilinear_in_monomial_basis",
+        ),
         1 << (n_vars - 1),
     );
     call.arg(coeffs);
@@ -30,7 +36,7 @@ pub fn cuda_eval_multilinear_in_monomial_basis<F: Field>(coeffs: &CudaSlice<F>, 
     call.arg(&mut buff);
     call.launch_cooperative();
 
-    cuda_get_at_index(&buff, coeffs.len() - 2)
+    cuda_get_at_index(&buff, buff.len() - 1)
 }
 
 // Async
@@ -62,6 +68,7 @@ pub fn cuda_eq_mle<F: Field>(point: &[F]) -> CudaSlice<F> {
     call.launch_cooperative();
     res
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,15 +85,15 @@ mod tests {
         type F = KoalaBear;
         type EF = BinomialExtensionField<F, EXT_DEGREE>;
         cuda_init();
-        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+        cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
             "multilinear.cu",
             "eval_multilinear_in_monomial_basis",
         ));
         let rng = &mut StdRng::seed_from_u64(0);
-        let n_vars = 20;
+        let n_vars = 22;
         let len = 1 << n_vars;
+        let coeffs = (0..len).map(|_| rng.random()).collect::<Vec<F>>();
         let point = (0..n_vars).map(|_| rng.random()).collect::<Vec<EF>>();
-        let coeffs = (0..len).map(|_| rng.random()).collect::<Vec<EF>>();
 
         let coeffs_dev = memcpy_htod(&coeffs);
         cuda_sync();
@@ -112,6 +119,14 @@ mod tests {
         type F = KoalaBear;
         type EF = BinomialExtensionField<F, EXT_DEGREE>;
         cuda_init();
+        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+            "multilinear.cu",
+            "eq_mle",
+        ));
+        cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
+            "multilinear.cu",
+            "dot_product",
+        ));
         let rng = &mut StdRng::seed_from_u64(0);
         let n_vars = 20;
         let len = 1 << n_vars;

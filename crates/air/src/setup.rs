@@ -69,11 +69,11 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
             "multilinear.cu",
             "multilinears_down",
         ));
-        cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
+        cuda_load_function(CudaFunctionInfo::two_fields::<WhirF, WhirF>(
             "multilinear.cu",
             "eval_multilinear_in_monomial_basis",
         ));
-        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+        cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
             "multilinear.cu",
             "eval_multilinear_in_monomial_basis",
         ));

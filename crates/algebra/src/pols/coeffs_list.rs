@@ -33,7 +33,7 @@ pub struct CoefficientListHost<F> {
 
 impl<F: Field> CoefficientListHost<F> {
     /// Evaluate the given polynomial at `point` from F^n.
-    pub fn evaluate(&self, point: &[F]) -> F {
+    pub fn evaluate<EF: ExtensionField<F>>(&self, point: &[EF]) -> EF {
         assert_eq!(self.n_vars, point.len());
         Self::eval_multivariate(&self.coeffs, point)
     }
@@ -183,7 +183,7 @@ pub struct CoefficientListDevice<F: Field> {
 
 impl<F: Field> CoefficientListDevice<F> {
     /// Evaluate the given polynomial at `point` from F^n.
-    pub fn evaluate(&self, point: &[F]) -> F {
+    pub fn evaluate<EF: ExtensionField<F>>(&self, point: &[EF]) -> EF {
         assert_eq!(self.n_vars, point.len());
         cuda_eval_multilinear_in_monomial_basis(&self.coeffs, point)
     }
@@ -251,7 +251,7 @@ impl<F: Field> CoefficientList<F> {
         }
     }
 
-    pub fn evaluate(&self, point: &[F]) -> F {
+    pub fn evaluate<EF: ExtensionField<F>>(&self, point: &[EF]) -> EF {
         match self {
             Self::Host(pol) => pol.evaluate(point),
             Self::Device(pol) => pol.evaluate(point),
