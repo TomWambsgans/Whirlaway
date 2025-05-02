@@ -4,13 +4,14 @@ use cudarc::nvrtc::Ptx;
 use p3_field::Field;
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashMap};
-use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, OnceLock, RwLock};
 use tracing::instrument;
-use utils::{SupportedField, extension_degree};
+use utils::{SupportedField, extension_degree, log2_down};
+
+use crate::LOG_MAX_THREADS_PER_BLOCK;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct CudaFunctionInfo {
@@ -20,6 +21,7 @@ pub struct CudaFunctionInfo {
     pub extension_degree_a: Option<usize>,
     pub extension_degree_b: Option<usize>,
     pub extension_degree_c: Option<usize>,
+    pub max_ntt_log_size_at_block_level: Option<u32>,
     pub no_inline: bool,
     pub cache_memory_reads: bool,
 }
@@ -60,6 +62,27 @@ impl CudaFunctionInfo {
             ..Default::default()
         }
     }
+
+    pub fn ntt_at_block_level<F: Field>() -> Self {
+        Self {
+            cuda_file: kernels_folder().join("ntt/ntt.cu"),
+            function_name: "ntt_at_block_level".to_string(),
+            field: Some(SupportedField::guess::<F>()),
+            extension_degree_a: Some(extension_degree::<F::PrimeSubfield>()), // twiddles
+            extension_degree_b: Some(extension_degree::<F>()),
+            max_ntt_log_size_at_block_level: Some(max_ntt_log_size_at_block_level::<F>() as u32),
+            ..Default::default()
+        }
+    }
+}
+
+pub fn max_ntt_log_size_at_block_level<F: Field>() -> usize {
+    (LOG_MAX_THREADS_PER_BLOCK as usize + 1).min(
+        log2_down(
+            (shared_memory() / (std::mem::size_of::<F>() + std::mem::size_of::<F::PrimeSubfield>()))
+                as usize,
+        ) - 1,
+    ) // TODO fix and remove -1
 }
 
 pub(crate) struct CudaEngine {
@@ -129,6 +152,11 @@ pub(crate) fn load_function(
     if let Some(extension_degree_c) = options.extension_degree_c {
         ptx_file_name.push_str(&format!("_C{extension_degree_c}"));
     }
+    if let Some(max_ntt_log_size_at_block_level) = options.max_ntt_log_size_at_block_level {
+        ptx_file_name.push_str(&format!(
+            "_max_ntt_log_size_at_block_level_{max_ntt_log_size_at_block_level}"
+        ));
+    }
     if options.no_inline {
         ptx_file_name.push_str("_noinline");
     }
@@ -136,7 +164,7 @@ pub(crate) fn load_function(
         ptx_file_name.push_str("_cached");
     }
     let ptx_file = ptx_dir().join(format!("{ptx_file_name}.ptx"));
-    let (major, minor) = cuda_compute_capacity().expect("Failed to get CUDA compute capability");
+    let (major, minor) = cuda_compute_capacity();
 
     let source_modified = options
         .cuda_file
@@ -201,6 +229,11 @@ pub(crate) fn load_function(
         if let Some(extension_degree_c) = options.extension_degree_c {
             command.arg(format!("-DEXTENSION_DEGREE_C={extension_degree_c}"));
         }
+        if let Some(max_ntt_log_size_at_block_level) = options.max_ntt_log_size_at_block_level {
+            command.arg(format!(
+                "-DMAX_NTT_LOG_SIZE_AT_BLOCK_LEVEL={max_ntt_log_size_at_block_level}"
+            ));
+        }
 
         let output = command.output().expect(&format!(
             "Failed to compile {} with nvcc",
@@ -223,16 +256,37 @@ pub(crate) fn load_function(
 
     let ptx_content = std::fs::read_to_string(ptx_file).expect("Failed to read PTX file");
     let my_module = engine.dev.load_module(Ptx::from_src(ptx_content)).unwrap();
-    let cuda_function = my_module.load_function(&options.function_name).unwrap();
+    let cuda_function = my_module
+        .load_function(&options.function_name)
+        .unwrap_or_else(|_| {
+            panic!(
+                "Failed to load function {} from {}",
+                options.function_name,
+                options.cuda_file.to_string_lossy()
+            )
+        });
     functions.insert(options, cuda_function);
 }
 
-fn cuda_compute_capacity() -> Result<(i32, i32), Box<dyn Error>> {
-    let dev = CudaContext::new(0)?;
-    let major = dev.attribute(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR)?;
-    let minor = dev.attribute(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR)?;
+fn cuda_compute_capacity() -> (u32, u32) {
+    let dev = CudaContext::new(0).unwrap();
+    let major = dev
+        .attribute(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR)
+        .unwrap() as u32;
+    let minor = dev
+        .attribute(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR)
+        .unwrap() as u32;
 
-    Ok((major, minor))
+    (major, minor)
+}
+
+static SHARED_MEMORY: OnceLock<usize> = OnceLock::new();
+fn shared_memory() -> usize {
+    *SHARED_MEMORY.get_or_init(|| {
+        let dev = CudaContext::new(0).unwrap();
+        dev.attribute(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK)
+            .unwrap() as usize
+    })
 }
 
 pub(crate) fn kernels_folder() -> PathBuf {

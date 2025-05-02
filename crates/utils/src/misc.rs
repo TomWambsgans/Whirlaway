@@ -13,6 +13,18 @@ pub const fn log2_up(x: usize) -> usize {
     }) as usize
 }
 
+#[inline(always)]
+pub const fn log2_down(x: usize) -> usize {
+    // rounded down
+    if x == 0 {
+        0
+    } else if x.is_power_of_two() {
+        (1usize.leading_zeros() - x.leading_zeros()) as usize
+    } else {
+        (0usize.leading_zeros() - x.leading_zeros() - 1) as usize
+    }
+}
+
 pub fn switch_endianness(mut x: usize, n: usize) -> usize {
     let mut y = 0;
     for _ in 0..n {

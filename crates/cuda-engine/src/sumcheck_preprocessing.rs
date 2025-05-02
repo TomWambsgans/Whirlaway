@@ -75,6 +75,7 @@ pub fn cuda_preprocess_sumcheck_computation<F: PrimeField32>(
         extension_degree_a: Some(extension_degree_a),
         extension_degree_b: Some(extension_degree_b),
         extension_degree_c: Some(extension_degree_c),
+        max_ntt_log_size_at_block_level: None,
         no_inline: sumcheck_computation.no_inline_cuda_ops(),
         cache_memory_reads,
     };

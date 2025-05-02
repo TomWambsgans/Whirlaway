@@ -111,7 +111,7 @@ mod test {
             .with(ForestLayer::default())
             .init();
 
-        let n_vars = 23;
+        let n_vars = 17;
         let cuda = true;
         // type F = KoalaBear;
         type F = KoalaBear;
@@ -156,6 +156,14 @@ mod test {
                 "ntt/transpose.cu",
                 "transpose",
             ));
+            cuda_load_function(CudaFunctionInfo::one_field::<F>(
+                "ntt/bit_reverse.cu",
+                "reverse_bit_order_global",
+            ));
+            cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+                "ntt/bit_reverse.cu",
+                "reverse_bit_order_global",
+            ));
             cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
                 "multilinear.cu",
                 "dot_product",
@@ -166,12 +174,14 @@ mod test {
             ));
             cuda_load_function(CudaFunctionInfo::two_fields::<KoalaBear, EF>(
                 "ntt/ntt.cu",
-                "ntt",
+                "ntt_step",
             ));
+            cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<EF>());
             cuda_load_function(CudaFunctionInfo::two_fields::<KoalaBear, F>(
                 "ntt/ntt.cu",
-                "ntt",
+                "ntt_step",
             ));
+            cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<F>());
             cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
                 "multilinear.cu",
                 "eval_multilinear_in_monomial_basis",

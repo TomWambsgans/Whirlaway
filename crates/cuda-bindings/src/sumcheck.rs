@@ -51,6 +51,7 @@ pub fn cuda_compute_over_hypercube<
         extension_degree_a: Some(extension_degree::<F>()),
         extension_degree_b: Some(extension_degree::<NF>()),
         extension_degree_c: Some(extension_degree::<EF>()),
+        max_ntt_log_size_at_block_level: None,
         no_inline: sumcheck_computation.no_inline_cuda_ops(),
         cache_memory_reads: extension_degree::<NF>() == 1,
     };

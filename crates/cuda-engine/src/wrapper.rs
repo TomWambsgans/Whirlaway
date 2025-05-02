@@ -12,7 +12,7 @@ use utils::default_hash;
 
 // TODO Avoid hardcoding : This is GPU dependent
 pub const LOG_MAX_THREADS_PER_COOPERATIVE_BLOCK: u32 = 8;
-pub const LOG_MAX_THREADS_PER_BLOCK: u32 = 9;
+pub const LOG_MAX_THREADS_PER_BLOCK: u32 = 8;
 
 pub const MAX_THREADS_PER_COOPERATIVE_BLOCK: u32 = 1 << LOG_MAX_THREADS_PER_COOPERATIVE_BLOCK;
 pub const MAX_THREADS_PER_BLOCK: u32 = 1 << LOG_MAX_THREADS_PER_BLOCK;
@@ -163,13 +163,14 @@ pub fn cuda_twiddles<F: Field>() -> CudaSlice<F> {
 
 #[derive(derive_more::Deref, derive_more::DerefMut)]
 pub struct CudaCall<'a> {
-    pub function: &'static CudaFunction,
+    _function: &'static CudaFunction,
     #[deref]
     #[deref_mut]
     pub args: LaunchArgs<'a>,
-    pub n_ops: u32,
-    pub shared_mem_bytes: u32,
-    pub info: CudaFunctionInfo,
+    max_log_threads_per_block: Option<u32>,
+    n_ops: u32,
+    shared_mem_bytes: u32,
+    info: CudaFunctionInfo,
 }
 
 impl<'a> CudaCall<'a> {
@@ -186,10 +187,11 @@ impl<'a> CudaCall<'a> {
 
         let args = cuda.stream.launch_builder(&function);
         Self {
-            function,
+            _function: function,
             args,
             n_ops,
             shared_mem_bytes: 0,
+            max_log_threads_per_block: None,
             info,
         }
     }
@@ -204,13 +206,20 @@ impl<'a> CudaCall<'a> {
         self
     }
 
+    pub fn max_log_threads_per_block(mut self, n: u32) -> Self {
+        assert!(n <= LOG_MAX_THREADS_PER_BLOCK);
+        self.max_log_threads_per_block = Some(n);
+        self
+    }
+
     fn launch_config(&self, cooperative: bool) -> LaunchConfig {
         assert!(self.n_ops > 0);
         let max_log_threads = if cooperative {
             LOG_MAX_THREADS_PER_COOPERATIVE_BLOCK // also harcoded in ntt.cu
         } else {
             LOG_MAX_THREADS_PER_BLOCK
-        };
+        }
+        .min(self.max_log_threads_per_block.unwrap_or(u32::MAX));
         let max_blocks = if cooperative {
             MAX_COOPERATIVE_BLOCKS
         } else {

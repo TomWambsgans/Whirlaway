@@ -12,7 +12,9 @@
 - AIR inner sumcheck can bee accelerated (some factors have not all the variables + it's sparse -> avoid "dummy variables")
 - Neg in ArithmeticCircuitComposed
 - use cuda constant memory for batching_scalars
+- use cuda constant memory for small twiddles
 - sparse preprocessed columns
 - MaybeUninit instead of allocating zeros when it's rewritten just after
+- fix shared memory (cf " - 1" in max_ntt_log_size_at_block_level)
 
 - Add ZK?

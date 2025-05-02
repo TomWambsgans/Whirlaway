@@ -1,11 +1,10 @@
 use cuda_engine::{
-    CudaCall, CudaFunctionInfo, MAX_THREADS_PER_COOPERATIVE_BLOCK, cuda_alloc, cuda_twiddles,
-    cuda_twiddles_two_adicity,
+    CudaCall, CudaFunctionInfo, cuda_alloc, cuda_twiddles, cuda_twiddles_two_adicity,
+    max_ntt_log_size_at_block_level,
 };
 use cudarc::driver::{CudaSlice, PushKernelArg};
 
 use p3_field::Field;
-use utils::extension_degree;
 
 pub fn cuda_transpose<F: Field>(
     input: &CudaSlice<F>,
@@ -29,31 +28,155 @@ pub fn cuda_transpose<F: Field>(
     result_dev
 }
 
+pub fn cuda_reverse_bit_order<F: Field>(input: &mut CudaSlice<F>, log_chunck_size: usize) {
+    assert!(input.len().is_power_of_two());
+    let log_len_u32 = input.len().trailing_zeros() as u32;
+    let log_chunck_size_u32 = log_chunck_size as u32;
+    assert!(log_chunck_size_u32 <= log_len_u32);
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::one_field::<F>("ntt/bit_reverse.cu", "reverse_bit_order_global"),
+        input.len() as u32,
+    );
+    call.arg(input);
+    call.arg(&log_len_u32);
+    call.arg(&log_chunck_size_u32);
+    call.launch();
+}
+
+pub fn cuda_ntt_step<F: Field>(
+    coeffs: &mut CudaSlice<F>,
+    twiddles: &CudaSlice<F::PrimeSubfield>,
+    log_len_u32: u32,
+    step: u32,
+) {
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::two_fields::<F::PrimeSubfield, F>("ntt/ntt.cu", "ntt_step"),
+        1 << (log_len_u32 - 1),
+    );
+    call.arg(coeffs);
+    call.arg(&log_len_u32);
+    call.arg(&step);
+    call.arg(twiddles);
+    call.launch();
+}
+
+pub fn cuda_ntt_at_block_level<F: Field>(
+    coeffs: &mut CudaSlice<F>,
+    twiddles: &CudaSlice<F::PrimeSubfield>,
+    log_chunck_size: u32,
+    log_len_u32: u32,
+) {
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::ntt_at_block_level::<F>(),
+        1 << (log_len_u32 - 1),
+    )
+    .max_log_threads_per_block(max_ntt_log_size_at_block_level::<F>() as u32 - 1)
+    .shared_mem_bytes(
+        ((1 << max_ntt_log_size_at_block_level::<F>())
+            * (std::mem::size_of::<F>() + std::mem::size_of::<F::PrimeSubfield>())) as u32,
+    );
+    call.arg(coeffs);
+    call.arg(&log_len_u32);
+    call.arg(&log_chunck_size);
+    call.arg(twiddles);
+    call.launch();
+}
+
+// Async
 pub fn cuda_ntt<F: Field>(coeffs: &mut CudaSlice<F>, log_chunck_size: usize) {
     assert!(coeffs.len().is_power_of_two());
 
-    let log_chunck_size_u32 = log_chunck_size as u32;
     let log_len_u32 = coeffs.len().trailing_zeros() as u32;
-
     assert!(
         log_chunck_size <= cuda_twiddles_two_adicity::<F::PrimeSubfield>(),
         "NTT to big"
     );
 
-    assert_eq!(std::mem::size_of::<F>() % std::mem::size_of::<u32>(), 0);
+    cuda_reverse_bit_order(coeffs, log_chunck_size);
 
     let twiddles = cuda_twiddles::<F::PrimeSubfield>();
-    let mut call = CudaCall::new(
-        CudaFunctionInfo::two_fields::<F::PrimeSubfield, F>("ntt/ntt.cu", "ntt"),
-        1 << (log_len_u32 - 1),
-    )
-    .shared_mem_bytes(
-        (MAX_THREADS_PER_COOPERATIVE_BLOCK * 2) * (extension_degree::<F>() as u32 + 1) * 4,
-    ); // cf `ntt_at_block_level` in ntt.cu
 
-    call.arg(coeffs);
-    call.arg(&log_len_u32);
-    call.arg(&log_chunck_size_u32);
-    call.arg(&twiddles);
-    call.launch_cooperative();
+    let block_log_chunck_size = log_chunck_size.min(max_ntt_log_size_at_block_level::<F>()) as u32;
+    cuda_ntt_at_block_level(coeffs, &twiddles, block_log_chunck_size, log_len_u32);
+    for step in block_log_chunck_size..log_chunck_size as u32 {
+        cuda_ntt_step(coeffs, &twiddles, log_len_u32, step);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cuda_engine::{
+        cuda_init, cuda_load_function, cuda_preprocess_twiddles, cuda_sync, memcpy_dtoh,
+        memcpy_htod,
+    };
+    use p3_dft::{Radix2DitParallel, TwoAdicSubgroupDft};
+    use p3_field::{TwoAdicField, extension::BinomialExtensionField};
+    use p3_koala_bear::KoalaBear;
+    use p3_matrix::{Matrix, dense::RowMajorMatrix};
+    use utils::extension_degree;
+
+    #[test]
+    fn test_cuda_ntt() {
+        for log_width in [1, 2, 5, 12] {
+            for log_len in [1, 3, 10, 14, 17] {
+                if log_width > log_len {
+                    continue;
+                }
+                test_cuda_ntt_helper::<KoalaBear>(log_len, log_width);
+                test_cuda_ntt_helper::<BinomialExtensionField<KoalaBear, 4>>(log_len, log_width);
+                test_cuda_ntt_helper::<BinomialExtensionField<KoalaBear, 8>>(log_len, log_width);
+            }
+        }
+    }
+
+    fn test_cuda_ntt_helper<F: TwoAdicField + Ord>(log_len: usize, log_width: usize) {
+        cuda_init();
+        cuda_load_function(CudaFunctionInfo::two_fields::<KoalaBear, F>(
+            "ntt/ntt.cu",
+            "ntt_step",
+        ));
+        cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<F>());
+        cuda_load_function(CudaFunctionInfo::one_field::<F>(
+            "ntt/bit_reverse.cu",
+            "reverse_bit_order_global",
+        ));
+        cuda_load_function(CudaFunctionInfo::one_field::<F>(
+            "ntt/transpose.cu",
+            "transpose",
+        ));
+        cuda_preprocess_twiddles::<KoalaBear>();
+
+        let len = 1 << log_len;
+        let coeffs = (0..len).map(|i| F::from_usize(i)).collect::<Vec<_>>();
+        let coeffs_dev = memcpy_htod(&coeffs);
+        cuda_sync();
+
+        let time = std::time::Instant::now();
+
+        let mut transposed =
+            cuda_transpose(&coeffs_dev, (log_len - log_width) as u32, log_width as u32);
+        cuda_ntt(&mut transposed, log_len - log_width);
+        let res_dev = cuda_transpose(&transposed, log_width as u32, (log_len - log_width) as u32);
+        cuda_sync();
+        println!("CUDA ntt took: {} ms", time.elapsed().as_millis());
+        let cuda_res = memcpy_dtoh(&res_dev);
+        cuda_sync();
+
+        Radix2DitParallel::<F>::default()
+            .dft_batch(RowMajorMatrix::new(coeffs.clone(), 1 << log_width)); // load twiddles
+        let time = std::time::Instant::now();
+        let cpu_res = Radix2DitParallel::<F>::default()
+            .dft_batch(RowMajorMatrix::new(coeffs, 1 << log_width))
+            // Get natural order of rows.
+            .to_row_major_matrix()
+            .values;
+        println!("CPU ntt took: {} ms", time.elapsed().as_millis());
+
+        assert!(
+            cuda_res == cpu_res,
+            "log_len = {log_len}, log_width = {log_width}, extension = {}",
+            extension_degree::<F>()
+        );
+    }
 }

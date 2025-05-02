@@ -488,6 +488,10 @@ mod tests {
         cuda_init();
         let rng = &mut StdRng::seed_from_u64(0);
         type F = BinomialExtensionField<KoalaBear, 8>;
+        cuda_load_function(CudaFunctionInfo::one_field::<F>(
+            "multilinear.cu",
+            "sum_in_place",
+        ));
         for log_len in [1, 3, 11, 20] {
             let len = 1 << log_len;
             let input = (0..len).map(|_| rng.random()).collect::<Vec<F>>();

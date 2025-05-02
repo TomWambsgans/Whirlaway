@@ -185,9 +185,14 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
             "ntt/transpose.cu",
             "transpose",
         ));
+        cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
+            "ntt/bit_reverse.cu",
+            "reverse_bit_order_global",
+        ));
         cuda_load_function(CudaFunctionInfo::two_fields::<F, WhirF>(
             "ntt/ntt.cu",
-            "ntt",
+            "ntt_step",
         ));
+        cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<WhirF>());
     }
 }
