@@ -7,7 +7,7 @@ use p3_field::{ExtensionField, Field};
 use rand::distr::{Distribution, StandardUniform};
 use rayon::prelude::*;
 
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Default, Hash)]
 pub struct UnivariatePolynomial<F: Field> {
     pub coeffs: Vec<F>,
 }

@@ -4,10 +4,8 @@ use cuda_engine::{
 use cudarc::driver::{CudaSlice, PushKernelArg};
 use p3_field::{ExtensionField, Field};
 
-use super::cuda_dot_product;
-
 // Async
-pub fn cuda_eval_multilinear_in_monomial_basis<F: Field, EF: ExtensionField<F>>(
+pub fn cuda_eval_multilinear_in_lagrange_basis<F: Field, EF: ExtensionField<F>>(
     coeffs: &CudaSlice<F>,
     point: &[EF],
 ) -> EF {
@@ -25,7 +23,7 @@ pub fn cuda_eval_multilinear_in_monomial_basis<F: Field, EF: ExtensionField<F>>(
     let mut call = CudaCall::new(
         CudaFunctionInfo::two_fields::<F, EF>(
             "multilinear.cu",
-            "eval_multilinear_in_monomial_basis",
+            "eval_multilinear_in_lagrange_basis",
         ),
         1 << (n_vars - 1),
     );
@@ -36,15 +34,6 @@ pub fn cuda_eval_multilinear_in_monomial_basis<F: Field, EF: ExtensionField<F>>(
     call.launch_cooperative();
 
     cuda_get_at_index(&buff, buff.len() - 1)
-}
-
-// Async
-pub fn cuda_eval_multilinear_in_lagrange_basis<F: Field, EF: ExtensionField<F>>(
-    coeffs: &CudaSlice<F>,
-    point: &[EF],
-) -> EF {
-    let eq_mle = cuda_eq_mle(point);
-    cuda_dot_product(coeffs, &eq_mle)
 }
 
 // Async
@@ -75,56 +64,30 @@ mod tests {
     use cuda_engine::*;
     use p3_field::extension::BinomialExtensionField;
     use p3_koala_bear::KoalaBear;
-    use rand::{Rng, SeedableRng, rngs::StdRng};
-
-    #[test]
-    pub fn test_cuda_eval_multilinear_in_monomial_basis() {
-        const EXT_DEGREE: usize = 8;
-
-        type F = KoalaBear;
-        type EF = BinomialExtensionField<F, EXT_DEGREE>;
-        cuda_init();
-        cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
-            "multilinear.cu",
-            "eval_multilinear_in_monomial_basis",
-        ));
-        let rng = &mut StdRng::seed_from_u64(0);
-        let n_vars = 22;
-        let len = 1 << n_vars;
-        let coeffs = (0..len).map(|_| rng.random()).collect::<Vec<F>>();
-        let point = (0..n_vars).map(|_| rng.random()).collect::<Vec<EF>>();
-
-        let coeffs_dev = memcpy_htod(&coeffs);
-        cuda_sync();
-
-        let time = std::time::Instant::now();
-        let cuda_result = cuda_eval_multilinear_in_monomial_basis(&coeffs_dev, &point);
-        cuda_sync();
-        println!(
-            "CUDA eval_multilinear_in_monomial_basiss took {} ms",
-            time.elapsed().as_millis()
-        );
-        let time = std::time::Instant::now();
-        let expected_result = CoefficientListHost::new(coeffs).evaluate(&point);
-        println!("CPU took {} ms", time.elapsed().as_millis());
-
-        assert_eq!(cuda_result, expected_result);
-    }
+    use rand::{
+        Rng, SeedableRng,
+        distr::{Distribution, StandardUniform},
+        rngs::StdRng,
+    };
 
     #[test]
     pub fn test_cuda_eval_multilinear_in_lagrange_basis() {
-        const EXT_DEGREE: usize = 8;
-
         type F = KoalaBear;
-        type EF = BinomialExtensionField<F, EXT_DEGREE>;
+        type EF = BinomialExtensionField<KoalaBear, 8>;
+        test_cuda_eval_multilinear_in_lagrange_basis_helper::<F, EF>();
+        test_cuda_eval_multilinear_in_lagrange_basis_helper::<F, F>();
+        test_cuda_eval_multilinear_in_lagrange_basis_helper::<EF, EF>();
+    }
+
+    fn test_cuda_eval_multilinear_in_lagrange_basis_helper<F: Field, EF: ExtensionField<F>>()
+    where
+        StandardUniform: Distribution<F>,
+        StandardUniform: Distribution<EF>,
+    {
         cuda_init();
-        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
-            "multilinear.cu",
-            "eq_mle",
-        ));
         cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
             "multilinear.cu",
-            "dot_product",
+            "eval_multilinear_in_lagrange_basis",
         ));
         let rng = &mut StdRng::seed_from_u64(0);
         let n_vars = 20;
@@ -139,7 +102,7 @@ mod tests {
         let cuda_result = cuda_eval_multilinear_in_lagrange_basis(&coeffs_dev, &point);
         cuda_sync();
         println!(
-            "CUDA eval_multilinear_in_lagrange_basiss took {} ms",
+            "CUDA eval_multilinear_in_lagrange_basis took {} ms",
             time.elapsed().as_millis()
         );
         let time = std::time::Instant::now();

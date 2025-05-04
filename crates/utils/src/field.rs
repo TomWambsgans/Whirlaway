@@ -55,12 +55,12 @@ pub fn small_to_big_extension<
     } else if TypeId::of::<SmallExt>() == TypeId::of::<BigExt>() {
         return BigExt::from_basis_coefficients_slice(x.as_basis_coefficients_slice()).unwrap();
     } else if [TypeId::of::<BabyBear>(), TypeId::of::<KoalaBear>()].contains(&TypeId::of::<F>())
-        && small_dim * 2 == big_dim
+        && big_dim % small_dim == 0
     {
         let small_coeffs = x.as_basis_coefficients_slice();
         let mut big_coeffs = vec![F::ZERO; big_dim];
         for i in 0..small_dim {
-            big_coeffs[2 * i] = small_coeffs[i];
+            big_coeffs[i * big_dim / small_dim] = small_coeffs[i];
         }
         return BigExt::from_basis_coefficients_slice(&big_coeffs).unwrap();
     } else {
@@ -133,9 +133,6 @@ pub fn multilinear_point_from_univariate<F: Field>(point: F, num_variables: usiz
         cur = cur * cur;
     }
 
-    // Reverse so higher power is first
-    res.reverse();
-
     res
 }
 
@@ -183,6 +180,8 @@ pub fn extension_degree<F: Field>() -> usize {
     .contains(&TypeId::of::<F>())
     {
         8
+    } else if [TypeId::of::<BinomialExtensionField<KoalaBear, 16>>()].contains(&TypeId::of::<F>()) {
+        16
     } else {
         todo!("Add extension degree for this field")
     }

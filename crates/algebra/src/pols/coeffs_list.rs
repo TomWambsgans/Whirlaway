@@ -1,23 +1,21 @@
-use super::{Multilinear, MultilinearDevice};
+use super::MultilinearDevice;
 use crate::{pols::MultilinearHost, wavelet::wavelet_transform};
 use p3_dft::TwoAdicSubgroupDft;
 
-use cuda_bindings::cuda_transpose;
 use cuda_bindings::{
-    cuda_eval_multilinear_in_monomial_basis, cuda_monomial_to_lagrange_basis_rev, cuda_ntt,
-    cuda_whir_fold,
+    cuda_fold_rectangular_in_large_field, cuda_monomial_to_lagrange_basis_rev, cuda_ntt,
 };
-use cuda_engine::{HostOrDeviceBuffer, cuda_alloc_zeros, cuda_sync, memcpy_dtod_to, memcpy_dtoh};
+use cuda_bindings::{cuda_reverse_bit_order_for_ntt, cuda_transpose};
+use cuda_engine::{HostOrDeviceBuffer, cuda_sync, memcpy_dtoh};
 use cudarc::driver::CudaSlice;
 use p3_dft::Radix2DitParallel;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
-use utils::{default_hash, switch_endianness};
-
-use {
-    rayon::{join, prelude::*},
-    std::mem::size_of,
+use utils::{
+    default_hash, expanded_point_for_multilinear_monomial_evaluation, switch_endianness_vec,
 };
+
+use {rayon::join, std::mem::size_of};
 
 /*
 
@@ -32,7 +30,6 @@ pub struct CoefficientListHost<F> {
 }
 
 impl<F: Field> CoefficientListHost<F> {
-    /// Evaluate the given polynomial at `point` from F^n.
     pub fn evaluate<EF: ExtensionField<F>>(&self, point: &[EF]) -> EF {
         assert_eq!(self.n_vars, point.len());
         Self::eval_multivariate(&self.coeffs, point)
@@ -54,13 +51,8 @@ impl<F: Field> CoefficientListHost<F> {
     }
 
     pub fn reverse_vars(&self) -> Self {
-        let mut coeffs = vec![F::ZERO; self.coeffs.len()];
-        coeffs.par_iter_mut().enumerate().for_each(|(i, coeff)| {
-            let j = switch_endianness(i, self.n_vars);
-            *coeff = self.coeffs[j];
-        });
         CoefficientListHost {
-            coeffs,
+            coeffs: switch_endianness_vec(&self.coeffs),
             n_vars: self.n_vars,
         }
     }
@@ -71,49 +63,17 @@ impl<F: Field> CoefficientListHost<F> {
         MultilinearHost::new(evals)
     }
 
-    // pub fn reverse_vars_and_get_evals(self) -> MultilinearPolynomial<F> {
-    //     // reverse_vars_and_get_evals() is the same as reverse_vars().into_evals()
-    //     let mut evals = self.coeffs;
-    //     let n_vars = self.num_variables;
-    //     for step in 0..n_vars {
-    //         let new_evals = vec![F::ZERO; 1 << n_vars];
-    //         let half_size = 1 << (n_vars - step - 1);
-    //         (0..1 << (n_vars - 1)).into_par_iter().for_each(|i| {
-    //             let x = (i / half_size) * 2 * half_size;
-    //             let y = i % half_size;
-    //             let left = evals[x + 2 * y];
-    //             let right = evals[x + 2 * y + 1];
-    //             unsafe {
-    //                 *(new_evals.as_ptr().add(x + y) as *mut F) = left;
-    //                 *(new_evals.as_ptr().add(x + y + half_size) as *mut F) = left + right;
-    //             }
-    //         });
-    //         evals = new_evals;
-    //     }
-
-    //     MultilinearPolynomial::new(evals)
-    // }
-
-    /// fold folds the polynomial at the provided folding_randomness.
-    ///
-    /// Namely, when self is interpreted as a multi-linear polynomial f in X_0, ..., X_{n-1},
-    /// it partially evaluates f at the provided `folding_randomness`.
-    /// Our ordering convention is to evaluate at the higher indices, i.e. we return f(X_0,X_1,..., folding_randomness[0], folding_randomness[1],...)
     pub fn whir_fold<EF: ExtensionField<F>>(
         &self,
         folding_randomness: &[EF],
     ) -> CoefficientListHost<EF> {
-        let folding_factor = folding_randomness.len();
-        let coeffs = self
-            .coeffs
-            .par_chunks_exact(1 << folding_factor)
-            .map(|coeffs| Self::eval_multivariate(coeffs, &folding_randomness))
-            .collect();
-
-        CoefficientListHost {
-            coeffs,
-            n_vars: self.n_vars - folding_factor,
-        }
+        CoefficientListHost::new(
+            MultilinearHost::new(self.coeffs.clone())
+                .fold_rectangular_in_large_field(
+                    &expanded_point_for_multilinear_monomial_evaluation(folding_randomness),
+                )
+                .evals,
+        )
     }
 
     /// Multivariate evaluation in coefficient form.
@@ -173,6 +133,24 @@ impl<F: Field> CoefficientListHost<F> {
             }
         }
     }
+
+    pub fn expand_from_coeff_and_restructure(
+        &self,
+        expansion: usize,
+        folding_factor: usize,
+    ) -> Vec<F>
+    where
+        F: TwoAdicField + Ord,
+    {
+        let mut extended_coeffs = self.reverse_vars().coeffs;
+        extended_coeffs.resize(self.n_coefs() * expansion, F::ZERO);
+        // TODO preprocess twiddles
+        Radix2DitParallel::<F>::default()
+            .dft_batch(RowMajorMatrix::new(extended_coeffs, 1 << folding_factor))
+            // Get natural order of rows.
+            .to_row_major_matrix()
+            .values
+    }
 }
 
 #[derive(Clone)]
@@ -182,12 +160,6 @@ pub struct CoefficientListDevice<F: Field> {
 }
 
 impl<F: Field> CoefficientListDevice<F> {
-    /// Evaluate the given polynomial at `point` from F^n.
-    pub fn evaluate<EF: ExtensionField<F>>(&self, point: &[EF]) -> EF {
-        assert_eq!(self.n_vars, point.len());
-        cuda_eval_multilinear_in_monomial_basis(&self.coeffs, point)
-    }
-
     pub fn new(coeffs: CudaSlice<F>) -> Self {
         assert!(coeffs.len().is_power_of_two());
         let n_vars = coeffs.len().ilog2() as usize;
@@ -226,7 +198,43 @@ impl<F: Field> CoefficientListDevice<F> {
         &self,
         folding_randomness: &[EF],
     ) -> CoefficientListDevice<EF> {
-        CoefficientListDevice::new(cuda_whir_fold(&self.coeffs, folding_randomness))
+        CoefficientListDevice::new(
+            cuda_fold_rectangular_in_large_field(
+                &[&self.coeffs],
+                &expanded_point_for_multilinear_monomial_evaluation(folding_randomness),
+            )
+            .pop()
+            .unwrap(),
+        )
+    }
+
+    // Async
+    pub fn expand_from_coeff_and_restructure(
+        &self,
+        expansion: usize,
+        folding_factor: usize,
+    ) -> CudaSlice<F>
+    where
+        F: TwoAdicField + Ord,
+    {
+        let expanded_size = self.n_coefs() * expansion;
+        let log_expanded_size = expanded_size.trailing_zeros() as u32;
+        let mut res = cuda_reverse_bit_order_for_ntt(
+            &self.coeffs,
+            expansion,
+            log_expanded_size as usize - folding_factor,
+        );
+        let _span =
+            tracing::info_span!("cuda_ntt", log_expanded_size = log_expanded_size).entered();
+        cuda_ntt(&mut res, log_expanded_size as usize - folding_factor);
+
+        let res = cuda_transpose(
+            &res,
+            folding_factor as u32,
+            log_expanded_size - folding_factor as u32,
+        );
+
+        res
     }
 }
 
@@ -251,12 +259,12 @@ impl<F: Field> CoefficientList<F> {
         }
     }
 
-    pub fn evaluate<EF: ExtensionField<F>>(&self, point: &[EF]) -> EF {
-        match self {
-            Self::Host(pol) => pol.evaluate(point),
-            Self::Device(pol) => pol.evaluate(point),
-        }
-    }
+    // pub fn evaluate<EF: ExtensionField<F>>(&self, point: &[EF]) -> EF {
+    //     match self {
+    //         Self::Host(pol) => pol.evaluate(point),
+    //         Self::Device(_) => unimplemented!(),
+    //     }
+    // }
 
     pub fn is_device(&self) -> bool {
         matches!(self, Self::Device(_))
@@ -277,54 +285,16 @@ impl<F: Field> CoefficientList<F> {
         let _info =
             tracing::info_span!("expand_from_coeff_and_restructure", cuda = self.is_device())
                 .entered();
-        match self {
-            Self::Device(coeffs) => {
-                let expanded_size = coeffs.n_coefs() * expansion;
-                let log_expanded_size = expanded_size.trailing_zeros() as u32;
-                let mut extended_coeffs = cuda_alloc_zeros::<F>(expanded_size);
-                memcpy_dtod_to(
-                    &coeffs.coeffs,
-                    &mut extended_coeffs.slice_mut(..coeffs.n_coefs()),
-                );
-
-                let mut transposed = cuda_transpose(
-                    &extended_coeffs,
-                    log_expanded_size - folding_factor as u32,
-                    folding_factor as u32,
-                );
-
-                cuda_ntt(&mut transposed, log_expanded_size as usize - folding_factor);
-
-                let res = cuda_transpose(
-                    &transposed,
-                    folding_factor as u32,
-                    log_expanded_size - folding_factor as u32,
-                );
-
-                cuda_sync();
-                HostOrDeviceBuffer::Device(res)
-            }
-            Self::Host(coeffs) => {
-                let mut extended_coeffs = coeffs.coeffs.clone();
-                extended_coeffs.resize(coeffs.n_coefs() * expansion, F::ZERO);
-                // TODO preprocess twiddles
-                HostOrDeviceBuffer::Host(
-                    Radix2DitParallel::<F>::default()
-                        .dft_batch(RowMajorMatrix::new(extended_coeffs, 1 << folding_factor))
-                        // Get natural order of rows.
-                        .to_row_major_matrix()
-                        .values,
-                )
-            }
-        }
-    }
-
-    // convert to lagrange basis, and reverse vars
-    pub fn to_lagrange_basis_rev(&self) -> Multilinear<F> {
-        match self {
-            Self::Host(coeffs) => Multilinear::Host(coeffs.reverse_vars().to_lagrange_basis()),
-            Self::Device(coeffs) => Multilinear::Device(coeffs.to_lagrange_basis_rev()),
-        }
+        let res = match self {
+            Self::Device(coeffs) => HostOrDeviceBuffer::Device(
+                coeffs.expand_from_coeff_and_restructure(expansion, folding_factor),
+            ),
+            Self::Host(coeffs) => HostOrDeviceBuffer::Host(
+                coeffs.expand_from_coeff_and_restructure(expansion, folding_factor),
+            ),
+        };
+        cuda_sync();
+        res
     }
 
     pub fn whir_fold<EF: ExtensionField<F>>(

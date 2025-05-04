@@ -18,3 +18,5 @@
 - fix shared memory (cf " - 1" in max_ntt_log_size_at_block_level)
 
 - Add ZK?
+
+- remove ntt bit reverse

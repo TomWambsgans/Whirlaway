@@ -1,5 +1,4 @@
 use algebra::pols::{CoefficientListHost, UnivariatePolynomial};
-use core::panic;
 use fiat_shamir::{FsError, FsVerifier};
 use merkle_tree::MultiPath;
 use p3_field::{ExtensionField, Field, TwoAdicField};
@@ -49,7 +48,7 @@ struct ParsedProof<F: Field> {
     final_coefficients: CoefficientListHost<F>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 struct ParsedRound<F: Field> {
     folding_randomness: Vec<F>,
     ood_points: Vec<F>,
@@ -132,7 +131,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
         if !merkle_proof.verify(&prev_root, &answers, merkle_tree_height)
             || merkle_proof.leaf_indexes != stir_challenges_indexes
         {
-            panic!("Merkle tree verification failed");
+            return Err(WhirError::MerkleTree);
         }
 
         fs_verifier.challenge_pow(round_params.pow_bits)?;
@@ -152,11 +151,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
             fs_verifier.challenge_pow(round_params.folding_pow_bits)?;
         }
 
-        let new_folding_randomness = sumcheck_rounds
-            .iter()
-            .map(|&(_, r)| r)
-            .rev()
-            .collect::<Vec<_>>();
+        let new_folding_randomness = sumcheck_rounds.iter().map(|&(_, r)| r).collect::<Vec<_>>();
 
         rounds.push(ParsedRound {
             folding_randomness: std::mem::take(folding_randomness),
@@ -206,11 +201,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
             fs_verifier.challenge_pow(self.params.starting_folding_pow_bits)?;
         }
 
-        folding_randomness = initial_sumcheck_rounds
-            .iter()
-            .map(|&(_, r)| r)
-            .rev()
-            .collect();
+        folding_randomness = initial_sumcheck_rounds.iter().map(|&(_, r)| r).collect();
 
         let mut prev_root = parsed_commitment.root.clone();
         let mut domain_gen =
@@ -282,11 +273,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
 
             fs_verifier.challenge_pow(self.params.final_folding_pow_bits)?;
         }
-        let final_sumcheck_randomness = final_sumcheck_rounds
-            .iter()
-            .map(|&(_, r)| r)
-            .rev()
-            .collect();
+        let final_sumcheck_randomness = final_sumcheck_rounds.iter().map(|&(_, r)| r).collect();
 
         Ok(ParsedProof {
             initial_combination_randomness,
@@ -309,9 +296,12 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
     ) -> EF {
         let mut num_variables = self.params.num_variables;
 
-        let mut folding_randomness = iter::once(&proof.final_sumcheck_randomness)
+        let mut folding_randomness = proof
+            .rounds
+            .iter()
+            .map(|r| &r.folding_randomness)
             .chain(iter::once(&proof.final_folding_randomness))
-            .chain(proof.rounds.iter().rev().map(|r| &r.folding_randomness))
+            .chain(iter::once(&proof.final_sumcheck_randomness))
             .flatten()
             .copied()
             .collect::<Vec<EF>>();
@@ -329,7 +319,8 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
 
         for (round, round_proof) in proof.rounds.iter().enumerate() {
             num_variables -= self.params.folding_factor.at_round(round);
-            folding_randomness = folding_randomness[..num_variables].to_vec();
+            folding_randomness =
+                folding_randomness[folding_randomness.len() - num_variables..].to_vec();
 
             let ood_points = &round_proof.ood_points;
             let stir_challenges_points = &round_proof.stir_challenges_points;
@@ -365,7 +356,9 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
                 .stir_challenges_answers
                 .iter()
                 .map(|answers| {
-                    CoefficientListHost::new(answers.to_vec()).evaluate(&round.folding_randomness)
+                    let mut folding_randomness_rev = round.folding_randomness.clone();
+                    folding_randomness_rev.reverse();
+                    CoefficientListHost::new(answers.to_vec()).evaluate(&folding_randomness_rev)
                 })
                 .collect();
             result.push(evaluations);
@@ -376,8 +369,9 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
             .final_randomness_answers
             .iter()
             .map(|answers| {
-                CoefficientListHost::new(answers.to_vec())
-                    .evaluate(&parsed.final_folding_randomness)
+                let mut folding_randomness_rev = parsed.final_folding_randomness.clone();
+                folding_randomness_rev.reverse();
+                CoefficientListHost::new(answers.to_vec()).evaluate(&folding_randomness_rev)
             })
             .collect();
         result.push(evaluations);
@@ -390,12 +384,8 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
         &self,
         fs_verifier: &mut FsVerifier,
         parsed_commitment: &ParsedCommitment<EF, KeccakDigest>,
-        mut statement: Statement<EF>,
+        statement: Statement<EF>,
     ) -> Result<(), WhirError> {
-        for point in &mut statement.points {
-            point.reverse();
-        }
-
         // We first do a pass in which we rederive all the FS challenges
         // Then we will check the algebraic part (so to optimise inversions)
         let parsed = self.parse_proof(fs_verifier, parsed_commitment, &statement)?;
@@ -466,13 +456,12 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
 
         // Check the foldings computed from the proof match the evaluations of the polynomial
         let final_folds = &computed_folds[computed_folds.len() - 1];
+        let final_coefficients_univariate =
+            UnivariatePolynomial::new(parsed.final_coefficients.reverse_vars().coeffs);
         let mut final_evaluations = Vec::new();
         for point in &parsed.final_randomness_points {
             // interpret the coeffs as a univariate polynomial
-            final_evaluations.push(UnivariatePolynomial::horner_evaluate(
-                &parsed.final_coefficients.coeffs,
-                point,
-            ));
+            final_evaluations.push(final_coefficients_univariate.eval(point));
         }
 
         if !final_folds
@@ -508,7 +497,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
                 prev = Some((sumcheck_poly.clone(), *new_randomness));
             }
         }
-
+        // dbg!(&prev);
         let prev_sumcheck_poly_eval = if let Some((prev_poly, randomness)) = prev {
             prev_poly.eval(&randomness)
         } else {
@@ -517,15 +506,13 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
 
         // Check the final sumcheck evaluation
         let evaluation_of_v_poly = self.compute_v_poly(&parsed_commitment, &statement, &parsed);
-
-        if prev_sumcheck_poly_eval
-            != evaluation_of_v_poly
+        assert_eq!(
+            prev_sumcheck_poly_eval,
+            evaluation_of_v_poly
                 * parsed
                     .final_coefficients
                     .evaluate(&parsed.final_sumcheck_randomness)
-        {
-            return Err(WhirError::SumMismatch);
-        }
+        );
 
         Ok(())
     }

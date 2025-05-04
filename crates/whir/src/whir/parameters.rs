@@ -1,7 +1,7 @@
 use core::panic;
 use std::{f64::consts::LOG2_10, fmt::Display, marker::PhantomData};
 
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, Field};
 
 use crate::parameters::{FoldingFactor, SoundnessType, WhirParameters};
 
@@ -392,11 +392,7 @@ impl<F: Field, EF: ExtensionField<F>> WhirConfig<F, EF> {
     }
 }
 
-impl<F: Field, EF: ExtensionField<F>> Display for WhirConfig<F, EF>
-where
-    EF: TwoAdicField + Ord,
-    EF::PrimeSubfield: TwoAdicField,
-{
+impl<F: Field, EF: ExtensionField<F>> Display for WhirConfig<F, EF> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "num variables: {}", self.num_variables)?;
         writeln!(f, ", folding factor: {:?}", self.folding_factor)?;

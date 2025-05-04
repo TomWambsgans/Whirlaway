@@ -179,68 +179,56 @@ using Field_C = Field_t<EXTENSION_DEGREE_C>;
 
 #if EXTENSION_DEGREE_A == 1 && EXTENSION_DEGREE_C == 1
 
-#define ADD_AA(x, y, res) res = Field_A::add(x, y);
 #define ADD_AC(x, y, res) res = Field_A::add(x, y);
 #define ADD_CA(x, y, res) res = Field_C::add(x, y);
 #define ADD_CC(x, y, res) res = Field_C::add(x, y);
 
-#define SUS_AA(x, y, res) res = Field_A::sub(x, y);
-#define SUS_AC(x, y, res) res = Field_A::sub(x, y);
-#define SUS_CA(x, y, res) res = Field_C::sub(x, y);
-#define SUS_CC(x, y, res) res = Field_C::sub(x, y);
+#define SUB_AC(x, y, res) res = Field_A::sub(x, y);
+#define SUB_CA(x, y, res) res = Field_C::sub(x, y);
+#define SUB_CC(x, y, res) res = Field_C::sub(x, y);
 
-#define MUL_AA(x, y, res) res = Field_A::mul(x, y);
 #define MUL_CA(x, y, res) res = Field_C::mul(x, y);
 #define MUL_AC(x, y, res) res = Field_A::mul(x, y);
 #define MUL_CC(x, y, res) res = Field_C::mul(x, y);
 
 #elif EXTENSION_DEGREE_A == 1 && EXTENSION_DEGREE_C > 1
-
-#define ADD_AA(x, y, res) res = Field_A::add(x, y);
 #define ADD_AC(x, y, res) Field_C::add_prime_field(&y, x, &res);
 #define ADD_CA(x, y, res) Field_C::add_prime_field(&x, y, &res);
 #define ADD_CC(x, y, res) Field_C::add(&x, &y, &res);
 
-#define SUS_AA(x, y, res) res = Field_A::sub(x, y);
-#define SUS_AC(x, y, res) Field_C::sub_prime_field(x, &y, &res);
-#define SUS_CA(x, y, res) Field_C::sub_prime_field(&x, y, &res);
-#define SUS_CC(x, y, res) Field_C::sub(&x, &y, &res);
+#define SUB_AA(x, y, res) res = Field_A::sub(x, y);
+#define SUB_AC(x, y, res) Field_C::sub_prime_field(x, &y, &res);
+#define SUB_CA(x, y, res) Field_C::sub_prime_field(&x, y, &res);
+#define SUB_CC(x, y, res) Field_C::sub(&x, &y, &res);
 
-#define MUL_AA(x, y, res) res = Field_A::mul(x, y);
 #define MUL_CA(x, y, res) Field_C::mul_prime_field(&x, &y, &res);
 #define MUL_AC(x, y, res) Field_C::mul_prime_field(&x, &y, &res);
 #define MUL_CC(x, y, res) Field_C::mul(&x, &y, &res);
 
 #elif EXTENSION_DEGREE_A > 1 && EXTENSION_DEGREE_C == 1
 
-#define ADD_AA(x, y, res) Field_A::add(&x, &y, &res);
 #define ADD_AC(x, y, res) Field_A::add_prime_field(&x, y, &res);
 #define ADD_CA(x, y, res) Field_A::add_prime_field(x, &y, &res);
 #define ADD_CC(x, y, res) res = Field_C::add(x, y);
 
-#define SUS_AA(x, y, res) Field_A::sub(&x, &y, &res);
-#define SUS_AC(x, y, res) Field_A::sub_prime_field(&x, y, &res);
-#define SUS_CA(x, y, res) Field_A::sub_prime_field(x, &y, &res);
-#define SUS_CC(x, y, res) res = Field_C::sub(x, y);
+#define SUB_AC(x, y, res) Field_A::sub_prime_field(&x, y, &res);
+#define SUB_CA(x, y, res) Field_A::sub_prime_field(x, &y, &res);
+#define SUB_CC(x, y, res) res = Field_C::sub(x, y);
 
-#define MUL_AA(x, y, res) Field_A::mul(&x, &y, &res);
 #define MUL_CA(x, y, res) Field_A::mul_prime_field(x, &y, &res);
 #define MUL_AC(x, y, res) Field_A::mul_prime_field(&x, y, &res);
 #define MUL_CC(x, y, res) res = Field_C::mul(x, y);
 
 #elif EXTENSION_DEGREE_A == EXTENSION_DEGREE_C
 
-#define ADD_AA(x, y, res) Field_A::add(&x, &y, &res);
 #define ADD_AC(x, y, res) Field_A::add(&x, &y, &res);
 #define ADD_CA(x, y, res) Field_A::add(x, &y, &res);
 #define ADD_CC(x, y, res) Field_A::add(&x, &y, &res);
 
-#define SUS_AA(x, y, res) Field_A::sub(&x, &y, &res);
-#define SUS_AC(x, y, res) Field_A::sub(&x, &y, &res);
-#define SUS_CA(x, y, res) Field_A::sub(x, &y, &res);
-#define SUS_CC(x, y, res) Field_A::sub(&x, &y, &res);
+#define SUB_AC(x, y, res) Field_A::sub(&x, &y, &res);
+#define SUB_CA(x, y, res) Field_A::sub(x, &y, &res);
+#define SUB_CC(x, y, res) Field_A::sub(&x, &y, &res);
 
-#define MUL_AA(x, y, res) Field_A::mul(&x, &y, &res);
 #define MUL_CA(x, y, res) Field_A::mul(&x, &y, &res);
 #define MUL_AC(x, y, res) Field_A::mul(&x, &y, &res);
 #define MUL_CC(x, y, res) Field_A::mul(&x, &y, &res);
@@ -252,71 +240,47 @@ using Field_C = Field_t<EXTENSION_DEGREE_C>;
 
 #if EXTENSION_DEGREE_B == 1 && EXTENSION_DEGREE_C == 1
 
-#define ADD_BB(x, y, res) res = Field_B::add(x, y);
 #define ADD_BC(x, y, res) res = Field_B::add(x, y);
 #define ADD_CB(x, y, res) res = Field_C::add(x, y);
-#define ADD_CC(x, y, res) res = Field_C::add(x, y);
 
-#define SUB_BB(x, y, res) res = Field_B::sub(x, y);
 #define SUB_BC(x, y, res) res = Field_B::sub(x, y);
 #define SUB_CB(x, y, res) res = Field_C::sub(x, y);
-#define SUB_CC(x, y, res) res = Field_C::sub(x, y);
 
-#define MUL_BB(x, y, res) res = Field_B::mul(x, y);
 #define MUL_CB(x, y, res) res = Field_C::mul(x, y);
 #define MUL_BC(x, y, res) res = Field_B::mul(x, y);
-#define MUL_CC(x, y, res) res = Field_C::mul(x, y);
 
 #elif EXTENSION_DEGREE_B == 1 && EXTENSION_DEGREE_C > 1
 
-#define ADD_BB(x, y, res) res = Field_B::add(x, y);
 #define ADD_BC(x, y, res) Field_C::add_prime_field(&y, x, &res);
 #define ADD_CB(x, y, res) Field_C::add_prime_field(&x, y, &res);
-#define ADD_CC(x, y, res) Field_C::add(&x, &y, &res);
 
-#define SUB_BB(x, y, res) res = Field_B::sub(x, y);
 #define SUB_BC(x, y, res) Field_C::sub_prime_field(x, &y, &res);
 #define SUB_CB(x, y, res) Field_C::sub_prime_field(&x, y, &res);
-#define SUB_CC(x, y, res) Field_C::sub(&x, &y, &res);
 
-#define MUL_BB(x, y, res) res = Field_B::mul(x, y);
 #define MUL_CB(x, y, res) Field_C::mul_prime_field(&x, y, &res);
 #define MUL_BC(x, y, res) Field_C::mul_prime_field(&y, x, &res);
-#define MUL_CC(x, y, res) Field_C::mul(&x, &y, &res);
 
 #elif EXTENSION_DEGREE_B > 1 && EXTENSION_DEGREE_C == 1
 
-#define ADD_BB(x, y, res) Field_B::add(&x, &y, &res);
 #define ADD_BC(x, y, res) Field_B::add_prime_field(&x, y, &res);
 #define ADD_CB(x, y, res) Field_B::add_prime_field(x, &y, &res);
-#define ADD_CC(x, y, res) res = Field_C::add(x, y);
 
-#define SUB_BB(x, y, res) Field_B::sub(&x, &y, &res);
 #define SUB_BC(x, y, res) Field_B::sub_prime_field(&x, y, &res);
 #define SUB_CB(x, y, res) Field_B::sub_prime_field(x, &y, &res);
-#define SUB_CC(x, y, res) res = Field_C::sub(x, y);
 
-#define MUL_BB(x, y, res) Field_B::mul(&x, &y, &res);
 #define MUL_CB(x, y, res) Field_B::mul_prime_field(x, &y, &res);
 #define MUL_BC(x, y, res) Field_B::mul_prime_field(&x, y, &res);
-#define MUL_CC(x, y, res) res = Field_C::mul(x, y);
 
 #elif EXTENSION_DEGREE_B == EXTENSION_DEGREE_C
 
-#define ADD_BB(x, y, res) Field_B::add(&x, &y, &res);
 #define ADD_BC(x, y, res) Field_B::add(&x, &y, &res);
 #define ADD_CB(x, y, res) Field_B::add(x, &y, &res);
-#define ADD_CC(x, y, res) Field_B::add(&x, &y, &res);
 
-#define SUB_BB(x, y, res) Field_B::sub(&x, &y, &res);
 #define SUB_BC(x, y, res) Field_B::sub(&x, &y, &res);
 #define SUB_CB(x, y, res) Field_B::sub(x, &y, &res);
-#define SUB_CC(x, y, res) Field_B::sub(&x, &y, &res);
 
-#define MUL_BB(x, y, res) Field_B::mul(&x, &y, &res);
 #define MUL_CB(x, y, res) Field_B::mul(&x, &y, &res);
 #define MUL_BC(x, y, res) Field_B::mul(&x, &y, &res);
-#define MUL_CC(x, y, res) Field_B::mul(&x, &y, &res);
 
 #else
 #error "Invalid combination of EXTENSION_DEGREE_B and EXTENSION_DEGREE_C."
@@ -331,9 +295,12 @@ typedef LARGER_TYPE(Field_A, Field_B) LARGER_AB;
 #define MUL_B_and_MAX_AB(x, y, res) MUL_BA(x, y, res);
 #define ADD_MAX_AB(x, y, res) ADD_AA(x, y, res);
 #define MUL_MAX_AB(x, y, res) MUL_AA(x, y, res);
+#define SUB_MAX_AB(x, y, res) SUB_AA(x, y, res);
+
 #else
 #define ADD_A_AND_MAX_AB(x, y, res) ADD_AB(x, y, res);
 #define MUL_B_and_MAX_AB(x, y, res) MUL_BB(x, y, res);
 #define ADD_MAX_AB(x, y, res) ADD_BB(x, y, res);
 #define MUL_MAX_AB(x, y, res) MUL_BB(x, y, res);
+#define SUB_MAX_AB(x, y, res) SUB_BB(x, y, res);
 #endif

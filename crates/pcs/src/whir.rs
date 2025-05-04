@@ -113,8 +113,7 @@ mod test {
 
         let n_vars = 17;
         let cuda = true;
-        // type F = KoalaBear;
-        type F = KoalaBear;
+        type F = BinomialExtensionField<KoalaBear, 8>;
         type EF = BinomialExtensionField<KoalaBear, 8>;
 
         let pcs = WhirConfig::<F, EF>::new(
@@ -140,37 +139,33 @@ mod test {
                 "multilinear.cu",
                 "eq_mle",
             ));
-            cuda_load_function(CudaFunctionInfo::one_field::<EF>(
-                "multilinear.cu",
-                "lagrange_to_monomial_basis_rev",
-            ));
-            cuda_load_function(CudaFunctionInfo::one_field::<F>(
-                "multilinear.cu",
-                "lagrange_to_monomial_basis_rev",
-            ));
-            cuda_load_function(CudaFunctionInfo::one_field::<EF>(
-                "ntt/transpose.cu",
-                "transpose",
-            ));
-            cuda_load_function(CudaFunctionInfo::one_field::<F>(
-                "ntt/transpose.cu",
-                "transpose",
-            ));
-            cuda_load_function(CudaFunctionInfo::one_field::<F>(
-                "ntt/bit_reverse.cu",
-                "reverse_bit_order_global",
-            ));
-            cuda_load_function(CudaFunctionInfo::one_field::<EF>(
-                "ntt/bit_reverse.cu",
-                "reverse_bit_order_global",
-            ));
-            cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
-                "multilinear.cu",
-                "dot_product",
-            ));
             cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
                 "multilinear.cu",
-                "dot_product",
+                "eval_multilinear_in_lagrange_basis",
+            ));
+            cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+                "multilinear.cu",
+                "lagrange_to_monomial_basis",
+            ));
+            cuda_load_function(CudaFunctionInfo::one_field::<F>(
+                "multilinear.cu",
+                "lagrange_to_monomial_basis",
+            ));
+            cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+                "ntt/transpose.cu",
+                "transpose",
+            ));
+            cuda_load_function(CudaFunctionInfo::one_field::<F>(
+                "ntt/transpose.cu",
+                "transpose",
+            ));
+            cuda_load_function(CudaFunctionInfo::one_field::<F>(
+                "ntt/bit_reverse.cu",
+                "reverse_bit_order_for_ntt",
+            ));
+            cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+                "ntt/bit_reverse.cu",
+                "reverse_bit_order_for_ntt",
             ));
             cuda_load_function(CudaFunctionInfo::two_fields::<KoalaBear, EF>(
                 "ntt/ntt.cu",
@@ -182,14 +177,6 @@ mod test {
                 "ntt_step",
             ));
             cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<F>());
-            cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
-                "multilinear.cu",
-                "eval_multilinear_in_monomial_basis",
-            ));
-            cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
-                "multilinear.cu",
-                "eval_multilinear_in_monomial_basis",
-            ));
             cuda_load_function(CudaFunctionInfo::one_field::<EF>(
                 "multilinear.cu",
                 "scale_in_place",

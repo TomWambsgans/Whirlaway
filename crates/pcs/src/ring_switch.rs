@@ -130,6 +130,7 @@ impl<EF: ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>, Pcs: PC
             },
             None,
         );
+
         let packed_value = witness.inner_witness.pol().evaluate(&r_p);
         cuda_sync();
         let packed_eval = Evaluation {

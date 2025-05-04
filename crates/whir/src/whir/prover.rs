@@ -53,13 +53,9 @@ where
     pub fn prove(
         &self,
         fs_prover: &mut FsProver,
-        mut statement: Statement<EF>,
+        statement: Statement<EF>,
         witness: Witness<F, EF>,
     ) -> Option<()> {
-        for point in &mut statement.points {
-            point.reverse();
-        }
-
         assert!(self.validate_parameters());
         debug_assert!(self.validate_statement(&statement));
         assert!(self.validate_witness(&witness));
@@ -81,7 +77,8 @@ where
 
         let sumcheck_mles;
         let hypercube_sum;
-        let folding_randomness = {
+        let folding_randomness;
+        {
             // If there is initial statement, then we run the sum-check for
             // this initial statement.
             let combination_randomness_gen = fs_prover.challenge_scalars::<EF>(1)[0];
@@ -94,7 +91,6 @@ where
             let n_rounds = Some(self.0.folding_factor.at_round(0));
             let pow_bits = self.0.starting_folding_pow_bits;
             let sum = dot_product(&initial_answers, &combination_randomness);
-            let mut folding_randomness;
             (folding_randomness, sumcheck_mles, hypercube_sum) =
                 sumcheck::prove::<F::PrimeSubfield, _, _, _>(
                     1,
@@ -112,9 +108,7 @@ where
                     SumcheckGrinding::Custom(pow_bits),
                     None,
                 );
-            folding_randomness.reverse();
-            folding_randomness
-        };
+        }
         let round_state = RoundState::<F, EF> {
             round: 0,
             sumcheck_mles,
@@ -153,6 +147,7 @@ where
         // Base case
         if round_state.round == self.0.n_rounds() {
             // Directly send coefficients of the polynomial to the verifier.
+
             fs_prover.add_scalars(&folded_coefficients.transfer_to_host().coeffs);
 
             // Final verifier queries and answers. The indices are over the
@@ -202,7 +197,7 @@ where
                     n_rounds,
                     SumcheckGrinding::Custom(pow_bits),
                     None,
-                ); // TODO sum could be known, currently it is recomputed
+                );
             }
 
             return Some(());
@@ -231,7 +226,7 @@ where
         if round_params.ood_samples > 0 {
             ood_points = fs_prover.challenge_scalars::<EF>(round_params.ood_samples);
             ood_answers.extend(ood_points.iter().map(|ood_point| {
-                folded_coefficients.evaluate(&multilinear_point_from_univariate(
+                round_state.sumcheck_mles[0].evaluate(&multilinear_point_from_univariate(
                     *ood_point,
                     num_variables,
                 ))
@@ -282,7 +277,9 @@ where
             // transformed such that they are exactly the coefficients of the
             // multilinear polynomial whose evaluation at the folding randomness
             // is just the folding of f evaluated at the folded point.
-            CoefficientListHost::new(answers.to_vec()).evaluate(&round_state.folding_randomness)
+            let mut folding_randomness_rev = round_state.folding_randomness.clone();
+            folding_randomness_rev.reverse();
+            CoefficientListHost::new(answers.to_vec()).evaluate(&folding_randomness_rev)
         }));
 
         fs_prover.add_variable_bytes(&merkle_proof.to_bytes());
@@ -296,8 +293,7 @@ where
 
         round_state.sumcheck_mles[1] +=
             &randomized_eq_extensions(&stir_challenges, &combination_randomness, self.0.cuda);
-
-        let mut folding_randomness;
+        let folding_randomness;
         let hypercube_sum;
         let sumcheck_mles;
         (folding_randomness, sumcheck_mles, hypercube_sum) =
@@ -317,7 +313,6 @@ where
                 SumcheckGrinding::Custom(round_params.folding_pow_bits),
                 None,
             );
-        folding_randomness.reverse();
 
         let round_state = RoundState {
             round: round_state.round + 1,
@@ -359,8 +354,6 @@ fn randomized_eq_extensions<F: Field>(
     );
     let mut all_eq_mles = Vec::new();
     for (initial_claim, randomness_coef) in eq_points.iter().zip(randomized_coefs) {
-        let mut initial_claim = initial_claim.clone();
-        initial_claim.reverse();
         let mut eq_mle = Multilinear::eq_mle(&initial_claim, cuda);
         eq_mle.scale_in_place(*randomness_coef);
         all_eq_mles.push(eq_mle);

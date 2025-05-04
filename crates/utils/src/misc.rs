@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use std::collections::BTreeSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
@@ -26,12 +27,24 @@ pub const fn log2_down(x: usize) -> usize {
 }
 
 pub fn switch_endianness(mut x: usize, n: usize) -> usize {
+    assert!(x < 1 << n);
     let mut y = 0;
     for _ in 0..n {
         y = (y << 1) | (x & 1);
         x >>= 1;
     }
     y
+}
+
+pub fn switch_endianness_vec<A: Clone + Default + Sync + Send>(v: &[A]) -> Vec<A> {
+    assert!(v.len().is_power_of_two());
+    let n = v.len().trailing_zeros() as usize;
+    let mut res = vec![A::default(); v.len()];
+    res.par_iter_mut().enumerate().for_each(|(i, x)| {
+        let j = switch_endianness(i, n);
+        *x = v[j].clone();
+    });
+    res
 }
 
 pub fn count_ending_zero_bits(buff: &[u8]) -> usize {

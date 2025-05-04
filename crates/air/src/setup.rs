@@ -55,11 +55,11 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
         ));
         cuda_load_function(CudaFunctionInfo::one_field::<EF>(
             "multilinear.cu",
-            "lagrange_to_monomial_basis_rev",
+            "lagrange_to_monomial_basis",
         ));
         cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
             "multilinear.cu",
-            "lagrange_to_monomial_basis_rev",
+            "lagrange_to_monomial_basis",
         ));
         cuda_load_function(CudaFunctionInfo::one_field::<F>(
             "multilinear.cu",
@@ -71,19 +71,11 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
         ));
         cuda_load_function(CudaFunctionInfo::two_fields::<F, WhirF>(
             "multilinear.cu",
-            "eval_multilinear_in_monomial_basis",
+            "eval_multilinear_in_lagrange_basis",
         ));
         cuda_load_function(CudaFunctionInfo::two_fields::<WhirF, WhirF>(
             "multilinear.cu",
-            "eval_multilinear_in_monomial_basis",
-        ));
-        cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
-            "multilinear.cu",
-            "eval_multilinear_in_monomial_basis",
-        ));
-        cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
-            "multilinear.cu",
-            "eval_multilinear_in_monomial_basis",
+            "eval_multilinear_in_lagrange_basis",
         ));
         cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
             "multilinear.cu",
@@ -187,7 +179,7 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
         ));
         cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
             "ntt/bit_reverse.cu",
-            "reverse_bit_order_global",
+            "reverse_bit_order_for_ntt",
         ));
         cuda_load_function(CudaFunctionInfo::two_fields::<F, WhirF>(
             "ntt/ntt.cu",

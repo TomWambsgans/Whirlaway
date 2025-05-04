@@ -200,7 +200,5 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
         );
     }
     // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication below: TODO not urgent)
-    let res = multilinears.fold_rectangular_in_large_field(&folding_scalars);
-
-    res
+    multilinears.fold_rectangular_in_large_field(&folding_scalars)
 }

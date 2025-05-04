@@ -23,12 +23,12 @@ pub fn cuda_monomial_to_lagrange_basis_rev<F: Field>(coeffs: &CudaSlice<F>) -> C
 }
 
 // Async
-pub fn cuda_lagrange_to_monomial_basis_rev<F: Field>(evals: &CudaSlice<F>) -> CudaSlice<F> {
+pub fn cuda_lagrange_to_monomial_basis<F: Field>(evals: &CudaSlice<F>) -> CudaSlice<F> {
     assert!(evals.len().is_power_of_two());
     let n_vars = evals.len().ilog2() as u32;
     let mut result = cuda_alloc::<F>(evals.len());
     let mut call = CudaCall::new(
-        CudaFunctionInfo::one_field::<F>("multilinear.cu", "lagrange_to_monomial_basis_rev"),
+        CudaFunctionInfo::one_field::<F>("multilinear.cu", "lagrange_to_monomial_basis"),
         1 << (n_vars - 1),
     );
     call.arg(evals);
@@ -53,7 +53,7 @@ mod tests {
     use rand::{Rng, SeedableRng, rngs::StdRng};
 
     #[test]
-    pub fn test_cuda_monomial_to_lagrange_basis_rev() {
+    pub fn test_basis_convertions() {
         const EXT_DEGREE: usize = 8;
 
         type F = KoalaBear;
@@ -63,6 +63,10 @@ mod tests {
         cuda_load_function(CudaFunctionInfo::one_field::<EF>(
             "multilinear.cu",
             "monomial_to_lagrange_basis_rev",
+        ));
+        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+            "multilinear.cu",
+            "lagrange_to_monomial_basis",
         ));
 
         let rng = &mut StdRng::seed_from_u64(0);
@@ -80,7 +84,7 @@ mod tests {
         let cuda_result = memcpy_dtoh(&cuda_result_dev);
         cuda_sync();
         let time = std::time::Instant::now();
-        let expected_result = CoefficientListHost::new(coeffs)
+        let expected_result = CoefficientListHost::new(coeffs.clone())
             .reverse_vars()
             .to_lagrange_basis()
             .evals;
@@ -89,5 +93,21 @@ mod tests {
             time.elapsed().as_millis()
         );
         assert!(cuda_result == expected_result);
+
+        let time = std::time::Instant::now();
+        let lagrange_recovered_dev = cuda_lagrange_to_monomial_basis(&cuda_result_dev);
+        cuda_sync();
+        println!(
+            "CUDA monomial_to_lagrange_basis transform took {} ms",
+            time.elapsed().as_millis()
+        );
+        let lagrange_recovered = memcpy_dtoh(&lagrange_recovered_dev);
+        cuda_sync();
+        assert!(
+            lagrange_recovered
+                == CoefficientListHost::new(coeffs.clone())
+                    .reverse_vars()
+                    .coeffs
+        );
     }
 }

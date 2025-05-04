@@ -34,7 +34,7 @@ where
         fs_prover: &mut FsProver,
         lagrange_polynomial: Multilinear<F>,
     ) -> Option<Witness<F, EF>> {
-        let polynomial = lagrange_polynomial.to_monomial_basis_rev();
+        let polynomial = lagrange_polynomial.to_monomial_basis();
 
         let expansion = 1 << self.0.starting_log_inv_rate;
 
@@ -54,7 +54,7 @@ where
         if self.0.committment_ood_samples > 0 {
             ood_points = fs_prover.challenge_scalars(self.0.committment_ood_samples);
             ood_answers.extend(ood_points.iter().map(|ood_point| {
-                polynomial.evaluate(&multilinear_point_from_univariate(
+                lagrange_polynomial.evaluate(&multilinear_point_from_univariate(
                     *ood_point,
                     self.0.num_variables,
                 ))

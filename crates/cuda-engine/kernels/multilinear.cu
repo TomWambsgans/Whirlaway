@@ -61,47 +61,46 @@ extern "C" __global__ void monomial_to_lagrange_basis_rev(Field_A *input_coeffs,
 }
 
 // Could also be done in place
-extern "C" __global__ void lagrange_to_monomial_basis_rev(Field_A *input_evals, Field_A *buff, Field_A *output_coeffs, const uint32_t n_vars)
+extern "C" __global__ void lagrange_to_monomial_basis(Field_A *input_evals, Field_A *buff, Field_A *output_coeffs, uint32_t n_vars)
 {
     namespace cg = cooperative_groups;
     cg::grid_group grid = cg::this_grid();
 
-    const int n_total_threads = blockDim.x * gridDim.x;
+    int n_total_threads = blockDim.x * gridDim.x;
     int n_iters = (1 << (n_vars - 1));
     int n_repetitions = (n_iters + n_total_threads - 1) / n_total_threads;
 
-    // 2) compute the monomial ceffs
     for (int step = 0; step < n_vars; step++)
     {
-        const int half = 1 << (n_vars - step - 1);
+        int half = 1 << (n_vars - step - 1);
         for (int rep = 0; rep < n_repetitions; rep++)
         {
 
-            const int idx = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
+            int idx = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
             if (idx >= n_iters)
             {
                 continue;
             }
 
-            const int start = (idx / half) * 2 * half;
-            const int offset = idx % half;
-
             Field_A *inputs = step == 0 ? input_evals : (n_vars % 2 != step % 2 ? buff : output_coeffs);
             Field_A *outputs = n_vars % 2 == step % 2 ? buff : output_coeffs;
 
-            Field_A even = inputs[start + offset * 2];
-            Field_A odd = inputs[start + offset * 2 + 1];
-            Field_A diff;
-            SUB_AA(odd, even, diff);
+            int start = (idx / half) * 2 * half;
+            int offset = idx % half;
 
-            outputs[start + offset] = even;
+            Field_A left = inputs[start + offset];
+            Field_A right = inputs[start + offset + half];
+            Field_A diff;
+            SUB_AA(right, left, diff);
+
+            outputs[start + offset] = left;
             outputs[start + offset + half] = diff;
         }
         grid.sync();
     }
 }
 
-extern "C" __global__ void eval_multilinear_in_monomial_basis(Field_A *coeffs, Field_B *point, uint32_t n_vars, LARGER_AB *buff)
+extern "C" __global__ void eval_multilinear_in_lagrange_basis(Field_A *coeffs, Field_B *point, uint32_t n_vars, LARGER_AB *buff)
 {
     // coeffs has size 2^n_vars
     // buff has size 2^n_vars - 1
@@ -121,9 +120,11 @@ extern "C" __global__ void eval_multilinear_in_monomial_basis(Field_A *coeffs, F
         {
             Field_A left = coeffs[threadIndex];
             Field_A right = coeffs[threadIndex + (1 << (n_vars - 1))];
+            Field_A diff;
+            SUB_AA(right, left, diff);
             Field_B p = point[0];
             LARGER_AB prod;
-            MUL_AB(right, p, prod);
+            MUL_AB(diff, p, prod);
             ADD_A_AND_MAX_AB(left, prod, buff[threadIndex]);
         }
     }
@@ -147,9 +148,11 @@ extern "C" __global__ void eval_multilinear_in_monomial_basis(Field_A *coeffs, F
             {
                 LARGER_AB left = input[threadIndex];
                 LARGER_AB right = input[threadIndex + (1 << (n_vars - 1 - step))];
+                LARGER_AB diff;
+                SUB_MAX_AB(right, left, diff);
                 Field_B p = point[step];
                 LARGER_AB prod;
-                MUL_B_and_MAX_AB(p, right, prod);
+                MUL_B_and_MAX_AB(p, diff, prod);
                 ADD_MAX_AB(left, prod, output[threadIndex]);
             }
         }

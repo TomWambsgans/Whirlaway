@@ -1,6 +1,6 @@
 use cuda_engine::{
-    CudaCall, CudaFunctionInfo, cuda_alloc, cuda_twiddles, cuda_twiddles_two_adicity,
-    max_ntt_log_size_at_block_level,
+    CudaCall, CudaFunctionInfo, cuda_alloc, cuda_alloc_zeros, cuda_twiddles,
+    cuda_twiddles_two_adicity, max_ntt_log_size_at_block_level,
 };
 use cudarc::driver::{CudaSlice, PushKernelArg};
 
@@ -28,19 +28,29 @@ pub fn cuda_transpose<F: Field>(
     result_dev
 }
 
-pub fn cuda_reverse_bit_order<F: Field>(input: &mut CudaSlice<F>, log_chunck_size: usize) {
+pub fn cuda_reverse_bit_order_for_ntt<F: Field>(
+    input: &CudaSlice<F>,
+    expansion_factor: usize,
+    log_chunck_size: usize,
+) -> CudaSlice<F> {
     assert!(input.len().is_power_of_two());
+    assert!(expansion_factor.is_power_of_two());
     let log_len_u32 = input.len().trailing_zeros() as u32;
     let log_chunck_size_u32 = log_chunck_size as u32;
-    assert!(log_chunck_size_u32 <= log_len_u32);
+    let log_expansion_factor_u32 = expansion_factor.ilog2() as u32;
+    assert!(log_chunck_size_u32 <= log_len_u32 + log_expansion_factor_u32);
     let mut call = CudaCall::new(
-        CudaFunctionInfo::one_field::<F>("ntt/bit_reverse.cu", "reverse_bit_order_global"),
+        CudaFunctionInfo::one_field::<F>("ntt/bit_reverse.cu", "reverse_bit_order_for_ntt"),
         input.len() as u32,
     );
+    let mut result_dev = cuda_alloc_zeros::<F>(input.len() * expansion_factor);
     call.arg(input);
+    call.arg(&mut result_dev);
     call.arg(&log_len_u32);
+    call.arg(&log_expansion_factor_u32);
     call.arg(&log_chunck_size_u32);
     call.launch();
+    result_dev
 }
 
 pub fn cuda_ntt_step<F: Field>(
@@ -92,8 +102,6 @@ pub fn cuda_ntt<F: Field>(coeffs: &mut CudaSlice<F>, log_chunck_size: usize) {
         "NTT to big"
     );
 
-    cuda_reverse_bit_order(coeffs, log_chunck_size);
-
     let twiddles = cuda_twiddles::<F::PrimeSubfield>();
 
     let block_log_chunck_size = log_chunck_size.min(max_ntt_log_size_at_block_level::<F>()) as u32;
@@ -114,11 +122,11 @@ mod tests {
     use p3_field::{TwoAdicField, extension::BinomialExtensionField};
     use p3_koala_bear::KoalaBear;
     use p3_matrix::{Matrix, dense::RowMajorMatrix};
-    use utils::extension_degree;
+    use utils::{extension_degree, switch_endianness_vec};
 
     #[test]
     fn test_cuda_ntt() {
-        for log_width in [1, 2, 5, 12] {
+        for log_width in [0, 1, 2, 5, 12] {
             for log_len in [1, 3, 10, 14, 17] {
                 if log_width > log_len {
                     continue;
@@ -139,7 +147,7 @@ mod tests {
         cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<F>());
         cuda_load_function(CudaFunctionInfo::one_field::<F>(
             "ntt/bit_reverse.cu",
-            "reverse_bit_order_global",
+            "reverse_bit_order_for_ntt",
         ));
         cuda_load_function(CudaFunctionInfo::one_field::<F>(
             "ntt/transpose.cu",
@@ -153,21 +161,20 @@ mod tests {
         cuda_sync();
 
         let time = std::time::Instant::now();
-
-        let mut transposed =
-            cuda_transpose(&coeffs_dev, (log_len - log_width) as u32, log_width as u32);
-        cuda_ntt(&mut transposed, log_len - log_width);
-        let res_dev = cuda_transpose(&transposed, log_width as u32, (log_len - log_width) as u32);
+        let mut coeffs_dev = cuda_reverse_bit_order_for_ntt(&coeffs_dev, 1, log_len - log_width);
+        cuda_ntt(&mut coeffs_dev, log_len - log_width);
+        let res_dev = cuda_transpose(&coeffs_dev, log_width as u32, (log_len - log_width) as u32);
         cuda_sync();
         println!("CUDA ntt took: {} ms", time.elapsed().as_millis());
         let cuda_res = memcpy_dtoh(&res_dev);
         cuda_sync();
 
-        Radix2DitParallel::<F>::default()
-            .dft_batch(RowMajorMatrix::new(coeffs.clone(), 1 << log_width)); // load twiddles
         let time = std::time::Instant::now();
         let cpu_res = Radix2DitParallel::<F>::default()
-            .dft_batch(RowMajorMatrix::new(coeffs, 1 << log_width))
+            .dft_batch(RowMajorMatrix::new(
+                switch_endianness_vec(&coeffs),
+                1 << log_width,
+            ))
             // Get natural order of rows.
             .to_row_major_matrix()
             .values;

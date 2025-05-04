@@ -4,9 +4,8 @@ use crate::tensor_algebra::TensorAlgebra;
 use cuda_bindings::{
     cuda_add_assign_slices, cuda_add_slices, cuda_dot_product, cuda_eq_mle, cuda_eval_mixed_tensor,
     cuda_eval_multilinear_in_lagrange_basis, cuda_fold_rectangular_in_small_field,
-    cuda_lagrange_to_monomial_basis_rev, cuda_linear_combination,
-    cuda_linear_combination_at_row_level, cuda_repeat_slice_from_inside,
-    cuda_repeat_slice_from_outside, cuda_scale_slice_in_place,
+    cuda_lagrange_to_monomial_basis, cuda_linear_combination, cuda_linear_combination_at_row_level,
+    cuda_repeat_slice_from_inside, cuda_repeat_slice_from_outside, cuda_scale_slice_in_place,
 };
 use cuda_bindings::{cuda_compute_over_hypercube, cuda_fold_rectangular_in_large_field};
 use cuda_engine::{
@@ -237,6 +236,29 @@ impl<F: Field> MultilinearHost<F> {
         Self::new(evals)
     }
 
+    pub fn piecewise_dot_product_at_field_level(&self, scalars: &[F]) -> Self
+    where
+        F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
+    {
+        assert_eq!(
+            <F as BasedVectorSpace<F::PrimeSubfield>>::DIMENSION,
+            scalars.len()
+        );
+        let prime_composed = self
+            .evals
+            .par_iter()
+            .map(|e| {
+                <F as BasedVectorSpace<F::PrimeSubfield>>::as_basis_coefficients_slice(e).to_vec()
+            })
+            .collect::<Vec<_>>();
+
+        let mut res = Vec::new();
+        for w in 0..self.n_coefs() {
+            res.push(dot_product(&prime_composed[w], &scalars));
+        }
+        MultilinearHost::new(res)
+    }
+
     fn eq_mle_single_threaded(scalars: &[F]) -> Self {
         let mut evals = vec![F::ZERO; 1 << scalars.len()];
         evals[0] = F::ONE;
@@ -267,29 +289,6 @@ impl<F: Field> MultilinearHost<F> {
                 });
         }
         Self::new(evals)
-    }
-
-    pub fn piecewise_dot_product_at_field_level(&self, scalars: &[F]) -> Self
-    where
-        F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-    {
-        assert_eq!(
-            <F as BasedVectorSpace<F::PrimeSubfield>>::DIMENSION,
-            scalars.len()
-        );
-        let prime_composed = self
-            .evals
-            .par_iter()
-            .map(|e| {
-                <F as BasedVectorSpace<F::PrimeSubfield>>::as_basis_coefficients_slice(e).to_vec()
-            })
-            .collect::<Vec<_>>();
-
-        let mut res = Vec::new();
-        for w in 0..self.n_coefs() {
-            res.push(dot_product(&prime_composed[w], &scalars));
-        }
-        MultilinearHost::new(res)
     }
 
     // Async
@@ -348,8 +347,8 @@ impl<F: Field> MultilinearDevice<F> {
     }
 
     // Async
-    pub fn to_monomial_basis_rev(&self) -> CoefficientListDevice<F> {
-        CoefficientListDevice::new(cuda_lagrange_to_monomial_basis_rev(&self.evals))
+    pub fn to_monomial_basis(&self) -> CoefficientListDevice<F> {
+        CoefficientListDevice::new(cuda_lagrange_to_monomial_basis(&self.evals))
     }
 
     // Sync
@@ -364,6 +363,22 @@ impl<F: Field> MultilinearDevice<F> {
         });
         cuda_sync();
         MultilinearDevice::new(packed_evals)
+    }
+
+    // Async
+    pub fn piecewise_dot_product_at_field_level(&self, scalars: &[F]) -> Self
+    where
+        F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
+    {
+        let evals_prime = unsafe {
+            self.evals
+                .transmute::<F::PrimeSubfield>(self.n_coefs() * scalars.len())
+                .unwrap()
+        };
+        Self::new(cuda_linear_combination_at_row_level::<F::PrimeSubfield, F>(
+            &evals_prime,
+            scalars,
+        ))
     }
 
     /// Sync
@@ -400,22 +415,6 @@ impl<F: Field> MultilinearDevice<F> {
             return EF::from(cuda_get_at_index(&self.evals, 0));
         }
         cuda_eval_multilinear_in_lagrange_basis(&self.evals, point)
-    }
-
-    // Async
-    pub fn piecewise_dot_product_at_field_level(&self, scalars: &[F]) -> Self
-    where
-        F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-    {
-        let evals_prime = unsafe {
-            self.evals
-                .transmute::<F::PrimeSubfield>(self.n_coefs() * scalars.len())
-                .unwrap()
-        };
-        Self::new(cuda_linear_combination_at_row_level::<F::PrimeSubfield, F>(
-            &evals_prime,
-            scalars,
-        ))
     }
 }
 
@@ -513,6 +512,19 @@ impl<F: Field> Multilinear<F> {
         }
     }
 
+    // Async
+    pub fn piecewise_dot_product_at_field_level(&self, scalars: &[F]) -> Self
+    where
+        F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
+    {
+        match self {
+            Self::Host(pol) => Multilinear::Host(pol.piecewise_dot_product_at_field_level(scalars)),
+            Self::Device(pol) => {
+                Multilinear::Device(pol.piecewise_dot_product_at_field_level(scalars))
+            }
+        }
+    }
+
     pub fn is_device(&self) -> bool {
         matches!(self, Self::Device(_))
     }
@@ -550,10 +562,10 @@ impl<F: Field> Multilinear<F> {
     }
 
     // Async
-    pub fn to_monomial_basis_rev(&self) -> CoefficientList<F> {
+    pub fn to_monomial_basis(&self) -> CoefficientList<F> {
         match self {
-            Self::Host(pol) => CoefficientList::Host(pol.clone().to_monomial_basis_rev()),
-            Self::Device(pol) => CoefficientList::Device(pol.to_monomial_basis_rev()),
+            Self::Host(pol) => CoefficientList::Host(pol.clone().to_monomial_basis()),
+            Self::Device(pol) => CoefficientList::Device(pol.to_monomial_basis()),
         }
     }
 
@@ -585,19 +597,6 @@ impl<F: Field> Multilinear<F> {
         }
     }
 
-    // Async
-    pub fn piecewise_dot_product_at_field_level(&self, scalars: &[F]) -> Self
-    where
-        F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-    {
-        match self {
-            Self::Host(pol) => Multilinear::Host(pol.piecewise_dot_product_at_field_level(scalars)),
-            Self::Device(pol) => {
-                Multilinear::Device(pol.piecewise_dot_product_at_field_level(scalars))
-            }
-        }
-    }
-
     /// Debug purpose
     /// Sync
     pub fn hash(&self) -> u64 {
@@ -619,6 +618,20 @@ impl<F: Field> Multilinear<F> {
             Self::Device(pol) => {
                 Multilinear::Device(pol.transfer_to_host().embed::<EF>().transfer_to_device())
             }
+        }
+    }
+
+    pub fn fold_rectangular_in_large_field<EF: ExtensionField<F>>(
+        &self,
+        scalars: &[EF],
+    ) -> Multilinear<EF> {
+        match self {
+            Self::Host(pol) => Multilinear::Host(pol.fold_rectangular_in_large_field(scalars)),
+            Self::Device(pol) => Multilinear::Device(MultilinearDevice::new(
+                cuda_fold_rectangular_in_large_field(&[&pol.evals], scalars)
+                    .pop()
+                    .unwrap(),
+            )),
         }
     }
 }
@@ -661,7 +674,12 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
             Self::Device(pol) => pol[0].n_vars,
         }
     }
-
+    pub fn as_host(&self) -> Vec<&MultilinearHost<F>> {
+        match self {
+            Self::Host(host) => host.clone(),
+            _ => unreachable!(),
+        }
+    }
     pub fn len(&self) -> usize {
         match self {
             Self::Host(pol) => pol.len(),
