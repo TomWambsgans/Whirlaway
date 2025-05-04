@@ -25,20 +25,22 @@ Key techniques:
 
 ## Poseidon2 Benchmark
 
-Proving poseidon2 hashes on the koala-bear field. Note that we are limited by the two adicity (24) of the field (other fields will be included in the future).
+Proving poseidon2 hashes on the koala-bear field, with 128 bits of security (no conjectures).
 
 | WHIR initial rate   | 1/16    | 1/8     | 1/4     | 1/2     |
 | ------------------- | ------- | ------- | ------- | ------- |
-| poseidon2 count     | 2^15    | 2^16    | 2^17    | 2^18    |
+| poseidon2 count     | 2^16    | 2^17    | 2^18    | 2^19    |
 | **RTX 4090**        |         |         |         |         |
-| proving time        | 0.35 s  | 0.43 s  | 0.57 s  | 0.85 s  |
-| hash / s            | 95K     | 152K    | 229K    | 307K    |
+| proving time        | 0.38 s  | 0.47 s  | 0.64 s  | 1.09 s  |
+| hash / s            | 172K    | 273K    | 407K    | 480K    |
 | **RTX 3060 mobile** |         |         |         |         |
-| proving time        | 0.72 s  | 0.86 s  | 1.25 s  | 1.17 s  |
-| hash / s            | 46K     | 76K     | 105K    | 112K    |
+| proving time        | 0.68 s  | 0.87 s  | 1.27 s  | -       |
+| hash / s            | 95K     | 150K    | 206K    | -       |
 | **Verification**    |         |         |         |         |
-| proof size          | 154 KiB | 186 KiB | 230 KiB | 331 KiB |
-| verification time   | 5 ms    | 5 ms    | 7 ms    | 9 ms    |
+| proof size          | 153 KiB | 181 KiB | 227 KiB | 351 KiB |
+| verification time   | 4 ms    | 4 ms    | 6 ms    | 10 ms   |
+
+With the "mutual correlated agreement up to capacity" conjecture, an RTX 4090 can prove 1M poseidon2 in 1.9s, with a proof of 139kb (128 security bits).
 
 To reproduce the benchmark:
 
