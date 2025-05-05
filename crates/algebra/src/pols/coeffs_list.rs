@@ -1,10 +1,7 @@
-use super::MultilinearDevice;
 use crate::{pols::MultilinearHost, wavelet::wavelet_transform};
 use p3_dft::TwoAdicSubgroupDft;
 
-use cuda_bindings::{
-    cuda_fold_rectangular_in_large_field, cuda_monomial_to_lagrange_basis_rev, cuda_ntt,
-};
+use cuda_bindings::{cuda_fold_rectangular_in_large_field, cuda_ntt};
 use cuda_bindings::{cuda_reverse_bit_order_for_ntt, cuda_transpose};
 use cuda_engine::{HostOrDeviceBuffer, cuda_sync, memcpy_dtoh};
 use cudarc::driver::CudaSlice;
@@ -179,12 +176,6 @@ impl<F: Field> CoefficientListDevice<F> {
 
     pub fn n_coefs(&self) -> usize {
         self.coeffs.len()
-    }
-
-    /// Async
-    pub fn to_lagrange_basis_rev(&self) -> MultilinearDevice<F> {
-        let evals = cuda_monomial_to_lagrange_basis_rev(&self.coeffs);
-        MultilinearDevice::new(evals)
     }
 
     /// fold folds the polynomial at the provided folding_randomness.

@@ -6,60 +6,6 @@
 
 #include "ff_wrapper.cu"
 
-// (+ reverse vars)
-extern "C" __global__ void monomial_to_lagrange_basis_rev(Field_A *input_coeffs, Field_A *buff, Field_A *output_evals, const uint32_t n_vars)
-{
-    namespace cg = cooperative_groups;
-    cg::grid_group grid = cg::this_grid();
-
-    const int n_iters = (1 << (n_vars - 1));
-    const int n_total_threads = blockDim.x * gridDim.x;
-    const int n_repetitions = (n_iters + n_total_threads - 1) / n_total_threads;
-
-    for (int step = 0; step < n_vars; step++)
-    {
-        // switch back and forth between buffers
-
-        Field_A *input;
-        Field_A *output;
-
-        if (step == 0)
-        {
-            input = input_coeffs;
-            output = n_vars % 2 == 0 ? buff : output_evals;
-        }
-        else
-        {
-            if (step % 2 != n_vars % 2)
-            {
-                input = buff;
-                output = output_evals;
-            }
-            else
-            {
-                input = output_evals;
-                output = buff;
-            }
-        }
-
-        const int half_size = 1 << (n_vars - step - 1);
-        for (int rep = 0; rep < n_repetitions; rep++)
-        {
-            const int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
-            if (threadIndex < n_iters)
-            {
-                const int x = (threadIndex / half_size) * 2 * half_size;
-                const int y = threadIndex % half_size;
-                Field_A left = input[x + 2 * y];
-                output[x + y] = left;
-                ADD_AA(left, input[x + (2 * y) + 1], output[x + y + half_size]);
-            }
-        }
-
-        grid.sync();
-    }
-}
-
 // Could also be done in place
 extern "C" __global__ void lagrange_to_monomial_basis(Field_A *input_evals, Field_A *buff, Field_A *output_coeffs, uint32_t n_vars)
 {
