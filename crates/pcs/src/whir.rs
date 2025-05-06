@@ -101,7 +101,7 @@ mod test {
     use whir::parameters::{FoldingFactor, SoundnessType};
 
     #[test]
-    fn test_whir_pcs() {
+    fn test_whir_debug() {
         let env_filter = EnvFilter::builder()
             .with_default_directive(LevelFilter::INFO.into())
             .from_env_lossy();
@@ -111,23 +111,84 @@ mod test {
             .with(ForestLayer::default())
             .init();
 
-        let n_vars = 17;
-        let cuda = true;
-        type F = BinomialExtensionField<KoalaBear, 8>;
+        type F = KoalaBear;
         type EF = BinomialExtensionField<KoalaBear, 8>;
 
-        let pcs = WhirConfig::<F, EF>::new(
-            n_vars,
-            &WhirParameters::standard(
-                SoundnessType::ProvableList,
-                128,
-                2,
-                FoldingFactor::Constant(4),
-                cuda,
-            ),
-        );
+        let num_vars = 10;
+        let folding = FoldingFactor::Constant(4);
+        let log_in_rate = 1;
+        let cuda = false;
+        let params =
+            WhirParameters::standard(SoundnessType::ProvableList, 70, log_in_rate, folding, cuda);
+        test_whir_pcs_helper::<F, EF>(&params, num_vars);
+    }
 
-        if cuda {
+    #[test]
+    fn bench_whir() {
+        type F = BinomialExtensionField<KoalaBear, 8>;
+        type EF = F;
+        let log_inv_rate = 2;
+        let folding = FoldingFactor::Constant(4);
+        let cuda = true;
+        let params = WhirParameters::standard(
+            SoundnessType::ProvableList,
+            128,
+            log_inv_rate,
+            folding,
+            cuda,
+        );
+        for num_vars in 17..24 {
+            println!("num_vars: {}", num_vars);
+            test_whir_pcs_helper::<F, EF>(&params, num_vars);
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn test_whir_pcs_long() {
+        type F = KoalaBear;
+        type EF = BinomialExtensionField<KoalaBear, 4>;
+
+        for cuda in [true, false] {
+            for num_vars in 5..20 {
+                for folding in [
+                    FoldingFactor::Constant(3),
+                    FoldingFactor::Constant(4),
+                    FoldingFactor::ConstantFromSecondRound(5, 4),
+                    FoldingFactor::ConstantFromSecondRound(3, 4),
+                ] {
+                    for log_inv_rate in [1, 2, 3] {
+                        let params = WhirParameters::standard(
+                            SoundnessType::ProvableList,
+                            70,
+                            log_inv_rate,
+                            folding,
+                            cuda,
+                        );
+                        test_whir_pcs_helper::<F, EF>(&params, num_vars);
+                        test_whir_pcs_helper::<EF, EF>(&params, num_vars);
+                    }
+                }
+            }
+        }
+    }
+
+    fn test_whir_pcs_helper<
+        F: TwoAdicField + Ord + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
+        EF: TwoAdicField
+            + Ord
+            + ExtensionField<F>
+            + BasedVectorSpace<<F as PrimeCharacteristicRing>::PrimeSubfield>
+            + p3_field::ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
+    >(
+        params: &WhirParameters,
+        num_vars: usize,
+    ) where
+        <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    {
+        let config = WhirConfig::<F, EF>::new(num_vars, params);
+
+        if config.cuda {
             cuda_init();
             let prod_sumcheck = SumcheckComputation::<KoalaBear> {
                 exprs: &[(ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(1))
@@ -140,6 +201,10 @@ mod test {
                 "eq_mle",
             ));
             cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
+                "multilinear.cu",
+                "eval_multilinear_in_lagrange_basis",
+            ));
+            cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
                 "multilinear.cu",
                 "eval_multilinear_in_lagrange_basis",
             ));
@@ -189,6 +254,10 @@ mod test {
                 "multilinear.cu",
                 "fold_rectangular",
             ));
+            cuda_load_function(CudaFunctionInfo::two_fields::<KoalaBear, EF>(
+                "multilinear.cu",
+                "fold_rectangular",
+            ));
             cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
                 "multilinear.cu",
                 "fold_rectangular",
@@ -212,40 +281,41 @@ mod test {
             cuda_load_function(CudaFunctionInfo::basic("keccak.cu", "batch_keccak256"));
             cuda_load_function(CudaFunctionInfo::basic("keccak.cu", "pow_grinding"));
             cuda_preprocess_twiddles::<KoalaBear>();
-            let dim_ef = <EF as BasedVectorSpace<KoalaBear>>::DIMENSION;
+            let dim_ef = <EF as BasedVectorSpace<F::PrimeSubfield>>::DIMENSION;
             cuda_preprocess_many_sumcheck_computations(&prod_sumcheck, &[(1, dim_ef, dim_ef)]);
             cuda_sync();
         }
 
         let mut fs_prover = FsProver::new();
 
-        let evals = (0..1 << n_vars)
+        let evals = (0..1 << config.num_variables)
             .map(|x| F::from_u64(x as u64))
             .collect::<Vec<_>>();
-        let pol = if cuda {
+        let pol = if config.cuda {
             Multilinear::Device(MultilinearDevice::new(memcpy_htod(&evals)))
         } else {
             Multilinear::Host(MultilinearHost::new(evals))
         };
-        let point = (0..n_vars)
+        let point = (0..config.num_variables)
             .map(|x| EF::from_u64(x as u64))
             .collect::<Vec<_>>();
         let value = pol.evaluate(&point);
         let eval = Evaluation { point, value };
 
         let time = std::time::Instant::now();
-        let witness = pcs.commit(pol, &mut fs_prover);
+        let witness = config.commit(pol, &mut fs_prover);
         println!("Commit: {} ms", time.elapsed().as_millis());
 
         let time = std::time::Instant::now();
-        pcs.open(witness, &eval, &mut fs_prover);
+        config.open(witness, &eval, &mut fs_prover);
         println!("Open: {} ms", time.elapsed().as_millis());
 
         let transcript = fs_prover.transcript();
         println!("Proof size: {:.1} KiB\n", transcript.len() as f64 / 1024.0);
         let mut fs_verifier = FsVerifier::new(transcript);
-        let parsed_commitment = pcs.parse_commitment(&mut fs_verifier).unwrap();
-        pcs.verify(&parsed_commitment, &eval, &mut fs_verifier)
+        let parsed_commitment = config.parse_commitment(&mut fs_verifier).unwrap();
+        config
+            .verify(&parsed_commitment, &eval, &mut fs_verifier)
             .unwrap();
     }
 }

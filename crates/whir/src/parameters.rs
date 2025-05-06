@@ -2,6 +2,8 @@ use std::{fmt::Display, str::FromStr};
 
 use serde::Serialize;
 
+const MAX_NUM_VARIABLES_TO_SEND_COEFFS: usize = 6;
+
 pub fn default_max_pow(num_variables: usize, log_inv_rate: usize) -> usize {
     num_variables + log_inv_rate - 3
 }
@@ -105,31 +107,41 @@ impl FoldingFactor {
         }
     }
 
-    /// Compute the number of WHIR rounds and the number of rounds in the final
-    /// sumcheck.
+    /// Computes the number of WHIR rounds and the number of rounds in the final sumcheck.
+    #[must_use]
     pub fn compute_number_of_rounds(&self, num_variables: usize) -> (usize, usize) {
         match self {
             FoldingFactor::Constant(factor) => {
-                // It's checked that factor > 0 and factor <= num_variables
-                let final_sumcheck_rounds = num_variables % factor;
-                (
-                    (num_variables - final_sumcheck_rounds) / factor - 1,
-                    final_sumcheck_rounds,
-                )
+                if num_variables <= MAX_NUM_VARIABLES_TO_SEND_COEFFS {
+                    // the first folding is mandatory in the current implem (TODO don't fold, send directly the polynomial)
+                    return (0, num_variables - factor);
+                }
+
+                // Starting from `num_variables`, each round reduces the number of variables by `factor`. As soon as the
+                // number of variables is less of equal than `MAX_NUM_VARIABLES_TO_SEND_COEFFS`, we stop folding and the
+                // prover sends directly the coefficients of the polynomial.
+                let num_rounds =
+                    (num_variables - MAX_NUM_VARIABLES_TO_SEND_COEFFS).div_ceil(*factor);
+                let final_sumcheck_rounds = num_variables - num_rounds * factor;
+                // The -1 accounts for the fact that the last round does not require another folding.
+                (num_rounds - 1, final_sumcheck_rounds)
             }
             FoldingFactor::ConstantFromSecondRound(first_round_factor, factor) => {
+                // Compute the number of variables remaining after the first round.
                 let nv_except_first_round = num_variables - *first_round_factor;
-                if nv_except_first_round < *factor {
+                if nv_except_first_round < MAX_NUM_VARIABLES_TO_SEND_COEFFS {
                     // This case is equivalent to Constant(first_round_factor)
+                    // the first folding is mandatory in the current implem (TODO don't fold, send directly the polynomial)
                     return (0, nv_except_first_round);
                 }
-                let final_sumcheck_rounds = nv_except_first_round % *factor;
-                (
-                    // No need to minus 1 because the initial round is already
-                    // excepted out
-                    (nv_except_first_round - final_sumcheck_rounds) / factor,
-                    final_sumcheck_rounds,
-                )
+                // Starting from `num_variables`, the first round reduces the number of variables by `first_round_factor`,
+                // and the next ones by `factor`. As soon as the number of variables is less of equal than
+                // `MAX_NUM_VARIABLES_TO_SEND_COEFFS`, we stop folding and the prover sends directly the coefficients of the polynomial.
+                let num_rounds =
+                    (nv_except_first_round - MAX_NUM_VARIABLES_TO_SEND_COEFFS).div_ceil(*factor);
+                let final_sumcheck_rounds = nv_except_first_round - num_rounds * factor;
+                // No need to minus 1 because the initial round is already excepted out
+                (num_rounds, final_sumcheck_rounds)
             }
         }
     }
@@ -148,7 +160,7 @@ impl FoldingFactor {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct WhirParameters {
     pub starting_log_inv_rate: usize,
     pub folding_factor: FoldingFactor,

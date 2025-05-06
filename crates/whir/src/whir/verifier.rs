@@ -84,6 +84,30 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
         })
     }
 
+    fn merkle_verified_answers<IF: ExtensionField<F>>(
+        &self,
+        r: usize,
+        fs_verifier: &mut FsVerifier,
+        domain_size: usize,
+        prev_root: &KeccakDigest,
+        stir_challenges_indexes: &[usize],
+    ) -> Result<Vec<Vec<IF>>, WhirError> {
+        let merkle_proof = MultiPath::from_bytes(&fs_verifier.next_variable_bytes()?)
+            .ok_or(WhirError::Decoding)?;
+
+        let answers: Vec<Vec<IF>> = fs_verifier.next_scalar_matrix(None).unwrap();
+
+        let merkle_tree_height =
+            domain_size.trailing_zeros() as usize - self.params.folding_factor.at_round(r);
+        if !merkle_proof.verify(&prev_root, &answers, merkle_tree_height)
+            || merkle_proof.leaf_indexes != stir_challenges_indexes
+        {
+            return Err(WhirError::MerkleTree);
+        }
+
+        Ok(answers)
+    }
+
     fn parse_round<IF: ExtensionField<F>>(
         &self,
         r: usize,
@@ -121,19 +145,13 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
             .map(|index| exp_domain_gen.exp_u64(*index as u64))
             .collect();
 
-        let merkle_proof = MultiPath::from_bytes(&fs_verifier.next_variable_bytes()?)
-            .ok_or(WhirError::Decoding)?;
-
-        let answers: Vec<Vec<IF>> = fs_verifier.next_scalar_matrix(None).unwrap();
-
-        let merkle_tree_height =
-            domain_size.trailing_zeros() as usize - self.params.folding_factor.at_round(r);
-        if !merkle_proof.verify(&prev_root, &answers, merkle_tree_height)
-            || merkle_proof.leaf_indexes != stir_challenges_indexes
-        {
-            return Err(WhirError::MerkleTree);
-        }
-
+        let answers = self.merkle_verified_answers::<IF>(
+            r,
+            fs_verifier,
+            *domain_size,
+            prev_root,
+            &stir_challenges_indexes,
+        )?;
         fs_verifier.challenge_pow(round_params.pow_bits)?;
 
         let combination_randomness_gen = fs_verifier.challenge_scalars::<EF>(1)[0];
@@ -182,7 +200,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
         statement: &Statement<EF>, // Will be needed later
     ) -> Result<ParsedProof<EF>, WhirError> {
         let mut initial_sumcheck_rounds = Vec::new();
-        let mut folding_randomness: Vec<EF>;
+        let mut final_folding_randomness: Vec<EF>;
         let initial_combination_randomness;
         // Derive combination randomness and first sumcheck polynomial
         let combination_randomness_gen = fs_verifier.challenge_scalars::<EF>(1)[0];
@@ -201,7 +219,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
             fs_verifier.challenge_pow(self.params.starting_folding_pow_bits)?;
         }
 
-        folding_randomness = initial_sumcheck_rounds.iter().map(|&(_, r)| r).collect();
+        final_folding_randomness = initial_sumcheck_rounds.iter().map(|&(_, r)| r).collect();
 
         let mut prev_root = parsed_commitment.root.clone();
         let mut domain_gen =
@@ -218,7 +236,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
                 &mut rounds,
                 &mut exp_domain_gen,
                 &mut prev_root,
-                &mut folding_randomness,
+                &mut final_folding_randomness,
                 &mut domain_gen,
             )?;
         }
@@ -230,7 +248,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
                 &mut rounds,
                 &mut exp_domain_gen,
                 &mut prev_root,
-                &mut folding_randomness,
+                &mut final_folding_randomness,
                 &mut domain_gen,
             )?;
         }
@@ -240,28 +258,38 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
         let final_coefficients = CoefficientListHost::new(final_coefficients);
 
         // Final queries verify
-        let final_randomness_indexes = get_challenge_stir_queries(
+        let stir_challenges_indexes = get_challenge_stir_queries(
             domain_size,
             self.params.folding_factor.at_round(self.params.n_rounds()),
             self.params.final_queries,
             fs_verifier,
         );
-        let final_randomness_points = final_randomness_indexes
+
+        let final_randomness_points = stir_challenges_indexes
             .iter()
             .map(|index| exp_domain_gen.exp_u64(*index as u64))
             .collect();
 
-        let final_merkle_proof = MultiPath::from_bytes(&fs_verifier.next_variable_bytes()?)
-            .ok_or(WhirError::Decoding)?;
-        let final_randomness_answers: Vec<Vec<EF>> = fs_verifier.next_scalar_matrix(None).unwrap();
-
-        let merkle_tree_height = domain_size.trailing_zeros() as usize
-            - self.params.folding_factor.at_round(self.params.n_rounds());
-        if !final_merkle_proof.verify(&prev_root, &final_randomness_answers, merkle_tree_height)
-            || final_merkle_proof.leaf_indexes != final_randomness_indexes
-        {
-            return Err(WhirError::MerkleTree);
-        }
+        let final_randomness_answers = if self.params.n_rounds() == 0 {
+            self.merkle_verified_answers::<F>(
+                self.params.n_rounds(),
+                fs_verifier,
+                domain_size,
+                &prev_root,
+                &stir_challenges_indexes,
+            )?
+            .into_iter()
+            .map(|v| v.into_iter().map(EF::from).collect())
+            .collect()
+        } else {
+            self.merkle_verified_answers::<EF>(
+                self.params.n_rounds(),
+                fs_verifier,
+                domain_size,
+                &prev_root,
+                &stir_challenges_indexes,
+            )?
+        };
 
         fs_verifier.challenge_pow(self.params.final_pow_bits)?;
 
@@ -279,9 +307,9 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
             initial_combination_randomness,
             initial_sumcheck_rounds,
             rounds,
-            final_folding_randomness: folding_randomness,
+            final_folding_randomness,
             final_randomness_points,
-            final_randomness_answers: final_randomness_answers.to_vec(),
+            final_randomness_answers,
             final_sumcheck_rounds,
             final_sumcheck_randomness,
             final_coefficients,
@@ -497,7 +525,6 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
                 prev = Some((sumcheck_poly.clone(), *new_randomness));
             }
         }
-        // dbg!(&prev);
         let prev_sumcheck_poly_eval = if let Some((prev_poly, randomness)) = prev {
             prev_poly.eval(&randomness)
         } else {

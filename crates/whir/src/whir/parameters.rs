@@ -7,7 +7,7 @@ use crate::parameters::{FoldingFactor, SoundnessType, WhirParameters};
 
 #[derive(Clone)]
 pub struct WhirConfig<F: Field, EF: ExtensionField<F>> {
-    pub(crate) num_variables: usize,
+    pub num_variables: usize,
     _coeffs_field: PhantomData<F>,
     _opening_field: PhantomData<EF>,
 
@@ -33,7 +33,7 @@ pub struct WhirConfig<F: Field, EF: ExtensionField<F>> {
     pub(crate) final_log_inv_rate: usize,
     pub(crate) final_sumcheck_rounds: usize,
     pub(crate) final_folding_pow_bits: usize,
-    pub(crate) cuda: bool,
+    pub cuda: bool,
 }
 
 #[derive(Debug, Clone)]

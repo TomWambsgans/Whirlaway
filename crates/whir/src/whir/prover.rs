@@ -88,7 +88,7 @@ where
                 randomized_eq_extensions(&initial_claims, &combination_randomness, self.0.cuda);
             let embbedded_lagrange_polynomial = witness.lagrange_polynomial.embed::<EF>(); // TODO remove
             let nodes = vec![&embbedded_lagrange_polynomial, &liner_comb];
-            let n_rounds = Some(self.0.folding_factor.at_round(0));
+            let initial_folding_factor = Some(self.0.folding_factor.at_round(0));
             let pow_bits = self.0.starting_folding_pow_bits;
             let sum = dot_product(&initial_answers, &combination_randomness);
             (folding_randomness, sumcheck_mles, hypercube_sum) =
@@ -104,7 +104,7 @@ where
                     false,
                     fs_prover,
                     sum,
-                    n_rounds,
+                    initial_folding_factor,
                     SumcheckGrinding::Custom(pow_bits),
                     None,
                 );
@@ -147,7 +147,6 @@ where
         // Base case
         if round_state.round == self.0.n_rounds() {
             // Directly send coefficients of the polynomial to the verifier.
-
             fs_prover.add_scalars(&folded_coefficients.transfer_to_host().coeffs);
 
             // Final verifier queries and answers. The indices are over the

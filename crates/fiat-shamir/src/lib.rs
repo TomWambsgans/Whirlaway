@@ -107,6 +107,9 @@ impl FsProver {
     }
 
     pub fn challenge_pow(&mut self, bits: usize, cuda: bool) {
+        if bits >= 30 {
+            panic!("too much grinding: {} bits", bits);
+        }
         if bits == 0 {
             return;
         }

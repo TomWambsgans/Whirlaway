@@ -35,7 +35,7 @@ pub fn cuda_pow_grinding(seed: &KeccakDigest, ending_zeros_count: usize) -> u64 
     loop {
         let mut launch_args = CudaCall::new(
             CudaFunctionInfo::basic("keccak.cu", "pow_grinding"),
-            1 << ending_zeros_count,
+            1u32.checked_shl(ending_zeros_count as u32).unwrap(),
         );
 
         let total_n_threads = launch_args.total_n_threads(false) as u64;
