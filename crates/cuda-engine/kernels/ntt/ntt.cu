@@ -6,7 +6,6 @@
 #include "../ff_wrapper.cu"
 
 // we need: MAX_NTT_SIZE_AT_BLOCK_LEVEL * (EXT_DEGREE + 1) * 4 bytes <= shared memory
-// TODO avoid hardcoding
 #if !defined(MAX_NTT_LOG_SIZE_AT_BLOCK_LEVEL)
 #define MAX_NTT_LOG_SIZE_AT_BLOCK_LEVEL 0
 #endif

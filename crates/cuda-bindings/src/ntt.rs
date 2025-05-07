@@ -1,6 +1,7 @@
 use cuda_engine::{
     CudaCall, CudaFunctionInfo, cuda_alloc, cuda_alloc_zeros, cuda_twiddles,
     cuda_twiddles_two_adicity, max_ntt_log_size_at_block_level,
+    max_transpose_log_size_at_block_level,
 };
 use cudarc::driver::{CudaSlice, PushKernelArg};
 
@@ -16,8 +17,12 @@ pub fn cuda_transpose<F: Field>(
     let mut result_dev = cuda_alloc::<F>(input.len());
 
     let mut call = CudaCall::new(
-        CudaFunctionInfo::one_field::<F>("ntt/transpose.cu", "transpose"),
+        CudaFunctionInfo::transpose::<F>(),
         1 << (log_rows + log_cols),
+    )
+    .max_log_threads_per_block(max_transpose_log_size_at_block_level::<F>() as u32)
+    .shared_mem_bytes(
+        (1 << max_transpose_log_size_at_block_level::<F>()) * std::mem::size_of::<F>() as u32,
     );
     call.arg(input);
     call.arg(&mut result_dev);
@@ -149,10 +154,8 @@ mod tests {
             "ntt/bit_reverse.cu",
             "reverse_bit_order_for_ntt",
         ));
-        cuda_load_function(CudaFunctionInfo::one_field::<F>(
-            "ntt/transpose.cu",
-            "transpose",
-        ));
+        cuda_load_function(CudaFunctionInfo::transpose::<F>());
+
         cuda_preprocess_twiddles::<KoalaBear>();
 
         let len = 1 << log_len;

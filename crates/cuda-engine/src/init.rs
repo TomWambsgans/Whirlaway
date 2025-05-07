@@ -22,6 +22,7 @@ pub struct CudaFunctionInfo {
     pub extension_degree_b: Option<usize>,
     pub extension_degree_c: Option<usize>,
     pub max_ntt_log_size_at_block_level: Option<u32>,
+    pub max_transpose_log_size_at_block_level: Option<u32>,
     pub no_inline: bool,
     pub cache_memory_reads: bool,
 }
@@ -74,6 +75,17 @@ impl CudaFunctionInfo {
             ..Default::default()
         }
     }
+
+    pub fn transpose<F: Field>() -> Self {
+        Self {
+            cuda_file: kernels_folder().join("ntt/transpose.cu"),
+            function_name: "transpose".to_string(),
+            field: Some(SupportedField::guess::<F>()),
+            extension_degree_a: Some(extension_degree::<F>()),
+            max_transpose_log_size_at_block_level: Some(max_transpose_log_size_at_block_level::<F>() as u32),
+            ..Default::default()
+        }
+    }
 }
 
 pub fn max_ntt_log_size_at_block_level<F: Field>() -> usize {
@@ -83,6 +95,11 @@ pub fn max_ntt_log_size_at_block_level<F: Field>() -> usize {
                 as usize,
         ) - 1,
     ) // TODO fix and remove -1
+}
+
+pub fn max_transpose_log_size_at_block_level<F: Field>() -> usize {
+    (LOG_MAX_THREADS_PER_BLOCK as usize)
+        .min(log2_down((shared_memory() / std::mem::size_of::<F>()) as usize) - 1) // TODO fix and remove -1
 }
 
 pub(crate) struct CudaEngine {
@@ -155,6 +172,11 @@ pub(crate) fn load_function(
     if let Some(max_ntt_log_size_at_block_level) = options.max_ntt_log_size_at_block_level {
         ptx_file_name.push_str(&format!(
             "_max_ntt_log_size_at_block_level_{max_ntt_log_size_at_block_level}"
+        ));
+    }
+    if let Some(max_transpose_log_size_at_block_level) = options.max_transpose_log_size_at_block_level {
+        ptx_file_name.push_str(&format!(
+            "_max_transpose_log_size_at_block_level_{max_transpose_log_size_at_block_level}"
         ));
     }
     if options.no_inline {
@@ -234,7 +256,11 @@ pub(crate) fn load_function(
                 "-DMAX_NTT_LOG_SIZE_AT_BLOCK_LEVEL={max_ntt_log_size_at_block_level}"
             ));
         }
-
+        if let Some(max_transpose_log_size_at_block_level) = options.max_transpose_log_size_at_block_level {
+            command.arg(format!(
+                "-DMAX_TRANSPOSE_LOG_SIZE_AT_BLOCK_LEVEL={max_transpose_log_size_at_block_level}"
+            ));
+        }
         let output = command.output().expect(&format!(
             "Failed to compile {} with nvcc",
             options.cuda_file.to_string_lossy()

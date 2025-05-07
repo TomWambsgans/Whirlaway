@@ -180,12 +180,9 @@ mod tests {
     fn test_cuda_transpose() {
         type F = BinomialExtensionField<KoalaBear, 8>;
         cuda_init();
-        cuda_load_function(CudaFunctionInfo::one_field::<F>(
-            "ntt/transpose.cu",
-            "transpose",
-        ));
-        let log_n_rows = 6;
-        let log_n_cols = 9;
+        cuda_load_function(CudaFunctionInfo::transpose::<F>());
+        let log_n_rows = 4;
+        let log_n_cols = 13;
         let n_rows = 1 << log_n_rows;
         let n_cols = 1 << log_n_cols;
         let mut matrix = vec![F::ZERO; n_rows * n_cols];
@@ -195,9 +192,13 @@ mod tests {
             }
         }
         let matrix_dev = memcpy_htod(&matrix);
+        let time = std::time::Instant::now();
         let transdposed_dev = cuda_transpose(&matrix_dev, log_n_rows, log_n_cols);
+        cuda_sync();
+        println!("CUDA transpose took {} ms", time.elapsed().as_millis());
         let res_cuda = memcpy_dtoh(&transdposed_dev);
         cuda_sync();
+
         transpose(&mut matrix, n_rows, n_cols);
         assert!(res_cuda == matrix);
     }

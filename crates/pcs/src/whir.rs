@@ -221,14 +221,8 @@ mod test {
                 "multilinear.cu",
                 "lagrange_to_monomial_basis",
             ));
-            cuda_load_function(CudaFunctionInfo::one_field::<EF>(
-                "ntt/transpose.cu",
-                "transpose",
-            ));
-            cuda_load_function(CudaFunctionInfo::one_field::<F>(
-                "ntt/transpose.cu",
-                "transpose",
-            ));
+            cuda_load_function(CudaFunctionInfo::transpose::<F>());
+            cuda_load_function(CudaFunctionInfo::transpose::<EF>());
             cuda_load_function(CudaFunctionInfo::one_field::<F>(
                 "ntt/bit_reverse.cu",
                 "reverse_bit_order_for_ntt",
