@@ -2,11 +2,11 @@ use algebra::pols::MultilinearHost;
 use arithmetic_circuit::max_composition_degree;
 use fiat_shamir::{FsError, FsVerifier};
 use p3_field::{ExtensionField, PrimeCharacteristicRing, PrimeField, TwoAdicField};
-use pcs::{PCS, RingSwitch, WhirParameters};
+use pcs::{PCS, RingSwitch};
 use sumcheck::{SumcheckError, SumcheckGrinding};
 use tracing::instrument;
 use utils::{Evaluation, dot_product, eq_extension, powers, small_to_big_extension};
-use whir::whir::parameters::WhirConfig;
+use whir::parameters::{WhirConfig, WhirConfigBuilder};
 
 use crate::{
     AirSettings,
@@ -56,7 +56,7 @@ impl<F: PrimeField> AirTable<F> {
     {
         let pcs = RingSwitch::<WhirF, WhirConfig<WhirF, WhirF>>::new(
             log_length + self.log_n_witness_columns(),
-            &WhirParameters::standard(
+            &WhirConfigBuilder::standard(
                 settings.whir_soudness_type,
                 settings.security_bits,
                 settings.whir_log_inv_rate,

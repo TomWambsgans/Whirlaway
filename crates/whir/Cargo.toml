@@ -14,3 +14,4 @@ tracing.workspace = true
 cuda-engine.workspace = true
 arithmetic-circuit.workspace = true
 utils.workspace = true
+derive_more.workspace = true

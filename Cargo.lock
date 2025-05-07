@@ -947,6 +947,7 @@ dependencies = [
  "algebra",
  "arithmetic-circuit",
  "cuda-engine",
+ "derive_more",
  "fiat-shamir",
  "merkle-tree",
  "p3-field",

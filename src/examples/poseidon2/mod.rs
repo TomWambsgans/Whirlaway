@@ -39,8 +39,9 @@ mod generation;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use whir::parameters::SoundnessType;
+
+    use super::*;
 
     #[test]
     fn test_poseidon2() {
@@ -70,7 +71,7 @@ impl ToString for Poseidon2Benchmark {
     fn to_string(&self) -> String {
         let mut res = String::new();
         res += &format!(
-            "Security level: {} bits ({}), starting rate: 1/{}, folding factor: {}\n",
+            "Security level: {} bits ({:?}), starting rate: 1/{}, folding factor: {}\n",
             self.settings.security_bits,
             self.settings.whir_soudness_type,
             1 << self.settings.whir_log_inv_rate,

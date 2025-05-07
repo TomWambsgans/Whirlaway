@@ -1,4 +1,6 @@
-use super::{Statement, committer::Witness, parameters::WhirConfig};
+use crate::fs_utils::get_challenge_stir_queries;
+
+use super::{committer::Witness, parameters::WhirConfig};
 use algebra::pols::{CoefficientList, CoefficientListHost, Multilinear, MultilinearsVec};
 use arithmetic_circuit::TransparentPolynomial;
 use cuda_engine::{HostOrDeviceBuffer, cuda_sync};
@@ -8,10 +10,8 @@ use p3_field::{ExtensionField, PrimeCharacteristicRing};
 use p3_field::{Field, TwoAdicField};
 use sumcheck::SumcheckGrinding;
 use tracing::instrument;
-use utils::powers;
+use utils::{Statement, powers};
 use utils::{dot_product, multilinear_point_from_univariate};
-
-use crate::whir::fs_utils::get_challenge_stir_queries;
 
 pub struct Prover<F: Field, EF: ExtensionField<F>>(pub WhirConfig<F, EF>);
 

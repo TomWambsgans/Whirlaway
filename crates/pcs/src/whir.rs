@@ -1,22 +1,19 @@
 use algebra::pols::Multilinear;
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField};
-use utils::{Evaluation, KeccakDigest};
-use whir::whir::{
-    Statement,
+use utils::{Evaluation, KeccakDigest, Statement};
+use whir::{
     committer::Committer,
-    parameters::WhirConfig,
+    parameters::{WhirConfig, WhirConfigBuilder},
     prover::Prover,
     verifier::{ParsedCommitment, Verifier, WhirError},
 };
 
-use whir::whir::committer::Witness as WhirWitness;
+use whir::committer::Witness as WhirWitness;
 
 use crate::PcsParams;
 
 use super::{PCS, PcsWitness};
-
-pub use whir::parameters::WhirParameters;
 
 impl<'a, F: Field, EF: ExtensionField<F>> PcsWitness<F> for WhirWitness<F, EF> {
     fn pol(&self) -> &Multilinear<F> {
@@ -24,7 +21,7 @@ impl<'a, F: Field, EF: ExtensionField<F>> PcsWitness<F> for WhirWitness<F, EF> {
     }
 }
 
-impl PcsParams for WhirParameters {
+impl PcsParams for WhirConfigBuilder {
     fn security_bits(&self) -> usize {
         self.security_level
     }
@@ -43,10 +40,10 @@ where
     type Witness = WhirWitness<F, EF>;
     type ParsedCommitment = ParsedCommitment<EF, KeccakDigest>;
     type VerifError = WhirError;
-    type Params = WhirParameters;
+    type Params = WhirConfigBuilder;
 
     fn new(n_vars: usize, params: &Self::Params) -> Self {
-        WhirConfig::<F, EF>::new(n_vars, params)
+        params.build(n_vars)
     }
 
     fn commit(&self, pol: Multilinear<F>, fs_prover: &mut FsProver) -> Self::Witness {
@@ -114,12 +111,18 @@ mod test {
         type F = KoalaBear;
         type EF = BinomialExtensionField<KoalaBear, 8>;
 
-        let num_vars = 10;
+        let num_vars = 20;
         let folding = FoldingFactor::Constant(4);
-        let log_in_rate = 1;
-        let cuda = false;
-        let params =
-            WhirParameters::standard(SoundnessType::ProvableList, 70, log_in_rate, folding, cuda);
+        let log_inv_rate = 1;
+        let cuda = true;
+        let params = WhirConfigBuilder::standard(
+            SoundnessType::ProvableList,
+            100,
+            log_inv_rate,
+            folding,
+            cuda,
+        );
+
         test_whir_pcs_helper::<F, EF>(&params, num_vars);
     }
 
@@ -130,7 +133,7 @@ mod test {
         let log_inv_rate = 2;
         let folding = FoldingFactor::Constant(4);
         let cuda = true;
-        let params = WhirParameters::standard(
+        let params = WhirConfigBuilder::standard(
             SoundnessType::ProvableList,
             128,
             log_inv_rate,
@@ -158,7 +161,7 @@ mod test {
                     FoldingFactor::ConstantFromSecondRound(3, 4),
                 ] {
                     for log_inv_rate in [1, 2, 3] {
-                        let params = WhirParameters::standard(
+                        let params = WhirConfigBuilder::standard(
                             SoundnessType::ProvableList,
                             70,
                             log_inv_rate,
@@ -181,12 +184,14 @@ mod test {
             + BasedVectorSpace<<F as PrimeCharacteristicRing>::PrimeSubfield>
             + p3_field::ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
     >(
-        params: &WhirParameters,
+        params: &WhirConfigBuilder,
         num_vars: usize,
     ) where
         <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
     {
         let config = WhirConfig::<F, EF>::new(num_vars, params);
+
+        dbg!(&config);
 
         if config.cuda {
             cuda_init();

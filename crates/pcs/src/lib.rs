@@ -6,7 +6,6 @@ use p3_field::{ExtensionField, Field};
 
 mod whir;
 use utils::Evaluation;
-pub use whir::*;
 
 mod ring_switch;
 pub use ring_switch::*;

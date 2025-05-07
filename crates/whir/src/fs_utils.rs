@@ -1,7 +1,7 @@
 use fiat_shamir::FsParticipant;
 use utils::dedup;
 
-pub fn get_challenge_stir_queries(
+pub(crate) fn get_challenge_stir_queries(
     domain_size: usize,
     folding_factor: usize,
     num_queries: usize,

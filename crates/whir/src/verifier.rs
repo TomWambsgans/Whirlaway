@@ -4,11 +4,12 @@ use merkle_tree::MultiPath;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use std::iter;
 use tracing::instrument;
-use utils::{KeccakDigest, powers};
+use utils::{KeccakDigest, Statement, powers};
 use utils::{eq_extension, multilinear_point_from_univariate};
 
-use super::{Statement, parameters::WhirConfig};
-use crate::whir::fs_utils::get_challenge_stir_queries;
+use crate::fs_utils::get_challenge_stir_queries;
+
+use super::parameters::WhirConfig;
 
 pub struct Verifier<F: TwoAdicField, EF: ExtensionField<F>> {
     params: WhirConfig<F, EF>,
