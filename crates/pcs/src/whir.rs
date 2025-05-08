@@ -239,12 +239,12 @@ mod test {
             ));
             cuda_load_function(CudaFunctionInfo::two_fields::<KoalaBear, EF>(
                 "ntt/ntt.cu",
-                "ntt_step",
+                "apply_twiddles",
             ));
             cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<EF>());
             cuda_load_function(CudaFunctionInfo::two_fields::<KoalaBear, F>(
                 "ntt/ntt.cu",
-                "ntt_step",
+                "apply_twiddles",
             ));
             cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<F>());
             cuda_load_function(CudaFunctionInfo::one_field::<EF>(

@@ -13,13 +13,10 @@
 
 extern "C" __global__ void ntt_at_block_level(Field_B *buff, uint32_t log_len, uint32_t log_chunck_size, Field_A *twiddles)
 {
-    // the initial steps of the NTT are done at block level, to make use of shared memory
-    // *buff constains N_THREADS_PER_BLOCK * 2 Field_B elements
-    // *twiddles: w^0, w^1, w^2, w^3, ..., w^(N_THREADS_PER_BLOCK * 2 - 1) where w is a "2 * N_THREADS_PER_BLOCK" root of unity
-    // block is not necessarily blockIdx.x
-    // we should have log_chunck_size <= LOG_N_THREADS_PER_BLOCK + 1
+    // *twiddles: w^0, w^1, w^2, w^3, ..., w^(log_chunck_size * 2 - 1) where w is a "2 * log_chunck_size" root of unity
 
-    if (log_chunck_size == 0) {
+    if (log_chunck_size == 0)
+    {
         return;
     }
 
@@ -45,38 +42,39 @@ extern "C" __global__ void ntt_at_block_level(Field_B *buff, uint32_t log_len, u
 
         __syncthreads();
 
-        // step 0
-
-        Field_B even = cached_buff[threadId * 2];
-        Field_B odd = cached_buff[threadId * 2 + 1];
-
-        ADD_BB(even, odd, cached_buff[threadId * 2]);
-        SUB_BB(even, odd, cached_buff[threadId * 2 + 1]);
-
-        __syncthreads();
-
-        for (int step = 1; step < log_chunck_size; step++)
+        for (int step = 0; step < log_chunck_size; step++)
         {
-            int packet_size = 1 << step;
-            int even_index = threadId + (threadId / packet_size) * packet_size;
-            int odd_index = even_index + packet_size;
+            int threadIndex = threadIdx.x;
+            int fft_index = threadIndex / (1 << (log_chunck_size - 1));
+            threadIndex = threadIndex % (1 << (log_chunck_size - 1));
 
-            Field_B even = cached_buff[even_index];
-            Field_B odd = cached_buff[odd_index];
+            int inner_fft_size = 1 << step;
+            int left_shift = fft_index * (1 << log_chunck_size) + (threadIndex / inner_fft_size);
+            int interspace = 1 << (log_chunck_size - step - 1);
+            int even_src = left_shift + (threadIndex % inner_fft_size) * 2 * interspace;
+            int odd_src = left_shift + ((threadIndex % inner_fft_size) * 2 + 1) * interspace;
+            int even_dest = left_shift + (threadIndex % inner_fft_size) * interspace;
+            int odd_dest = left_shift + ((threadIndex % inner_fft_size) + inner_fft_size) * interspace;
 
-            int i = threadId % packet_size;
+            Field_B even = cached_buff[even_src];
+            Field_B odd = cached_buff[odd_src];
+
+            __syncthreads();
+
+            int i = threadId % inner_fft_size;
             // w^i where w is a "2 * packet_size" root of unity
-            Field_A first_twiddle = cached_twiddles[i * blockDim.x / packet_size];
+            Field_A first_twiddle = cached_twiddles[i * blockDim.x / inner_fft_size];
             // w^(i + packet_size) where w is a "2 * packet_size" root of unity
-            Field_A second_twiddle = cached_twiddles[(i + packet_size) * blockDim.x / packet_size];
+            Field_A second_twiddle = cached_twiddles[(i + inner_fft_size) * blockDim.x / inner_fft_size];
 
             // cached_buff[even_index] = even + first_twiddle * odd
-            MUL_BA(odd, first_twiddle, cached_buff[even_index]);
-            ADD_BB(even, cached_buff[even_index], cached_buff[even_index]);
+            Field_B temp;
+            MUL_BA(odd, first_twiddle, temp);
+            ADD_BB(even, temp, cached_buff[even_dest]);
 
             // cached_buff[odd_index] = even + second_twiddle * odd
-            MUL_BA(odd, second_twiddle, cached_buff[odd_index]);
-            ADD_BB(even, cached_buff[odd_index], cached_buff[odd_index]);
+            MUL_BA(odd, second_twiddle, temp);
+            ADD_BB(even, temp, cached_buff[odd_dest]);
 
             __syncthreads();
         }
@@ -89,42 +87,24 @@ extern "C" __global__ void ntt_at_block_level(Field_B *buff, uint32_t log_len, u
     }
 }
 
-extern "C" __global__ void ntt_step(Field_B *buff, uint32_t log_len, uint32_t step, Field_A *twiddles)
+extern "C" __global__ void apply_twiddles(Field_B *buff, uint32_t full_log_len, uint32_t inner_log_len, uint32_t log_chunck_size, Field_A *twiddles)
 {
-    // twiddles = 1
-    // followed by w^0, w^1 where w is a 2-root of unity
-    // followed by w^0, w^1, w^2, w^3 where w is a 4-root of unity
-    // followed by w^0, w^1, w^2, w^3, w^4, w^5, w^6, w^7 where w is a 8-root of unity
-    // ...
-    // buff has size 1 << log_len
-
     int total_threads = blockDim.x * gridDim.x;
-    const uint32_t n_repetitions = ((1 << (log_len - 1)) + total_threads - 1) / total_threads;
+    const uint32_t n_repetitions = ((1 << full_log_len) + total_threads - 1) / total_threads;
 
     for (int rep = 0; rep < n_repetitions; rep++)
     {
         int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
+        int inner_matrix_index = threadIndex / (1 << inner_log_len);
 
-        int packet_size = 1 << step;
-        int even_index = threadIndex + (threadIndex / packet_size) * packet_size;
-        int odd_index = even_index + packet_size;
+        int inner_idx = threadIndex % (1 << inner_log_len);
+        int i = inner_idx % (1 << log_chunck_size);
+        int j = inner_idx / (1 << log_chunck_size);
+        Field_A twiddle = twiddles[(1 << inner_log_len) - 1 + i * j];
 
-        Field_B even = buff[even_index];
-        Field_B odd = buff[odd_index];
-
-        int i = threadIndex % packet_size;
-        // w^i where w is a "2 * packet_size" root of unity
-        Field_A first_twiddle = twiddles[packet_size * 2 - 1 + i];
-        // w^(i + packet_size) where w is a "2 * packet_size" root of unity
-        Field_A second_twiddle = twiddles[packet_size * 2 - 1 + i + packet_size];
-
-        // result[even_index] = even + first_twiddle * odd
-        Field_B temp;
-        MUL_BA(odd, first_twiddle, temp);
-        ADD_BB(even, temp, buff[even_index]);
-
-        // result[odd_index] = even + second_twiddle * odd
-        MUL_BA(odd, second_twiddle, temp);
-        ADD_BB(even, temp, buff[odd_index]);
+        Field_B src = buff[threadIndex];
+        Field_B result;
+        MUL_AB(twiddle, src, result);
+        buff[threadIndex] = result;
     }
 }

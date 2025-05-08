@@ -184,21 +184,21 @@ mod tests {
             "ntt/transpose.cu",
             "transpose",
         ));
-        let log_n_rows = 6;
-        let log_n_cols = 9;
+        let log_len = 13;
+        let log_n_rows = 3;
+        let log_n_cols = 4;
         let n_rows = 1 << log_n_rows;
         let n_cols = 1 << log_n_cols;
-        let mut matrix = vec![F::ZERO; n_rows * n_cols];
-        for i in 0..n_rows {
-            for j in 0..n_cols {
-                matrix[i * n_cols + j] = F::from_u64((i * n_cols + j) as u64);
-            }
-        }
+        let mut matrix = (0..1 << log_len)
+            .map(|i| F::from_usize(i))
+            .collect::<Vec<_>>();
         let matrix_dev = memcpy_htod(&matrix);
         let transdposed_dev = cuda_transpose(&matrix_dev, log_n_rows, log_n_cols);
         let res_cuda = memcpy_dtoh(&transdposed_dev);
         cuda_sync();
-        transpose(&mut matrix, n_rows, n_cols);
+        matrix.chunks_exact_mut(n_rows * n_cols).for_each(|chunk| {
+            transpose(chunk, n_rows, n_cols);
+        });
         assert!(res_cuda == matrix);
     }
 }

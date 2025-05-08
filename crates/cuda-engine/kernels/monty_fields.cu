@@ -75,6 +75,16 @@ public:
         uint32_t corr = over ? MontyPrime : 0;
         return MontyField<MontyPrime, MontyBits, MontyMu>::from(diff + corr);
     }
+
+    __device__ void print()
+    {
+        printf("Field(%u)\n", MontyField<MontyPrime, MontyBits, MontyMu>::monty_reduce(x));
+    }
+
+    __device__ void print(char *name)
+    {
+        printf("%s: Field(%u)\n", name, MontyField<MontyPrime, MontyBits, MontyMu>::monty_reduce(x));
+    }
 };
 
 typedef MontyField<0x7f000001, 32, 0x81000001> KoalaBear;

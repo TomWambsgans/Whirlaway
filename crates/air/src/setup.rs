@@ -179,7 +179,7 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
         ));
         cuda_load_function(CudaFunctionInfo::two_fields::<F, WhirF>(
             "ntt/ntt.cu",
-            "ntt_step",
+            "apply_twiddles",
         ));
         cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<WhirF>());
     }
