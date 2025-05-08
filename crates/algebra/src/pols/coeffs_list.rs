@@ -209,7 +209,7 @@ impl<F: Field> CoefficientListDevice<F> {
         F: TwoAdicField + Ord,
     {
         let expanded_size = self.n_coefs() * expansion;
-        let log_expanded_size = expanded_size.trailing_zeros() as u32;
+        let log_expanded_size = expanded_size.trailing_zeros();
         let mut res = cuda_reverse_bit_order_for_ntt(
             &self.coeffs,
             expansion,

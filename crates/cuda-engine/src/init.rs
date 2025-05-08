@@ -79,8 +79,7 @@ impl CudaFunctionInfo {
 pub fn max_ntt_log_size_at_block_level<F: Field>() -> usize {
     (LOG_MAX_THREADS_PER_BLOCK as usize + 1).min(
         log2_down(
-            (shared_memory() / (std::mem::size_of::<F>() + std::mem::size_of::<F::PrimeSubfield>()))
-                as usize,
+            shared_memory() / (std::mem::size_of::<F>() + std::mem::size_of::<F::PrimeSubfield>()),
         ) - 1,
     ) // TODO fix and remove -1
 }
@@ -106,7 +105,7 @@ pub(crate) fn try_get_cuda_engine() -> Option<&'static CudaEngine> {
 
 #[instrument(name = "CUDA initialization", skip_all)]
 pub fn cuda_init() {
-    let _ = CUDA_ENGINE.get_or_init(|| CudaEngine::new());
+    let _ = CUDA_ENGINE.get_or_init(CudaEngine::new);
 }
 
 impl CudaEngine {
@@ -169,7 +168,7 @@ pub(crate) fn load_function(
     let source_modified = options
         .cuda_file
         .metadata()
-        .expect(&format!("Cannot find {}", options.cuda_file.display()))
+        .unwrap_or_else(|_| panic!("Cannot find {}", options.cuda_file.display()))
         .modified()
         .unwrap();
 
@@ -203,7 +202,7 @@ pub(crate) fn load_function(
             );
         }
 
-        command.args(&[
+        command.args([
             &options.cuda_file.to_string_lossy() as &str, // Input file
             "--ptx",
             &format!("-arch=sm_{major}{minor}"), // NOT SURE OF THIS
@@ -235,10 +234,12 @@ pub(crate) fn load_function(
             ));
         }
 
-        let output = command.output().expect(&format!(
-            "Failed to compile {} with nvcc",
-            options.cuda_file.to_string_lossy()
-        ));
+        let output = command.output().unwrap_or_else(|_| {
+            panic!(
+                "Failed to compile {} with nvcc",
+                options.cuda_file.to_string_lossy()
+            )
+        });
 
         if !output.status.success() {
             panic!(

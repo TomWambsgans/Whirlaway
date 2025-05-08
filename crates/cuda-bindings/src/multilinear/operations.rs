@@ -15,7 +15,7 @@ pub fn cuda_dot_product<F: Field, EF: ExtensionField<F>>(
 ) -> EF {
     assert_eq!(a.len(), b.len());
     assert!(a.len().is_power_of_two());
-    let log_len = a.len().ilog2() as u32;
+    let log_len = a.len().ilog2();
     let buff = cuda_alloc::<EF>(a.len());
     let mut call = CudaCall::new(
         CudaFunctionInfo::two_fields::<F, EF>("multilinear.cu", "dot_product"),
@@ -222,7 +222,7 @@ pub fn cuda_sum<F: Field>(terms: CudaSlice<F>) -> F {
     if terms.len() == 1 {
         return cuda_get_at_index(&terms, 0);
     }
-    let log_len = terms.len().ilog2() as u32;
+    let log_len = terms.len().ilog2();
     let mut call = CudaCall::new(
         CudaFunctionInfo::one_field::<F>("multilinear.cu", "sum_in_place"),
         (terms.len() / 2) as u32,
@@ -239,7 +239,7 @@ pub fn cuda_eval_mixed_tensor<F: Field, EF: ExtensionField<F>>(
     point: &[EF],
 ) -> Vec<Vec<F>> {
     assert!(terms.len().is_power_of_two());
-    let n_vars = terms.len().ilog2() as u32;
+    let n_vars = terms.len().ilog2();
     assert_eq!(point.len(), n_vars as usize);
     let log_n_tasks_per_thread = n_vars.min(5); // TODO find the best value
 
@@ -266,10 +266,10 @@ pub fn cuda_eval_mixed_tensor<F: Field, EF: ExtensionField<F>>(
 
     let retrieved_result = memcpy_dtoh(&result);
     assert_eq!(retrieved_result.len(), ext_degree.pow(2));
-    let mut final_result = vec![vec![F::ZERO; ext_degree as usize]; ext_degree as usize];
+    let mut final_result = vec![vec![F::ZERO; ext_degree]; ext_degree];
     for i in 0..ext_degree {
         for j in 0..ext_degree {
-            final_result[i as usize][j as usize] = retrieved_result[i * ext_degree + j];
+            final_result[i][j] = retrieved_result[i * ext_degree + j];
         }
     }
     final_result

@@ -21,7 +21,7 @@ fn cuda_air_columns_up_or_down<F: Field, S: Borrow<CudaSlice<F>>>(
     up: bool,
 ) -> Vec<CudaSlice<F>> {
     let columns: Vec<&CudaSlice<F>> = columns.iter().map(|m| m.borrow()).collect::<Vec<_>>();
-    let n_vars = columns[0].len().ilog2() as u32;
+    let n_vars = columns[0].len().ilog2();
     assert!(columns.iter().all(|c| c.len() == 1 << n_vars as usize));
     let column_ptrs = concat_pointers(&columns);
     let res = (0..columns.len())

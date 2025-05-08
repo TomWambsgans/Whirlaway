@@ -5,7 +5,7 @@ use p3_field::Field;
 // Async
 pub fn cuda_lagrange_to_monomial_basis<F: Field>(evals: &CudaSlice<F>) -> CudaSlice<F> {
     assert!(evals.len().is_power_of_two());
-    let n_vars = evals.len().ilog2() as u32;
+    let n_vars = evals.len().ilog2();
     let mut result = cuda_alloc::<F>(evals.len());
     let mut call = CudaCall::new(
         CudaFunctionInfo::one_field::<F>("multilinear.cu", "lagrange_to_monomial_basis"),

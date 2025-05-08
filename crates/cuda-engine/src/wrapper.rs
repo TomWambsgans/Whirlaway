@@ -67,7 +67,9 @@ impl<T: DeviceRepr + Default + Clone + Hash> HostOrDeviceBuffer<T> {
 
 /// Does nothing if cuda has not been initialized
 pub fn cuda_sync() {
-    try_get_cuda_engine().map(|cuda| cuda.stream.synchronize().unwrap());
+    if let Some(cuda) = try_get_cuda_engine() {
+        cuda.stream.synchronize().unwrap()
+    }
 }
 
 /// Async
@@ -173,7 +175,7 @@ pub struct CudaCall<'a> {
     info: CudaFunctionInfo,
 }
 
-impl<'a> CudaCall<'a> {
+impl CudaCall<'_> {
     pub fn new(info: CudaFunctionInfo, n_ops: u32) -> Self {
         let cuda = cuda_engine();
         let guard = cuda.functions.read().unwrap();
@@ -185,7 +187,7 @@ impl<'a> CudaCall<'a> {
         let function =
             unsafe { std::mem::transmute::<&CudaFunction, &'static CudaFunction>(function) };
 
-        let args = cuda.stream.launch_builder(&function);
+        let args = cuda.stream.launch_builder(function);
         Self {
             _function: function,
             args,
@@ -226,7 +228,7 @@ impl<'a> CudaCall<'a> {
             MAX_BLOCKS
         }; // TODO why only 16 cooperative blocks? Sometimes it works with 32 wtf
         let log_threads = max_log_threads.min(self.n_ops.next_power_of_two().ilog2());
-        let blocks = max_blocks.min(self.n_ops.div_ceil(1 << log_threads) as u32);
+        let blocks = max_blocks.min(self.n_ops.div_ceil(1 << log_threads));
         LaunchConfig {
             grid_dim: (blocks, 1, 1),
             block_dim: (1 << log_threads, 1, 1),

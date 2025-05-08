@@ -30,11 +30,10 @@ pub struct FsVerifier {
 static TOTAL_GRINDING_TIME: OnceLock<Mutex<Duration>> = OnceLock::new();
 
 pub fn get_total_grinding_time() -> Duration {
-    TOTAL_GRINDING_TIME
+    *TOTAL_GRINDING_TIME
         .get_or_init(|| Mutex::new(Duration::default()))
         .lock()
         .unwrap()
-        .clone()
 }
 
 pub fn reset_total_grinding_time() {
@@ -130,7 +129,7 @@ impl FsProver {
             tracing::warn!("long PoW grinding: {} ms", grinding_time.as_millis());
         }
         let mut total_time = TOTAL_GRINDING_TIME
-            .get_or_init(|| Default::default())
+            .get_or_init(Default::default)
             .lock()
             .unwrap();
         *total_time += grinding_time;

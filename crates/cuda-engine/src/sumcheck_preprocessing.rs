@@ -18,7 +18,7 @@ pub struct SumcheckComputation<'a, F> {
     pub eq_mle_multiplier: bool,
 }
 
-impl<'a, F> SumcheckComputation<'a, F> {
+impl<F> SumcheckComputation<'_, F> {
     pub fn total_n_instructions(&self) -> usize {
         self.exprs.iter().map(|c| c.instructions.len()).sum()
     }
@@ -39,7 +39,7 @@ impl<'a, F> SumcheckComputation<'a, F> {
         F: Hash,
     {
         // TODO avoid, use a custom string instead
-        default_hash(&(self, MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT))
+        default_hash((self, MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT))
     }
 }
 
@@ -93,7 +93,7 @@ pub fn cuda_preprocess_sumcheck_computation<F: PrimeField32>(
         std::fs::write(&cuda_file, &cuda_code).unwrap();
     }
 
-    load_function(options, &mut *functions);
+    load_function(options, &mut functions);
 }
 
 fn get_cuda_instructions<F: PrimeField32>(sumcheck_computation: &SumcheckComputation<F>) -> String {

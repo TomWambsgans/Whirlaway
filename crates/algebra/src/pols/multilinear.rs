@@ -231,7 +231,7 @@ impl<F: Field> MultilinearHost<F> {
         let evals = self
             .evals
             .iter()
-            .flat_map(|item| std::iter::repeat(item.clone()).take(1 << n))
+            .flat_map(|item| std::iter::repeat(*item).take(1 << n))
             .collect();
         Self::new(evals)
     }
@@ -254,7 +254,7 @@ impl<F: Field> MultilinearHost<F> {
 
         let mut res = Vec::new();
         for w in 0..self.n_coefs() {
-            res.push(dot_product(&prime_composed[w], &scalars));
+            res.push(dot_product(&prime_composed[w], scalars));
         }
         MultilinearHost::new(res)
     }
@@ -284,7 +284,7 @@ impl<F: Field> MultilinearHost<F> {
                 .zip(right.par_iter_mut())
                 .for_each(|(l, r)| {
                     let tmp = *l * s;
-                    *l = *l * one_minus_s;
+                    *l *= one_minus_s;
                     *r = tmp;
                 });
         }
@@ -667,7 +667,7 @@ impl<'a, F: Field, M: Borrow<Multilinear<F>>> From<&'a Vec<M>> for MultilinearsS
     }
 }
 
-impl<'a, F: Field> MultilinearsSlice<'a, F> {
+impl<F: Field> MultilinearsSlice<'_, F> {
     pub fn n_vars(&self) -> usize {
         match self {
             Self::Host(pol) => pol[0].n_vars,
@@ -722,7 +722,7 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
             }
             Self::Device(multilinears) => {
                 let eq_mle = eq_mle.map(|pol| &pol.as_device_ref().evals);
-                cuda_compute_over_hypercube(comp, &multilinears, &batching_scalars, eq_mle)
+                cuda_compute_over_hypercube(comp, multilinears, batching_scalars, eq_mle)
             }
         }
     }
@@ -813,7 +813,7 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
                 Multilinear::Host(sum)
             }
             Self::Device(pols) => Multilinear::Device(MultilinearDevice::new(
-                cuda_linear_combination(&pols, scalars),
+                cuda_linear_combination(pols, scalars),
             )),
         }
     }
@@ -877,7 +877,7 @@ impl<'a, F: Field> MultilinearsSlice<'a, F> {
         match self {
             Self::Host(_) => panic!("Already on host"),
             Self::Device(pols) => {
-                let res = pols.into_iter().map(|pol| pol.transfer_to_host()).collect();
+                let res = pols.iter().map(|pol| pol.transfer_to_host()).collect();
                 cuda_sync();
                 MultilinearsVec::Host(res)
             }

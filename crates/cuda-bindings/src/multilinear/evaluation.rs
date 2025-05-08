@@ -10,14 +10,14 @@ pub fn cuda_eval_multilinear_in_lagrange_basis<F: Field, EF: ExtensionField<F>>(
     point: &[EF],
 ) -> EF {
     assert!(coeffs.len().is_power_of_two());
-    let n_vars = coeffs.len().ilog2() as u32;
+    let n_vars = coeffs.len().ilog2();
     assert_eq!(n_vars, point.len() as u32);
 
     if n_vars == 0 {
         return EF::from(cuda_get_at_index(coeffs, 0));
     }
 
-    let point_dev = memcpy_htod(&point);
+    let point_dev = memcpy_htod(point);
     let mut buff = cuda_alloc::<EF>(coeffs.len() - 1);
 
     let mut call = CudaCall::new(
@@ -38,13 +38,13 @@ pub fn cuda_eval_multilinear_in_lagrange_basis<F: Field, EF: ExtensionField<F>>(
 
 // Async
 pub fn cuda_eq_mle<F: Field>(point: &[F]) -> CudaSlice<F> {
-    if point.len() == 0 {
+    if point.is_empty() {
         let res = memcpy_htod(&[F::ONE]);
         cuda_sync();
         return res;
     }
     let n_vars = point.len() as u32;
-    let point_dev = memcpy_htod(&point);
+    let point_dev = memcpy_htod(point);
     let mut res = cuda_alloc::<F>(1 << n_vars);
     let mut call = CudaCall::new(
         CudaFunctionInfo::one_field::<F>("multilinear.cu", "eq_mle"),

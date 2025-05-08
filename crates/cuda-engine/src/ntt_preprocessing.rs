@@ -1,5 +1,6 @@
 use std::any::TypeId;
 
+use cudarc::driver::CudaSlice;
 use p3_field::{PrimeField32, TwoAdicField};
 use utils::powers_parallel;
 
@@ -18,6 +19,7 @@ pub fn cuda_preprocess_twiddles<F: TwoAdicField + PrimeField32>() {
     }
     let all_twiddles_dev = memcpy_htod(&all_twiddles);
     cuda_sync();
-    let all_twiddles_u32 = unsafe { std::mem::transmute(all_twiddles_dev) };
+    let all_twiddles_u32 =
+        unsafe { std::mem::transmute::<CudaSlice<F>, CudaSlice<u32>>(all_twiddles_dev) };
     guard.insert(TypeId::of::<F>(), all_twiddles_u32);
 }

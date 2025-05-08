@@ -74,9 +74,9 @@ impl<F: Field> TransparentPolynomial<F> {
                 res[*i] = 1;
                 res
             },
-            &|left, right| max_degree_per_vars_prod(&vec![left, right]),
-            &|left, right| max_degree_per_vars_sum(&vec![left, right]),
-            &|left, right| max_degree_per_vars_sum(&vec![left, right]),
+            &|left, right| max_degree_per_vars_prod(&[left, right]),
+            &|left, right| max_degree_per_vars_sum(&[left, right]),
+            &|left, right| max_degree_per_vars_sum(&[left, right]),
         )
     }
 

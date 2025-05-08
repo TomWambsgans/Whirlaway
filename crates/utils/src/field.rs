@@ -87,7 +87,7 @@ pub fn powers_parallel<F: Field>(base: F, len: usize) -> Vec<F> {
     if len <= num_threads * log2_up(num_threads) {
         powers(base, len)
     } else {
-        let chunk_size = (len + num_threads - 1) / num_threads;
+        let chunk_size = len.div_ceil(num_threads);
         (0..num_threads)
             .into_par_iter()
             .map(|j| {
@@ -100,7 +100,7 @@ pub fn powers_parallel<F: Field>(base: F, len: usize) -> Vec<F> {
                 };
                 for _ in 0..chunk_size {
                     chunck.push(start);
-                    start = start * base;
+                    start *= base;
                 }
                 chunck
             })
@@ -111,7 +111,7 @@ pub fn powers_parallel<F: Field>(base: F, len: usize) -> Vec<F> {
 
 pub fn eq_extension<F: Field>(s1: &[F], s2: &[F]) -> F {
     assert_eq!(s1.len(), s2.len());
-    if s1.len() == 0 {
+    if s1.is_empty() {
         return F::ONE;
     }
     (0..s1.len())

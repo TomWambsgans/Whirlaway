@@ -109,7 +109,7 @@ pub struct Evaluation<F> {
 }
 
 pub fn expanded_point_for_multilinear_monomial_evaluation<F: Field>(point: &[F]) -> Vec<F> {
-    if point.len() == 0 {
+    if point.is_empty() {
         return vec![F::ONE];
     }
     let sub = expanded_point_for_multilinear_monomial_evaluation(&point[1..]);

@@ -1,7 +1,6 @@
 use std::{
     cell::RefCell,
     collections::{BTreeSet, HashSet},
-    usize,
 };
 
 use p3_field::{ExtensionField, Field};
@@ -76,11 +75,11 @@ impl<F: Field> TransparentPolynomial<F> {
                 ComputationInput::Stack(*stack_size_guard - 1)
             };
         self.parse(
-            &|scalar| ComputationInput::Scalar(scalar.clone()),
+            &|scalar| ComputationInput::Scalar(*scalar),
             &|node| {
                 let mut n_vars_guard = n_vars.borrow_mut();
                 *n_vars_guard = Some((n_vars_guard.unwrap_or_default()).max(*node + 1));
-                ComputationInput::Node(node.clone())
+                ComputationInput::Node(*node)
             },
             &|left, right| build_instruction(CircuitOp::Product, left, right),
             &|left, right| build_instruction(CircuitOp::Sum, left, right),
@@ -122,21 +121,18 @@ impl<F: Field> CircuitComputation<F> {
         for instruction in &self.instructions {
             stack[instruction.result_location] = match &instruction.op {
                 CircuitOp::Sum => {
-                    instruction.left.eval(point, &stack).clone()
-                        + instruction.right.eval(point, &stack).clone()
+                    instruction.left.eval(point, &stack) + instruction.right.eval(point, &stack)
                 }
                 CircuitOp::Product => {
-                    instruction.left.eval(point, &stack).clone()
-                        * instruction.right.eval(point, &stack).clone()
+                    instruction.left.eval(point, &stack) * instruction.right.eval(point, &stack)
                 }
                 CircuitOp::Sub => {
-                    instruction.left.eval(point, &stack).clone()
-                        - instruction.right.eval(point, &stack).clone()
+                    instruction.left.eval(point, &stack) - instruction.right.eval(point, &stack)
                 }
             };
         }
         assert_eq!(stack.len(), self.stack_size);
-        stack[self.stack_size - 1].clone()
+        stack[self.stack_size - 1]
     }
 
     pub fn nodes_involved(&self) -> BTreeSet<usize> {

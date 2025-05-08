@@ -16,10 +16,7 @@ mod test;
 fn leaf_hash<F>(input: &[F]) -> KeccakDigest {
     // TODO this is ugly
     let buff = unsafe {
-        std::slice::from_raw_parts(
-            input.as_ptr() as *const u8,
-            input.len() * std::mem::size_of::<F>(),
-        )
+        std::slice::from_raw_parts(input.as_ptr() as *const u8, std::mem::size_of_val(input))
     };
     keccak256(buff)
 }

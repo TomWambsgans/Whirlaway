@@ -12,7 +12,7 @@ pub fn cuda_transpose<F: Field>(
     log_cols: u32,
 ) -> CudaSlice<F> {
     assert!(input.len().is_power_of_two());
-    assert_eq!(log_rows + log_cols, input.len().trailing_zeros() as u32);
+    assert_eq!(log_rows + log_cols, input.len().trailing_zeros());
     let mut result_dev = cuda_alloc::<F>(input.len());
 
     let mut call = CudaCall::new(
@@ -35,7 +35,7 @@ pub fn cuda_reverse_bit_order_for_ntt<F: Field>(
 ) -> CudaSlice<F> {
     assert!(input.len().is_power_of_two());
     assert!(expansion_factor.is_power_of_two());
-    let log_len_u32 = input.len().trailing_zeros() as u32;
+    let log_len_u32 = input.len().trailing_zeros();
     let log_chunck_size_u32 = log_chunck_size as u32;
     let log_expansion_factor_u32 = expansion_factor.ilog2() as u32;
     assert!(log_chunck_size_u32 <= log_len_u32 + log_expansion_factor_u32);
@@ -96,7 +96,7 @@ pub fn cuda_ntt_at_block_level<F: Field>(
 pub fn cuda_ntt<F: Field>(coeffs: &mut CudaSlice<F>, log_chunck_size: usize) {
     assert!(coeffs.len().is_power_of_two());
 
-    let log_len_u32 = coeffs.len().trailing_zeros() as u32;
+    let log_len_u32 = coeffs.len().trailing_zeros();
     assert!(
         log_chunck_size <= cuda_twiddles_two_adicity::<F::PrimeSubfield>(),
         "NTT to big"

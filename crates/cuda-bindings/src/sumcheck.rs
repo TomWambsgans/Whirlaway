@@ -29,7 +29,7 @@ pub fn cuda_compute_over_hypercube<
         multilinears.iter().map(|m| m.borrow()).collect::<Vec<_>>();
     assert_eq!(batching_scalars.len(), sumcheck_computation.exprs.len());
     assert!(multilinears[0].len().is_power_of_two());
-    let n_vars = multilinears[0].len().ilog2() as u32;
+    let n_vars = multilinears[0].len().ilog2();
     assert!(multilinears.iter().all(|m| m.len() == 1 << n_vars as usize));
     assert_eq!(eq_mle.is_some(), sumcheck_computation.eq_mle_multiplier);
 

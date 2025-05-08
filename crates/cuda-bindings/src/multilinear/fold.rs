@@ -34,11 +34,11 @@ fn cuda_fold_rectangular<F1: Field, F2: Field, F3: Field, ML: Borrow<CudaSlice<F
 ) -> Vec<CudaSlice<F3>> {
     let slices: Vec<&CudaSlice<F1>> = slices.iter().map(|m| m.borrow()).collect::<Vec<_>>();
     assert!(slices[0].len().is_power_of_two());
-    let n_vars = slices[0].len().ilog2() as u32;
+    let n_vars = slices[0].len().ilog2();
     assert!(n_vars >= 1);
     assert!(slices.iter().all(|s| s.len() == 1 << n_vars as usize));
     assert!(scalars.len().is_power_of_two());
-    let log_n_scalars = scalars.len().ilog2() as u32;
+    let log_n_scalars = scalars.len().ilog2();
     assert!(log_n_scalars <= n_vars);
     let scalars_dev = memcpy_htod(scalars);
 

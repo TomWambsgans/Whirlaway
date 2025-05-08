@@ -37,13 +37,13 @@ pub fn prove<
 
     let mut challenges = Vec::new();
     let n_rounds = n_rounds.unwrap_or(n_vars - skips + 1);
-    let comp_degree = max_composition_degree(&exprs);
+    let comp_degree = max_composition_degree(exprs);
     if let Some(eq_factor) = &eq_factor {
         assert_eq!(eq_factor.len(), n_vars - skips + 1);
     }
 
     let sumcheck_computation = SumcheckComputation {
-        exprs: &exprs,
+        exprs: exprs,
         n_multilinears: multilinears.len() + eq_factor.is_some() as usize,
         eq_mle_multiplier: eq_factor.is_some(),
     };
@@ -147,7 +147,7 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
             // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication below: TODO not urgent)
             let folded = multilinears.fold_rectangular_in_small_field(&folding_scalars);
             let mut sum_z = folded.as_ref().compute_over_hypercube(
-                &sumcheck_computation,
+                sumcheck_computation,
                 batching_scalars,
                 eq_mle.as_ref(),
             );
