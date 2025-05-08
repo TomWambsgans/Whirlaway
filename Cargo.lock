@@ -170,6 +170,7 @@ dependencies = [
  "p3-matrix",
  "rand",
  "rayon",
+ "tracing",
  "utils",
 ]
 

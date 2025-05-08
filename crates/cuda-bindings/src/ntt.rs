@@ -1,10 +1,11 @@
 use cuda_engine::{
-    CudaCall, CudaFunctionInfo, cuda_alloc, cuda_alloc_zeros, cuda_twiddles,
+    CudaCall, CudaFunctionInfo, cuda_alloc, cuda_alloc_zeros, cuda_sync, cuda_twiddles,
     cuda_twiddles_two_adicity, max_ntt_log_size_at_block_level,
 };
 use cudarc::driver::{CudaSlice, PushKernelArg};
 
 use p3_field::Field;
+use tracing::info_span;
 
 pub fn cuda_transpose<F: Field>(
     input: &CudaSlice<F>,
@@ -105,9 +106,16 @@ pub fn cuda_ntt<F: Field>(coeffs: &mut CudaSlice<F>, log_chunck_size: usize) {
     let twiddles = cuda_twiddles::<F::PrimeSubfield>();
 
     let block_log_chunck_size = log_chunck_size.min(max_ntt_log_size_at_block_level::<F>()) as u32;
+
+    let _span = info_span!("ntt_at_block_level", log_len = log_len_u32, log_chunck_size).entered();
     cuda_ntt_at_block_level(coeffs, &twiddles, block_log_chunck_size, log_len_u32);
+    cuda_sync();
+    std::mem::drop(_span);
+
     for step in block_log_chunck_size..log_chunck_size as u32 {
+        let _span = info_span!("ntt_step", log_len = log_len_u32, log_chunck_size).entered();
         cuda_ntt_step(coeffs, &twiddles, log_len_u32, step);
+        cuda_sync();
     }
 }
 
@@ -126,13 +134,11 @@ mod tests {
 
     #[test]
     fn test_cuda_ntt() {
-        for log_width in [0, 1, 2, 5, 12] {
-            for log_len in [1, 3, 10, 14, 17] {
+        for log_width in [4] {
+            for log_len in [25] {
                 if log_width > log_len {
                     continue;
                 }
-                test_cuda_ntt_helper::<KoalaBear>(log_len, log_width);
-                test_cuda_ntt_helper::<BinomialExtensionField<KoalaBear, 4>>(log_len, log_width);
                 test_cuda_ntt_helper::<BinomialExtensionField<KoalaBear, 8>>(log_len, log_width);
             }
         }

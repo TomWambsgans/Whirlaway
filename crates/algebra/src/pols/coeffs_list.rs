@@ -8,6 +8,7 @@ use cudarc::driver::CudaSlice;
 use p3_dft::Radix2DitParallel;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
+use tracing::info_span;
 use utils::{
     default_hash, expanded_point_for_multilinear_monomial_evaluation, switch_endianness_vec,
 };
@@ -210,20 +211,29 @@ impl<F: Field> CoefficientListDevice<F> {
     {
         let expanded_size = self.n_coefs() * expansion;
         let log_expanded_size = expanded_size.trailing_zeros();
+
+        let _span = info_span!("cuda_reverse_bit_order_for_ntt", cuda = true).entered();
         let mut res = cuda_reverse_bit_order_for_ntt(
             &self.coeffs,
             expansion,
             log_expanded_size as usize - folding_factor,
         );
-        let _span =
-            tracing::info_span!("cuda_ntt", log_expanded_size = log_expanded_size).entered();
-        cuda_ntt(&mut res, log_expanded_size as usize - folding_factor);
+        cuda_sync();
+        std::mem::drop(_span);
 
+        let _span = info_span!("cuda_ntt", log_expanded_size = log_expanded_size).entered();
+        cuda_ntt(&mut res, log_expanded_size as usize - folding_factor);
+        cuda_sync();
+        std::mem::drop(_span);
+
+        let _span = info_span!("cuda_transpose", log_expanded_size = log_expanded_size).entered();
         let res = cuda_transpose(
             &res,
             folding_factor as u32,
             log_expanded_size - folding_factor as u32,
         );
+        cuda_sync();
+        std::mem::drop(_span);
 
         res
     }
