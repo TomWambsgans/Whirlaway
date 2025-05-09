@@ -13,7 +13,7 @@ pub fn cuda_preprocess_twiddles<F: TwoAdicField + PrimeField32>() {
     }
     let _span = tracing::info_span!("Preprocessing cuda twiddles").entered();
     let mut all_twiddles = Vec::new();
-    for i in 0..=F::TWO_ADICITY {
+    for i in 0..=26 { // TEMPORARY
         // TODO only use the required twiddles (TWO_ADICITY may be larger than needed)
         all_twiddles.extend(powers_parallel(F::two_adic_generator(i), 1 << i));
     }

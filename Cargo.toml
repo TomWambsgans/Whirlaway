@@ -60,3 +60,9 @@ tracing-subscriber.workspace = true
 colored.workspace = true
 arithmetic-circuit.workspace = true
 utils.workspace = true
+icicle-runtime = { git = "https://github.com/ingonyama-zk/icicle.git" }
+icicle-core = { git = "https://github.com/ingonyama-zk/icicle.git" }
+icicle-babybear = { git = "https://github.com/ingonyama-zk/icicle.git" }
+icicle-bn254 = { git = "https://github.com/ingonyama-zk/icicle.git" }
+cuda-engine.workspace = true
+cuda-bindings.workspace = true
