@@ -88,7 +88,9 @@ pub fn max_ntt_log_size_at_block_level<F: Field>() -> usize {
 pub(crate) struct CudaEngine {
     pub(crate) dev: Arc<CudaContext>,
     pub(crate) stream: Arc<CudaStream>,
-    pub(crate) twiddles: RwLock<BTreeMap<TypeId, CudaSlice<u32>>>, // We restrain ourseleves to the 2-addic roots of unity in the 32-bits prime field
+    // We restrain ourseleves to the 2-addic roots of unity in the 32-bits prime field
+    // Each CudaSlice<u32> contains half of the twiddles, the other half is just the opposite
+    pub(crate) twiddles: RwLock<BTreeMap<TypeId, Vec<CudaSlice<u32>>>>,
     pub(crate) functions: RwLock<HashMap<CudaFunctionInfo, CudaFunction>>,
 }
 

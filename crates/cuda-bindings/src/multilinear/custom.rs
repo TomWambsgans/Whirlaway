@@ -36,7 +36,7 @@ fn cuda_air_columns_up_or_down<F: Field, S: Borrow<CudaSlice<F>>>(
     let n_columns = columns.len() as u32;
     let mut call = CudaCall::new(
         CudaFunctionInfo::one_field::<F>("multilinear.cu", func_name),
-        (columns.len() << n_vars) as u32,
+        columns.len() << n_vars,
     );
     call.arg(&column_ptrs);
     call.arg(&n_columns);

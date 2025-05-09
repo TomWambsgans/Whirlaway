@@ -11,14 +11,14 @@ use p3_field::Field;
 use utils::default_hash;
 
 // TODO Avoid hardcoding : This is GPU dependent
-pub const LOG_MAX_THREADS_PER_COOPERATIVE_BLOCK: u32 = 8;
-pub const LOG_MAX_THREADS_PER_BLOCK: u32 = 8;
+pub const LOG_MAX_THREADS_PER_COOPERATIVE_BLOCK: usize = 8;
+pub const LOG_MAX_THREADS_PER_BLOCK: usize = 8;
 
-pub const MAX_THREADS_PER_COOPERATIVE_BLOCK: u32 = 1 << LOG_MAX_THREADS_PER_COOPERATIVE_BLOCK;
-pub const MAX_THREADS_PER_BLOCK: u32 = 1 << LOG_MAX_THREADS_PER_BLOCK;
+pub const MAX_THREADS_PER_COOPERATIVE_BLOCK: usize = 1 << LOG_MAX_THREADS_PER_COOPERATIVE_BLOCK;
+pub const MAX_THREADS_PER_BLOCK: usize = 1 << LOG_MAX_THREADS_PER_BLOCK;
 
-pub const MAX_COOPERATIVE_BLOCKS: u32 = 1 << 4;
-pub const MAX_BLOCKS: u32 = 1 << 14;
+pub const MAX_COOPERATIVE_BLOCKS: usize = 1 << 4;
+pub const MAX_BLOCKS: usize = 1 << 14;
 
 pub enum HostOrDeviceBuffer<T> {
     Host(Vec<T>),
@@ -136,45 +136,45 @@ pub fn cuda_get_at_index<T: DeviceRepr + Default>(slice: &CudaSlice<T>, idx: usi
     dst.into_iter().next().unwrap()
 }
 
-pub fn cuda_twiddles_two_adicity<F: Field>() -> usize {
-    let n = cuda_twiddles::<F>().len();
-    assert!((n + 1).is_power_of_two());
-    (n + 1).ilog2() as usize
-}
-
-pub fn cuda_twiddles<F: Field>() -> CudaSlice<F> {
+pub fn cuda_twiddles<F: Field>(log_domain_size: usize) -> &'static CudaSlice<F::PrimeSubfield> {
     unsafe {
         std::mem::transmute(
             cuda_engine()
                 .twiddles
                 .read()
                 .unwrap()
-                .get(&TypeId::of::<F>())
+                .get(&TypeId::of::<F::PrimeSubfield>())
                 .unwrap_or_else(|| {
                     panic!(
                         "twiddles have not been preprocessed for : {}",
-                        std::any::type_name::<F>()
+                        std::any::type_name::<F::PrimeSubfield>()
                     )
                 })
-                .clone(),
+                .get(log_domain_size.checked_sub(1).unwrap())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "twiddles have not been preprocessed for : {}, log_domain_size = {}",
+                        std::any::type_name::<F::PrimeSubfield>(),
+                        log_domain_size
+                    )
+                }),
         )
     }
 }
-
 #[derive(derive_more::Deref, derive_more::DerefMut)]
 pub struct CudaCall<'a> {
     _function: &'static CudaFunction,
     #[deref]
     #[deref_mut]
     pub args: LaunchArgs<'a>,
-    max_log_threads_per_block: Option<u32>,
-    n_ops: u32,
-    shared_mem_bytes: u32,
+    max_log_threads_per_block: Option<usize>,
+    n_ops: usize,
+    shared_mem_bytes: usize,
     info: CudaFunctionInfo,
 }
 
 impl<'a> CudaCall<'a> {
-    pub fn new(info: CudaFunctionInfo, n_ops: u32) -> Self {
+    pub fn new(info: CudaFunctionInfo, n_ops: usize) -> Self {
         let cuda = cuda_engine();
         let guard = cuda.functions.read().unwrap();
         let function = guard
@@ -196,17 +196,17 @@ impl<'a> CudaCall<'a> {
         }
     }
 
-    pub fn total_n_threads(&self, cooperative: bool) -> u32 {
+    pub fn total_n_threads(&self, cooperative: bool) -> usize {
         let launch_config = self.launch_config(cooperative);
-        launch_config.block_dim.0 * launch_config.grid_dim.0
+        (launch_config.block_dim.0 * launch_config.grid_dim.0) as usize
     }
 
-    pub fn shared_mem_bytes(mut self, n: u32) -> Self {
+    pub fn shared_mem_bytes(mut self, n: usize) -> Self {
         self.shared_mem_bytes = n;
         self
     }
 
-    pub fn max_log_threads_per_block(mut self, n: u32) -> Self {
+    pub fn max_log_threads_per_block(mut self, n: usize) -> Self {
         assert!(n <= LOG_MAX_THREADS_PER_BLOCK);
         self.max_log_threads_per_block = Some(n);
         self
@@ -219,18 +219,18 @@ impl<'a> CudaCall<'a> {
         } else {
             LOG_MAX_THREADS_PER_BLOCK
         }
-        .min(self.max_log_threads_per_block.unwrap_or(u32::MAX));
+        .min(self.max_log_threads_per_block.unwrap_or(usize::MAX));
         let max_blocks = if cooperative {
             MAX_COOPERATIVE_BLOCKS
         } else {
             MAX_BLOCKS
         }; // TODO why only 16 cooperative blocks? Sometimes it works with 32 wtf
-        let log_threads = max_log_threads.min(self.n_ops.next_power_of_two().ilog2());
-        let blocks = max_blocks.min(self.n_ops.div_ceil(1 << log_threads) as u32);
+        let log_threads = max_log_threads.min(self.n_ops.next_power_of_two().ilog2() as usize);
+        let blocks = max_blocks.min(self.n_ops.div_ceil(1 << log_threads) as usize);
         LaunchConfig {
-            grid_dim: (blocks, 1, 1),
+            grid_dim: (blocks as u32, 1, 1),
             block_dim: (1 << log_threads, 1, 1),
-            shared_mem_bytes: self.shared_mem_bytes,
+            shared_mem_bytes: self.shared_mem_bytes as u32,
         }
     }
 

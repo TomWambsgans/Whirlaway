@@ -30,7 +30,10 @@ extern "C" __global__ void ntt_at_block_level(Field_B *buff, uint32_t log_len, u
     __shared__ Field_B cached_buff[1 << MAX_NTT_LOG_SIZE_AT_BLOCK_LEVEL];
     __shared__ Field_A cached_twiddles[1 << (MAX_NTT_LOG_SIZE_AT_BLOCK_LEVEL - 1)]; // TODO use constant memory instead
 
-    cached_twiddles[threadId] = twiddles[n_threads- 1 + threadId];
+    if (threadId < (1 << log_chunck_size))
+    {
+        cached_twiddles[threadId] = twiddles[threadId];
+    }
 
     for (int rep = 0; rep < n_repetitions; rep++)
     {
@@ -62,7 +65,7 @@ extern "C" __global__ void ntt_at_block_level(Field_B *buff, uint32_t log_len, u
 
             int i = threadId % inner_fft_size;
             // w^i where w is a "2 * packet_size" root of unity
-            Field_A twiddle = cached_twiddles[i * blockDim.x / inner_fft_size];
+            Field_A twiddle = cached_twiddles[i * (1 << (log_chunck_size - step - 1))];
 
             // cached_buff[even_index] = even + first_twiddle * odd
             Field_B temp;
@@ -102,11 +105,11 @@ extern "C" __global__ void apply_twiddles(Field_B *buff, uint32_t full_log_len, 
         Field_A twiddle;
         if (ij < 1 << (inner_log_len - 1))
         {
-            twiddle = twiddles[((1 << inner_log_len) - 2) / 2 + ij];
+            twiddle = twiddles[ij];
         }
         else
         {
-            twiddle = twiddles[((1 << inner_log_len) - 2) / 2 + ij - (1 << (inner_log_len-1))];
+            twiddle = twiddles[ij - (1 << (inner_log_len - 1))];
             SUB_AA({0}, twiddle, twiddle);
         }
 

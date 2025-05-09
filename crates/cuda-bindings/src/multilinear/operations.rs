@@ -19,7 +19,7 @@ pub fn cuda_dot_product<F: Field, EF: ExtensionField<F>>(
     let buff = cuda_alloc::<EF>(a.len());
     let mut call = CudaCall::new(
         CudaFunctionInfo::two_fields::<F, EF>("multilinear.cu", "dot_product"),
-        a.len() as u32,
+        a.len(),
     );
     call.arg(a);
     call.arg(b);
@@ -34,11 +34,11 @@ pub fn cuda_dot_product<F: Field, EF: ExtensionField<F>>(
 pub fn cuda_scale_slice_in_place<F: Field>(slice: &mut CudaSlice<F>, scalar: F) {
     let scalar = [scalar];
     let scalar_dev = memcpy_htod(&scalar);
-    let n = slice.len() as u32;
     let mut call = CudaCall::new(
         CudaFunctionInfo::one_field::<F>("multilinear.cu", "scale_in_place"),
-        n,
+        slice.len(),
     );
+    let n = slice.len() as u32;
     call.arg(slice);
     call.arg(&n);
     call.arg(&scalar_dev);
@@ -58,7 +58,7 @@ pub fn cuda_add_slices<F: Field, S: Borrow<CudaSlice<F>>>(slices: &[S]) -> CudaS
     let slices_ptrs = concat_pointers(slices);
     let mut call = CudaCall::new(
         CudaFunctionInfo::one_field::<F>("multilinear.cu", "add_slices"),
-        len,
+        len as usize,
     );
     call.arg(&slices_ptrs);
     call.arg(&mut res);
@@ -71,12 +71,12 @@ pub fn cuda_add_slices<F: Field, S: Borrow<CudaSlice<F>>>(slices: &[S]) -> CudaS
 // Async
 pub fn cuda_add_assign_slices<F: Field>(a: &mut CudaSlice<F>, b: &CudaSlice<F>) {
     // a += b;
-    let n = a.len() as u32;
-    assert_eq!(n, b.len() as u32);
+    assert_eq!(a.len(), b.len());
     let mut call = CudaCall::new(
         CudaFunctionInfo::one_field::<F>("multilinear.cu", "add_assign_slices"),
-        n,
+        a.len(),
     );
+    let n = a.len() as u32;
     call.arg(a);
     call.arg(b);
     call.arg(&n);
@@ -96,7 +96,7 @@ pub fn cuda_piecewise_sum<F: Field>(input: &CudaSlice<F>, sum_size: usize) -> Cu
     let sum_size_u32 = sum_size as u32;
     let mut call = CudaCall::new(
         CudaFunctionInfo::one_field::<F>("multilinear.cu", "piecewise_sum"),
-        output_len as u32,
+        output_len,
     );
     call.arg(input);
     call.arg(&mut output);
@@ -123,7 +123,7 @@ pub fn cuda_linear_combination_at_row_level<F: Field, EF: ExtensionField<F>>(
     let scalars_dev = memcpy_htod(scalars);
     let mut call = CudaCall::new(
         CudaFunctionInfo::two_fields::<F, EF>("multilinear.cu", "linear_combination_at_row_level"),
-        output_len as u32,
+        output_len,
     );
     call.arg(input);
     call.arg(&mut output);
@@ -153,7 +153,7 @@ pub fn cuda_linear_combination<F: Field, EF: ExtensionField<F>, S: Borrow<CudaSl
     let inputs_ptr = concat_pointers(inputs);
     let mut call = CudaCall::new(
         CudaFunctionInfo::two_fields::<F, EF>("multilinear.cu", "linear_combination"),
-        len_u32,
+        len,
     );
     call.arg(&inputs_ptr);
     call.arg(&mut output);
@@ -205,7 +205,7 @@ fn cuda_repeat_slice<F: Field>(
     };
     let mut call = CudaCall::new(
         CudaFunctionInfo::one_field::<F>("multilinear.cu", func_name),
-        n_ops,
+        n_ops as usize,
     );
     call.arg(input);
     call.arg(&mut output);
@@ -225,7 +225,7 @@ pub fn cuda_sum<F: Field>(terms: CudaSlice<F>) -> F {
     let log_len = terms.len().ilog2() as u32;
     let mut call = CudaCall::new(
         CudaFunctionInfo::one_field::<F>("multilinear.cu", "sum_in_place"),
-        (terms.len() / 2) as u32,
+        terms.len() / 2,
     );
     call.arg(&terms);
     call.arg(&log_len);
@@ -254,7 +254,7 @@ pub fn cuda_eval_mixed_tensor<F: Field, EF: ExtensionField<F>>(
 
     let mut call = CudaCall::new(
         CudaFunctionInfo::two_fields::<F, EF>("tensor_algebra.cu", "tensor_algebra_dot_product"),
-        n_ops as u32,
+        n_ops,
     );
     call.arg(&eq_mle);
     call.arg(terms);

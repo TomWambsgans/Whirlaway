@@ -1,6 +1,6 @@
 use cuda_engine::{
     CudaCall, CudaFunctionInfo, cuda_alloc, cuda_alloc_zeros, cuda_twiddles,
-    cuda_twiddles_two_adicity, max_ntt_log_size_at_block_level,
+    max_ntt_log_size_at_block_level,
 };
 use cudarc::driver::{CudaSlice, PushKernelArg};
 
@@ -48,7 +48,7 @@ pub fn cuda_reverse_bit_order_for_ntt<F: Field>(
     assert!(log_chunck_size_u32 <= log_len_u32 + log_expansion_factor_u32);
     let mut call = CudaCall::new(
         CudaFunctionInfo::one_field::<F>("ntt/bit_reverse.cu", "reverse_bit_order_for_ntt"),
-        input.len() as u32,
+        input.len(),
     );
     let mut result_dev = cuda_alloc_zeros::<F>(input.len() * expansion_factor);
     call.arg(input);
@@ -63,7 +63,6 @@ pub fn cuda_reverse_bit_order_for_ntt<F: Field>(
 
 fn cuda_apply_twiddles<F: Field>(
     coeffs: &mut CudaSlice<F>,
-    twiddles: &CudaSlice<F::PrimeSubfield>,
     inner_log_len: usize,
     log_chunck_size: usize,
 ) {
@@ -79,32 +78,28 @@ fn cuda_apply_twiddles<F: Field>(
     call.arg(&full_log_len_u32);
     call.arg(&inner_log_len_u32);
     call.arg(&log_chunck_size_u32);
-    call.arg(twiddles);
+    call.arg(cuda_twiddles::<F>(inner_log_len));
     call.launch();
 }
 
-pub fn cuda_ntt_at_block_level<F: Field>(
-    coeffs: &mut CudaSlice<F>,
-    twiddles: &CudaSlice<F::PrimeSubfield>,
-    log_chunck_size: usize,
-) {
+pub fn cuda_ntt_at_block_level<F: Field>(coeffs: &mut CudaSlice<F>, log_chunck_size: usize) {
     assert!(coeffs.len().is_power_of_two());
     let log_len = coeffs.len().trailing_zeros() as usize;
     let mut call = CudaCall::new(
         CudaFunctionInfo::ntt_at_block_level::<F>(),
         1 << (log_len - 1),
     )
-    .max_log_threads_per_block(max_ntt_log_size_at_block_level::<F>() as u32 - 1)
+    .max_log_threads_per_block(max_ntt_log_size_at_block_level::<F>() - 1)
     .shared_mem_bytes(
-        ((1 << max_ntt_log_size_at_block_level::<F>())
-            * (std::mem::size_of::<F>() + std::mem::size_of::<F::PrimeSubfield>())) as u32,
+        (1 << max_ntt_log_size_at_block_level::<F>()) * std::mem::size_of::<F>()
+            + std::mem::size_of::<F::PrimeSubfield>(),
     );
     let log_len_u32 = log_len as u32;
     let log_chunck_size_u32 = log_chunck_size as u32;
     call.arg(coeffs);
     call.arg(&log_len_u32);
     call.arg(&log_chunck_size_u32);
-    call.arg(twiddles);
+    call.arg(cuda_twiddles::<F>(log_chunck_size));
     call.launch();
 }
 
@@ -117,17 +112,16 @@ pub fn cuda_ntt<F: Field>(
     assert!(coeffs.len().is_power_of_two());
     let log_len = coeffs.len().trailing_zeros() as usize;
     assert!(log_chunck_size <= log_len);
-    assert!(
-        log_chunck_size <= cuda_twiddles_two_adicity::<F::PrimeSubfield>(),
-        "NTT to big"
-    );
 
-    let twiddles = cuda_twiddles::<F::PrimeSubfield>();
+    if log_chunck_size == 0 {
+        return;
+    }
+
     let max_cuda_ntt_log_size = max_ntt_log_size_at_block_level::<F>();
 
     if log_chunck_size <= max_cuda_ntt_log_size {
         assert!(!initial_transposition_already_done);
-        cuda_ntt_at_block_level(coeffs, &twiddles, log_chunck_size);
+        cuda_ntt_at_block_level(coeffs, log_chunck_size);
     } else {
         if !initial_transposition_already_done {
             *coeffs = cuda_transpose(
@@ -137,9 +131,9 @@ pub fn cuda_ntt<F: Field>(
             );
         }
 
-        cuda_ntt_at_block_level(coeffs, &twiddles, max_cuda_ntt_log_size);
+        cuda_ntt_at_block_level(coeffs, max_cuda_ntt_log_size);
 
-        cuda_apply_twiddles(coeffs, &twiddles, log_chunck_size, max_cuda_ntt_log_size);
+        cuda_apply_twiddles(coeffs, log_chunck_size, max_cuda_ntt_log_size);
 
         *coeffs = cuda_transpose(
             &coeffs,
@@ -194,7 +188,7 @@ mod tests {
             "ntt/ntt.cu",
             "apply_twiddles",
         ));
-        cuda_preprocess_twiddles::<KoalaBear>();
+        cuda_preprocess_twiddles::<KoalaBear>(log_len - log_width);
 
         let len = 1 << log_len;
         let coeffs = (0..len).map(|i| F::from_usize(i)).collect::<Vec<_>>();
@@ -217,6 +211,8 @@ mod tests {
             .transpose()
             .values;
         println!("CPU ntt took: {} ms", time.elapsed().as_millis());
+
+        dbg!(log_len, log_width);
 
         assert!(
             cuda_res == cpu_res,

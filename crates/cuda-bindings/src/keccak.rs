@@ -10,8 +10,8 @@ pub fn cuda_keccak256<T: DeviceRepr>(
     output: &mut CudaViewMut<KeccakDigest>,
 ) {
     assert!(input.len() % batch_size == 0);
-    let n_inputs = (input.len() / batch_size) as u32;
-    assert_eq!(n_inputs, output.len() as u32);
+    let n_inputs = input.len() / batch_size;
+    assert_eq!(n_inputs, output.len());
     let input_length = (batch_size * std::mem::size_of::<T>()) as u32;
     let mut launch_args = CudaCall::new(
         CudaFunctionInfo::basic("keccak.cu", "batch_keccak256"),
@@ -35,7 +35,7 @@ pub fn cuda_pow_grinding(seed: &KeccakDigest, ending_zeros_count: usize) -> u64 
     loop {
         let mut launch_args = CudaCall::new(
             CudaFunctionInfo::basic("keccak.cu", "pow_grinding"),
-            1u32.checked_shl(ending_zeros_count as u32).unwrap(),
+            1u32.checked_shl(ending_zeros_count as u32).unwrap() as usize,
         );
 
         let total_n_threads = launch_args.total_n_threads(false) as u64;

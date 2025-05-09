@@ -285,7 +285,9 @@ mod test {
             ));
             cuda_load_function(CudaFunctionInfo::basic("keccak.cu", "batch_keccak256"));
             cuda_load_function(CudaFunctionInfo::basic("keccak.cu", "pow_grinding"));
-            cuda_preprocess_twiddles::<KoalaBear>();
+            cuda_preprocess_twiddles::<KoalaBear>(
+                num_vars + config.starting_log_inv_rate - config.folding_factor.maximum(),
+            );
             let dim_ef = <EF as BasedVectorSpace<F::PrimeSubfield>>::DIMENSION;
             cuda_preprocess_many_sumcheck_computations(&prod_sumcheck, &[(1, dim_ef, dim_ef)]);
             cuda_sync();

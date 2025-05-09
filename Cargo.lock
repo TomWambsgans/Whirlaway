@@ -181,6 +181,7 @@ dependencies = [
  "cudarc",
  "derive_more",
  "p3-field",
+ "p3-koala-bear",
  "tracing",
  "utils",
 ]
