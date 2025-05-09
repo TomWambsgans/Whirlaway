@@ -5,6 +5,8 @@ use utils::powers_parallel;
 
 use crate::*;
 
+const MAX_LOG_NTT_DOMAIN_SIZE: usize = 25;
+
 pub fn cuda_preprocess_twiddles<F: TwoAdicField + PrimeField32>() {
     let mut guard = cuda_engine().twiddles.write().unwrap();
     if guard.contains_key(&TypeId::of::<F>()) {
@@ -12,9 +14,9 @@ pub fn cuda_preprocess_twiddles<F: TwoAdicField + PrimeField32>() {
     }
     let _span = tracing::info_span!("Preprocessing cuda twiddles").entered();
     let mut all_twiddles = Vec::new();
-    for i in 0..=F::TWO_ADICITY {
+    for i in 1..=F::TWO_ADICITY.min(MAX_LOG_NTT_DOMAIN_SIZE) {
         // TODO only use the required twiddles (TWO_ADICITY may be larger than needed)
-        all_twiddles.extend(powers_parallel(F::two_adic_generator(i), 1 << i));
+        all_twiddles.extend(powers_parallel(F::two_adic_generator(i), 1 << (i - 1)));
     }
     let all_twiddles_dev = memcpy_htod(&all_twiddles);
     cuda_sync();

@@ -8,7 +8,7 @@
 // we need: MAX_NTT_SIZE_AT_BLOCK_LEVEL * (EXT_DEGREE + 1) * 4 bytes <= shared memory
 // TODO avoid hardcoding
 #if !defined(MAX_NTT_LOG_SIZE_AT_BLOCK_LEVEL)
-#define MAX_NTT_LOG_SIZE_AT_BLOCK_LEVEL 0
+#define MAX_NTT_LOG_SIZE_AT_BLOCK_LEVEL 1
 #endif
 
 extern "C" __global__ void ntt_at_block_level(Field_B *buff, uint32_t log_len, uint32_t log_chunck_size, Field_A *twiddles)
@@ -28,10 +28,9 @@ extern "C" __global__ void ntt_at_block_level(Field_B *buff, uint32_t log_len, u
     const uint32_t n_repetitions = (1 << log_len) / (blockDim.x * gridDim.x * 2);
 
     __shared__ Field_B cached_buff[1 << MAX_NTT_LOG_SIZE_AT_BLOCK_LEVEL];
-    __shared__ Field_A cached_twiddles[1 << MAX_NTT_LOG_SIZE_AT_BLOCK_LEVEL]; // TODO use constant memory instead
+    __shared__ Field_A cached_twiddles[1 << (MAX_NTT_LOG_SIZE_AT_BLOCK_LEVEL - 1)]; // TODO use constant memory instead
 
-    cached_twiddles[threadId] = twiddles[n_threads * 2 - 1 + threadId];
-    cached_twiddles[threadId + n_threads] = twiddles[n_threads * 3 - 1 + threadId];
+    cached_twiddles[threadId] = twiddles[n_threads- 1 + threadId];
 
     for (int rep = 0; rep < n_repetitions; rep++)
     {
@@ -63,18 +62,16 @@ extern "C" __global__ void ntt_at_block_level(Field_B *buff, uint32_t log_len, u
 
             int i = threadId % inner_fft_size;
             // w^i where w is a "2 * packet_size" root of unity
-            Field_A first_twiddle = cached_twiddles[i * blockDim.x / inner_fft_size];
-            // w^(i + packet_size) where w is a "2 * packet_size" root of unity
-            Field_A second_twiddle = cached_twiddles[(i + inner_fft_size) * blockDim.x / inner_fft_size];
+            Field_A twiddle = cached_twiddles[i * blockDim.x / inner_fft_size];
 
             // cached_buff[even_index] = even + first_twiddle * odd
             Field_B temp;
-            MUL_BA(odd, first_twiddle, temp);
+            MUL_BA(odd, twiddle, temp);
             ADD_BB(even, temp, cached_buff[even_dest]);
 
             // cached_buff[odd_index] = even + second_twiddle * odd
-            MUL_BA(odd, second_twiddle, temp);
-            ADD_BB(even, temp, cached_buff[odd_dest]);
+            MUL_BA(odd, twiddle, temp);
+            SUB_BB(even, temp, cached_buff[odd_dest]);
 
             __syncthreads();
         }
@@ -100,7 +97,18 @@ extern "C" __global__ void apply_twiddles(Field_B *buff, uint32_t full_log_len, 
         int inner_idx = threadIndex % (1 << inner_log_len);
         int i = inner_idx % (1 << log_chunck_size);
         int j = inner_idx / (1 << log_chunck_size);
-        Field_A twiddle = twiddles[(1 << inner_log_len) - 1 + i * j];
+        int ij = i * j;
+
+        Field_A twiddle;
+        if (ij < 1 << (inner_log_len - 1))
+        {
+            twiddle = twiddles[((1 << inner_log_len) - 2) / 2 + ij];
+        }
+        else
+        {
+            twiddle = twiddles[((1 << inner_log_len) - 2) / 2 + ij - (1 << (inner_log_len-1))];
+            SUB_AA({0}, twiddle, twiddle);
+        }
 
         Field_B src = buff[threadIndex];
         Field_B result;

@@ -139,7 +139,7 @@ pub fn cuda_get_at_index<T: DeviceRepr + Default>(slice: &CudaSlice<T>, idx: usi
 pub fn cuda_twiddles_two_adicity<F: Field>() -> usize {
     let n = cuda_twiddles::<F>().len();
     assert!((n + 1).is_power_of_two());
-    (n + 1).ilog2() as usize - 1
+    (n + 1).ilog2() as usize
 }
 
 pub fn cuda_twiddles<F: Field>() -> CudaSlice<F> {
