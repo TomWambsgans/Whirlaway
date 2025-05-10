@@ -11,7 +11,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use tracing::instrument;
 use utils::{SupportedField, extension_degree, log2_down};
 
-use crate::LOG_MAX_THREADS_PER_BLOCK;
+use crate::{CudaPtr, LOG_MAX_THREADS_PER_BLOCK};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct CudaFunctionInfo {
@@ -65,7 +65,7 @@ impl CudaFunctionInfo {
 
     pub fn ntt_at_block_level<F: Field>() -> Self {
         Self {
-            cuda_file: kernels_folder().join("ntt/ntt.cu"),
+            cuda_file: kernels_folder().join("ntt.cu"),
             function_name: "ntt_at_block_level".to_string(),
             field: Some(SupportedField::guess::<F>()),
             extension_degree_a: Some(extension_degree::<F::PrimeSubfield>()), // twiddles
@@ -85,12 +85,12 @@ pub fn max_ntt_log_size_at_block_level<F: Field>() -> usize {
     ) // TODO fix and remove -1
 }
 
-pub(crate) struct CudaEngine {
+pub struct CudaEngine {
     pub(crate) dev: Arc<CudaContext>,
     pub(crate) stream: Arc<CudaStream>,
     // We restrain ourseleves to the 2-addic roots of unity in the 32-bits prime field
     // Each CudaSlice<u32> contains half of the twiddles, the other half is just the opposite
-    pub(crate) twiddles: RwLock<BTreeMap<TypeId, Vec<CudaSlice<u32>>>>,
+    pub(crate) twiddles: RwLock<BTreeMap<TypeId, (Vec<CudaSlice<u32>>, CudaSlice<CudaPtr<u32>>)>>,
     pub(crate) functions: RwLock<HashMap<CudaFunctionInfo, CudaFunction>>,
 }
 

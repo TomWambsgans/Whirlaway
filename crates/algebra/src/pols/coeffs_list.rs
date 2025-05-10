@@ -3,7 +3,7 @@ use p3_dft::TwoAdicSubgroupDft;
 
 use cuda_bindings::{cuda_fold_rectangular_in_large_field, cuda_ntt};
 use cuda_bindings::{cuda_reverse_bit_order_for_ntt, cuda_transpose};
-use cuda_engine::{HostOrDeviceBuffer, cuda_sync, max_ntt_log_size_at_block_level, memcpy_dtoh};
+use cuda_engine::{HostOrDeviceBuffer, cuda_sync, memcpy_dtoh};
 use cudarc::driver::CudaSlice;
 use p3_dft::Radix2DitParallel;
 use p3_field::{ExtensionField, Field, TwoAdicField};
@@ -215,29 +215,18 @@ impl<F: Field> CoefficientListDevice<F> {
             log_expanded_size = log_expanded_size
         )
         .entered();
-        let inner_transposition_log_rows_u32 =
-            if log_expanded_size - folding_factor <= max_ntt_log_size_at_block_level::<F>() {
-                // cuda_ntt will directl call cuda_ntt_at_block_level, no need to transpose
-                0
-            } else {
-                max_ntt_log_size_at_block_level::<F>()
-            };
+
         let mut res = cuda_reverse_bit_order_for_ntt(
             &self.coeffs,
             expansion,
             log_expanded_size - folding_factor,
-            inner_transposition_log_rows_u32,
         );
         cuda_sync();
         std::mem::drop(_span);
 
         let _span =
             tracing::info_span!("cuda_ntt", log_expanded_size = log_expanded_size).entered();
-        cuda_ntt(
-            &mut res,
-            log_expanded_size - folding_factor,
-            inner_transposition_log_rows_u32 > 0,
-        );
+        cuda_ntt(&mut res, log_expanded_size - folding_factor);
         cuda_sync();
         std::mem::drop(_span);
 

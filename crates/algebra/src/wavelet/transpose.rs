@@ -180,8 +180,8 @@ mod tests {
     fn test_cuda_transpose() {
         type F = BinomialExtensionField<KoalaBear, 8>;
         cuda_init();
-        cuda_load_function(CudaFunctionInfo::one_field::<F>(
-            "ntt/transpose.cu",
+        cuda_load_function(CudaFunctionInfo::two_fields::<KoalaBear, F>(
+            "ntt.cu",
             "transpose",
         ));
         let log_len = 13;

@@ -1,14 +1,8 @@
-use std::any::TypeId;
-use std::hash::Hash;
-use std::{borrow::Borrow, ops::Range};
-
 use crate::{CudaFunctionInfo, cuda_engine, try_get_cuda_engine};
 use cudarc::driver::{
     CudaFunction, DevicePtr, DevicePtrMut, LaunchArgs, LaunchConfig, ValidAsZeroBits,
 };
 use cudarc::driver::{CudaSlice, DeviceRepr};
-use p3_field::Field;
-use utils::default_hash;
 
 // TODO Avoid hardcoding : This is GPU dependent
 pub const LOG_MAX_THREADS_PER_COOPERATIVE_BLOCK: usize = 8;
@@ -19,51 +13,6 @@ pub const MAX_THREADS_PER_BLOCK: usize = 1 << LOG_MAX_THREADS_PER_BLOCK;
 
 pub const MAX_COOPERATIVE_BLOCKS: usize = 1 << 4;
 pub const MAX_BLOCKS: usize = 1 << 14;
-
-pub enum HostOrDeviceBuffer<T> {
-    Host(Vec<T>),
-    Device(CudaSlice<T>),
-}
-
-impl<T: DeviceRepr + Clone + Default> HostOrDeviceBuffer<T> {
-    /// Async
-    pub fn index(&self, idx: usize) -> T {
-        match self {
-            HostOrDeviceBuffer::Host(v) => v[idx].clone(),
-            HostOrDeviceBuffer::Device(slice) => cuda_get_at_index(slice, idx),
-        }
-    }
-
-    // Async
-    pub fn slice(&self, range: Range<usize>) -> Vec<T> {
-        match self {
-            HostOrDeviceBuffer::Host(v) => v[range].to_vec(),
-            HostOrDeviceBuffer::Device(slice) => {
-                let cuda = cuda_engine();
-                let mut dst = vec![T::default(); range.end - range.start];
-                cuda.stream
-                    .memcpy_dtoh(&slice.slice(range), &mut dst)
-                    .unwrap();
-                dst
-            }
-        }
-    }
-}
-
-impl<T: DeviceRepr + Default + Clone + Hash> HostOrDeviceBuffer<T> {
-    /// Debug purpose
-    /// Sync
-    pub fn hash(&self) -> u64 {
-        match self {
-            Self::Host(host_buff) => default_hash(host_buff),
-            Self::Device(dev_buff) => {
-                let host_buff = memcpy_dtoh(dev_buff);
-                cuda_sync();
-                default_hash(&host_buff)
-            }
-        }
-    }
-}
 
 /// Does nothing if cuda has not been initialized
 pub fn cuda_sync() {
@@ -105,17 +54,6 @@ pub fn memcpy_dtod_to<T: DeviceRepr, Src: DevicePtr<T>, Dst: DevicePtrMut<T>>(
 }
 
 /// Async
-pub fn concat_pointers<T: DeviceRepr, S: Borrow<CudaSlice<T>>>(slices: &[S]) -> CudaSlice<u64> {
-    let cuda = cuda_engine();
-    memcpy_htod(
-        &slices
-            .iter()
-            .map(|slice_dev| slice_dev.borrow().device_ptr(&cuda.stream).0)
-            .collect::<Vec<u64>>(), // TODO avoid hardcoding u64 (this is platform dependent)
-    )
-}
-
-/// Async
 pub fn cuda_alloc<T: DeviceRepr>(size: usize) -> CudaSlice<T> {
     unsafe { cuda_engine().stream.alloc(size).unwrap() }
 }
@@ -127,40 +65,22 @@ pub fn cuda_alloc_zeros<T: DeviceRepr + ValidAsZeroBits>(size: usize) -> CudaSli
 
 /// Async
 pub fn cuda_get_at_index<T: DeviceRepr + Default>(slice: &CudaSlice<T>, idx: usize) -> T {
-    assert!(idx < slice.len());
-    let cuda = cuda_engine();
     let mut dst = [T::default()];
-    cuda.stream
+    cuda_engine()
+        .stream
         .memcpy_dtoh(&slice.slice(idx..idx + 1), &mut dst)
         .unwrap();
     dst.into_iter().next().unwrap()
 }
 
-pub fn cuda_twiddles<F: Field>(log_domain_size: usize) -> &'static CudaSlice<F::PrimeSubfield> {
-    unsafe {
-        std::mem::transmute(
-            cuda_engine()
-                .twiddles
-                .read()
-                .unwrap()
-                .get(&TypeId::of::<F::PrimeSubfield>())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "twiddles have not been preprocessed for : {}",
-                        std::any::type_name::<F::PrimeSubfield>()
-                    )
-                })
-                .get(log_domain_size.checked_sub(1).unwrap())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "twiddles have not been preprocessed for : {}, log_domain_size = {}",
-                        std::any::type_name::<F::PrimeSubfield>(),
-                        log_domain_size
-                    )
-                }),
-        )
-    }
+/// Async
+pub fn cuda_set_at_index<T: DeviceRepr>(slice: &mut CudaSlice<T>, idx: usize, value: T) {
+    cuda_engine()
+        .stream
+        .memcpy_htod(&[value], &mut slice.slice_mut(idx..idx + 1))
+        .unwrap();
 }
+
 #[derive(derive_more::Deref, derive_more::DerefMut)]
 pub struct CudaCall<'a> {
     _function: &'static CudaFunction,

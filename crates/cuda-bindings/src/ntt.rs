@@ -16,7 +16,7 @@ pub fn cuda_transpose<F: Field>(
     let mut result_dev = cuda_alloc::<F>(input.len());
 
     let mut call = CudaCall::new(
-        CudaFunctionInfo::one_field::<F>("ntt/transpose.cu", "transpose"),
+        CudaFunctionInfo::two_fields::<F::PrimeSubfield, F>("ntt.cu", "transpose"),
         1 << (log_rows + log_cols),
     );
 
@@ -37,17 +37,15 @@ pub fn cuda_reverse_bit_order_for_ntt<F: Field>(
     input: &CudaSlice<F>,
     expansion_factor: usize,
     log_chunck_size: usize,
-    inner_transposition_log_rows: usize,
 ) -> CudaSlice<F> {
     assert!(input.len().is_power_of_two());
     assert!(expansion_factor.is_power_of_two());
     let log_len_u32 = input.len().trailing_zeros() as u32;
     let log_chunck_size_u32 = log_chunck_size as u32;
     let log_expansion_factor_u32 = expansion_factor.ilog2() as u32;
-    let inner_transposition_log_rows_u32 = inner_transposition_log_rows as u32;
     assert!(log_chunck_size_u32 <= log_len_u32 + log_expansion_factor_u32);
     let mut call = CudaCall::new(
-        CudaFunctionInfo::one_field::<F>("ntt/bit_reverse.cu", "reverse_bit_order_for_ntt"),
+        CudaFunctionInfo::two_fields::<F::PrimeSubfield, F>("ntt.cu", "reverse_bit_order_for_ntt"),
         input.len(),
     );
     let mut result_dev = cuda_alloc_zeros::<F>(input.len() * expansion_factor);
@@ -56,7 +54,6 @@ pub fn cuda_reverse_bit_order_for_ntt<F: Field>(
     call.arg(&log_len_u32);
     call.arg(&log_expansion_factor_u32);
     call.arg(&log_chunck_size_u32);
-    call.arg(&inner_transposition_log_rows_u32);
     call.launch();
     result_dev
 }
@@ -69,7 +66,7 @@ fn cuda_apply_twiddles<F: Field>(
     assert!(coeffs.len().is_power_of_two());
     let full_log_len_u32 = coeffs.len().trailing_zeros();
     let mut call = CudaCall::new(
-        CudaFunctionInfo::two_fields::<F::PrimeSubfield, F>("ntt/ntt.cu", "apply_twiddles"),
+        CudaFunctionInfo::two_fields::<F::PrimeSubfield, F>("ntt.cu", "apply_twiddles"),
         1 << full_log_len_u32,
     );
     let inner_log_len_u32 = inner_log_len as u32;
@@ -104,11 +101,7 @@ pub fn cuda_ntt_at_block_level<F: Field>(coeffs: &mut CudaSlice<F>, log_chunck_s
 }
 
 // Async
-pub fn cuda_ntt<F: Field>(
-    coeffs: &mut CudaSlice<F>,
-    log_chunck_size: usize,
-    initial_transposition_already_done: bool,
-) {
+pub fn cuda_ntt<F: Field>(coeffs: &mut CudaSlice<F>, log_chunck_size: usize) {
     assert!(coeffs.len().is_power_of_two());
     let log_len = coeffs.len().trailing_zeros() as usize;
     assert!(log_chunck_size <= log_len);
@@ -120,16 +113,13 @@ pub fn cuda_ntt<F: Field>(
     let max_cuda_ntt_log_size = max_ntt_log_size_at_block_level::<F>();
 
     if log_chunck_size <= max_cuda_ntt_log_size {
-        assert!(!initial_transposition_already_done);
         cuda_ntt_at_block_level(coeffs, log_chunck_size);
     } else {
-        if !initial_transposition_already_done {
-            *coeffs = cuda_transpose(
-                &coeffs,
-                max_cuda_ntt_log_size,
-                log_chunck_size - max_cuda_ntt_log_size,
-            );
-        }
+        *coeffs = cuda_transpose(
+            &coeffs,
+            max_cuda_ntt_log_size,
+            log_chunck_size - max_cuda_ntt_log_size,
+        );
 
         cuda_ntt_at_block_level(coeffs, max_cuda_ntt_log_size);
 
@@ -141,7 +131,7 @@ pub fn cuda_ntt<F: Field>(
             max_cuda_ntt_log_size,
         );
 
-        cuda_ntt(coeffs, log_chunck_size - max_cuda_ntt_log_size, false);
+        cuda_ntt(coeffs, log_chunck_size - max_cuda_ntt_log_size);
         *coeffs = cuda_transpose(
             &coeffs,
             max_cuda_ntt_log_size,
@@ -180,12 +170,12 @@ mod tests {
     fn test_cuda_ntt_helper<F: TwoAdicField + Ord>(log_len: usize, log_width: usize) {
         cuda_init();
         cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<F>());
-        cuda_load_function(CudaFunctionInfo::one_field::<F>(
-            "ntt/transpose.cu",
+        cuda_load_function(CudaFunctionInfo::two_fields::<F::PrimeSubfield, F>(
+            "ntt.cu",
             "transpose",
         ));
         cuda_load_function(CudaFunctionInfo::two_fields::<F::PrimeSubfield, F>(
-            "ntt/ntt.cu",
+            "ntt.cu",
             "apply_twiddles",
         ));
         cuda_preprocess_twiddles::<KoalaBear>(log_len - log_width);
@@ -197,7 +187,7 @@ mod tests {
         cuda_sync();
 
         let time = std::time::Instant::now();
-        cuda_ntt(&mut coeffs_dev, log_len - log_width, false);
+        cuda_ntt(&mut coeffs_dev, log_len - log_width);
         cuda_sync();
         println!("CUDA ntt took: {} ms", time.elapsed().as_millis());
         let cuda_res = memcpy_dtoh(&coeffs_dev);
