@@ -4,13 +4,22 @@ use cuda_engine::{
     cuda_preprocess_many_sumcheck_computations, cuda_preprocess_twiddles,
 };
 use p3_field::{ExtensionField, PrimeField32, TwoAdicField};
-use utils::extension_degree;
+use utils::{extension_degree, log2_up};
 
-use crate::table::AirTable;
+use crate::{AirSettings, table::AirTable};
 
 impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
-    pub fn cuda_setup<EF: ExtensionField<F>, WhirF: ExtensionField<F>>(&self) {
+    pub fn cuda_setup<EF: ExtensionField<F>, WhirF: ExtensionField<F>>(
+        &self,
+        settings: &AirSettings,
+    ) {
         cuda_init();
+
+        let n_vars = log2_up(self.n_columns) + self.log_length;
+        cuda_preprocess_twiddles::<F>(
+            n_vars + settings.whir_log_inv_rate - settings.whir_folding_factor.maximum(),
+        );
+
         let constraint_sumcheck_computations = SumcheckComputation::<F> {
             exprs: &self.constraints,
             n_multilinears: self.n_columns * 2 + 1,
@@ -45,7 +54,6 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
             &[(deg_a, deg_b, deg_b), (deg_a, deg_c, deg_c)],
         );
         cuda_preprocess_many_sumcheck_computations(&inner_air_sumcheck, &[(deg_a, deg_b, deg_b)]);
-        cuda_preprocess_twiddles::<F>();
 
         cuda_load_function(CudaFunctionInfo::basic("keccak.cu", "batch_keccak256"));
         cuda_load_function(CudaFunctionInfo::basic("keccak.cu", "pow_grinding"));
@@ -168,18 +176,6 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
         cuda_load_function(CudaFunctionInfo::two_fields::<F, WhirF>(
             "tensor_algebra.cu",
             "tensor_algebra_dot_product",
-        ));
-        cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
-            "ntt/transpose.cu",
-            "transpose",
-        ));
-        cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
-            "ntt/bit_reverse.cu",
-            "reverse_bit_order_for_ntt",
-        ));
-        cuda_load_function(CudaFunctionInfo::two_fields::<F, WhirF>(
-            "ntt/ntt.cu",
-            "ntt_step",
         ));
         cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<WhirF>());
     }

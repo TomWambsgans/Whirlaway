@@ -40,7 +40,7 @@ pub fn cuda_compute_over_hypercube<
     let batching_scalars_dev = memcpy_htod(batching_scalars);
     let mut sums_dev = cuda_alloc::<EF>((n_compute_units as usize) << n_vars);
 
-    let n_ops = n_compute_units << n_vars.max(LOG_CUDA_WARP_SIZE);
+    let n_ops = (n_compute_units << n_vars.max(LOG_CUDA_WARP_SIZE)) as usize;
 
     let module = format!("sumcheck_{:x}", sumcheck_computation.uuid());
     let cuda_file = cuda_synthetic_dir().join(format!("{module}.cu"));

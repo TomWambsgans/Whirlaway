@@ -534,13 +534,14 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> Verifier<F, EF> {
 
         // Check the final sumcheck evaluation
         let evaluation_of_v_poly = self.compute_v_poly(&parsed_commitment, &statement, &parsed);
-        assert_eq!(
-            prev_sumcheck_poly_eval,
-            evaluation_of_v_poly
+        if prev_sumcheck_poly_eval
+            != evaluation_of_v_poly
                 * parsed
                     .final_coefficients
                     .evaluate(&parsed.final_sumcheck_randomness)
-        );
+        {
+            return Err(WhirError::SumMismatch);
+        }
 
         Ok(())
     }

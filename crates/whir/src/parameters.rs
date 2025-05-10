@@ -611,6 +611,15 @@ impl FoldingFactor {
         }
     }
 
+    pub fn maximum(&self) -> usize {
+        match self {
+            FoldingFactor::Constant(factor) => *factor,
+            FoldingFactor::ConstantFromSecondRound(first_round_factor, factor) => {
+                *first_round_factor.max(factor)
+            }
+        }
+    }
+
     pub fn as_constant(&self) -> Option<usize> {
         match self {
             FoldingFactor::Constant(factor) => Some(*factor),

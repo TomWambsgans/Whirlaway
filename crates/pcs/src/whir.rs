@@ -221,31 +221,7 @@ mod test {
                 "multilinear.cu",
                 "lagrange_to_monomial_basis",
             ));
-            cuda_load_function(CudaFunctionInfo::one_field::<EF>(
-                "ntt/transpose.cu",
-                "transpose",
-            ));
-            cuda_load_function(CudaFunctionInfo::one_field::<F>(
-                "ntt/transpose.cu",
-                "transpose",
-            ));
-            cuda_load_function(CudaFunctionInfo::one_field::<F>(
-                "ntt/bit_reverse.cu",
-                "reverse_bit_order_for_ntt",
-            ));
-            cuda_load_function(CudaFunctionInfo::one_field::<EF>(
-                "ntt/bit_reverse.cu",
-                "reverse_bit_order_for_ntt",
-            ));
-            cuda_load_function(CudaFunctionInfo::two_fields::<KoalaBear, EF>(
-                "ntt/ntt.cu",
-                "ntt_step",
-            ));
             cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<EF>());
-            cuda_load_function(CudaFunctionInfo::two_fields::<KoalaBear, F>(
-                "ntt/ntt.cu",
-                "ntt_step",
-            ));
             cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<F>());
             cuda_load_function(CudaFunctionInfo::one_field::<EF>(
                 "multilinear.cu",
@@ -285,7 +261,9 @@ mod test {
             ));
             cuda_load_function(CudaFunctionInfo::basic("keccak.cu", "batch_keccak256"));
             cuda_load_function(CudaFunctionInfo::basic("keccak.cu", "pow_grinding"));
-            cuda_preprocess_twiddles::<KoalaBear>();
+            cuda_preprocess_twiddles::<KoalaBear>(
+                num_vars + config.starting_log_inv_rate - config.folding_factor.maximum(),
+            );
             let dim_ef = <EF as BasedVectorSpace<F::PrimeSubfield>>::DIMENSION;
             cuda_preprocess_many_sumcheck_computations(&prod_sumcheck, &[(1, dim_ef, dim_ef)]);
             cuda_sync();
