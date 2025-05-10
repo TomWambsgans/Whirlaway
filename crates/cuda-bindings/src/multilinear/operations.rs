@@ -32,8 +32,6 @@ pub fn cuda_dot_product<F: Field, EF: ExtensionField<F>>(
 
 // Async
 pub fn cuda_scale_slice_in_place<F: Field>(slice: &mut CudaSlice<F>, scalar: F) {
-    let scalar = [scalar];
-    let scalar_dev = memcpy_htod(&scalar);
     let mut call = CudaCall::new(
         CudaFunctionInfo::one_field::<F>("multilinear.cu", "scale_in_place"),
         slice.len(),
@@ -41,7 +39,7 @@ pub fn cuda_scale_slice_in_place<F: Field>(slice: &mut CudaSlice<F>, scalar: F) 
     let n = slice.len() as u32;
     call.arg(slice);
     call.arg(&n);
-    call.arg(&scalar_dev);
+    call.arg(&scalar);
     call.launch();
 }
 

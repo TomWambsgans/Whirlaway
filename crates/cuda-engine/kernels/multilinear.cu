@@ -136,9 +136,8 @@ extern "C" __global__ void eq_mle(Field_A *point, const uint32_t n_vars, Field_A
     }
 }
 
-extern "C" __global__ void scale_in_place(Field_A *slice, const uint32_t len, Field_A *scalar)
+extern "C" __global__ void scale_in_place(Field_A *slice, const uint32_t len, Field_A scalar)
 {
-    Field_A scalar_copy = *scalar;
     const int total_n_threads = blockDim.x * gridDim.x;
     const int n_repetitions = (len + total_n_threads - 1) / total_n_threads;
     for (int rep = 0; rep < n_repetitions; rep++)
@@ -147,7 +146,7 @@ extern "C" __global__ void scale_in_place(Field_A *slice, const uint32_t len, Fi
         if (threadIndex < len)
         {
             Field_A prod;
-            MUL_AA(slice[threadIndex], scalar_copy, prod);
+            MUL_AA(slice[threadIndex], scalar, prod);
             slice[threadIndex] = prod;
         }
     }

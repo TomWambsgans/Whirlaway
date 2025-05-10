@@ -24,7 +24,7 @@ pub fn cuda_preprocess_twiddles<F: TwoAdicField + PrimeField32>(log_max_size: us
         return;
     }
     let _span =
-        tracing::info_span!("Preprocessing cuda twiddles, size = {}", log_max_size).entered();
+        tracing::info_span!("Preprocessing cuda twiddles", log_max_size).entered();
     for i in twiddles.len() + 1..=log_max_size {
         let twiddles_host = powers_parallel(F::two_adic_generator(i), 1 << (i - 1));
         let twiddles_dev = memcpy_htod(&twiddles_host);
