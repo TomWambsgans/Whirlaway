@@ -15,6 +15,8 @@ pub fn cuda_ntt_at_block_level<F: Field>(
     final_twiddles: bool,
     final_transpositions: Vec<(usize, usize)>,
     log_whir_expansion_factor: Option<usize>,
+    previous_internal_transposition: Option<(usize, usize)>,
+    skip_last_internal_transposition: bool,
 ) {
     // TODO opimization: if final_transpositions.is_empty(), we could do the NTT in place
 
@@ -45,6 +47,9 @@ pub fn cuda_ntt_at_block_level<F: Field>(
     let log_chunck_size_u32 = log_chunck_size as u32;
     let n_final_transpositions_u32 = final_transpositions.len() as u32;
     let log_whir_expansion_factor_u32 = log_whir_expansion_factor.unwrap_or(0) as u32;
+    let missed_previous_internal_transposition = previous_internal_transposition.is_some();
+    let (previous_internal_transposition_log_rows, previous_internal_transposition_log_cols) =
+        previous_internal_transposition.unwrap_or((0, 0));
     let (mut tr_row_0, mut tr_col_0, mut tr_row_1, mut tr_col_1, mut tr_row_2, mut tr_col_2) =
         Default::default();
     for ((row_u32, col_u32), (row, col)) in [
@@ -74,6 +79,10 @@ pub fn cuda_ntt_at_block_level<F: Field>(
     call.arg(&tr_col_1);
     call.arg(&tr_row_2);
     call.arg(&tr_col_2);
+    call.arg(&missed_previous_internal_transposition);
+    call.arg(&previous_internal_transposition_log_rows);
+    call.arg(&previous_internal_transposition_log_cols);
+    call.arg(&skip_last_internal_transposition);
     call.launch();
 }
 
@@ -95,6 +104,7 @@ pub fn cuda_ntt<F: Field>(
         log_chunck_size,
         final_transpositions,
         log_whir_expansion_factor,
+        None,
     );
     output
 }
@@ -107,6 +117,7 @@ pub fn cuda_ntt_helper<F: Field>(
     log_chunck_size: usize,
     mut final_transpositions: Vec<(usize, usize)>,
     log_whir_expansion_factor: Option<usize>,
+    previous_internal_transposition: Option<(usize, usize)>,
 ) {
     if let Some(input) = input {
         assert!(input.len().is_power_of_two());
@@ -139,6 +150,8 @@ pub fn cuda_ntt_helper<F: Field>(
             false,
             final_transpositions,
             log_whir_expansion_factor,
+            previous_internal_transposition,
+            false,
         );
     } else {
         cuda_ntt_at_block_level(
@@ -150,6 +163,8 @@ pub fn cuda_ntt_helper<F: Field>(
             true,
             vec![],
             log_whir_expansion_factor,
+            previous_internal_transposition,
+            true,
         );
         final_transpositions.push((
             max_cuda_ntt_log_size,
@@ -163,6 +178,7 @@ pub fn cuda_ntt_helper<F: Field>(
             log_chunck_size - max_cuda_ntt_log_size,
             final_transpositions,
             None,
+            Some((log_chunck_size - max_cuda_ntt_log_size, max_cuda_ntt_log_size))
         );
     }
 }

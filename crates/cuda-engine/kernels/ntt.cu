@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <cuda_runtime.h>
 #include <algorithm>
+#include <cassert>
 
 #include "ff_wrapper.cu"
 #include "utils.cu"
@@ -41,13 +42,18 @@ __device__ int whir_flip_index_bijection(int idx, uint32_t log_len, uint32_t log
     }
 }
 
-__device__ int block_ntt_index(int tid, uint32_t log_len, uint32_t inner_log_len, uint32_t log_chunck_size, bool on_rows,  uint32_t log_whir_expansion_factor)
+__device__ int block_ntt_index(int tid, uint32_t log_len, uint32_t inner_log_len, uint32_t log_chunck_size, bool on_rows, uint32_t log_whir_expansion_factor, bool missed_previous_internal_transposition, uint32_t previous_internal_transposition_log_rows, uint32_t previous_internal_transposition_log_cols)
 {
     int res = on_rows ? tid : index_transpose(tid, inner_log_len - log_chunck_size, log_chunck_size);
 
     if (log_whir_expansion_factor != 0)
     {
         res = whir_flip_index_bijection(res, log_len, log_whir_expansion_factor, inner_log_len);
+    }
+
+    if (missed_previous_internal_transposition)
+    {
+        res = index_transpose(res, previous_internal_transposition_log_cols, previous_internal_transposition_log_rows); // switched, because it's the inverse bijection
     }
 
     return res;
@@ -79,7 +85,8 @@ __device__ Field_A final_twiddle(int idx, uint32_t full_log_len, uint32_t inner_
 
 extern "C" __global__ void ntt_at_block_level(Field_B *input, Field_B *output, uint32_t log_len, uint32_t inner_log_len, uint32_t log_chunck_size, bool on_rows,
                                               bool final_twiddles, Field_A **twiddles, uint32_t log_whir_expansion_factor, uint32_t n_final_transpositions,
-                                              uint32_t tr_row_0, uint32_t tr_col_0, uint32_t tr_row_1, uint32_t tr_col_1, uint32_t tr_row_2, uint32_t tr_col_2)
+                                              uint32_t tr_row_0, uint32_t tr_col_0, uint32_t tr_row_1, uint32_t tr_col_1, uint32_t tr_row_2, uint32_t tr_col_2,
+                                              bool missed_previous_internal_transposition, uint32_t previous_internal_transposition_log_rows, uint32_t previous_internal_transposition_log_cols, bool skip_last_internal_transposition)
 {
 
     int threadId = threadIdx.x;
@@ -101,8 +108,8 @@ extern "C" __global__ void ntt_at_block_level(Field_B *input, Field_B *output, u
     {
         int block = blockIdx.x + gridDim.x * rep;
 
-        int index_x = block_ntt_index(threadId + n_threads * 2 * block, log_len, inner_log_len, log_chunck_size, on_rows, log_whir_expansion_factor);
-        int index_y = block_ntt_index(threadId + n_threads * (2 * block + 1), log_len, inner_log_len, log_chunck_size, on_rows, log_whir_expansion_factor);
+        int index_x = block_ntt_index(threadId + n_threads * 2 * block, log_len, inner_log_len, log_chunck_size, on_rows, log_whir_expansion_factor, missed_previous_internal_transposition, previous_internal_transposition_log_rows, previous_internal_transposition_log_cols);
+        int index_y = block_ntt_index(threadId + n_threads * (2 * block + 1), log_len, inner_log_len, log_chunck_size, on_rows, log_whir_expansion_factor, missed_previous_internal_transposition, previous_internal_transposition_log_rows, previous_internal_transposition_log_cols);
 
         if (index_x == -1)
         {
@@ -162,8 +169,8 @@ extern "C" __global__ void ntt_at_block_level(Field_B *input, Field_B *output, u
         Field_B x = cached_buff[threadId];
         Field_B y = cached_buff[threadId + n_threads];
 
-        index_x = block_ntt_index(threadId + blockDim.x * 2 * block, log_len, inner_log_len, log_chunck_size, on_rows, 0);
-        index_y = block_ntt_index(threadId + blockDim.x * (2 * block + 1), log_len, inner_log_len, log_chunck_size, on_rows, 0);
+        index_x = block_ntt_index(threadId + blockDim.x * 2 * block, log_len, inner_log_len, log_chunck_size, on_rows, 0, false, 0, 0);
+        index_y = block_ntt_index(threadId + blockDim.x * (2 * block + 1), log_len, inner_log_len, log_chunck_size, on_rows, 0, false, 0, 0);
 
         if (final_twiddles)
         {
@@ -175,6 +182,13 @@ extern "C" __global__ void ntt_at_block_level(Field_B *input, Field_B *output, u
             Field_A twiddle_y = final_twiddle(index_y, log_len, inner_log_len, inner_log_len - log_chunck_size, twiddles);
             MUL_BA(y, twiddle_y, temp);
             y = temp;
+        }
+
+        if (skip_last_internal_transposition)
+        {
+            assert(n_final_transpositions == 0);
+            index_x = threadId + blockDim.x * 2 * block;
+            index_y = threadId + blockDim.x * (2 * block + 1);
         }
 
         if (n_final_transpositions >= 1)
