@@ -11,3 +11,9 @@ pub use ntt_preprocessing::*;
 
 mod sumcheck_preprocessing;
 pub use sumcheck_preprocessing::*;
+
+mod host_or_device_buffer;
+pub use host_or_device_buffer::*;
+
+mod pointers;
+pub use pointers::*;

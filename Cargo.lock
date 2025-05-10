@@ -188,7 +188,6 @@ dependencies = [
  "p3-matrix",
  "rand 0.9.1",
  "rayon",
- "tracing",
  "utils",
 ]
 
@@ -200,6 +199,7 @@ dependencies = [
  "cudarc",
  "derive_more",
  "p3-field",
+ "p3-koala-bear",
  "tracing",
  "utils",
 ]

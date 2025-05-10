@@ -51,7 +51,7 @@ fn cuda_fold_rectangular<F1: Field, F2: Field, F3: Field, ML: Borrow<CudaSlice<F
     let n_slices = slices.len() as u32;
     let mut call = CudaCall::new(
         CudaFunctionInfo::two_fields::<F1, F2>("multilinear.cu", "fold_rectangular"),
-        (slices.len() as u32) << (n_vars - log_n_scalars),
+        slices.len() << (n_vars - log_n_scalars),
     );
     call.arg(&slices_ptrs_dev);
     call.arg(&mut res_ptrs_dev);

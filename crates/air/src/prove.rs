@@ -39,7 +39,7 @@ impl<F: PrimeField> AirTable<F> {
     {
         assert!(
             settings.univariate_skips < self.log_length,
-            "TODO handle the case UNIVARIATE_SKIPS == log_length"
+            "TODO handle the case UNIVARIATE_SKIPS >= log_length"
         );
         let log_length = self.log_length;
         assert!(witness_host.iter().all(|w| w.n_vars == log_length));

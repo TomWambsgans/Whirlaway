@@ -289,7 +289,7 @@ where
     // table.check_validity(&witness);
 
     if cuda {
-        table.cuda_setup::<EF, WhirF>();
+        table.cuda_setup::<EF, WhirF>(&settings);
     }
 
     let t = Instant::now();

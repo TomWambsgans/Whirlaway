@@ -55,7 +55,7 @@ fn test_air_fibonacci() {
         let table = builder.build(settings.univariate_skips);
 
         if cuda {
-            table.cuda_setup::<EF, WhirF>();
+            table.cuda_setup::<EF, WhirF>(&settings);
         }
 
         let mut col_1 = vec![F::ZERO];
@@ -155,7 +155,7 @@ fn test_air_complex() {
             let table = builder.build(settings.univariate_skips);
 
             if cuda {
-                table.cuda_setup::<EF, WhirF>();
+                table.cuda_setup::<EF, WhirF>(&settings);
             }
 
             let mut col_0 = vec![F::ZERO];
