@@ -80,24 +80,20 @@ fn main() {
         type BabyBear4 = BinomialExtensionField<BabyBear, 4>;
 
         cuda_init();
-        cuda_load_function(CudaFunctionInfo::two_fields::<BabyBear, BabyBear4>(
-            "ntt/ntt.cu",
-            "ntt_step",
-        ));
         cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<BabyBear4>());
-
-        cuda_preprocess_twiddles::<BabyBear>();
-
         let log_size = 26;
+
+        cuda_preprocess_twiddles::<BabyBear>(log_size);
+
         let mut rng = StdRng::seed_from_u64(0);
         let scalars_host = (0..(1 << log_size))
             .map(|_| rng.random())
             .collect::<Vec<BabyBear4>>();
-        let mut scalars_dev = memcpy_htod(&scalars_host);
+        let scalars_dev = memcpy_htod(&scalars_host);
         cuda_sync();
 
         let time = Instant::now();
-        cuda_bindings::cuda_ntt(&mut scalars_dev, log_size);
+        let _cuda_res = cuda_bindings::cuda_ntt(&scalars_dev, log_size, vec![], None);
         cuda_sync();
         println!(
             "Whirlaway NTT, for BabyBear^4 (approx 128 bits), on size 2^{log_size} took: {} ms",
@@ -112,23 +108,20 @@ fn main() {
         type BabyBear8 = BinomialExtensionField<BabyBear, 8>;
 
         cuda_init();
-        cuda_load_function(CudaFunctionInfo::two_fields::<BabyBear, BabyBear8>(
-            "ntt/ntt.cu",
-            "ntt_step",
-        ));
         cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<BabyBear8>());
-        cuda_preprocess_twiddles::<BabyBear>();
 
         let log_size = 25;
+        cuda_preprocess_twiddles::<BabyBear>(log_size);
+
         let mut rng = StdRng::seed_from_u64(0);
         let scalars_host = (0..(1 << log_size))
             .map(|_| rng.random())
             .collect::<Vec<BabyBear8>>();
-        let mut scalars_dev = memcpy_htod(&scalars_host);
+        let scalars_dev = memcpy_htod(&scalars_host);
         cuda_sync();
 
         let time = Instant::now();
-        cuda_bindings::cuda_ntt(&mut scalars_dev, log_size);
+        let _cuda_res = cuda_bindings::cuda_ntt(&scalars_dev, log_size, vec![], None);
         cuda_sync();
         println!(
             "Whirlaway NTT, for BabyBear^8 (approx 256 bits), on size 2^{log_size} took: {} ms",
