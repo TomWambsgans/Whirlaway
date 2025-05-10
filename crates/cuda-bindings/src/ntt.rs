@@ -26,6 +26,9 @@ pub fn cuda_ntt_at_block_level<F: Field>(
     if final_transpositions.len() > 3 {
         todo!("Add variables in the cuda kernel");
     }
+    if let Some(log_whir_expansion_factor) = log_whir_expansion_factor {
+        assert!(log_whir_expansion_factor != 0);
+    }
 
     let log_len = output.len().trailing_zeros() as usize;
     let mut call = CudaCall::new(
@@ -41,7 +44,6 @@ pub fn cuda_ntt_at_block_level<F: Field>(
     let inner_log_len_u32 = inner_log_len as u32;
     let log_chunck_size_u32 = log_chunck_size as u32;
     let n_final_transpositions_u32 = final_transpositions.len() as u32;
-    let whir_flip = log_whir_expansion_factor.is_some();
     let log_whir_expansion_factor_u32 = log_whir_expansion_factor.unwrap_or(0) as u32;
     let (mut tr_row_0, mut tr_col_0, mut tr_row_1, mut tr_col_1, mut tr_row_2, mut tr_col_2) =
         Default::default();
@@ -64,7 +66,6 @@ pub fn cuda_ntt_at_block_level<F: Field>(
     call.arg(&on_rows);
     call.arg(&final_twiddles);
     call.arg(cuda_twiddles::<F>(log_chunck_size));
-    call.arg(&whir_flip);
     call.arg(&log_whir_expansion_factor_u32);
     call.arg(&n_final_transpositions_u32);
     call.arg(&tr_row_0);

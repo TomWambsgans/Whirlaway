@@ -4,19 +4,13 @@
 #include <algorithm>
 
 #include "ff_wrapper.cu"
+#include "utils.cu"
 
 // we need: MAX_NTT_SIZE_AT_BLOCK_LEVEL * (EXT_DEGREE + 1) * 4 bytes <= shared memory
 // TODO avoid hardcoding
 #if !defined(MAX_NTT_LOG_SIZE_AT_BLOCK_LEVEL)
 #define MAX_NTT_LOG_SIZE_AT_BLOCK_LEVEL 1
 #endif
-
-__device__ int index_transpose(int i, int log_width, int log_len)
-{
-    int col = i % (1 << log_width);
-    int row = i / (1 << log_width);
-    return col * (1 << (log_len - log_width)) + row;
-}
 
 // __device__ int whir_flip_index(int idx, uint32_t log_len, uint32_t log_expansion_factor, uint32_t log_chunk_size)
 // {
@@ -34,7 +28,7 @@ __device__ int whir_flip_index_bijection(int idx, uint32_t log_len, uint32_t log
 {
     // inverse of whir_flip
 
-    int a = index_transpose(idx, log_chunk_size, log_len);
+    int a = index_transpose(idx, log_len - log_chunk_size, log_chunk_size);
     int b = __brev(a) >> (32 - log_len);
 
     if (b % (1 << log_expansion_factor) != 0)
@@ -43,29 +37,15 @@ __device__ int whir_flip_index_bijection(int idx, uint32_t log_len, uint32_t log
     }
     else
     {
-       return b / (1 << log_expansion_factor);
+        return b / (1 << log_expansion_factor);
     }
 }
 
-__device__ int block_ntt_index(int tid, uint32_t log_len, uint32_t inner_log_len, uint32_t log_chunck_size, bool on_rows, bool whir_flip, uint32_t log_whir_expansion_factor)
+__device__ int block_ntt_index(int tid, uint32_t log_len, uint32_t inner_log_len, uint32_t log_chunck_size, bool on_rows,  uint32_t log_whir_expansion_factor)
 {
-    int res;
-    if (on_rows)
-    {
-        res = tid;
-    }
-    else
-    {
-        // transpose
-        int a = tid / (1 << inner_log_len);
-        int b = tid % (1 << inner_log_len);
-        int c = (b % (1 << log_chunck_size)) * (1 << (inner_log_len - log_chunck_size));
-        int d = b / (1 << log_chunck_size);
+    int res = on_rows ? tid : index_transpose(tid, inner_log_len - log_chunck_size, log_chunck_size);
 
-        res = a * (1 << inner_log_len) + c + d;
-    }
-
-    if (whir_flip)
+    if (log_whir_expansion_factor != 0)
     {
         res = whir_flip_index_bijection(res, log_len, log_whir_expansion_factor, inner_log_len);
     }
@@ -97,20 +77,8 @@ __device__ Field_A final_twiddle(int idx, uint32_t full_log_len, uint32_t inner_
     return twiddle;
 }
 
-__device__ int index_transpose_concatenated_row_major_matrices(int i, int log_rows, int log_cols)
-{
-    int cols = 1 << log_cols;
-    int rows = 1 << log_rows;
-    int matrix_len = cols * rows;
-    int index_in_matrix = i % matrix_len;
-    int initial_shift = i - index_in_matrix;
-    int new_row = index_in_matrix % cols;
-    int new_col = index_in_matrix / cols;
-    return initial_shift + (new_row * rows) + new_col;
-}
-
 extern "C" __global__ void ntt_at_block_level(Field_B *input, Field_B *output, uint32_t log_len, uint32_t inner_log_len, uint32_t log_chunck_size, bool on_rows,
-                                              bool final_twiddles, Field_A **twiddles, bool whir_flip, uint32_t log_whir_expansion_factor, uint32_t n_final_transpositions,
+                                              bool final_twiddles, Field_A **twiddles, uint32_t log_whir_expansion_factor, uint32_t n_final_transpositions,
                                               uint32_t tr_row_0, uint32_t tr_col_0, uint32_t tr_row_1, uint32_t tr_col_1, uint32_t tr_row_2, uint32_t tr_col_2)
 {
 
@@ -133,8 +101,8 @@ extern "C" __global__ void ntt_at_block_level(Field_B *input, Field_B *output, u
     {
         int block = blockIdx.x + gridDim.x * rep;
 
-        int index_x = block_ntt_index(threadId + n_threads * 2 * block, log_len, inner_log_len, log_chunck_size, on_rows, whir_flip, log_whir_expansion_factor);
-        int index_y = block_ntt_index(threadId + n_threads * (2 * block + 1), log_len, inner_log_len, log_chunck_size, on_rows, whir_flip, log_whir_expansion_factor);
+        int index_x = block_ntt_index(threadId + n_threads * 2 * block, log_len, inner_log_len, log_chunck_size, on_rows, log_whir_expansion_factor);
+        int index_y = block_ntt_index(threadId + n_threads * (2 * block + 1), log_len, inner_log_len, log_chunck_size, on_rows, log_whir_expansion_factor);
 
         if (index_x == -1)
         {
@@ -194,8 +162,8 @@ extern "C" __global__ void ntt_at_block_level(Field_B *input, Field_B *output, u
         Field_B x = cached_buff[threadId];
         Field_B y = cached_buff[threadId + n_threads];
 
-        index_x = block_ntt_index(threadId + blockDim.x * 2 * block, log_len, inner_log_len, log_chunck_size, on_rows, false, 0);
-        index_y = block_ntt_index(threadId + blockDim.x * (2 * block + 1), log_len, inner_log_len, log_chunck_size, on_rows, false, 0);
+        index_x = block_ntt_index(threadId + blockDim.x * 2 * block, log_len, inner_log_len, log_chunck_size, on_rows, 0);
+        index_y = block_ntt_index(threadId + blockDim.x * (2 * block + 1), log_len, inner_log_len, log_chunck_size, on_rows, 0);
 
         if (final_twiddles)
         {
@@ -211,18 +179,18 @@ extern "C" __global__ void ntt_at_block_level(Field_B *input, Field_B *output, u
 
         if (n_final_transpositions >= 1)
         {
-            index_x = index_transpose_concatenated_row_major_matrices(index_x, tr_row_0, tr_col_0);
-            index_y = index_transpose_concatenated_row_major_matrices(index_y, tr_row_0, tr_col_0);
+            index_x = index_transpose(index_x, tr_row_0, tr_col_0);
+            index_y = index_transpose(index_y, tr_row_0, tr_col_0);
         }
         if (n_final_transpositions >= 2)
         {
-            index_x = index_transpose_concatenated_row_major_matrices(index_x, tr_row_1, tr_col_1);
-            index_y = index_transpose_concatenated_row_major_matrices(index_y, tr_row_1, tr_col_1);
+            index_x = index_transpose(index_x, tr_row_1, tr_col_1);
+            index_y = index_transpose(index_y, tr_row_1, tr_col_1);
         }
         if (n_final_transpositions >= 3)
         {
-            index_x = index_transpose_concatenated_row_major_matrices(index_x, tr_row_2, tr_col_2);
-            index_y = index_transpose_concatenated_row_major_matrices(index_y, tr_row_2, tr_col_2);
+            index_x = index_transpose(index_x, tr_row_2, tr_col_2);
+            index_y = index_transpose(index_y, tr_row_2, tr_col_2);
         }
 
         // copy back to global memory
