@@ -177,18 +177,6 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
             "tensor_algebra.cu",
             "tensor_algebra_dot_product",
         ));
-        cuda_load_function(CudaFunctionInfo::two_fields::<F, WhirF>(
-            "ntt.cu",
-            "transpose",
-        ));
-        cuda_load_function(CudaFunctionInfo::two_fields::<F, WhirF>(
-            "ntt.cu",
-            "reverse_bit_order_for_ntt",
-        ));
-        cuda_load_function(CudaFunctionInfo::two_fields::<F, WhirF>(
-            "ntt.cu",
-            "apply_twiddles",
-        ));
         cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<WhirF>());
     }
 }

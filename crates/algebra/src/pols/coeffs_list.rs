@@ -2,7 +2,6 @@ use crate::{pols::MultilinearHost, wavelet::wavelet_transform};
 use p3_dft::TwoAdicSubgroupDft;
 
 use cuda_bindings::{cuda_fold_rectangular_in_large_field, cuda_ntt};
-use cuda_bindings::{cuda_reverse_bit_order_for_ntt, cuda_transpose};
 use cuda_engine::{HostOrDeviceBuffer, cuda_sync, memcpy_dtoh};
 use cudarc::driver::CudaSlice;
 use p3_dft::Radix2DitParallel;
@@ -208,33 +207,19 @@ impl<F: Field> CoefficientListDevice<F> {
     where
         F: TwoAdicField + Ord,
     {
+        assert!(expansion.is_power_of_two());
         let expanded_size = self.n_coefs() * expansion;
         let log_expanded_size = expanded_size.trailing_zeros() as usize;
-        let _span = tracing::info_span!(
-            "cuda_reverse_bit_order_for_ntt",
-            log_expanded_size = log_expanded_size
-        )
-        .entered();
-
-        let mut res = cuda_reverse_bit_order_for_ntt(
-            &self.coeffs,
-            expansion,
-            log_expanded_size - folding_factor,
-        );
-        cuda_sync();
-        std::mem::drop(_span);
 
         let _span =
             tracing::info_span!("cuda_ntt", log_expanded_size = log_expanded_size).entered();
-        cuda_ntt(&mut res, log_expanded_size - folding_factor);
+        let res = cuda_ntt(
+            &self.coeffs,
+            log_expanded_size - folding_factor,
+            vec![(folding_factor, log_expanded_size - folding_factor)],
+            Some(expansion.ilog2() as usize),
+        );
         cuda_sync();
-        std::mem::drop(_span);
-
-        let _span =
-            tracing::info_span!("cuda_transpose", log_expanded_size = log_expanded_size).entered();
-        let res = cuda_transpose(&res, folding_factor, log_expanded_size - folding_factor);
-        cuda_sync();
-        std::mem::drop(_span);
         res
     }
 }
@@ -283,19 +268,14 @@ impl<F: Field> CoefficientList<F> {
     where
         F: TwoAdicField + Ord,
     {
-        let _info =
-            tracing::info_span!("expand_from_coeff_and_restructure", cuda = self.is_device())
-                .entered();
-        let res = match self {
+        match self {
             Self::Device(coeffs) => HostOrDeviceBuffer::Device(
                 coeffs.expand_from_coeff_and_restructure(expansion, folding_factor),
             ),
             Self::Host(coeffs) => HostOrDeviceBuffer::Host(
                 coeffs.expand_from_coeff_and_restructure(expansion, folding_factor),
             ),
-        };
-        cuda_sync();
-        res
+        }
     }
 
     pub fn whir_fold<EF: ExtensionField<F>>(

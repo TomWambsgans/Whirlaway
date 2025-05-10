@@ -11,12 +11,108 @@
 #define MAX_NTT_LOG_SIZE_AT_BLOCK_LEVEL 1
 #endif
 
-extern "C" __global__ void ntt_at_block_level(Field_B *buff, uint32_t log_len, uint32_t log_chunck_size, Field_A **twiddles)
+__device__ int index_transpose(int i, int log_width, int log_len)
 {
-    if (log_chunck_size == 0)
+    int col = i % (1 << log_width);
+    int row = i / (1 << log_width);
+    return col * (1 << (log_len - log_width)) + row;
+}
+
+// __device__ int whir_flip_index(int idx, uint32_t log_len, uint32_t log_expansion_factor, uint32_t log_chunk_size)
+// {
+//     // 0) Interleave everything with zeros to increase the size of by 1 << log_expansion_factor_u32
+//     // 1) Bit reverse (everything)
+//     // 2) transpose (log_expansion_factor, log_len)
+
+//     int a = idx * (1 << log_expansion_factor);
+//     int b = __brev(a) >> (32 - log_len);
+//     int c = index_transpose(b, log_len - log_chunk_size, log_len);
+//     return c;
+// }
+
+__device__ int whir_flip_index_bijection(int idx, uint32_t log_len, uint32_t log_expansion_factor, uint32_t log_chunk_size)
+{
+    // inverse of whir_flip
+
+    int a = index_transpose(idx, log_chunk_size, log_len);
+    int b = __brev(a) >> (32 - log_len);
+
+    if (b % (1 << log_expansion_factor) != 0)
     {
-        return;
+        return -1;
     }
+    else
+    {
+       return b / (1 << log_expansion_factor);
+    }
+}
+
+__device__ int block_ntt_index(int tid, uint32_t log_len, uint32_t inner_log_len, uint32_t log_chunck_size, bool on_rows, bool whir_flip, uint32_t log_whir_expansion_factor)
+{
+    int res;
+    if (on_rows)
+    {
+        res = tid;
+    }
+    else
+    {
+        // transpose
+        int a = tid / (1 << inner_log_len);
+        int b = tid % (1 << inner_log_len);
+        int c = (b % (1 << log_chunck_size)) * (1 << (inner_log_len - log_chunck_size));
+        int d = b / (1 << log_chunck_size);
+
+        res = a * (1 << inner_log_len) + c + d;
+    }
+
+    if (whir_flip)
+    {
+        res = whir_flip_index_bijection(res, log_len, log_whir_expansion_factor, inner_log_len);
+    }
+
+    return res;
+}
+
+__device__ Field_A final_twiddle(int idx, uint32_t full_log_len, uint32_t inner_log_len, uint32_t log_chunck_size, Field_A **twiddles)
+{
+
+    int inner_matrix_index = idx / (1 << inner_log_len);
+
+    int inner_idx = idx % (1 << inner_log_len);
+    int i = inner_idx % (1 << log_chunck_size);
+    int j = inner_idx / (1 << log_chunck_size);
+    int ij = i * j;
+
+    Field_A twiddle;
+    if (ij < 1 << (inner_log_len - 1))
+    {
+        twiddle = twiddles[inner_log_len - 1][ij];
+    }
+    else
+    {
+        twiddle = twiddles[inner_log_len - 1][ij - (1 << (inner_log_len - 1))];
+        SUB_AA({0}, twiddle, twiddle);
+    }
+
+    return twiddle;
+}
+
+__device__ int index_transpose_concatenated_row_major_matrices(int i, int log_rows, int log_cols)
+{
+    int cols = 1 << log_cols;
+    int rows = 1 << log_rows;
+    int matrix_len = cols * rows;
+    int index_in_matrix = i % matrix_len;
+    int initial_shift = i - index_in_matrix;
+    int new_row = index_in_matrix % cols;
+    int new_col = index_in_matrix / cols;
+    return initial_shift + (new_row * rows) + new_col;
+}
+
+extern "C" __global__ void ntt_at_block_level(Field_B *input, Field_B *output, uint32_t log_len, uint32_t inner_log_len, uint32_t log_chunck_size, bool on_rows,
+                                              bool final_twiddles, Field_A **twiddles, bool whir_flip, uint32_t log_whir_expansion_factor, uint32_t n_final_transpositions,
+                                              uint32_t tr_row_0, uint32_t tr_col_0, uint32_t tr_row_1, uint32_t tr_col_1, uint32_t tr_row_2, uint32_t tr_col_2)
+{
 
     int threadId = threadIdx.x;
     int n_threads = blockDim.x;
@@ -37,8 +133,26 @@ extern "C" __global__ void ntt_at_block_level(Field_B *buff, uint32_t log_len, u
     {
         int block = blockIdx.x + gridDim.x * rep;
 
-        cached_buff[threadId] = buff[threadId + n_threads * 2 * block];
-        cached_buff[threadId + n_threads] = buff[threadId + n_threads * (2 * block + 1)];
+        int index_x = block_ntt_index(threadId + n_threads * 2 * block, log_len, inner_log_len, log_chunck_size, on_rows, whir_flip, log_whir_expansion_factor);
+        int index_y = block_ntt_index(threadId + n_threads * (2 * block + 1), log_len, inner_log_len, log_chunck_size, on_rows, whir_flip, log_whir_expansion_factor);
+
+        if (index_x == -1)
+        {
+            cached_buff[threadId] = {0};
+        }
+        else
+        {
+            cached_buff[threadId] = input[index_x];
+        }
+
+        if (index_y == -1)
+        {
+            cached_buff[threadId + n_threads] = {0};
+        }
+        else
+        {
+            cached_buff[threadId + n_threads] = input[index_y];
+        }
 
         __syncthreads();
 
@@ -77,94 +191,44 @@ extern "C" __global__ void ntt_at_block_level(Field_B *buff, uint32_t log_len, u
             __syncthreads();
         }
 
+        Field_B x = cached_buff[threadId];
+        Field_B y = cached_buff[threadId + n_threads];
+
+        index_x = block_ntt_index(threadId + blockDim.x * 2 * block, log_len, inner_log_len, log_chunck_size, on_rows, false, 0);
+        index_y = block_ntt_index(threadId + blockDim.x * (2 * block + 1), log_len, inner_log_len, log_chunck_size, on_rows, false, 0);
+
+        if (final_twiddles)
+        {
+            Field_B temp;
+
+            Field_A twiddle_x = final_twiddle(index_x, log_len, inner_log_len, inner_log_len - log_chunck_size, twiddles);
+            MUL_BA(x, twiddle_x, temp);
+            x = temp;
+            Field_A twiddle_y = final_twiddle(index_y, log_len, inner_log_len, inner_log_len - log_chunck_size, twiddles);
+            MUL_BA(y, twiddle_y, temp);
+            y = temp;
+        }
+
+        if (n_final_transpositions >= 1)
+        {
+            index_x = index_transpose_concatenated_row_major_matrices(index_x, tr_row_0, tr_col_0);
+            index_y = index_transpose_concatenated_row_major_matrices(index_y, tr_row_0, tr_col_0);
+        }
+        if (n_final_transpositions >= 2)
+        {
+            index_x = index_transpose_concatenated_row_major_matrices(index_x, tr_row_1, tr_col_1);
+            index_y = index_transpose_concatenated_row_major_matrices(index_y, tr_row_1, tr_col_1);
+        }
+        if (n_final_transpositions >= 3)
+        {
+            index_x = index_transpose_concatenated_row_major_matrices(index_x, tr_row_2, tr_col_2);
+            index_y = index_transpose_concatenated_row_major_matrices(index_y, tr_row_2, tr_col_2);
+        }
+
         // copy back to global memory
-        buff[threadId + blockDim.x * 2 * block] = cached_buff[threadId];
-        buff[threadId + blockDim.x * (2 * block + 1)] = cached_buff[threadId + blockDim.x];
+        output[index_x] = x;
+        output[index_y] = y;
 
         __syncthreads();
-    }
-}
-
-extern "C" __global__ void apply_twiddles(Field_B *buff, uint32_t full_log_len, uint32_t inner_log_len, uint32_t log_chunck_size, Field_A **twiddles)
-{
-    int total_threads = blockDim.x * gridDim.x;
-    const uint32_t n_repetitions = ((1 << full_log_len) + total_threads - 1) / total_threads;
-
-    for (int rep = 0; rep < n_repetitions; rep++)
-    {
-        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
-        int inner_matrix_index = threadIndex / (1 << inner_log_len);
-
-        int inner_idx = threadIndex % (1 << inner_log_len);
-        int i = inner_idx % (1 << log_chunck_size);
-        int j = inner_idx / (1 << log_chunck_size);
-        int ij = i * j;
-
-        Field_A twiddle;
-        if (ij < 1 << (inner_log_len - 1))
-        {
-            twiddle = twiddles[inner_log_len - 1][ij];
-        }
-        else
-        {
-            twiddle = twiddles[inner_log_len - 1][ij - (1 << (inner_log_len - 1))];
-            SUB_AA({0}, twiddle, twiddle);
-        }
-
-        Field_B src = buff[threadIndex];
-        Field_B result;
-        MUL_AB(twiddle, src, result);
-        buff[threadIndex] = result;
-    }
-}
-
-__device__ int index_transpose(int i, int log_width, int log_len)
-{
-    int col = i % (1 << log_width);
-    int row = i / (1 << log_width);
-    return col * (1 << (log_len - log_width)) + row;
-}
-
-extern "C" __global__ void reverse_bit_order_for_ntt(Field_B *input, Field_B *output, uint32_t log_len, uint32_t log_expansion_factor, uint32_t log_chunk_size)
-{
-    // 0) Interleave everything with zeros to increase the size of by 1 << log_expansion_factor_u32
-    // 1) Bit reverse (everything)
-    // 2) transpose (log_expansion_factor, log_len)
-    // 3) on each consecutive chunk of size Z^log_chunk_size, transpose (inner_transposition_log_rows, log_chunk_size - inner_transposition_log_rows)
-
-    int total_threads = blockDim.x * gridDim.x;
-    const uint32_t n_repetitions = ((1 << log_len) + total_threads - 1) / total_threads;
-    int log_expanded_len = log_len + log_expansion_factor;
-
-    for (int rep = 0; rep < n_repetitions; rep++)
-    {
-        int i = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
-        int log_width = log_expanded_len - log_chunk_size;
-        int k = index_transpose(__brev(i * (1 << log_expansion_factor)) >> (32 - log_expanded_len), log_width, log_expanded_len);
-        output[k] = input[i];
-    }
-}
-
-
-extern "C" __global__ void transpose(Field_B *input, Field_B *result, uint32_t log_len, uint32_t log_rows, uint32_t log_cols)
-{
-    // in the simple transpose (only 1 matrix), we have: log_len = log_rows + log_cols
-    // we should have: log_rows + log_cols <= log_len
-    int n_total_n_threads = blockDim.x * gridDim.x;
-    int n_ops = 1 << log_len;
-    int n_repetitions = (n_ops + n_total_n_threads - 1) / n_total_n_threads;
-    int rows = 1 << log_rows;
-    int cols = 1 << log_cols;
-    int matrix_size = rows * cols;
-
-    for (int rep = 0; rep < n_repetitions; rep++)
-    {
-        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
-        if (threadIndex >= n_ops)
-        {
-            return;
-        }
-        int matrix_index = threadIndex / matrix_size;
-        result[threadIndex] = input[matrix_index * matrix_size + (threadIndex % rows) * cols + ((threadIndex % matrix_size) / rows)];
     }
 }

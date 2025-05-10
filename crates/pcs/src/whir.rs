@@ -221,31 +221,7 @@ mod test {
                 "multilinear.cu",
                 "lagrange_to_monomial_basis",
             ));
-            cuda_load_function(CudaFunctionInfo::two_fields::<F::PrimeSubfield, EF>(
-                "ntt.cu",
-                "transpose",
-            ));
-            cuda_load_function(CudaFunctionInfo::two_fields::<F::PrimeSubfield, F>(
-                "ntt.cu",
-                "transpose",
-            ));
-            cuda_load_function(CudaFunctionInfo::two_fields::<F::PrimeSubfield, F>(
-                "ntt.cu",
-                "reverse_bit_order_for_ntt",
-            ));
-            cuda_load_function(CudaFunctionInfo::two_fields::<F::PrimeSubfield, EF>(
-                "ntt.cu",
-                "reverse_bit_order_for_ntt",
-            ));
-            cuda_load_function(CudaFunctionInfo::two_fields::<F::PrimeSubfield, EF>(
-                "ntt.cu",
-                "apply_twiddles",
-            ));
             cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<EF>());
-            cuda_load_function(CudaFunctionInfo::two_fields::<F::PrimeSubfield, F>(
-                "ntt.cu",
-                "apply_twiddles",
-            ));
             cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<F>());
             cuda_load_function(CudaFunctionInfo::one_field::<EF>(
                 "multilinear.cu",
