@@ -23,6 +23,9 @@ Source: https://github.com/MrSpike63/vanity-eth-address
 #include <cinttypes>
 #include <device_launch_parameters.h>
 #include <cooperative_groups.h>
+#include <cassert>
+
+#include "utils.cu"
 
 #include "ff_wrapper.cu"
 
@@ -180,7 +183,7 @@ __device__ inline size_t getLaneIndex(size_t i)
 }
 
 template <typename T>
-__device__ void keccak256_custom(T *input, size_t length, uint8_t *output)
+__device__ void keccak256_custom(T *input, size_t offset, size_t length, uint8_t *output, Transpositions *transpositions)
 {
     // 1. Initialize block state to zero
     uint64_t block[25];
@@ -208,7 +211,7 @@ __device__ void keccak256_custom(T *input, size_t length, uint8_t *output)
 
     for (int i = 0; i < length; i++)
     {
-        T word = input[i];
+        T word = input[transpositions->transpose(offset + i)];
         for (int j = 0; j < sizeof(T); j++)
         {
             size_t lane_index = getLaneIndex(byte_index);
@@ -250,7 +253,6 @@ __device__ void keccak256_custom(T *input, size_t length, uint8_t *output)
         output[i] = static_cast<uint8_t>((block[lane_index] >> (8 * byte_offset)) & 0xFF);
     }
 }
-
 
 __device__ void keccak256(const uint8_t *input, size_t length, uint8_t *output)
 {
@@ -341,14 +343,16 @@ extern "C" __global__ void batch_keccak256(
     }
 }
 
-
 extern "C" __global__ void batch_keccak256_field(
     Field_A *inputs,       // Packed input data
     uint32_t num_inputs,   // Number of inputs to process
     uint32_t input_length, // Length of each input
-    uint8_t *outputs       // Output buffer for hashes
-)
+    uint8_t *outputs,      // Output buffer for hashes
+    uint32_t n_transpositions,
+    uint32_t tr_row_0, uint32_t tr_col_0, uint32_t tr_row_1, uint32_t tr_col_1, uint32_t tr_row_2, uint32_t tr_col_2)
 {
+    Transpositions transpositions(n_transpositions, tr_row_0, tr_col_0, tr_row_1, tr_col_1, tr_row_2, tr_col_2);
+
     int total_threads = blockDim.x * gridDim.x;
     int n_reps = (num_inputs + total_threads - 1) / total_threads;
     for (int rep = 0; rep < n_reps; rep++)
@@ -356,15 +360,12 @@ extern "C" __global__ void batch_keccak256_field(
         uint32_t idx = (blockIdx.x + rep * gridDim.x) * blockDim.x + threadIdx.x;
         if (idx < num_inputs)
         {
-            // Calculate offset in the input buffer
-            Field_A *input = &inputs[idx * input_length];
-
             // Calculate offset in the output buffer (32 bytes per hash)
             uint8_t *output = &outputs[idx * 32];
 
             // Compute the hash
 
-            keccak256_custom<Field_A>(input, input_length, output);
+            keccak256_custom<Field_A>(inputs, idx * input_length, input_length, output, &transpositions);
         }
     }
 }

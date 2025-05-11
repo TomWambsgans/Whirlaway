@@ -42,8 +42,11 @@ __device__ int whir_flip_index_bijection(int idx, uint32_t log_len, uint32_t log
     }
 }
 
-__device__ int block_ntt_index(int tid, uint32_t log_len, uint32_t inner_log_len, uint32_t log_chunck_size, bool on_rows, uint32_t log_whir_expansion_factor, bool missed_previous_internal_transposition, uint32_t previous_internal_transposition_log_rows, uint32_t previous_internal_transposition_log_cols)
+__device__ int block_ntt_index(int tid, uint32_t log_len, uint32_t inner_log_len, uint32_t log_chunck_size, bool on_rows,
+                               uint32_t log_whir_expansion_factor, bool missed_previous_internal_transposition,
+                               uint32_t previous_internal_transposition_log_rows, uint32_t previous_internal_transposition_log_cols)
 {
+
     int res = on_rows ? tid : index_transpose(tid, inner_log_len - log_chunck_size, log_chunck_size);
 
     if (log_whir_expansion_factor != 0)
@@ -53,7 +56,7 @@ __device__ int block_ntt_index(int tid, uint32_t log_len, uint32_t inner_log_len
 
     if (missed_previous_internal_transposition)
     {
-        res = index_transpose(res, previous_internal_transposition_log_cols, previous_internal_transposition_log_rows); // switched, because it's the inverse bijection
+        res = index_transpose(res, previous_internal_transposition_log_rows, previous_internal_transposition_log_cols);
     }
 
     return res;
@@ -86,8 +89,11 @@ __device__ Field_A final_twiddle(int idx, uint32_t full_log_len, uint32_t inner_
 extern "C" __global__ void ntt_at_block_level(Field_B *input, Field_B *output, uint32_t log_len, uint32_t inner_log_len, uint32_t log_chunck_size, bool on_rows,
                                               bool final_twiddles, Field_A **twiddles, uint32_t log_whir_expansion_factor, uint32_t n_final_transpositions,
                                               uint32_t tr_row_0, uint32_t tr_col_0, uint32_t tr_row_1, uint32_t tr_col_1, uint32_t tr_row_2, uint32_t tr_col_2,
-                                              bool missed_previous_internal_transposition, uint32_t previous_internal_transposition_log_rows, uint32_t previous_internal_transposition_log_cols, bool skip_last_internal_transposition)
+                                              bool missed_previous_internal_transposition, uint32_t previous_internal_transposition_log_rows,
+                                              uint32_t previous_internal_transposition_log_cols, bool skip_last_internal_transposition)
 {
+
+    Transpositions final_transpositions(n_final_transpositions, tr_row_0, tr_col_0, tr_row_1, tr_col_1, tr_row_2, tr_col_2);
 
     int threadId = threadIdx.x;
     int n_threads = blockDim.x;
@@ -108,8 +114,12 @@ extern "C" __global__ void ntt_at_block_level(Field_B *input, Field_B *output, u
     {
         int block = blockIdx.x + gridDim.x * rep;
 
-        int index_x = block_ntt_index(threadId + n_threads * 2 * block, log_len, inner_log_len, log_chunck_size, on_rows, log_whir_expansion_factor, missed_previous_internal_transposition, previous_internal_transposition_log_rows, previous_internal_transposition_log_cols);
-        int index_y = block_ntt_index(threadId + n_threads * (2 * block + 1), log_len, inner_log_len, log_chunck_size, on_rows, log_whir_expansion_factor, missed_previous_internal_transposition, previous_internal_transposition_log_rows, previous_internal_transposition_log_cols);
+        int index_x = block_ntt_index(threadId + n_threads * 2 * block, log_len, inner_log_len, log_chunck_size, on_rows,
+                                      log_whir_expansion_factor, missed_previous_internal_transposition, previous_internal_transposition_log_rows,
+                                      previous_internal_transposition_log_cols);
+        int index_y = block_ntt_index(threadId + n_threads * (2 * block + 1), log_len, inner_log_len, log_chunck_size, on_rows,
+                                      log_whir_expansion_factor, missed_previous_internal_transposition, previous_internal_transposition_log_rows,
+                                      previous_internal_transposition_log_cols);
 
         if (index_x == -1)
         {
@@ -191,21 +201,8 @@ extern "C" __global__ void ntt_at_block_level(Field_B *input, Field_B *output, u
             index_y = threadId + blockDim.x * (2 * block + 1);
         }
 
-        if (n_final_transpositions >= 1)
-        {
-            index_x = index_transpose(index_x, tr_row_0, tr_col_0);
-            index_y = index_transpose(index_y, tr_row_0, tr_col_0);
-        }
-        if (n_final_transpositions >= 2)
-        {
-            index_x = index_transpose(index_x, tr_row_1, tr_col_1);
-            index_y = index_transpose(index_y, tr_row_1, tr_col_1);
-        }
-        if (n_final_transpositions >= 3)
-        {
-            index_x = index_transpose(index_x, tr_row_2, tr_col_2);
-            index_y = index_transpose(index_y, tr_row_2, tr_col_2);
-        }
+        index_x = final_transpositions.transpose(index_x);
+        index_y = final_transpositions.transpose(index_y);
 
         // copy back to global memory
         output[index_x] = x;

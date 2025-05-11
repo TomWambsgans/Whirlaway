@@ -13,9 +13,9 @@ pub fn cuda_ntt_at_block_level<F: Field>(
     log_chunck_size: usize,
     on_rows: bool,
     final_twiddles: bool,
-    final_transpositions: Vec<(usize, usize)>,
+    final_transpositions: Vec<Transposition>,
     log_whir_expansion_factor: Option<usize>,
-    previous_internal_transposition: Option<(usize, usize)>,
+    previous_internal_transposition: Option<Transposition>,
     skip_last_internal_transposition: bool,
 ) {
     // TODO opimization: if final_transpositions.is_empty(), we could do the NTT in place
@@ -48,11 +48,10 @@ pub fn cuda_ntt_at_block_level<F: Field>(
     let n_final_transpositions_u32 = final_transpositions.len() as u32;
     let log_whir_expansion_factor_u32 = log_whir_expansion_factor.unwrap_or(0) as u32;
     let missed_previous_internal_transposition = previous_internal_transposition.is_some();
-    let (previous_internal_transposition_log_rows, previous_internal_transposition_log_cols) =
-        previous_internal_transposition.unwrap_or((0, 0));
+    let previous_internal_transposition = previous_internal_transposition.unwrap_or_default();
     let (mut tr_row_0, mut tr_col_0, mut tr_row_1, mut tr_col_1, mut tr_row_2, mut tr_col_2) =
         Default::default();
-    for ((row_u32, col_u32), (row, col)) in [
+    for ((row_u32, col_u32), transp) in [
         (&mut tr_row_0, &mut tr_col_0),
         (&mut tr_row_1, &mut tr_col_1),
         (&mut tr_row_2, &mut tr_col_2),
@@ -60,8 +59,8 @@ pub fn cuda_ntt_at_block_level<F: Field>(
     .into_iter()
     .zip(&final_transpositions)
     {
-        *row_u32 = *row as u32;
-        *col_u32 = *col as u32;
+        *row_u32 = transp.log_n_rows;
+        *col_u32 = transp.log_n_cols;
     }
     call.arg(input);
     call.arg(output);
@@ -80,24 +79,37 @@ pub fn cuda_ntt_at_block_level<F: Field>(
     call.arg(&tr_row_2);
     call.arg(&tr_col_2);
     call.arg(&missed_previous_internal_transposition);
-    call.arg(&previous_internal_transposition_log_rows);
-    call.arg(&previous_internal_transposition_log_cols);
+    call.arg(&previous_internal_transposition.log_n_rows);
+    call.arg(&previous_internal_transposition.log_n_cols);
     call.arg(&skip_last_internal_transposition);
     call.launch();
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Transposition {
+    pub log_n_rows: u32,
+    pub log_n_cols: u32,
+}
+
+impl Transposition {
+    pub fn reverse(&mut self) {
+        std::mem::swap(&mut self.log_n_rows, &mut self.log_n_cols);
+    }
 }
 
 // Async
 pub fn cuda_ntt<F: Field>(
     input: &CudaSlice<F>,
     log_chunck_size: usize,
-    final_transpositions: Vec<(usize, usize)>,
+    final_transpositions: Vec<Transposition>,
     log_whir_expansion_factor: Option<usize>,
-) -> CudaSlice<F> {
+    skip_final_accumulated_transpositions: bool, // if true, the missed transpositions are returned
+) -> (CudaSlice<F>, Vec<Transposition>) {
     assert!(log_chunck_size > 0);
     let expanded_len = input.len() << log_whir_expansion_factor.unwrap_or(0);
     let mut buffer = cuda_alloc::<F>(expanded_len);
     let mut output = cuda_alloc::<F>(expanded_len);
-    cuda_ntt_helper(
+    let missed_transpositions = cuda_ntt_helper(
         Some(input),
         &mut buffer,
         &mut output,
@@ -105,8 +117,9 @@ pub fn cuda_ntt<F: Field>(
         final_transpositions,
         log_whir_expansion_factor,
         None,
+        skip_final_accumulated_transpositions,
     );
-    output
+    (output, missed_transpositions)
 }
 
 // Async
@@ -115,10 +128,11 @@ pub fn cuda_ntt_helper<F: Field>(
     buffer: &mut CudaSlice<F>,
     output: &mut CudaSlice<F>,
     log_chunck_size: usize,
-    mut final_transpositions: Vec<(usize, usize)>,
+    mut final_transpositions: Vec<Transposition>,
     log_whir_expansion_factor: Option<usize>,
-    previous_internal_transposition: Option<(usize, usize)>,
-) {
+    previous_internal_transposition: Option<Transposition>,
+    skip_final_accumulated_transpositions: bool, // if true, the missed transpositions are returned
+) -> Vec<Transposition> {
     if let Some(input) = input {
         assert!(input.len().is_power_of_two());
         assert_eq!(
@@ -133,14 +147,22 @@ pub fn cuda_ntt_helper<F: Field>(
     let log_len = output.len().trailing_zeros() as usize;
     assert!(log_chunck_size <= log_len);
 
-    if log_chunck_size == 0 {
-        return;
-    }
+    assert!(log_chunck_size > 0);
 
     let max_cuda_ntt_log_size = max_ntt_log_size_at_block_level::<F>();
 
     if log_chunck_size <= max_cuda_ntt_log_size {
-        final_transpositions.reverse();
+        let mut missed_transpositions = if skip_final_accumulated_transpositions {
+            std::mem::take(&mut final_transpositions)
+        } else {
+            Vec::new()
+        };
+
+        missed_transpositions.reverse();
+        for transposition in &mut missed_transpositions {
+            transposition.reverse();
+        }
+
         cuda_ntt_at_block_level(
             input.unwrap_or(buffer),
             output,
@@ -151,8 +173,9 @@ pub fn cuda_ntt_helper<F: Field>(
             final_transpositions,
             log_whir_expansion_factor,
             previous_internal_transposition,
-            false,
+            false, // irrelevant because on_rows is true
         );
+        missed_transpositions
     } else {
         cuda_ntt_at_block_level(
             input.unwrap_or(buffer),
@@ -166,10 +189,13 @@ pub fn cuda_ntt_helper<F: Field>(
             previous_internal_transposition,
             true,
         );
-        final_transpositions.push((
-            max_cuda_ntt_log_size,
-            log_chunck_size - max_cuda_ntt_log_size,
-        ));
+        final_transpositions.insert(
+            0,
+            Transposition {
+                log_n_rows: max_cuda_ntt_log_size as u32,
+                log_n_cols: (log_chunck_size - max_cuda_ntt_log_size) as u32,
+            },
+        );
         std::mem::swap(buffer, output);
         cuda_ntt_helper(
             None,
@@ -178,11 +204,12 @@ pub fn cuda_ntt_helper<F: Field>(
             log_chunck_size - max_cuda_ntt_log_size,
             final_transpositions,
             None,
-            Some((
-                log_chunck_size - max_cuda_ntt_log_size,
-                max_cuda_ntt_log_size,
-            )),
-        );
+            Some(Transposition {
+                log_n_rows: max_cuda_ntt_log_size as u32,
+                log_n_cols: (log_chunck_size - max_cuda_ntt_log_size) as u32,
+            }),
+            skip_final_accumulated_transpositions,
+        )
     }
 }
 
@@ -223,7 +250,7 @@ mod tests {
         cuda_sync();
 
         let time = std::time::Instant::now();
-        let cuda_res = cuda_ntt(&input, log_len - log_width, vec![], None);
+        let cuda_res = cuda_ntt(&input, log_len - log_width, vec![], None, false).0;
         cuda_sync();
         println!("CUDA ntt took: {} ms", time.elapsed().as_millis());
         let cuda_res = memcpy_dtoh(&cuda_res);

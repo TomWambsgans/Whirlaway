@@ -1,3 +1,5 @@
+
+
 __device__ int index_transpose(int i, int log_rows, int log_cols)
 {
     /*
@@ -15,3 +17,43 @@ __device__ int index_transpose(int i, int log_rows, int log_cols)
     int new_col = index_in_matrix / cols;
     return initial_shift + (new_row * rows) + new_col;
 }
+
+typedef struct Transpositions
+{
+    uint32_t n_transpositions;
+    uint32_t tr_row_0;
+    uint32_t tr_col_0;
+    uint32_t tr_row_1;
+    uint32_t tr_col_1;
+    uint32_t tr_row_2;
+    uint32_t tr_col_2;
+
+    __device__ Transpositions(uint32_t n_transpositions, uint32_t tr_row_0, uint32_t tr_col_0,
+                              uint32_t tr_row_1, uint32_t tr_col_1,
+                              uint32_t tr_row_2, uint32_t tr_col_2)
+        : n_transpositions(n_transpositions), tr_row_0(tr_row_0), tr_col_0(tr_col_0),
+          tr_row_1(tr_row_1), tr_col_1(tr_col_1),
+          tr_row_2(tr_row_2), tr_col_2(tr_col_2) {}
+
+    __device__ static Transpositions empty()
+    {
+        return Transpositions(0, 0, 0, 0, 0, 0, 0);
+    }
+
+    __device__ int transpose(int i)
+    {
+        if (n_transpositions >= 1)
+        {
+            i = index_transpose(i, tr_row_0, tr_col_0);
+        }
+        if (n_transpositions >= 2)
+        {
+            i = index_transpose(i, tr_row_1, tr_col_1);
+        }
+        if (n_transpositions >= 3)
+        {
+            i = index_transpose(i, tr_row_2, tr_col_2);
+        }
+        return i;
+    }
+} Transpositions;

@@ -24,7 +24,7 @@ fn test_merkle_tree() {
         .collect::<Vec<_>>();
     let leaves_dev = memcpy_htod(&leaves);
     let cpu_merkle_tree = MerkleTree::new_cpu(&leaves, batch_size);
-    let gpu_merkle_tree = MerkleTree::new_gpu(&leaves_dev, batch_size);
+    let gpu_merkle_tree = MerkleTree::new_gpu(&leaves_dev, batch_size, &[]);
     assert_eq!(cpu_merkle_tree.root(), gpu_merkle_tree.root());
     for merkle_tree in [cpu_merkle_tree, gpu_merkle_tree] {
         let root_hash = merkle_tree.root();

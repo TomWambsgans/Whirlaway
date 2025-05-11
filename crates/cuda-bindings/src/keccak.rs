@@ -5,6 +5,8 @@ use cudarc::driver::{CudaView, CudaViewMut, DeviceRepr, PushKernelArg};
 use p3_field::Field;
 use utils::KeccakDigest;
 
+use crate::Transposition;
+
 pub fn cuda_keccak256<T: DeviceRepr>(
     input: &CudaView<T>,
     batch_size: usize,
@@ -29,20 +31,43 @@ pub fn cuda_keccak256_field<F: Field>(
     input: &CudaView<F>,
     batch_size: usize,
     output: &mut CudaViewMut<KeccakDigest>,
+    missing_initial_transpositions: &[Transposition],
 ) {
     assert!(input.len() % batch_size == 0);
     let n_inputs = input.len() / batch_size;
     assert_eq!(n_inputs, output.len());
     let input_length = batch_size as u32;
-    let mut launch_args = CudaCall::new(
+    let mut call = CudaCall::new(
         CudaFunctionInfo::one_field::<F>("keccak.cu", "batch_keccak256_field"),
         n_inputs,
     );
-    launch_args.arg(input);
-    launch_args.arg(&n_inputs);
-    launch_args.arg(&input_length);
-    launch_args.arg(output);
-    launch_args.launch();
+    let n_transpositions_u32 = missing_initial_transpositions.len() as u32;
+    let (mut tr_row_0, mut tr_col_0, mut tr_row_1, mut tr_col_1, mut tr_row_2, mut tr_col_2) =
+        Default::default();
+    for ((row_u32, col_u32), transp) in [
+        (&mut tr_row_0, &mut tr_col_0),
+        (&mut tr_row_1, &mut tr_col_1),
+        (&mut tr_row_2, &mut tr_col_2),
+    ]
+    .into_iter()
+    .zip(missing_initial_transpositions)
+    {
+        *row_u32 = transp.log_n_rows;
+        *col_u32 = transp.log_n_cols;
+    }
+
+    call.arg(input);
+    call.arg(&n_inputs);
+    call.arg(&input_length);
+    call.arg(output);
+    call.arg(&n_transpositions_u32);
+    call.arg(&tr_row_0);
+    call.arg(&tr_col_0);
+    call.arg(&tr_row_1);
+    call.arg(&tr_col_1);
+    call.arg(&tr_row_2);
+    call.arg(&tr_col_2);
+    call.launch();
 }
 
 // Sync
@@ -203,7 +228,12 @@ mod tests {
         };
         let slice_dev = memcpy_htod(&slice);
         let output = cuda_alloc::<KeccakDigest>(slice.len() / batch_size);
-        cuda_keccak256_field(&slice_dev.as_view(), batch_size, &mut output.as_view_mut());
+        cuda_keccak256_field(
+            &slice_dev.as_view(),
+            batch_size,
+            &mut output.as_view_mut(),
+            &[],
+        );
         cuda_sync();
         let dest = memcpy_dtoh(&output);
         cuda_sync();

@@ -1,7 +1,7 @@
 use crate::{pols::MultilinearHost, wavelet::wavelet_transform};
 use p3_dft::TwoAdicSubgroupDft;
 
-use cuda_bindings::{cuda_fold_rectangular_in_large_field, cuda_ntt};
+use cuda_bindings::{Transposition, cuda_fold_rectangular_in_large_field, cuda_ntt};
 use cuda_engine::{HostOrDeviceBuffer, cuda_sync, memcpy_dtoh};
 use cudarc::driver::CudaSlice;
 use p3_dft::Radix2DitParallel;
@@ -203,7 +203,7 @@ impl<F: Field> CoefficientListDevice<F> {
         &self,
         expansion: usize,
         folding_factor: usize,
-    ) -> CudaSlice<F>
+    ) -> (CudaSlice<F>, Vec<Transposition>)
     where
         F: TwoAdicField + Ord,
     {
@@ -216,8 +216,12 @@ impl<F: Field> CoefficientListDevice<F> {
         let res = cuda_ntt(
             &self.coeffs,
             log_expanded_size - folding_factor,
-            vec![(folding_factor, log_expanded_size - folding_factor)],
+            vec![Transposition {
+                log_n_rows: folding_factor as u32,
+                log_n_cols: (log_expanded_size - folding_factor) as u32,
+            }],
             Some(expansion.ilog2() as usize),
+            true,
         );
         cuda_sync();
         res
@@ -264,16 +268,24 @@ impl<F: Field> CoefficientList<F> {
         &self,
         expansion: usize,
         folding_factor: usize,
-    ) -> HostOrDeviceBuffer<F>
+    ) -> (HostOrDeviceBuffer<F>, Vec<Transposition>)
     where
         F: TwoAdicField + Ord,
     {
         match self {
-            Self::Device(coeffs) => HostOrDeviceBuffer::Device(
-                coeffs.expand_from_coeff_and_restructure(expansion, folding_factor),
-            ),
-            Self::Host(coeffs) => HostOrDeviceBuffer::Host(
-                coeffs.expand_from_coeff_and_restructure(expansion, folding_factor),
+            Self::Device(coeffs) => {
+                let (slice, missing_final_transpositions) =
+                    coeffs.expand_from_coeff_and_restructure(expansion, folding_factor);
+                (
+                    HostOrDeviceBuffer::Device(slice),
+                    missing_final_transpositions,
+                )
+            }
+            Self::Host(coeffs) => (
+                HostOrDeviceBuffer::Host(
+                    coeffs.expand_from_coeff_and_restructure(expansion, folding_factor),
+                ),
+                vec![],
             ),
         }
     }

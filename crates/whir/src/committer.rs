@@ -38,13 +38,13 @@ where
 
         let expansion = 1 << self.0.starting_log_inv_rate;
 
-        let folded_evals = polynomial
+        let (expanded_evals, missing_transpositions) = polynomial
             .expand_from_coeff_and_restructure(expansion, self.0.folding_factor.at_round(0));
 
         // Group folds together as a leaf.
         let fold_size = 1 << self.0.folding_factor.at_round(0);
 
-        let merkle_tree = MerkleTree::new(&folded_evals, fold_size);
+        let merkle_tree = MerkleTree::new(&expanded_evals, fold_size, &missing_transpositions);
 
         let root = merkle_tree.root();
         fs_prover.add_bytes(&root.0);
@@ -67,7 +67,7 @@ where
             polynomial,
             lagrange_polynomial,
             merkle_tree,
-            merkle_leaves: folded_evals,
+            merkle_leaves: expanded_evals,
             ood_points,
             ood_answers,
         })

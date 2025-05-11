@@ -1,6 +1,6 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-use cuda_bindings::{cuda_keccak256, cuda_keccak256_field};
+use cuda_bindings::{cuda_keccak256, cuda_keccak256_field, Transposition};
 use cuda_engine::{HostOrDeviceBuffer, cuda_alloc, cuda_get_at_index, cuda_sync};
 use cudarc::driver::{CudaSlice, DeviceRepr};
 use p3_field::Field;
@@ -182,13 +182,22 @@ pub struct MerkleTree<F> {
 impl<F: Field> MerkleTree<F> {
     /// `leaves.len()` should be power of two.
     /// Sync
-    pub fn new(leaves: &HostOrDeviceBuffer<F>, batch_size: usize) -> Self
+    pub fn new(
+        leaves: &HostOrDeviceBuffer<F>,
+        batch_size: usize,
+        missing_initial_transpositions: &[Transposition],
+    ) -> Self
     where
         F: DeviceRepr,
     {
         match leaves {
-            HostOrDeviceBuffer::Host(leaves) => Self::new_cpu(leaves, batch_size),
-            HostOrDeviceBuffer::Device(leaves) => Self::new_gpu(leaves, batch_size),
+            HostOrDeviceBuffer::Host(leaves) => {
+                assert!(missing_initial_transpositions.is_empty());
+                Self::new_cpu(leaves, batch_size)
+            }
+            HostOrDeviceBuffer::Device(leaves) => {
+                Self::new_gpu(leaves, batch_size, missing_initial_transpositions)
+            }
         }
     }
     /// // `leaves.len()` should be power of two.
@@ -227,7 +236,11 @@ impl<F: Field> MerkleTree<F> {
 
     // Sync
     #[instrument(name = "merkle tree creation in cuda", skip_all)]
-    pub fn new_gpu(leaves: &CudaSlice<F>, batch_size: usize) -> Self
+    pub fn new_gpu(
+        leaves: &CudaSlice<F>,
+        batch_size: usize,
+        missing_initial_transpositions: &[Transposition],
+    ) -> Self
     where
         F: DeviceRepr,
     {
@@ -240,6 +253,7 @@ impl<F: Field> MerkleTree<F> {
             &leaves.as_view(),
             batch_size,
             &mut nodes.slice_mut((1 << height) - 1..),
+            missing_initial_transpositions
         );
         for level in (1..=height).rev() {
             let start = (1 << level) - 1;

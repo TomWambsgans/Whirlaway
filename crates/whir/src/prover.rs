@@ -207,7 +207,7 @@ where
         // Fold the coefficients, and compute fft of polynomial (and commit)
         let expansion = round_state.domain_size / (2 * folded_coefficients.n_coefs());
 
-        let folded_evals = folded_coefficients.expand_from_coeff_and_restructure(
+        let (folded_evals, missing_transpositions) = folded_coefficients.expand_from_coeff_and_restructure(
             expansion,
             self.0.folding_factor.at_round(round_state.round + 1),
         );
@@ -215,6 +215,7 @@ where
         let merkle_tree = MerkleTree::new(
             &folded_evals,
             1 << self.0.folding_factor.at_round(round_state.round + 1),
+            &missing_transpositions
         );
 
         fs_prover.add_bytes(&merkle_tree.root().0);
