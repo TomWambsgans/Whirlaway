@@ -34,7 +34,10 @@ where
         fs_prover: &mut FsProver,
         lagrange_polynomial: Multilinear<F>,
     ) -> Option<Witness<F, EF>> {
+        let _span = tracing::info_span!("lagrange -> monomial convertion").entered();
         let polynomial = lagrange_polynomial.to_monomial_basis();
+        cuda_sync();
+        std::mem::drop(_span);
 
         let expansion = 1 << self.0.starting_log_inv_rate;
 

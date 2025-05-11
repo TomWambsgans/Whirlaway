@@ -21,7 +21,7 @@ fn main() {
                 SoundnessType::ProvableList,
                 FoldingFactor::Constant(4),
                 log_inv_rate,
-                3,
+                4,
             ),
             USE_CUDA,
             true,

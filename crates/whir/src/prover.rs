@@ -1,3 +1,5 @@
+use std::any::TypeId;
+
 use crate::fs_utils::get_challenge_stir_queries;
 
 use super::{committer::Witness, parameters::WhirConfig};
@@ -86,7 +88,12 @@ where
 
             let liner_comb =
                 randomized_eq_extensions(&initial_claims, &combination_randomness, self.0.cuda);
-            let embbedded_lagrange_polynomial = witness.lagrange_polynomial.embed::<EF>(); // TODO remove
+            let embbedded_lagrange_polynomial = if TypeId::of::<F>() == TypeId::of::<EF>() {
+                unsafe { std::mem::transmute::<_, &Multilinear<EF>>(&witness.lagrange_polynomial) }
+            } else {
+                &witness.lagrange_polynomial.embed::<EF>()
+            };
+
             let nodes = vec![&embbedded_lagrange_polynomial, &liner_comb];
             let initial_folding_factor = Some(self.0.folding_factor.at_round(0));
             let pow_bits = self.0.starting_folding_pow_bits;

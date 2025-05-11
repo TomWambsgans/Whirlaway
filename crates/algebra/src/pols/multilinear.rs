@@ -19,7 +19,6 @@ use rand::{
     distr::{Distribution, StandardUniform},
 };
 use rayon::prelude::*;
-use std::any::TypeId;
 use std::borrow::Borrow;
 use std::ops::AddAssign;
 use tracing::instrument;
@@ -414,7 +413,10 @@ impl<F: Field> MultilinearDevice<F> {
         if self.n_vars == 0 {
             return EF::from(cuda_get_at_index(&self.evals, 0));
         }
-        cuda_eval_multilinear_in_lagrange_basis(&self.evals, point)
+        let _span = tracing::info_span!("cuda evaluate in multilinear basis").entered();
+        let res = cuda_eval_multilinear_in_lagrange_basis(&self.evals, point);
+        cuda_sync();
+        res
     }
 }
 
@@ -609,10 +611,6 @@ impl<F: Field> Multilinear<F> {
     /// TODO remove
     /// Async
     pub fn embed<EF: ExtensionField<F>>(&self) -> Multilinear<EF> {
-        if TypeId::of::<F>() == TypeId::of::<EF>() {
-            return unsafe { std::mem::transmute::<&Self, &Multilinear<EF>>(self).clone() };
-        }
-
         match self {
             Self::Host(pol) => Multilinear::Host(pol.embed()),
             Self::Device(pol) => {
