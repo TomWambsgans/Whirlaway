@@ -37,11 +37,7 @@ pub fn cuda_ntt_at_block_level<F: Field>(
         CudaFunctionInfo::ntt_at_block_level::<F>(),
         1 << (log_len - 1),
     )
-    .max_log_threads_per_block(max_ntt_log_size_at_block_level::<F>() - 1)
-    .shared_mem_bytes(
-        (1 << max_ntt_log_size_at_block_level::<F>()) * std::mem::size_of::<F>()
-            + std::mem::size_of::<F::PrimeSubfield>(),
-    );
+    .max_log_threads_per_block(max_ntt_log_size_at_block_level::<F>() - 1);
     let log_len_u32 = log_len as u32;
     let inner_log_len_u32 = inner_log_len as u32;
     let log_chunck_size_u32 = log_chunck_size as u32;

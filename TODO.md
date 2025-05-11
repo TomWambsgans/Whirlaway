@@ -15,7 +15,6 @@
 - use cuda constant memory for small twiddles
 - sparse preprocessed columns
 - MaybeUninit instead of allocating zeros when it's rewritten just after
-- fix shared memory (cf " - 1" in max_ntt_log_size_at_block_level)
 
 - Add ZK?
 

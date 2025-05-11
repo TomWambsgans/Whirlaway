@@ -77,11 +77,9 @@ impl CudaFunctionInfo {
 }
 
 pub fn max_ntt_log_size_at_block_level<F: Field>() -> usize {
-    (LOG_MAX_THREADS_PER_BLOCK as usize + 1).min(
-        log2_down(
-            shared_memory() / (std::mem::size_of::<F>() + std::mem::size_of::<F::PrimeSubfield>()),
-        ) - 1,
-    ) // TODO fix and remove -1
+    (LOG_MAX_THREADS_PER_BLOCK as usize + 1).min(log2_down(
+        shared_memory() / (std::mem::size_of::<F>() + std::mem::size_of::<F::PrimeSubfield>()),
+    ))
 }
 
 pub struct CudaEngine {
