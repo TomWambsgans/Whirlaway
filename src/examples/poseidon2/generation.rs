@@ -11,6 +11,66 @@ use super::{
     constants::RoundConstants,
 };
 
+#[instrument(name = "generate vectorized Poseidon2 trace", skip_all)]
+pub fn generate_vectorized_trace_rows<
+    F: PrimeField,
+    LinearLayers: GenericPoseidon2LinearLayers<F, WIDTH>,
+    const WIDTH: usize,
+    const SBOX_DEGREE: u64,
+    const SBOX_REGISTERS: usize,
+    const HALF_FULL_ROUNDS: usize,
+    const PARTIAL_ROUNDS: usize,
+    const VECTOR_LEN: usize,
+>(
+    inputs: Vec<[F; WIDTH]>,
+    round_constants: &RoundConstants<F, WIDTH, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>,
+) -> RowMajorMatrix<F> {
+    let n = inputs.len();
+    assert!(
+        n % VECTOR_LEN == 0 && (n / VECTOR_LEN).is_power_of_two(),
+        "Callers expected to pad inputs to VECTOR_LEN times a power of two"
+    );
+
+    let nrows = n.div_ceil(VECTOR_LEN);
+    let ncols = num_cols::<WIDTH, SBOX_DEGREE, SBOX_REGISTERS, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>()
+        * VECTOR_LEN;
+    let mut vec = Vec::with_capacity(nrows * ncols);
+    let trace = &mut vec.spare_capacity_mut()[..nrows * ncols];
+    let trace = RowMajorMatrixViewMut::new(trace, ncols);
+
+    let (prefix, perms, suffix) = unsafe {
+        trace.values.align_to_mut::<Poseidon2Cols<
+            MaybeUninit<F>,
+            WIDTH,
+            SBOX_DEGREE,
+            SBOX_REGISTERS,
+            HALF_FULL_ROUNDS,
+            PARTIAL_ROUNDS,
+        >>()
+    };
+    assert!(prefix.is_empty(), "Alignment should match");
+    assert!(suffix.is_empty(), "Alignment should match");
+    assert_eq!(perms.len(), n);
+
+    perms.par_iter_mut().zip(inputs).for_each(|(perm, input)| {
+        generate_trace_rows_for_perm::<
+            F,
+            LinearLayers,
+            WIDTH,
+            SBOX_DEGREE,
+            SBOX_REGISTERS,
+            HALF_FULL_ROUNDS,
+            PARTIAL_ROUNDS,
+        >(perm, input, round_constants);
+    });
+
+    unsafe {
+        vec.set_len(nrows * ncols);
+    }
+
+    RowMajorMatrix::new(vec, ncols)
+}
+
 #[instrument(name = "generate_trace_rows", skip_all)]
 pub fn generate_trace_rows<
     F: PrimeField,

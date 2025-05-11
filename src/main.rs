@@ -15,6 +15,7 @@ fn main() {
         let benchmark = prove_poseidon2_with(
             SupportedField::KoalaBear,
             log_n_rows,
+            false,
             AirSettings::new(
                 SECURITY_BITS,
                 SoundnessType::ProvableList,

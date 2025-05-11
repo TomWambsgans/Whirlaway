@@ -136,10 +136,11 @@ pub fn cuda_linear_combination<F: Field, EF: ExtensionField<F>, S: Borrow<CudaSl
     inputs: &[S],
     scalars: &[EF],
 ) -> CudaSlice<EF> {
-    assert!(
-        scalars.len() <= 512,
-        "current CUDA implementation is not optimized for a large linear combination"
-    );
+    if scalars.len() > 512 {
+        tracing::warn!(
+            "current CUDA implementation is not optimized for a large linear combination"
+        );
+    }
     assert_eq!(inputs.len(), scalars.len());
     let len = inputs[0].borrow().len();
     assert!(inputs.iter().all(|input| input.borrow().len() == len));
