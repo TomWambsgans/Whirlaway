@@ -33,40 +33,48 @@ pub fn cuda_compute_over_hypercube<
     assert!(multilinears.iter().all(|m| m.len() == 1 << n_vars as usize));
     assert_eq!(eq_mle.is_some(), sumcheck_computation.eq_mle_multiplier);
 
-    let n_compute_units = sumcheck_computation.n_cuda_compute_units() as u32;
+    let total_compute_units_count = sumcheck_computation.n_cuda_compute_units() as u32;
 
     let multilinears_ptrs_dev = concat_pointers(&multilinears);
 
     let batching_scalars_dev = memcpy_htod(batching_scalars);
-    let mut sums_dev = cuda_alloc::<EF>((n_compute_units as usize) << n_vars);
+    let mut sums_dev = cuda_alloc::<EF>((total_compute_units_count as usize) << n_vars);
 
-    let n_ops = (n_compute_units << n_vars.max(LOG_CUDA_WARP_SIZE)) as usize;
+    for kernel_idx in 0..sumcheck_computation.n_cuda_kernels() {
+        let compute_units_range = sumcheck_computation.compute_units_range_for_kernel(kernel_idx);
+        let n_ops = compute_units_range.len() << n_vars.max(LOG_CUDA_WARP_SIZE);
+        let module = sumcheck_computation.uuid(&compute_units_range);
+        let cuda_file = cuda_synthetic_dir().join(format!("{module}.cu"));
+        let cuda_function_info = CudaFunctionInfo {
+            cuda_file,
+            function_name: "compute_over_hypercube".to_string(),
+            field: Some(SupportedField::guess::<F>()),
+            extension_degree_a: Some(extension_degree::<F>()),
+            extension_degree_b: Some(extension_degree::<NF>()),
+            extension_degree_c: Some(extension_degree::<EF>()),
+            max_ntt_log_size_at_block_level: None,
+            no_inline: sumcheck_computation.no_inline_cuda_ops(),
+            cache_memory_reads: extension_degree::<NF>() == 1,
+        };
 
-    let module = format!("sumcheck_{:x}", sumcheck_computation.uuid());
-    let cuda_file = cuda_synthetic_dir().join(format!("{module}.cu"));
-    let cuda_function_info = CudaFunctionInfo {
-        cuda_file,
-        function_name: "compute_over_hypercube".to_string(),
-        field: Some(SupportedField::guess::<F>()),
-        extension_degree_a: Some(extension_degree::<F>()),
-        extension_degree_b: Some(extension_degree::<NF>()),
-        extension_degree_c: Some(extension_degree::<EF>()),
-        max_ntt_log_size_at_block_level: None,
-        no_inline: sumcheck_computation.no_inline_cuda_ops(),
-        cache_memory_reads: extension_degree::<NF>() == 1,
-    };
-    let mut call = CudaCall::new(cuda_function_info, n_ops);
-    call.arg(&multilinears_ptrs_dev);
-    call.arg(&mut sums_dev);
-    call.arg(&batching_scalars_dev);
-    call.arg(&n_vars);
-    call.arg(&n_compute_units);
-    call.launch();
+        let compute_unit_start = compute_units_range.start as u32;
+        let local_compute_units_count = compute_units_range.len() as u32;
 
-    let hypercube_evals = if n_compute_units == 1 {
+        let mut call = CudaCall::new(cuda_function_info, n_ops);
+        call.arg(&multilinears_ptrs_dev);
+        call.arg(&mut sums_dev);
+        call.arg(&batching_scalars_dev);
+        call.arg(&n_vars);
+        call.arg(&compute_unit_start);
+        call.arg(&local_compute_units_count);
+        call.arg(&total_compute_units_count);
+        call.launch();
+    }
+
+    let hypercube_evals = if total_compute_units_count == 1 {
         sums_dev
     } else {
-        cuda_piecewise_sum(&sums_dev, n_compute_units as usize)
+        cuda_piecewise_sum(&sums_dev, total_compute_units_count as usize)
     };
 
     if sumcheck_computation.eq_mle_multiplier {

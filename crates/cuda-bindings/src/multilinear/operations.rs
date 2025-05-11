@@ -83,10 +83,9 @@ pub fn cuda_add_assign_slices<F: Field>(a: &mut CudaSlice<F>, b: &CudaSlice<F>) 
 
 // Async
 pub fn cuda_piecewise_sum<F: Field>(input: &CudaSlice<F>, sum_size: usize) -> CudaSlice<F> {
-    assert!(
-        sum_size <= 128,
-        "current CUDA implementation is not optimized for large sum sizes"
-    );
+    if sum_size > 128 {
+        tracing::warn!("current CUDA implementation is not optimized for large sum sizes");
+    }
     assert!(input.len() % sum_size == 0);
     let output_len = input.len() / sum_size;
     let mut output = cuda_alloc::<F>(output_len);

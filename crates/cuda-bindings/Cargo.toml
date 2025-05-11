@@ -8,7 +8,7 @@ cudarc.workspace = true
 p3-field.workspace = true
 utils.workspace = true
 cuda-engine.workspace = true
-# tracing.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 rayon.workspace = true

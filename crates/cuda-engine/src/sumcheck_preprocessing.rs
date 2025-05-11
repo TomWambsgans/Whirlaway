@@ -2,7 +2,7 @@ use arithmetic_circuit::{
     CircuitComputation, CircuitOp, ComputationInput, all_nodes_involved, max_stack_size,
 };
 use p3_field::PrimeField32;
-use std::hash::Hash;
+use std::{hash::Hash, ops::Range};
 use utils::{SupportedField, default_hash};
 
 use crate::*;
@@ -10,6 +10,7 @@ use crate::*;
 const MAX_SUMCHECK_INSTRUCTIONS_TO_REMOVE_INLINING: usize = 10;
 
 const MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT: usize = 3;
+const MAX_COMPUTE_UNITS_PER_KERNEL: usize = 25;
 
 #[derive(Clone, Debug, Hash)]
 pub struct SumcheckComputation<'a, F> {
@@ -34,12 +35,37 @@ impl<F> SumcheckComputation<'_, F> {
             .div_ceil(MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT)
     }
 
-    pub fn uuid(&self) -> u64
+    pub fn n_cuda_kernels(&self) -> usize {
+        self.n_cuda_compute_units()
+            .div_ceil(MAX_COMPUTE_UNITS_PER_KERNEL)
+    }
+
+    pub fn compute_units_range_for_kernel(&self, kernel_idx: usize) -> Range<usize> {
+        let n_compute_units = self.n_cuda_compute_units();
+        let n_compute_units_per_kernel = n_compute_units / self.n_cuda_kernels();
+        let start = kernel_idx * n_compute_units_per_kernel;
+        let end = if kernel_idx == self.n_cuda_kernels() - 1 {
+            n_compute_units
+        } else {
+            start + n_compute_units_per_kernel
+        };
+        start..end
+    }
+
+    pub fn uuid(&self, compute_units_range: &Range<usize>) -> String
     where
         F: Hash,
     {
         // TODO avoid, use a custom string instead
-        default_hash((self, MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT))
+        let hash = default_hash((
+            self,
+            MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT,
+            MAX_COMPUTE_UNITS_PER_KERNEL,
+        ));
+        format!(
+            "{:x}_{}_{}",
+            hash, compute_units_range.start, compute_units_range.end
+        )
     }
 }
 
@@ -63,9 +89,31 @@ pub fn cuda_preprocess_sumcheck_computation<F: PrimeField32>(
     extension_degree_b: usize,
     extension_degree_c: usize,
 ) {
+    // a: scalars inside each constraint
+    // b: input data (the multilinears)
+    // c: batching_scalars (ie output data)
+    for kernel_idx in 0..sumcheck_computation.n_cuda_kernels() {
+        cuda_preprocess_sumcheck_computation_chunck(
+            sumcheck_computation,
+            extension_degree_a,
+            extension_degree_b,
+            extension_degree_c,
+            kernel_idx,
+        );
+    }
+}
+
+fn cuda_preprocess_sumcheck_computation_chunck<F: PrimeField32>(
+    sumcheck_computation: &SumcheckComputation<F>,
+    extension_degree_a: usize,
+    extension_degree_b: usize,
+    extension_degree_c: usize,
+    kernel_idx: usize,
+) {
+    let compute_units_range = sumcheck_computation.compute_units_range_for_kernel(kernel_idx);
     let cuda = cuda_engine();
     let field = SupportedField::guess::<F>();
-    let module = format!("sumcheck_{:x}", sumcheck_computation.uuid());
+    let module = sumcheck_computation.uuid(&compute_units_range);
     let cache_memory_reads = extension_degree_b == 1; // TODO: use a better heuristic
     let cuda_file = cuda_synthetic_dir().join(format!("{module}.cu"));
     let options = CudaFunctionInfo {
@@ -88,7 +136,7 @@ pub fn cuda_preprocess_sumcheck_computation<F: PrimeField32>(
             std::fs::read_to_string(kernels_folder().join("sumcheck_template.txt")).unwrap();
         let cuda_code = template.replace(
             "COMPOSITION_PLACEHOLDER",
-            &get_cuda_instructions(sumcheck_computation),
+            &get_cuda_instructions(sumcheck_computation, compute_units_range),
         );
         std::fs::write(&cuda_file, &cuda_code).unwrap();
     }
@@ -96,11 +144,13 @@ pub fn cuda_preprocess_sumcheck_computation<F: PrimeField32>(
     load_function(options, &mut functions);
 }
 
-fn get_cuda_instructions<F: PrimeField32>(sumcheck_computation: &SumcheckComputation<F>) -> String {
+fn get_cuda_instructions<F: PrimeField32>(
+    sumcheck_computation: &SumcheckComputation<F>,
+    compute_units_range: Range<usize>,
+) -> String {
     let mut res = String::new();
-    let n_compute_units = sumcheck_computation.n_cuda_compute_units();
     let blank = "        ";
-    for compute_unit in 0..n_compute_units {
+    for compute_unit in compute_units_range {
         let start = compute_unit * MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT;
         let end = ((compute_unit + 1) * MAX_CONSTRAINTS_PER_CUDA_COMPUTE_UNIT)
             .min(sumcheck_computation.exprs.len());
@@ -108,7 +158,6 @@ fn get_cuda_instructions<F: PrimeField32>(sumcheck_computation: &SumcheckComputa
         res += &compute_unit_instructions(sumcheck_computation.exprs, start, end);
         res += &format!("{blank}    break;\n{blank}}}\n");
     }
-
     res
 }
 
@@ -181,7 +230,7 @@ fn compute_unit_instructions<F: PrimeField32>(
         }
     }
 
-    res += &format!("\n{}sums[thread_index] = computed;\n", blank);
+    res += &format!("\n{}sums[target_sum_index] = computed;\n", blank);
 
     res
 }
