@@ -2,6 +2,7 @@ use cuda_engine::{
     CudaCall, CudaFunctionInfo, cuda_alloc_zeros, cuda_sync, memcpy_dtoh, memcpy_htod,
 };
 use cudarc::driver::{CudaView, CudaViewMut, DeviceRepr, PushKernelArg};
+use p3_field::Field;
 use utils::KeccakDigest;
 
 pub fn cuda_keccak256<T: DeviceRepr>(
@@ -15,6 +16,26 @@ pub fn cuda_keccak256<T: DeviceRepr>(
     let input_length = (batch_size * std::mem::size_of::<T>()) as u32;
     let mut launch_args = CudaCall::new(
         CudaFunctionInfo::basic("keccak.cu", "batch_keccak256"),
+        n_inputs,
+    );
+    launch_args.arg(input);
+    launch_args.arg(&n_inputs);
+    launch_args.arg(&input_length);
+    launch_args.arg(output);
+    launch_args.launch();
+}
+
+pub fn cuda_keccak256_field<F: Field>(
+    input: &CudaView<F>,
+    batch_size: usize,
+    output: &mut CudaViewMut<KeccakDigest>,
+) {
+    assert!(input.len() % batch_size == 0);
+    let n_inputs = input.len() / batch_size;
+    assert_eq!(n_inputs, output.len());
+    let input_length = batch_size as u32;
+    let mut launch_args = CudaCall::new(
+        CudaFunctionInfo::one_field::<F>("keccak.cu", "batch_keccak256_field"),
         n_inputs,
     );
     launch_args.arg(input);
@@ -58,12 +79,13 @@ pub fn cuda_pow_grinding(seed: &KeccakDigest, ending_zeros_count: usize) -> u64 
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use cuda_engine::*;
+    use p3_field::PrimeCharacteristicRing;
+    use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
     use rayon::prelude::*;
     use utils::{KeccakDigest, count_ending_zero_bits, keccak256};
-
-    use super::*;
 
     #[test]
     fn test_cuda_pow_grinding() {
@@ -159,5 +181,41 @@ mod tests {
                 expected_result[particular_indexes[i]]
             );
         }
+    }
+
+    #[test]
+    fn test_cuda_keccak_field() {
+        type F = KoalaBear;
+        cuda_init();
+        cuda_load_function(CudaFunctionInfo::one_field::<F>(
+            "keccak.cu",
+            "batch_keccak256_field",
+        ));
+
+        let log_len = 15;
+        let batch_size = 8;
+        let slice = (0..1 << log_len)
+            .map(|i| F::from_u64(i as u64))
+            .collect::<Vec<_>>();
+        //  transmute slice, and then keccak256 it
+        let slice_u8: &[u8] = unsafe {
+            std::slice::from_raw_parts(slice.as_ptr() as *const u8, slice.len() * size_of::<F>())
+        };
+        let slice_dev = memcpy_htod(&slice);
+        let output = cuda_alloc::<KeccakDigest>(slice.len() / batch_size);
+        cuda_keccak256_field(&slice_dev.as_view(), batch_size, &mut output.as_view_mut());
+        cuda_sync();
+        let dest = memcpy_dtoh(&output);
+        cuda_sync();
+        let expected_result = (0..slice.len() / batch_size)
+            .into_par_iter()
+            .map(|i| {
+                keccak256(
+                    &slice_u8
+                        [i * batch_size * size_of::<F>()..(i + 1) * batch_size * size_of::<F>()],
+                )
+            })
+            .collect::<Vec<KeccakDigest>>();
+        assert!(dest == expected_result);
     }
 }

@@ -335,6 +335,8 @@ dependencies = [
  "cuda-bindings",
  "cuda-engine",
  "cudarc",
+ "p3-field",
+ "p3-koala-bear",
  "rand",
  "rayon",
  "sha3",

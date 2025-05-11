@@ -85,6 +85,11 @@ public:
     {
         printf("%s: Field(%u)\n", name, MontyField<MontyPrime, MontyBits, MontyMu>::monty_reduce(x));
     }
+
+    __device__ uint8_t getByte(int i)
+    {
+        return (x >> (i * 8)) & 0xff;
+    } 
 };
 
 typedef MontyField<0x7f000001, 32, 0x81000001> KoalaBear;
@@ -161,6 +166,11 @@ struct ExtensionField
             result->coeffs[i] = a->coeffs[i];
         }
     }
+
+    __device__ uint8_t getByte(int i)
+    {
+        return coeffs[i / 4].getByte(i % 4);
+    } 
 };
 // Macro for N=4 extension field multiplication
 #define DEFINE_EXTENSION_FIELD_MUL_N4(FIELD_TYPE, W_EXT4)                                                                                                                                    \

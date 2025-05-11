@@ -260,6 +260,10 @@ mod test {
                 "add_assign_slices",
             ));
             cuda_load_function(CudaFunctionInfo::basic("keccak.cu", "batch_keccak256"));
+            cuda_load_function(CudaFunctionInfo::one_field::<F>(
+                "keccak.cu",
+                "batch_keccak256_field",
+            ));
             cuda_load_function(CudaFunctionInfo::basic("keccak.cu", "pow_grinding"));
             cuda_preprocess_twiddles::<KoalaBear>(
                 num_vars + config.starting_log_inv_rate - config.folding_factor.maximum(),

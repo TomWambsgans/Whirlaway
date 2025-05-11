@@ -178,7 +178,10 @@ pub fn cuda_ntt_helper<F: Field>(
             log_chunck_size - max_cuda_ntt_log_size,
             final_transpositions,
             None,
-            Some((log_chunck_size - max_cuda_ntt_log_size, max_cuda_ntt_log_size))
+            Some((
+                log_chunck_size - max_cuda_ntt_log_size,
+                max_cuda_ntt_log_size,
+            )),
         );
     }
 }

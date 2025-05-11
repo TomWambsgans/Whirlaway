@@ -56,6 +56,10 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
         cuda_preprocess_many_sumcheck_computations(&inner_air_sumcheck, &[(deg_a, deg_b, deg_b)]);
 
         cuda_load_function(CudaFunctionInfo::basic("keccak.cu", "batch_keccak256"));
+        cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
+            "keccak.cu",
+            "batch_keccak256_field",
+        ));
         cuda_load_function(CudaFunctionInfo::basic("keccak.cu", "pow_grinding"));
         cuda_load_function(CudaFunctionInfo::one_field::<EF>(
             "multilinear.cu",

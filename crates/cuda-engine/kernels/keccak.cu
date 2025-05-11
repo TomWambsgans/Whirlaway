@@ -24,6 +24,8 @@ Source: https://github.com/MrSpike63/vanity-eth-address
 #include <device_launch_parameters.h>
 #include <cooperative_groups.h>
 
+#include "ff_wrapper.cu"
+
 int main()
 {
     return 0;
@@ -171,12 +173,84 @@ __device__ void block_permute(uint64_t *block)
 #define DOMAIN_SEPARATOR 0x06
 #endif
 
-// Helper inline function (or macro) to compute the lane index
 __device__ inline size_t getLaneIndex(size_t i)
 {
     size_t li = i / 8;
     return (li % 5) * 5 + (li / 5);
 }
+
+template <typename T>
+__device__ void keccak256_custom(T *input, size_t length, uint8_t *output)
+{
+    // 1. Initialize block state to zero
+    uint64_t block[25];
+#pragma unroll 25
+    for (int i = 0; i < 25; i++)
+    {
+        block[i] = 0ULL;
+    }
+
+    int byte_index = 0;
+
+    // Helper function to get byte at specific position within T
+    auto getByte = [](T &value, int bytePos) -> uint8_t
+    {
+        // For built-in types like uint32_t, uint64_t
+        if constexpr (std::is_integral<T>::value)
+        {
+            return static_cast<uint8_t>((value >> (8 * bytePos)) & 0xFF);
+        }
+        else
+        {
+            return value.getByte(bytePos);
+        }
+    };
+
+    for (int i = 0; i < length; i++)
+    {
+        T word = input[i];
+        for (int j = 0; j < sizeof(T); j++)
+        {
+            size_t lane_index = getLaneIndex(byte_index);
+            size_t byte_offset = byte_index % 8;
+
+            // Extract byte j from the current word
+            uint8_t currentByte = getByte(word, j);
+
+            // XOR it into the appropriate position in the state
+            block[lane_index] ^= static_cast<uint64_t>(currentByte) << (8 * byte_offset);
+
+            byte_index++;
+            if (byte_index >= KECCAK_RATE)
+            {
+                block_permute(block);
+                byte_index = 0;
+            }
+        }
+    }
+
+    // Domain separation: set the special byte right after the input
+    {
+        size_t lane_index = getLaneIndex(byte_index);
+        size_t byte_offset = byte_index % 8;
+        block[lane_index] ^= static_cast<uint64_t>(DOMAIN_SEPARATOR) << (8 * byte_offset);
+    }
+
+    // Append the 0x80 bit at the end of the 136-byte block
+    block[8] ^= 0x8000000000000000ULL;
+
+    // One final permutation
+    block_permute(block);
+
+    // Squeeze out 32 bytes (= 256 bits)
+    for (int i = 0; i < 32; i++)
+    {
+        size_t lane_index = getLaneIndex(i);
+        size_t byte_offset = i % 8;
+        output[i] = static_cast<uint8_t>((block[lane_index] >> (8 * byte_offset)) & 0xFF);
+    }
+}
+
 
 __device__ void keccak256(const uint8_t *input, size_t length, uint8_t *output)
 {
@@ -267,7 +341,35 @@ extern "C" __global__ void batch_keccak256(
     }
 }
 
-__device__ size_t count_ending_zero_bits(const uint8_t *buff, size_t len)
+
+extern "C" __global__ void batch_keccak256_field(
+    Field_A *inputs,       // Packed input data
+    uint32_t num_inputs,   // Number of inputs to process
+    uint32_t input_length, // Length of each input
+    uint8_t *outputs       // Output buffer for hashes
+)
+{
+    int total_threads = blockDim.x * gridDim.x;
+    int n_reps = (num_inputs + total_threads - 1) / total_threads;
+    for (int rep = 0; rep < n_reps; rep++)
+    {
+        uint32_t idx = (blockIdx.x + rep * gridDim.x) * blockDim.x + threadIdx.x;
+        if (idx < num_inputs)
+        {
+            // Calculate offset in the input buffer
+            Field_A *input = &inputs[idx * input_length];
+
+            // Calculate offset in the output buffer (32 bytes per hash)
+            uint8_t *output = &outputs[idx * 32];
+
+            // Compute the hash
+
+            keccak256_custom<Field_A>(input, input_length, output);
+        }
+    }
+}
+
+__device__ size_t count_ending_zero_bits(uint8_t *buff, size_t len)
 {
     size_t count = 0;
 

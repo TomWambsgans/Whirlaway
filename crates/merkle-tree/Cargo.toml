@@ -11,6 +11,8 @@ cuda-engine.workspace = true
 cuda-bindings.workspace = true
 utils.workspace = true
 cudarc.workspace = true
+p3-field.workspace = true
 
 [dev-dependencies]
 rand.workspace = true
+p3-koala-bear.workspace = true

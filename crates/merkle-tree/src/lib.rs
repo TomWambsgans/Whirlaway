@@ -1,8 +1,9 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-use cuda_bindings::cuda_keccak256;
+use cuda_bindings::{cuda_keccak256, cuda_keccak256_field};
 use cuda_engine::{HostOrDeviceBuffer, cuda_alloc, cuda_get_at_index, cuda_sync};
 use cudarc::driver::{CudaSlice, DeviceRepr};
+use p3_field::Field;
 use rayon::prelude::*;
 use sha3::Digest;
 use std::collections::BTreeSet;
@@ -178,7 +179,7 @@ pub struct MerkleTree<F> {
     _field: std::marker::PhantomData<F>,
 }
 
-impl<F: Sync> MerkleTree<F> {
+impl<F: Field> MerkleTree<F> {
     /// `leaves.len()` should be power of two.
     /// Sync
     pub fn new(leaves: &HostOrDeviceBuffer<F>, batch_size: usize) -> Self
@@ -235,7 +236,7 @@ impl<F: Sync> MerkleTree<F> {
         assert!(leaf_nodes_size.is_power_of_two() && leaf_nodes_size > 1);
         let height = leaf_nodes_size.ilog2() as usize;
         let mut nodes = cuda_alloc::<KeccakDigest>((1 << (height + 1)) - 1);
-        cuda_keccak256(
+        cuda_keccak256_field(
             &leaves.as_view(),
             batch_size,
             &mut nodes.slice_mut((1 << height) - 1..),

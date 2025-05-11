@@ -16,6 +16,8 @@
 - sparse preprocessed columns
 - MaybeUninit instead of allocating zeros when it's rewritten just after
 - fix shared memory (cf " - 1" in max_ntt_log_size_at_block_level)
+- hash function in merkle tree in "compression" mode
+- deduplicate keccak cuda file
 
 - Add ZK?
 
