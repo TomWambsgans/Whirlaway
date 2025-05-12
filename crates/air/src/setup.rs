@@ -165,6 +165,10 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
             "multilinear.cu",
             "linear_combination",
         ));
+        cuda_load_function(CudaFunctionInfo::two_fields::<WhirF, WhirF>(
+            "multilinear.cu",
+            "linear_combination",
+        ));
         cuda_load_function(CudaFunctionInfo::one_field::<EF>(
             "multilinear.cu",
             "repeat_slice_from_outside",

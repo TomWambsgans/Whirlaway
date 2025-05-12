@@ -209,6 +209,14 @@ mod test {
                 "multilinear.cu",
                 "eq_mle_steps",
             ));
+            cuda_load_function(CudaFunctionInfo::one_field::<F>(
+                "multilinear.cu",
+                "eq_mle_start",
+            ));
+            cuda_load_function(CudaFunctionInfo::one_field::<F>(
+                "multilinear.cu",
+                "eq_mle_steps",
+            ));
             cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
                 "multilinear.cu",
                 "eval_multilinear_in_lagrange_basis",
@@ -246,6 +254,14 @@ mod test {
             cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
                 "multilinear.cu",
                 "fold_rectangular",
+            ));
+            cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
+                "multilinear.cu",
+                "linear_combination",
+            ));
+            cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
+                "multilinear.cu",
+                "linear_combination",
             ));
             cuda_load_function(CudaFunctionInfo::one_field::<EF>(
                 "multilinear.cu",

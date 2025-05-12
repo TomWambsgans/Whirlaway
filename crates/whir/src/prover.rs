@@ -65,15 +65,12 @@ where
         let initial_claims = witness
             .ood_points
             .into_iter()
-            .map(|ood_point| {
-                multilinear_point_from_univariate(EF::from(ood_point), self.0.num_variables)
-            })
+            .map(|ood_point| multilinear_point_from_univariate(ood_point, self.0.num_variables))
             .chain(statement.points)
             .collect::<Vec<_>>();
         let initial_answers = witness
             .ood_answers
             .into_iter()
-            .map(EF::from)
             .chain(statement.evaluations)
             .collect::<Vec<_>>();
 
@@ -86,8 +83,12 @@ where
             let combination_randomness_gen = fs_prover.challenge_scalars::<EF>(1)[0];
             let combination_randomness = powers(combination_randomness_gen, initial_claims.len());
 
-            let liner_comb =
-                randomized_eq_extensions(&initial_claims, &combination_randomness, self.0.cuda);
+            let liner_comb = randomized_eq_extensions::<F, EF>(
+                &[],
+                &initial_claims,
+                &combination_randomness,
+                self.0.cuda,
+            );
             let embbedded_lagrange_polynomial = if TypeId::of::<F>() == TypeId::of::<EF>() {
                 unsafe { std::mem::transmute::<_, &Multilinear<EF>>(&witness.lagrange_polynomial) }
             } else {
@@ -249,18 +250,22 @@ where
             fs_prover,
         );
         // Compute the generator of the folded domain, in the extension field
-        let domain_scaled_gen = EF::two_adic_generator(
+        let domain_scaled_gen = F::two_adic_generator(
             round_state.domain_size.trailing_zeros() as usize
                 - self.0.folding_factor.at_round(round_state.round),
         );
-        let stir_challenges: Vec<_> = ood_points
+        let stir_challenges_ext: Vec<Vec<EF>> = ood_points
             .into_iter()
-            .chain(
-                stir_challenges_indexes
-                    .iter()
-                    .map(|i| domain_scaled_gen.exp_u64(*i as u64)),
-            )
             .map(|univariate| multilinear_point_from_univariate(univariate, num_variables))
+            .collect();
+        let stir_challenges_base: Vec<Vec<F>> = stir_challenges_indexes
+            .iter()
+            .map(|i| {
+                multilinear_point_from_univariate(
+                    domain_scaled_gen.exp_u64(*i as u64),
+                    num_variables,
+                )
+            })
             .collect();
 
         let merkle_proof = round_state
@@ -295,10 +300,17 @@ where
 
         // Randomness for combination
         let combination_randomness_gen = fs_prover.challenge_scalars::<EF>(1)[0];
-        let combination_randomness = powers(combination_randomness_gen, stir_challenges.len());
+        let combination_randomness = powers(
+            combination_randomness_gen,
+            stir_challenges_ext.len() + stir_challenges_base.len(),
+        );
 
-        round_state.sumcheck_mles[1] +=
-            &randomized_eq_extensions(&stir_challenges, &combination_randomness, self.0.cuda);
+        round_state.sumcheck_mles[1] += &randomized_eq_extensions::<F, EF>(
+            &stir_challenges_base,
+            &stir_challenges_ext,
+            &combination_randomness,
+            self.0.cuda,
+        );
         let folding_randomness;
         let hypercube_sum;
         let sumcheck_mles;
@@ -347,25 +359,65 @@ struct RoundState<F: Field, EF: ExtensionField<F>> {
 }
 
 #[instrument(name = "randomized_eq_extensions", skip_all)]
-fn randomized_eq_extensions<F: Field>(
-    eq_points: &[Vec<F>],
-    randomized_coefs: &[F],
+fn randomized_eq_extensions<F: Field, EF: ExtensionField<F>>(
+    eq_points_base: &[Vec<F>],
+    eq_points_ext: &[Vec<EF>],
+    randomized_coefs: &[EF],
     cuda: bool,
-) -> Multilinear<F> {
-    assert_eq!(eq_points.len(), randomized_coefs.len());
-    assert!(
-        eq_points
-            .iter()
-            .all(|point| point.len() == eq_points[0].len())
+) -> Multilinear<EF> {
+    assert_eq!(
+        eq_points_ext.len() + eq_points_base.len(),
+        randomized_coefs.len()
     );
-    let mut all_eq_mles = Vec::new();
-    for (initial_claim, randomness_coef) in eq_points.iter().zip(randomized_coefs) {
-        let mut eq_mle = Multilinear::eq_mle(&initial_claim, cuda);
-        eq_mle.scale_in_place(*randomness_coef);
-        all_eq_mles.push(eq_mle);
-    }
-    let res = MultilinearsVec::from(all_eq_mles).as_ref().sum();
+    let n_vars = eq_points_ext[0].len();
+    assert!(eq_points_ext.iter().all(|point| point.len() == n_vars));
+    assert!(eq_points_base.iter().all(|point| point.len() == n_vars));
 
+    // TODO to limit GPU memory usage, use intermediate sums
+
+    let _span = tracing::info_span!("eq_mle (EF)", count = eq_points_ext.len()).entered();
+    let mut all_eq_mles_ext = Vec::new();
+    for point in eq_points_ext {
+        all_eq_mles_ext.push(Multilinear::eq_mle(point, cuda));
+    }
     cuda_sync();
+    std::mem::drop(_span);
+
+    let _span = tracing::info_span!("eq_mle (F)", count = eq_points_base.len()).entered();
+    let mut all_eq_mles_base = Vec::new();
+    for point in eq_points_base {
+        all_eq_mles_base.push(Multilinear::eq_mle(point, cuda));
+    }
+    cuda_sync();
+    std::mem::drop(_span);
+
+    let _span =
+        tracing::info_span!("linear combination (EF)", count = eq_points_ext.len()).entered();
+
+    if TypeId::of::<F>() == TypeId::of::<EF>() {
+        let drained = std::mem::take(&mut all_eq_mles_ext);
+        let transmuted = unsafe { std::mem::transmute::<_, Vec<Multilinear<EF>>>(drained) };
+        all_eq_mles_ext.extend(transmuted);
+    }
+
+    let mut res = MultilinearsVec::from(all_eq_mles_ext)
+        .as_ref()
+        .linear_comb(&randomized_coefs[0..eq_points_ext.len()]);
+    cuda_sync();
+    std::mem::drop(_span);
+
+    if eq_points_base.len() > 0 {
+        let _span =
+            tracing::info_span!("linear combination (F)", count = eq_points_ext.len()).entered();
+        let res_base = MultilinearsVec::from(all_eq_mles_base)
+            .as_ref()
+            .linear_comb(&randomized_coefs[eq_points_ext.len()..]);
+        cuda_sync();
+        std::mem::drop(_span);
+
+        let _span = tracing::info_span!("sum", count = eq_points_ext.len()).entered();
+        res += &res_base;
+        cuda_sync();
+    }
     res
 }
