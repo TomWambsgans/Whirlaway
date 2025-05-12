@@ -28,7 +28,11 @@ fn setup<F: PrimeField32, EF: ExtensionField<F>>(sumcheck_computation: &Sumcheck
     cuda_preprocess_sumcheck_computation(sumcheck_computation, 1, 8, 8);
     cuda_load_function(CudaFunctionInfo::one_field::<EF>(
         "multilinear.cu",
-        "eq_mle",
+        "eq_mle_start",
+    ));
+    cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+        "multilinear.cu",
+        "eq_mle_steps",
     ));
     cuda_load_function(CudaFunctionInfo::one_field::<EF>(
         "multilinear.cu",

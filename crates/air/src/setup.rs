@@ -83,11 +83,19 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
         ));
         cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
             "multilinear.cu",
-            "eq_mle",
+            "eq_mle_start",
+        ));
+        cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
+            "multilinear.cu",
+            "eq_mle_steps",
         ));
         cuda_load_function(CudaFunctionInfo::one_field::<EF>(
             "multilinear.cu",
-            "eq_mle",
+            "eq_mle_start",
+        ));
+        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+            "multilinear.cu",
+            "eq_mle_steps",
         ));
         cuda_load_function(CudaFunctionInfo::two_fields::<EF, F>(
             "multilinear.cu",

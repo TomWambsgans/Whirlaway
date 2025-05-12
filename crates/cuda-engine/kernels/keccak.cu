@@ -241,10 +241,10 @@ __device__ void keccak256(const uint8_t *input, size_t length, uint8_t *output)
 
 // Kernel that processes multiple inputs in parallel
 extern "C" __global__ void batch_keccak256(
-    const uint8_t *inputs,       // Packed input data
-    const uint32_t num_inputs,   // Number of inputs to process
-    const uint32_t input_length, // Length of each input
-    uint8_t *outputs             // Output buffer for hashes
+    const uint8_t *__restrict__ inputs, // Packed input data
+    const uint32_t num_inputs,          // Number of inputs to process
+    const uint32_t input_length,        // Length of each input
+    uint8_t *__restrict__ outputs       // Output buffer for hashes
 )
 {
     const int total_threads = blockDim.x * gridDim.x;
@@ -291,11 +291,11 @@ __device__ size_t count_ending_zero_bits(const uint8_t *buff, size_t len)
 }
 
 extern "C" __global__ void pow_grinding(
-    uint8_t *seed, // 32-byte seed
+    uint8_t *__restrict__ seed, // 32-byte seed
     uint32_t ending_zeros_count,
     uint64_t starting_nonce,
     uint32_t n_iters,
-    size_t *solution_increment)
+    size_t *__restrict__ solution_increment)
 {
 
     namespace cg = cooperative_groups;

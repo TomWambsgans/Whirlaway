@@ -328,6 +328,14 @@ mod tests {
             "tensor_algebra.cu",
             "tensor_algebra_dot_product",
         ));
+        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+            "multilinear.cu",
+            "eq_mle_start",
+        ));
+        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+            "multilinear.cu",
+            "eq_mle_steps",
+        ));
         let n_vars = 20;
         let rng = &mut StdRng::seed_from_u64(0);
         let terms = MultilinearHost::random(rng, n_vars);

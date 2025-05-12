@@ -83,8 +83,8 @@ __device__ Field_A final_twiddle(int idx, uint32_t full_log_len, uint32_t inner_
     return twiddle;
 }
 
-extern "C" __global__ void ntt_at_block_level(Field_B *input, Field_B *output, uint32_t log_len, uint32_t inner_log_len, uint32_t log_chunck_size, bool on_rows,
-                                              bool final_twiddles, Field_A **twiddles, uint32_t log_whir_expansion_factor, uint32_t n_final_transpositions,
+extern "C" __global__ void ntt_at_block_level(Field_B *__restrict__ input, Field_B *__restrict__ output, uint32_t log_len, uint32_t inner_log_len, uint32_t log_chunck_size, bool on_rows,
+                                              bool final_twiddles, Field_A **__restrict__ twiddles, uint32_t log_whir_expansion_factor, uint32_t n_final_transpositions,
                                               uint32_t tr_row_0, uint32_t tr_col_0, uint32_t tr_row_1, uint32_t tr_col_1, uint32_t tr_row_2, uint32_t tr_col_2,
                                               bool missed_previous_internal_transposition, uint32_t previous_internal_transposition_log_rows, uint32_t previous_internal_transposition_log_cols, bool skip_last_internal_transposition)
 {

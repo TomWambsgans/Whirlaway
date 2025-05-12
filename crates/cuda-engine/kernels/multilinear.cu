@@ -106,33 +106,172 @@ extern "C" __global__ void eval_multilinear_in_lagrange_basis(Field_A *coeffs, F
     }
 }
 
-extern "C" __global__ void eq_mle(Field_A *point, const uint32_t n_vars, Field_A *res)
+// extern "C" __global__ void eq_mle(Field_A *point, const uint32_t n_vars, Field_A *res)
+// {
+//     namespace cg = cooperative_groups;
+//     cg::grid_group grid = cg::this_grid();
+
+//     const int total_n_threads = blockDim.x * gridDim.x;
+
+//     if (threadIdx.x == 0 && blockIdx.x == 0)
+//     {
+//         res[0] = Field_A::one();
+//     }
+//     grid.sync();
+
+//     for (int step = 0; step < n_vars; step++)
+//     {
+//         const int n_iters = (1 << step);
+//         const int n_repetitions = (n_iters + total_n_threads - 1) / total_n_threads;
+//         for (int rep = 0; rep < n_repetitions; rep++)
+//         {
+//             const int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
+//             if (threadIndex < n_iters)
+//             {
+//                 MUL_AA(res[threadIndex], point[n_vars - 1 - step], res[threadIndex + (1 << step)]);
+//                 SUB_AA(res[threadIndex], res[threadIndex + (1 << step)], res[threadIndex]);
+//             }
+//         }
+//         grid.sync();
+//     }
+// }
+
+template <int extra_steps>
+__device__ void process_eq_mle_steps_helper(Field_A *__restrict__ point, Field_A *starting_element, Field_A *__restrict__ res,
+                                            int n_vars, int offset, int res_spacing, int step)
 {
-    namespace cg = cooperative_groups;
-    cg::grid_group grid = cg::this_grid();
+    Field_A buff[(1 << extra_steps)];
+    buff[0] = *starting_element;
+    for (int i = 0; i < extra_steps; i++)
+    {
+        Field_A point_value = point[n_vars - 1 - step];
+
+        for (int j = 0; j < 1 << i; j++)
+        {
+            Field_A current = buff[j];
+
+            Field_A left;
+            Field_A right;
+            MUL_AA(current, point_value, right);
+            SUB_AA(current, right, left);
+
+            buff[j] = left;
+            buff[j + (1 << i)] = right;
+        }
+
+        step++;
+    }
+
+    for (int i = 0; i < (1 << extra_steps); i++)
+    {
+        res[offset + i * res_spacing] = buff[i];
+    }
+}
+
+__device__ void process_eq_mle_steps(int n_steps_to_compute, Field_A *__restrict__ point, Field_A *starting_element, Field_A *__restrict__ res,
+                                     int n_vars, int offset, int res_spacing, int step)
+{
+    switch (n_steps_to_compute)
+    {
+    case 0:
+        process_eq_mle_steps_helper<0>(point, starting_element, res, n_vars, offset, res_spacing, step);
+        break;
+    case 1:
+        process_eq_mle_steps_helper<1>(point, starting_element, res, n_vars, offset, res_spacing, step);
+        break;
+    case 2:
+        process_eq_mle_steps_helper<2>(point, starting_element, res, n_vars, offset, res_spacing, step);
+        break;
+    case 3:
+        process_eq_mle_steps_helper<3>(point, starting_element, res, n_vars, offset, res_spacing, step);
+        break;
+    case 4:
+        process_eq_mle_steps_helper<4>(point, starting_element, res, n_vars, offset, res_spacing, step);
+        break;
+    case 5:
+        process_eq_mle_steps_helper<5>(point, starting_element, res, n_vars, offset, res_spacing, step);
+        break;
+    default:
+        // not supported (would require too much registers)
+        assert(0);
+    }
+}
+
+extern "C" __global__ void eq_mle_start(Field_A *__restrict__ point,
+                                        uint32_t n_vars,
+                                        uint32_t n_steps_within_shared_memory,
+                                        uint32_t n_steps,
+                                        Field_A *__restrict__ res)
+{
+    assert(n_steps <= n_vars);
+    assert(gridDim.x == 1);
+
+    extern __shared__ Field_A shared_cache[]; // first n_vars values = point, then the rest is used for computation
+    const uint32_t tid = threadIdx.x;
+
+    if (tid < n_vars)
+    {
+        shared_cache[tid] = point[tid];
+    }
+
+    if (tid == 0)
+        shared_cache[n_vars] = Field_A::one();
+    __syncthreads();
+
+    int step = 0;
+    for (; step < n_steps_within_shared_memory; step++)
+    {
+        if (tid < (1 << step))
+        {
+            Field_A current = shared_cache[n_vars + tid];
+
+            Field_A left;
+            Field_A right;
+            Field_A point_value = shared_cache[n_vars - 1 - step];
+            MUL_AA(current, point_value, right);
+            SUB_AA(current, right, left);
+
+            shared_cache[n_vars + tid] = left;
+            shared_cache[n_vars + tid + (1 << step)] = right;
+        }
+        __syncthreads();
+    }
+
+    Field_A starting_element = shared_cache[n_vars + tid];
+    int missing_steps_to_compute = n_steps - n_steps_within_shared_memory;
+    process_eq_mle_steps(missing_steps_to_compute, shared_cache, &starting_element, res, n_vars, tid, 1 << n_steps_within_shared_memory, step);
+}
+
+extern "C" __global__ void eq_mle_steps(Field_A *__restrict__ point,
+                                        uint32_t n_vars,
+                                        uint32_t start_step,
+                                        uint32_t additional_steps,
+                                        Field_A *__restrict__ res)
+{
+    assert(start_step > 0); // otherwise, use eq_mle_start
+    assert(start_step + additional_steps <= n_vars);
+    assert(n_vars <= blockDim.x);
+
+    extern __shared__ Field_A cached_point[];
+    if (threadIdx.x < n_vars)
+    {
+        cached_point[threadIdx.x] = point[threadIdx.x];
+    }
+    __syncthreads();
 
     const int total_n_threads = blockDim.x * gridDim.x;
-
-    if (threadIdx.x == 0 && blockIdx.x == 0)
+    const int n_repetitions = ((1 << start_step) + total_n_threads - 1) / total_n_threads;
+    for (int rep = 0; rep < n_repetitions; rep++)
     {
-        res[0] = Field_A::one();
-    }
-    grid.sync();
-
-    for (int step = 0; step < n_vars; step++)
-    {
-        const int n_iters = (1 << step);
-        const int n_repetitions = (n_iters + total_n_threads - 1) / total_n_threads;
-        for (int rep = 0; rep < n_repetitions; rep++)
+        const int tid = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
+        if (tid >= 1 << start_step)
         {
-            const int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
-            if (threadIndex < n_iters)
-            {
-                MUL_AA(res[threadIndex], point[n_vars - 1 - step], res[threadIndex + (1 << step)]);
-                SUB_AA(res[threadIndex], res[threadIndex + (1 << step)], res[threadIndex]);
-            }
+            return;
         }
-        grid.sync();
+
+        Field_A starting_element = res[tid];
+
+        process_eq_mle_steps(additional_steps, cached_point, &starting_element, res, n_vars, tid, 1 << start_step, start_step);
     }
 }
 

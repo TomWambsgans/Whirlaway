@@ -203,7 +203,11 @@ mod test {
             };
             cuda_load_function(CudaFunctionInfo::one_field::<EF>(
                 "multilinear.cu",
-                "eq_mle",
+                "eq_mle_start",
+            ));
+            cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+                "multilinear.cu",
+                "eq_mle_steps",
             ));
             cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
                 "multilinear.cu",

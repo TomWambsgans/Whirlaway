@@ -282,7 +282,7 @@ fn cuda_compute_capacity() -> (u32, u32) {
 }
 
 static SHARED_MEMORY: OnceLock<usize> = OnceLock::new();
-fn shared_memory() -> usize {
+pub fn shared_memory() -> usize {
     *SHARED_MEMORY.get_or_init(|| {
         let dev = CudaContext::new(0).unwrap();
         dev.attribute(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK)
