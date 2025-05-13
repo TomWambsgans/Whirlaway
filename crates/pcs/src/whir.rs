@@ -85,7 +85,9 @@ mod test {
         cuda_preprocess_many_sumcheck_computations, cuda_preprocess_twiddles, cuda_sync,
         memcpy_htod,
     };
-    use p3_field::{extension::BinomialExtensionField, BasedVectorSpace, PrimeCharacteristicRing, PrimeField32};
+    use p3_field::{
+        BasedVectorSpace, PrimeCharacteristicRing, PrimeField32, extension::BinomialExtensionField,
+    };
     use p3_koala_bear::KoalaBear;
     use tracing_forest::{ForestLayer, util::LevelFilter};
     use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
@@ -176,7 +178,7 @@ mod test {
         F::PrimeSubfield: TwoAdicField,
         F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield> + MyExtensionField<RCF>,
         RCF: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-        <F as PrimeCharacteristicRing>::PrimeSubfield: PrimeField32
+        <F as PrimeCharacteristicRing>::PrimeSubfield: PrimeField32,
     {
         let config = WhirConfig::<F, RCF>::new(num_vars, params);
 
@@ -190,7 +192,7 @@ mod test {
                 n_multilinears: 2,
                 eq_mle_multiplier: false,
             };
-             cuda_load_function(CudaFunctionInfo::one_field::<F::PrimeSubfield>(
+            cuda_load_function(CudaFunctionInfo::one_field::<F::PrimeSubfield>(
                 "multilinear.cu",
                 "eq_mle_start",
             ));
@@ -216,11 +218,11 @@ mod test {
             ));
             cuda_load_function(CudaFunctionInfo::one_field::<F>(
                 "multilinear.cu",
-                "lagrange_to_monomial_basis",
+                "lagrange_to_monomial_basis_steps",
             ));
             cuda_load_function(CudaFunctionInfo::one_field::<F>(
                 "multilinear.cu",
-                "lagrange_to_monomial_basis",
+                "lagrange_to_monomial_basis_end",
             ));
             cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<F>());
             cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<F>());

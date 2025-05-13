@@ -54,9 +54,7 @@ where
         let (mut ood_points, mut ood_answers) = (Vec::new(), Vec::new());
         if self.0.committment_ood_samples > 0 {
             ood_points = (0..self.0.committment_ood_samples)
-                .map(|_| {
-                    fs_prover.challenge_scalars::<F::PrimeSubfield>(self.0.num_variables)
-                })
+                .map(|_| fs_prover.challenge_scalars::<F::PrimeSubfield>(self.0.num_variables))
                 .collect::<Vec<_>>();
             ood_answers = ood_points
                 .iter()

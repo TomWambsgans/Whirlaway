@@ -5,7 +5,9 @@ use p3_field::{ExtensionField, PrimeCharacteristicRing, PrimeField, TwoAdicField
 use pcs::{PCS, RingSwitch};
 use sumcheck::{SumcheckError, SumcheckGrinding};
 use tracing::instrument;
-use utils::{dot_product, eq_extension, powers, small_to_big_extension, Evaluation, MyExtensionField};
+use utils::{
+    Evaluation, MyExtensionField, dot_product, eq_extension, powers, small_to_big_extension,
+};
 use whir::parameters::{WhirConfig, WhirConfigBuilder};
 
 use crate::{

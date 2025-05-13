@@ -1,28 +1,89 @@
-use cuda_engine::{CudaCall, CudaFunctionInfo, cuda_alloc};
+use cuda_engine::{
+    CudaCall, CudaFunctionInfo, LOG_MAX_THREADS_PER_BLOCK, cuda_alloc, shared_memory,
+};
 use cudarc::driver::{CudaSlice, PushKernelArg};
 use p3_field::Field;
+use utils::log2_down;
+
+const MAX_STEPS_PER_KERNEL_LAGRANGE_TO_MONOMIAL: usize = 5;
 
 // Async
-pub fn cuda_lagrange_to_monomial_basis<F: Field>(evals: &CudaSlice<F>) -> CudaSlice<F> {
-    assert!(evals.len().is_power_of_two());
-    let n_vars = evals.len().ilog2();
-    let mut result = cuda_alloc::<F>(evals.len());
-    let mut call = CudaCall::new(
-        CudaFunctionInfo::one_field::<F>("multilinear.cu", "lagrange_to_monomial_basis"),
-        1 << (n_vars - 1),
-    );
-    call.arg(evals);
+pub fn cuda_lagrange_to_monomial_basis<F: Field>(mut input: &CudaSlice<F>) -> CudaSlice<F> {
+    assert!(input.len().is_power_of_two());
 
-    let mut buff;
-    buff = cuda_alloc::<F>(evals.len());
-    call.arg(&mut buff);
+    let mut output = cuda_alloc::<F>(input.len());
+    let n_vars = input.len().ilog2() as usize;
 
-    call.arg(&mut result);
-    call.arg(&n_vars);
-    call.launch_cooperative();
+    let steps_in_shared_memory = n_vars
+        .min(LOG_MAX_THREADS_PER_BLOCK + 1)
+        .min(log2_down(shared_memory() / size_of::<F>()));
 
-    result
+    let mut remaining_initial_steps = n_vars - steps_in_shared_memory;
+    let mut previous_steps = 0;
+    while remaining_initial_steps > 0 {
+        let steps_to_perform =
+            remaining_initial_steps.min(MAX_STEPS_PER_KERNEL_LAGRANGE_TO_MONOMIAL);
+        cuda_lagrange_to_monomial_basis_steps(input, &mut output, previous_steps, steps_to_perform);
+        previous_steps += steps_to_perform;
+        remaining_initial_steps -= steps_to_perform;
+        input = unsafe { &*(&output as *const CudaSlice<F>) }
+    }
+
+    cuda_lagrange_to_monomial_basis_end(&input, &mut output, steps_in_shared_memory);
+
+    output
 }
+
+// Async
+fn cuda_lagrange_to_monomial_basis_end<F: Field>(
+    input: &CudaSlice<F>,
+    output: &mut CudaSlice<F>,
+    missing_steps: usize,
+) {
+    assert!(missing_steps > 0);
+    assert_eq!(input.len(), output.len());
+    assert!(input.len().is_power_of_two());
+    let n_vars = input.len().ilog2();
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::one_field::<F>("multilinear.cu", "lagrange_to_monomial_basis_end"),
+        1 << (n_vars - 1),
+    )
+    .max_log_threads_per_block(missing_steps - 1)
+    .shared_mem_bytes((1 << missing_steps) * std::mem::size_of::<F>());
+    let missing_steps_u32 = missing_steps as u32;
+    call.arg(input);
+    call.arg(output);
+    call.arg(&n_vars);
+    call.arg(&missing_steps_u32);
+    call.launch();
+}
+
+// Async
+fn cuda_lagrange_to_monomial_basis_steps<F: Field>(
+    input: &CudaSlice<F>,
+    output: &mut CudaSlice<F>,
+    previous_steps: usize,
+    steps_to_perform: usize,
+) {
+    assert_eq!(input.len(), output.len());
+    assert!(input.len().is_power_of_two());
+    assert!(steps_to_perform > 0);
+    let n_vars = input.len().ilog2();
+    assert!(previous_steps + steps_to_perform <= n_vars as usize);
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::one_field::<F>("multilinear.cu", "lagrange_to_monomial_basis_steps"),
+        1 << (n_vars - steps_to_perform as u32),
+    );
+    let previous_steps_u32 = previous_steps as u32;
+    let steps_to_perform_u32 = steps_to_perform as u32;
+    call.arg(input);
+    call.arg(output);
+    call.arg(&n_vars);
+    call.arg(&previous_steps_u32);
+    call.arg(&steps_to_perform_u32);
+    call.launch();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -42,7 +103,11 @@ mod tests {
         cuda_init();
         cuda_load_function(CudaFunctionInfo::one_field::<EF>(
             "multilinear.cu",
-            "lagrange_to_monomial_basis",
+            "lagrange_to_monomial_basis_end",
+        ));
+        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+            "multilinear.cu",
+            "lagrange_to_monomial_basis_steps",
         ));
 
         let rng = &mut StdRng::seed_from_u64(0);

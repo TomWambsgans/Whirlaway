@@ -6,43 +6,137 @@
 
 #include "ff_wrapper.cu"
 
-// Could also be done in place
-extern "C" __global__ void lagrange_to_monomial_basis(Field_A *input_evals, Field_A *buff, Field_A *output_coeffs, uint32_t n_vars)
+extern "C" __global__ void lagrange_to_monomial_basis_end(Field_A *input, Field_A *output, uint32_t n_vars, uint32_t missing_steps)
 {
-    namespace cg = cooperative_groups;
-    cg::grid_group grid = cg::this_grid();
+    // we may have input and output overlapping
+    assert(missing_steps <= n_vars);
+    assert(1 << (missing_steps - 1) == blockDim.x);
 
-    int n_total_threads = blockDim.x * gridDim.x;
-    int n_iters = (1 << (n_vars - 1));
-    int n_repetitions = (n_iters + n_total_threads - 1) / n_total_threads;
+    extern __shared__ Field_A shared_cache[];
 
-    for (int step = 0; step < n_vars; step++)
+    int n_virtual_blocks = 1 << (n_vars - missing_steps);
+    int n_repetitions = (n_virtual_blocks + gridDim.x - 1) / gridDim.x;
+
+    for (int b = 0; b < n_repetitions; b++)
     {
-        int half = 1 << (n_vars - step - 1);
-        for (int rep = 0; rep < n_repetitions; rep++)
+        int v_block = blockIdx.x + b * gridDim.x;
+        int tid = threadIdx.x;
+
+        if (v_block >= n_virtual_blocks)
         {
+            return;
+        }
 
-            int idx = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
-            if (idx >= n_iters)
-            {
-                continue;
-            }
+        shared_cache[tid] = input[v_block * blockDim.x * 2 + tid];
+        shared_cache[tid + blockDim.x] = input[(v_block * 2 + 1) * blockDim.x + tid];
 
-            Field_A *inputs = step == 0 ? input_evals : (n_vars % 2 != step % 2 ? buff : output_coeffs);
-            Field_A *outputs = n_vars % 2 == step % 2 ? buff : output_coeffs;
+        for (int step = 0; step < missing_steps; step++)
+        {
+            __syncthreads();
 
-            int start = (idx / half) * 2 * half;
-            int offset = idx % half;
+            int half = 1 << (missing_steps - step - 1);
 
-            Field_A left = inputs[start + offset];
-            Field_A right = inputs[start + offset + half];
+            int start = (tid / half) * 2 * half;
+            int offset = tid % half;
+
+            Field_A left = shared_cache[start + offset];
+            Field_A right = shared_cache[start + offset + half];
+
+            __syncthreads();
+
             Field_A diff;
             SUB_AA(right, left, diff);
-
-            outputs[start + offset] = left;
-            outputs[start + offset + half] = diff;
+            shared_cache[start + offset + half] = diff;
         }
-        grid.sync();
+
+        __syncthreads();
+        output[v_block * blockDim.x * 2 + tid] = shared_cache[tid];
+        output[(v_block * 2 + 1) * blockDim.x + tid] = shared_cache[tid + blockDim.x];
+    }
+}
+
+template <int STEPS>
+__device__ inline void
+lagrange_to_monomial_inner(const Field_A *input,
+                           Field_A *output,
+                           int offset,
+                           int index_in_chunk,
+                           int jump)
+{
+    Field_A reg[1 << STEPS];
+
+#pragma unroll
+    for (int i = 0; i < (1 << STEPS); ++i)
+    // print offset + index_in_chunk + i * jump
+    {
+        reg[i] = input[offset + index_in_chunk + i * jump];
+    }
+
+#pragma unroll
+    for (int step = 0; step < STEPS; ++step)
+    {
+        const int half = 1 << (STEPS - step - 1);
+
+#pragma unroll
+        for (int j = 0; j < (1 << (STEPS - 1)); ++j)
+        {
+            const int strt = (j / half) * 2 * half;
+            const int ofst = j % half;
+            SUB_AA(reg[strt + ofst + half],
+                   reg[strt + ofst],
+                   reg[strt + ofst + half]);
+        }
+    }
+
+    // write the result back (if required)
+#pragma unroll
+    for (int i = 0; i < (1 << STEPS); ++i)
+        output[offset + index_in_chunk + i * jump] = reg[i];
+}
+
+extern "C" __global__ void lagrange_to_monomial_basis_steps(Field_A *input, Field_A *output, uint32_t n_vars, uint32_t previous_steps, uint32_t steps_to_perform)
+{
+    // we may have input and output overlapping
+
+    int total_n_threads = blockDim.x * gridDim.x;
+    int n_ops = 1 << (n_vars - steps_to_perform);
+    int n_repetitions = (n_ops + total_n_threads - 1) / total_n_threads;
+
+    for (int rep = 0; rep < n_repetitions; rep++)
+    {
+        int tid = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
+        if (tid >= n_ops)
+        {
+            return;
+        }
+
+        int chunck = (((long)tid) << ((long)steps_to_perform)) >> previous_steps;
+        int index_in_chunk = tid % (1 << (n_vars - previous_steps - steps_to_perform));
+
+        int offset = (tid >> (n_vars - previous_steps - steps_to_perform)) << (n_vars - previous_steps);
+
+        int jump = 1 << (n_vars - steps_to_perform - previous_steps);
+
+        switch (steps_to_perform)
+        {
+        case 1:
+            lagrange_to_monomial_inner<1>(input, output, offset, index_in_chunk, jump);
+            break;
+        case 2:
+            lagrange_to_monomial_inner<2>(input, output, offset, index_in_chunk, jump);
+            break;
+        case 3:
+            lagrange_to_monomial_inner<3>(input, output, offset, index_in_chunk, jump);
+            break;
+        case 4:
+            lagrange_to_monomial_inner<4>(input, output, offset, index_in_chunk, jump);
+            break;
+        case 5:
+            lagrange_to_monomial_inner<5>(input, output, offset, index_in_chunk, jump);
+            break;
+        default:
+            assert(false); // not compiled in
+        }
     }
 }
 

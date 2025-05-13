@@ -124,7 +124,6 @@ pub fn dot_product<F: Field, EF: ExtensionField<F>>(a: &[F], b: &[EF]) -> EF {
     a.iter().zip(b.iter()).map(|(x, y)| *y * *x).sum()
 }
 
-
 pub fn dot_product_1<F: Field, EF: MyExtensionField<F>>(a: &[F], b: &[EF]) -> EF {
     assert_eq!(a.len(), b.len());
     a.iter().zip(b.iter()).map(|(x, y)| y.my_multiply(x)).sum()
@@ -241,9 +240,7 @@ impl MyExtensionField<BinomialExtensionField<KoalaBear, 4>>
     }
 }
 
-impl MyExtensionField<BinomialExtensionField<BabyBear, 4>>
-    for BinomialExtensionField<BabyBear, 8>
-{
+impl MyExtensionField<BinomialExtensionField<BabyBear, 4>> for BinomialExtensionField<BabyBear, 8> {
     fn my_from(x: BinomialExtensionField<BabyBear, 4>) -> Self {
         small_to_big_extension::<BabyBear, _, _>(x)
     }

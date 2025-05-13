@@ -7,7 +7,11 @@ use p3_field::{ExtensionField, Field};
 use utils::log2_down;
 
 // Async
-pub fn cuda_eval_multilinear_in_lagrange_basis<F1: Field, F2: Field, ResField: ExtensionField<F1>>(
+pub fn cuda_eval_multilinear_in_lagrange_basis<
+    F1: Field,
+    F2: Field,
+    ResField: ExtensionField<F1>,
+>(
     coeffs: &CudaSlice<F1>,
     point: &[F2],
 ) -> ResField {

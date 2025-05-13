@@ -4,8 +4,8 @@ use cuda_engine::{
 };
 use cudarc::driver::{CudaSlice, CudaView, PushKernelArg};
 use p3_field::{BasedVectorSpace, ExtensionField, Field};
-use utils::MyExtensionField;
 use std::borrow::Borrow;
+use utils::MyExtensionField;
 
 use crate::cuda_eq_mle;
 
@@ -68,7 +68,10 @@ pub fn cuda_add_slices<F: Field, S: Borrow<CudaSlice<F>>>(slices: &[S]) -> CudaS
 }
 
 // Async
-pub fn cuda_add_assign_slices<F: Field, EF: MyExtensionField<F>>(a: &mut CudaSlice<EF>, b: &CudaSlice<F>) {
+pub fn cuda_add_assign_slices<F: Field, EF: MyExtensionField<F>>(
+    a: &mut CudaSlice<EF>,
+    b: &CudaSlice<F>,
+) {
     // a += b;
     assert_eq!(a.len(), b.len());
     let mut call = CudaCall::new(
@@ -133,7 +136,11 @@ pub fn cuda_linear_combination_at_row_level<F: Field, EF: ExtensionField<F>>(
 }
 
 // Async
-pub fn cuda_linear_combination_large_field<F: Field, EF: ExtensionField<F>, S: Borrow<CudaSlice<F>>>(
+pub fn cuda_linear_combination_large_field<
+    F: Field,
+    EF: ExtensionField<F>,
+    S: Borrow<CudaSlice<F>>,
+>(
     inputs: &[S],
     scalars: &[EF],
 ) -> CudaSlice<EF> {
@@ -141,7 +148,11 @@ pub fn cuda_linear_combination_large_field<F: Field, EF: ExtensionField<F>, S: B
 }
 
 // Async
-pub fn cuda_linear_combination_small_field<F: Field, EF: MyExtensionField<F>, S: Borrow<CudaSlice<EF>>>(
+pub fn cuda_linear_combination_small_field<
+    F: Field,
+    EF: MyExtensionField<F>,
+    S: Borrow<CudaSlice<EF>>,
+>(
     inputs: &[S],
     scalars: &[F],
 ) -> CudaSlice<EF> {

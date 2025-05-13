@@ -65,10 +65,7 @@ pub(crate) struct RoundConfig {
 }
 
 impl WhirConfigBuilder {
-    pub fn build<F: Field, RCF>(
-        &self,
-        num_variables: usize,
-    ) -> WhirConfig<F, RCF> {
+    pub fn build<F: Field, RCF>(&self, num_variables: usize) -> WhirConfig<F, RCF> {
         self.folding_factor.check_validity(num_variables).unwrap();
 
         let protocol_security_level = self.security_level.saturating_sub(self.target_pow_bits);
@@ -360,9 +357,7 @@ fn rbr_soundness_queries_combination(
     field_size_bits as f64 - (log_combination + list_size + 1.)
 }
 
-impl<F, RCF>
-    WhirConfig<F, RCF>
-{
+impl<F, RCF> WhirConfig<F, RCF> {
     pub fn n_rounds(&self) -> usize {
         self.round_parameters.len()
     }
@@ -380,9 +375,7 @@ impl<F, RCF>
     }
 }
 
-impl<F: Field, RCF> Debug
-    for WhirConfig<F, RCF>
-{
+impl<F: Field, RCF> Debug for WhirConfig<F, RCF> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "num variables: {}", self.num_variables)?;
         writeln!(f, ", folding factor: {:?}", self.folding_factor)?;

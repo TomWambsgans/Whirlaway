@@ -231,7 +231,7 @@ mod test {
         let log_inv_rate = 4;
 
         let rng = &mut StdRng::seed_from_u64(0);
-        let ring_switch = RingSwitch::<EF, WhirConfig<EF, RCF>>::new( 
+        let ring_switch = RingSwitch::<EF, WhirConfig<EF, RCF>>::new(
             n_vars,
             &WhirConfigBuilder::standard(
                 SoundnessType::ProvableList,

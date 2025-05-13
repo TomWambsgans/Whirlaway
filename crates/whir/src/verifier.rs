@@ -6,7 +6,7 @@ use p3_field::PrimeCharacteristicRing;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use std::iter;
 use tracing::instrument;
-use utils::{log2_up, powers, KeccakDigest, MyExtensionField, Statement};
+use utils::{KeccakDigest, MyExtensionField, Statement, log2_up, powers};
 use utils::{eq_extension, multilinear_point_from_univariate};
 
 use super::parameters::WhirConfig;
@@ -226,9 +226,8 @@ where
         final_folding_randomness = initial_sumcheck_rounds.iter().map(|&(_, r)| r).collect();
 
         let mut prev_root = parsed_commitment.root.clone();
-        let mut domain_gen = F::two_adic_generator(
-            self.0.num_variables + self.0.starting_log_inv_rate,
-        );
+        let mut domain_gen =
+            F::two_adic_generator(self.0.num_variables + self.0.starting_log_inv_rate);
         let mut exp_domain_gen = domain_gen.exp_u64(1 << self.0.folding_factor.at_round(0));
         let mut domain_size = 1 << (self.0.num_variables + self.0.starting_log_inv_rate);
         let mut rounds = vec![];
@@ -336,7 +335,7 @@ where
             let stir_challenges_points = &round_proof.stir_challenges_points;
             let stir_challenges: Vec<Vec<F>> = ood_points
                 .iter()
-                .map(|points|points.iter().cloned().map(F::from).collect())
+                .map(|points| points.iter().cloned().map(F::from).collect())
                 .chain(stir_challenges_points.iter().map(|univariate| {
                     multilinear_point_from_univariate(*univariate, num_variables)
                 }))

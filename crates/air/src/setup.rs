@@ -59,11 +59,19 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
         cuda_load_function(CudaFunctionInfo::basic("keccak.cu", "pow_grinding"));
         cuda_load_function(CudaFunctionInfo::one_field::<EF>(
             "multilinear.cu",
-            "lagrange_to_monomial_basis",
+            "lagrange_to_monomial_basis_steps",
         ));
         cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
             "multilinear.cu",
-            "lagrange_to_monomial_basis",
+            "lagrange_to_monomial_basis_steps",
+        ));
+        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+            "multilinear.cu",
+            "lagrange_to_monomial_basis_end",
+        ));
+        cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
+            "multilinear.cu",
+            "lagrange_to_monomial_basis_end",
         ));
         cuda_load_function(CudaFunctionInfo::one_field::<F>(
             "multilinear.cu",
