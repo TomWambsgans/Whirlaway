@@ -78,7 +78,6 @@ using Field_A = Field_t<EXTENSION_DEGREE_A>;
 using Field_B = Field_t<EXTENSION_DEGREE_B>;
 using Field_C = Field_t<EXTENSION_DEGREE_C>;
 
-
 #if EXTENSION_DEGREE_B == EXTENSION_DEGREE_C
 #define FIELD_CONVERSION_B_C(src, dst) dst = src;
 #elif EXTENSION_DEGREE_B == 1 && EXTENSION_DEGREE_C > 1
@@ -117,8 +116,8 @@ using Field_C = Field_t<EXTENSION_DEGREE_C>;
 #define SUB_BB(x, y, res) res = Field_B::sub(x, y);
 
 #define MUL_AA(x, y, res) res = Field_A::mul(x, y);
-#define MUL_BA(x, y, res) res = Field_B::mul(x, y);
 #define MUL_AB(x, y, res) res = Field_A::mul(x, y);
+#define MUL_BA(x, y, res) res = Field_B::mul(x, y);
 #define MUL_BB(x, y, res) res = Field_B::mul(x, y);
 
 #elif EXTENSION_DEGREE_A == 1 && EXTENSION_DEGREE_B > 1
@@ -134,8 +133,8 @@ using Field_C = Field_t<EXTENSION_DEGREE_C>;
 #define SUB_BB(x, y, res) Field_B::sub(&x, &y, &res);
 
 #define MUL_AA(x, y, res) res = Field_A::mul(x, y);
-#define MUL_BA(x, y, res) Field_B::mul_prime_field(&x, y, &res);
 #define MUL_AB(x, y, res) Field_B::mul_prime_field(&y, x, &res);
+#define MUL_BA(x, y, res) Field_B::mul_prime_field(&x, y, &res);
 #define MUL_BB(x, y, res) Field_B::mul(&x, &y, &res);
 
 #elif EXTENSION_DEGREE_A > 1 && EXTENSION_DEGREE_B == 1
@@ -151,8 +150,8 @@ using Field_C = Field_t<EXTENSION_DEGREE_C>;
 #define SUB_BB(x, y, res) res = Field_B::sub(x, y);
 
 #define MUL_AA(x, y, res) Field_A::mul(&x, &y, &res);
-#define MUL_BA(x, y, res) Field_A::mul_prime_field(&y, x, &res);
 #define MUL_AB(x, y, res) Field_A::mul_prime_field(&x, y, &res);
+#define MUL_BA(x, y, res) Field_A::mul_prime_field(&y, x, &res);
 #define MUL_BB(x, y, res) res = Field_B::mul(x, y);
 
 #elif EXTENSION_DEGREE_A == EXTENSION_DEGREE_B
@@ -168,9 +167,43 @@ using Field_C = Field_t<EXTENSION_DEGREE_C>;
 #define SUB_BB(x, y, res) Field_A::sub(&x, &y, &res);
 
 #define MUL_AA(x, y, res) Field_A::mul(&x, &y, &res);
-#define MUL_BA(x, y, res) Field_A::mul(&x, &y, &res);
 #define MUL_AB(x, y, res) Field_A::mul(&x, &y, &res);
+#define MUL_BA(x, y, res) Field_A::mul(&x, &y, &res);
 #define MUL_BB(x, y, res) Field_A::mul(&x, &y, &res);
+
+#elif EXTENSION_DEGREE_A == 8 && EXTENSION_DEGREE_B == 4
+
+#define ADD_AA(x, y, res) Field_A::add(&x, &y, &res);
+#define ADD_AB(x, y, res) add_ext8_ext4(&x, &y, &res);
+#define ADD_BA(x, y, res) add_ext4_ext8(x, &y, &res);
+#define ADD_BB(x, y, res) Field_B::add(&x, &y, &res);
+
+#define SUB_AA(x, y, res) Field_A::sub(&x, &y, &res);
+#define SUB_AB(x, y, res) sub_ext8_ext4(&x, &y, &res);
+#define SUB_BA(x, y, res) sub_ext4_ext8(x, &y, &res);
+#define SUB_BB(x, y, res) Field_B::sub(&x, &y, &res);
+
+#define MUL_AA(x, y, res) Field_A::mul(&x, &y, &res);
+#define MUL_AB(x, y, res) mul_ext8_ext4(&x, &y, &res);
+#define MUL_BA(x, y, res) mul_ext4_ext8(&x, &y, &res);
+#define MUL_BB(x, y, res) Field_B::mul(&x, &y, &res);
+
+#elif EXTENSION_DEGREE_A == 4 && EXTENSION_DEGREE_B == 8
+
+#define ADD_AA(x, y, res) Field_A::add(&x, &y, &res);
+#define ADD_AB(x, y, res) add_ext4_ext8(&x, &y, &res);
+#define ADD_BA(x, y, res) add_ext8_ext4(x, &y, &res);
+#define ADD_BB(x, y, res) Field_B::add(&x, &y, &res);
+
+#define SUB_AA(x, y, res) Field_A::sub(&x, &y, &res);
+#define SUB_AB(x, y, res) sub_ext4_ext8(&x, &y, &res);
+#define SUB_BA(x, y, res) sub_ext8_ext4(x, &y, &res);
+#define SUB_BB(x, y, res) Field_B::sub(&x, &y, &res);
+
+#define MUL_AA(x, y, res) Field_A::mul(&x, &y, &res);
+#define MUL_AB(x, y, res) mul_ext4_ext8(&x, &y, &res);
+#define MUL_BA(x, y, res) mul_ext8_ext4(&x, &y, &res);
+#define MUL_BB(x, y, res) Field_B::mul(&x, &y, &res);
 
 #else
 #error "Invalid combination of EXTENSION_DEGREE_A and EXTENSION_DEGREE_B."

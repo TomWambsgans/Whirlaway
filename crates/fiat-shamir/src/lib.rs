@@ -17,6 +17,7 @@ use p3_field::Field;
 pub struct FsError;
 
 pub struct FsProver {
+    cuda: bool,
     state: KeccakDigest,
     transcript: Vec<u8>,
 }
@@ -44,8 +45,9 @@ pub fn reset_total_grinding_time() {
 }
 
 impl FsProver {
-    pub fn new() -> Self {
+    pub fn new(cuda: bool) -> Self {
         FsProver {
+            cuda,
             state: KeccakDigest::default(),
             transcript: Vec::new(),
         }
@@ -105,7 +107,7 @@ impl FsProver {
         (0..len).map(|_| F::random(&mut rng)).collect::<Vec<_>>()
     }
 
-    pub fn challenge_pow(&mut self, bits: usize, cuda: bool) {
+    pub fn challenge_pow(&mut self, bits: usize) {
         if bits >= 30 {
             panic!("too much grinding: {} bits", bits);
         }
@@ -113,7 +115,7 @@ impl FsProver {
             return;
         }
         let time = std::time::Instant::now();
-        let nonce = if cuda && bits > 18 {
+        let nonce = if self.cuda && bits > 18 {
             cuda_pow_grinding(&self.state, bits)
         } else {
             (0..u64::MAX)
@@ -238,7 +240,7 @@ impl FsVerifier {
 pub trait FsParticipant {
     fn challenge_bytes(&mut self, len: usize) -> Vec<u8>;
     fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F>;
-    fn challenge_pow(&mut self, bits: usize, cuda: bool) -> Result<(), FsError>;
+    fn challenge_pow(&mut self, bits: usize) -> Result<(), FsError>;
 }
 
 impl FsParticipant for FsProver {
@@ -250,8 +252,8 @@ impl FsParticipant for FsProver {
         FsProver::challenge_scalars(self, len)
     }
 
-    fn challenge_pow(&mut self, bits: usize, cuda: bool) -> Result<(), FsError> {
-        FsProver::challenge_pow(self, bits, cuda);
+    fn challenge_pow(&mut self, bits: usize) -> Result<(), FsError> {
+        FsProver::challenge_pow(self, bits);
         Ok(())
     }
 }
@@ -265,7 +267,7 @@ impl FsParticipant for FsVerifier {
         FsVerifier::challenge_scalars(self, len)
     }
 
-    fn challenge_pow(&mut self, bits: usize, _cuda: bool) -> Result<(), FsError> {
+    fn challenge_pow(&mut self, bits: usize) -> Result<(), FsError> {
         FsVerifier::challenge_pow(self, bits)
     }
 }
@@ -294,9 +296,9 @@ mod tests {
 
     #[test]
     fn benchmark_pow() {
-        let mut prover = FsProver::new();
+        let mut prover = FsProver::new(false);
         let time = std::time::Instant::now();
-        prover.challenge_pow(12, false);
+        prover.challenge_pow(12);
         println!("Time: {:?}", time.elapsed());
     }
 }

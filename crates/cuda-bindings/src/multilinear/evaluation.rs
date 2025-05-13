@@ -7,23 +7,23 @@ use p3_field::{ExtensionField, Field};
 use utils::log2_down;
 
 // Async
-pub fn cuda_eval_multilinear_in_lagrange_basis<F: Field, EF: ExtensionField<F>>(
-    coeffs: &CudaSlice<F>,
-    point: &[EF],
-) -> EF {
+pub fn cuda_eval_multilinear_in_lagrange_basis<F1: Field, F2: Field, ResField: ExtensionField<F1>>(
+    coeffs: &CudaSlice<F1>,
+    point: &[F2],
+) -> ResField {
     assert!(coeffs.len().is_power_of_two());
     let n_vars = coeffs.len().ilog2();
     assert_eq!(n_vars, point.len() as u32);
 
     if n_vars == 0 {
-        return EF::from(cuda_get_at_index(coeffs, 0));
+        return ResField::from(cuda_get_at_index(coeffs, 0));
     }
 
     let point_dev = memcpy_htod(point);
-    let mut buff = cuda_alloc::<EF>(coeffs.len() - 1);
+    let mut buff = cuda_alloc::<ResField>(coeffs.len() - 1);
 
     let mut call = CudaCall::new(
-        CudaFunctionInfo::two_fields::<F, EF>(
+        CudaFunctionInfo::two_fields::<F1, F2>(
             "multilinear.cu",
             "eval_multilinear_in_lagrange_basis",
         ),
@@ -175,14 +175,14 @@ mod tests {
         cuda_sync();
 
         let time = std::time::Instant::now();
-        let cuda_result = cuda_eval_multilinear_in_lagrange_basis(&coeffs_dev, &point);
+        let cuda_result: EF = cuda_eval_multilinear_in_lagrange_basis(&coeffs_dev, &point);
         cuda_sync();
         println!(
             "CUDA eval_multilinear_in_lagrange_basis took {} ms",
             time.elapsed().as_millis()
         );
         let time = std::time::Instant::now();
-        let expected_result = MultilinearHost::new(coeffs).evaluate(&point);
+        let expected_result = MultilinearHost::new(coeffs).evaluate_in_large_field(&point);
         println!("CPU took {} ms", time.elapsed().as_millis());
 
         assert_eq!(cuda_result, expected_result);

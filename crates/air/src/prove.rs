@@ -7,7 +7,9 @@ use pcs::{PCS, RingSwitch};
 use rayon::prelude::*;
 use sumcheck::SumcheckGrinding;
 use tracing::{Level, instrument, span};
-use utils::{Evaluation, HypercubePoint, dot_product, powers, small_to_big_extension};
+use utils::{
+    Evaluation, HypercubePoint, MyExtensionField, dot_product, powers, small_to_big_extension,
+};
 use whir::parameters::{WhirConfig, WhirConfigBuilder};
 
 use crate::{AirSettings, utils::columns_up_and_down};
@@ -36,6 +38,8 @@ impl<F: PrimeField> AirTable<F> {
         cuda: bool,
     ) where
         WhirF::PrimeSubfield: TwoAdicField,
+        WhirF: MyExtensionField<EF>,
+        EF: ExtensionField<<WhirF as PrimeCharacteristicRing>::PrimeSubfield>,
     {
         assert!(
             settings.univariate_skips < self.log_length,
@@ -44,7 +48,7 @@ impl<F: PrimeField> AirTable<F> {
         let log_length = self.log_length;
         assert!(witness_host.iter().all(|w| w.n_vars == log_length));
 
-        let pcs = RingSwitch::<WhirF, WhirConfig<WhirF, WhirF>>::new(
+        let pcs = RingSwitch::<WhirF, WhirConfig<WhirF, EF>>::new(
             log_length + self.log_n_witness_columns(),
             &WhirConfigBuilder::standard(
                 settings.whir_soudness_type,
@@ -76,7 +80,7 @@ impl<F: PrimeField> AirTable<F> {
         cuda_sync();
         let packed_pol_witness = pcs.commit(packed_pol, fs_prover);
 
-        self.constraints_batching_pow::<EF, _>(fs_prover, settings, cuda)
+        self.constraints_batching_pow::<EF, _>(fs_prover, settings)
             .unwrap();
 
         let constraints_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
@@ -84,8 +88,7 @@ impl<F: PrimeField> AirTable<F> {
         let constraints_batching_scalars =
             powers(constraints_batching_scalar, self.constraints.len());
 
-        self.zerocheck_pow::<EF, _>(fs_prover, settings, cuda)
-            .unwrap();
+        self.zerocheck_pow::<EF, _>(fs_prover, settings).unwrap();
 
         let zerocheck_challenges =
             fs_prover.challenge_scalars::<EF>(log_length + 1 - settings.univariate_skips);
@@ -128,13 +131,13 @@ impl<F: PrimeField> AirTable<F> {
         let inner_sums = inner_sums_up
             .into_iter()
             .chain(inner_sums_down)
-            .map(|s| s.evaluate::<EF>(&[]))
+            .map(|s| s.evaluate_in_large_field::<EF>(&[]))
             .collect::<Vec<_>>();
         cuda_sync();
         std::mem::drop(_span_evals);
         fs_prover.add_scalars(&inner_sums);
 
-        self.secondary_sumchecks_batching_pow::<EF, _>(fs_prover, settings, cuda)
+        self.secondary_sumchecks_batching_pow::<EF, _>(fs_prover, settings)
             .unwrap();
         let secondary_sumcheck_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
 
@@ -150,7 +153,7 @@ impl<F: PrimeField> AirTable<F> {
                 // up and down
                 let sum = witness
                     .as_ref()
-                    .linear_comb(
+                    .linear_comb_in_large_field(
                         &expanded_scalars
                             [i * self.n_witness_columns()..(i + 1) * self.n_witness_columns()],
                     )
@@ -188,7 +191,7 @@ impl<F: PrimeField> AirTable<F> {
             nodes
         };
 
-        let inner_sumcheck_circuit = ArithmeticCircuit::Node(4)
+        let inner_sumcheck_circuit = ArithmeticCircuit::<F, _>::Node(4)
             * ((ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
                 + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3)));
 
@@ -219,7 +222,7 @@ impl<F: PrimeField> AirTable<F> {
         let _span_evals = span!(Level::INFO, "evaluating witness").entered();
         let values = witness
             .as_ref()
-            .batch_evaluate(&inner_challenges[settings.univariate_skips..]);
+            .batch_evaluate_in_large_field(&inner_challenges[settings.univariate_skips..]);
 
         cuda_sync();
         std::mem::drop(_span_evals);
@@ -238,13 +241,13 @@ impl<F: PrimeField> AirTable<F> {
             ]
             .concat(),
         )
-        .evaluate(&final_random_scalars);
+        .evaluate_in_large_field(&final_random_scalars);
         let packed_eval = Evaluation {
             point: final_point
                 .into_iter()
-                .map(small_to_big_extension)
+                .map(small_to_big_extension::<F, EF, WhirF>)
                 .collect(),
-            value: small_to_big_extension(packed_value),
+            value: small_to_big_extension::<F, EF, WhirF>(packed_value),
         };
 
         std::mem::drop(_span);
@@ -322,7 +325,7 @@ fn matrix_down_folded_with_univariate_skips<F: Field>(
                 }
                 let eq_mle = &inner_mles[(m - k - 1).saturating_sub(x.n_vars)];
                 // MultilinearHost::eq_mle(&outer_challenges[0..n - k - 1]);
-                let eq_mle = eq_mle.scale(outer_challenges_prod);
+                let eq_mle = eq_mle.scale_large_field(outer_challenges_prod);
                 let n_coefs = eq_mle.n_coefs();
                 for (mut i, v) in eq_mle.evals.into_iter().enumerate() {
                     i += (x.val >> (x.n_vars - x.n_vars.min(m - k - 1))) * n_coefs;

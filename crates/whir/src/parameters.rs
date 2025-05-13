@@ -1,6 +1,6 @@
 use core::panic;
 use derive_more::Deref;
-use p3_field::{ExtensionField, Field};
+use p3_field::Field;
 use serde::Serialize;
 use std::{f64::consts::LOG2_10, fmt::Debug, marker::PhantomData};
 
@@ -36,20 +36,14 @@ impl WhirConfigBuilder {
 }
 
 #[derive(Clone, Deref)]
-pub struct WhirConfig<F: Field, EF: ExtensionField<F>> {
+pub struct WhirConfig<F, RCF> {
     #[deref]
     builder: WhirConfigBuilder,
     pub num_variables: usize,
-    _coeffs_field: PhantomData<F>,
-    _opening_field: PhantomData<EF>,
+    _main_field: PhantomData<F>,
+    _random_combination_field: PhantomData<RCF>,
 
     pub(crate) committment_ood_samples: usize,
-    // The WHIR protocol can prove either:
-    // 1. The commitment is a valid low degree polynomial. In that case, the
-    //    initial statement is set to false.
-    // 2. The commitment is a valid folded polynomial, and an additional
-    //    polynomial evaluation statement. In that case, the initial statement
-    //    is set to true.
     pub(crate) starting_folding_pow_bits: usize,
 
     pub(crate) round_parameters: Vec<RoundConfig>,
@@ -71,10 +65,10 @@ pub(crate) struct RoundConfig {
 }
 
 impl WhirConfigBuilder {
-    pub fn build<F: Field, EF: ExtensionField<F>>(
+    pub fn build<F: Field, RCF>(
         &self,
         num_variables: usize,
-    ) -> WhirConfig<F, EF> {
+    ) -> WhirConfig<F, RCF> {
         self.folding_factor.check_validity(num_variables).unwrap();
 
         let protocol_security_level = self.security_level.saturating_sub(self.target_pow_bits);
@@ -82,7 +76,7 @@ impl WhirConfigBuilder {
         let (num_rounds, final_sumcheck_rounds) =
             self.folding_factor.compute_number_of_rounds(num_variables);
 
-        let field_size_bits = EF::bits() as usize;
+        let field_size_bits = F::bits() as usize;
 
         let committment_ood_samples = ood_samples(
             self.security_level,
@@ -173,8 +167,8 @@ impl WhirConfigBuilder {
         WhirConfig {
             builder: self.clone(),
             num_variables,
-            _coeffs_field: PhantomData,
-            _opening_field: PhantomData,
+            _main_field: PhantomData,
+            _random_combination_field: PhantomData,
             committment_ood_samples,
             starting_folding_pow_bits,
             round_parameters,
@@ -366,7 +360,9 @@ fn rbr_soundness_queries_combination(
     field_size_bits as f64 - (log_combination + list_size + 1.)
 }
 
-impl<F: Field, EF: ExtensionField<F>> WhirConfig<F, EF> {
+impl<F, RCF>
+    WhirConfig<F, RCF>
+{
     pub fn n_rounds(&self) -> usize {
         self.round_parameters.len()
     }
@@ -384,7 +380,9 @@ impl<F: Field, EF: ExtensionField<F>> WhirConfig<F, EF> {
     }
 }
 
-impl<F: Field, EF: ExtensionField<F>> Debug for WhirConfig<F, EF> {
+impl<F: Field, RCF> Debug
+    for WhirConfig<F, RCF>
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "num variables: {}", self.num_variables)?;
         writeln!(f, ", folding factor: {:?}", self.folding_factor)?;
@@ -416,7 +414,7 @@ impl<F: Field, EF: ExtensionField<F>> Debug for WhirConfig<F, EF> {
         writeln!(f, "Round by round soundness analysis:")?;
         writeln!(f, "------------------------------------")?;
 
-        let field_size_bits = EF::bits() as usize;
+        let field_size_bits = F::bits() as usize;
         let log_eta = compute_log_eta(self.soundness_type, self.starting_log_inv_rate);
         let mut num_variables = self.num_variables;
 

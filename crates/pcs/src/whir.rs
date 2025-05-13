@@ -1,7 +1,7 @@
 use algebra::pols::Multilinear;
 use fiat_shamir::{FsProver, FsVerifier};
 use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField};
-use utils::{Evaluation, KeccakDigest, Statement};
+use utils::{Evaluation, MyExtensionField, Statement};
 use whir::{
     committer::Committer,
     parameters::{WhirConfig, WhirConfigBuilder},
@@ -15,7 +15,7 @@ use crate::PcsParams;
 
 use super::{PCS, PcsWitness};
 
-impl<'a, F: Field, EF: ExtensionField<F>> PcsWitness<F> for WhirWitness<F, EF> {
+impl<'a, F: Field> PcsWitness<F> for WhirWitness<F> {
     fn pol(&self) -> &Multilinear<F> {
         &self.lagrange_polynomial
     }
@@ -27,18 +27,14 @@ impl PcsParams for WhirConfigBuilder {
     }
 }
 
-impl<
-    F: TwoAdicField + Ord + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-    EF: ExtensionField<F>
-        + TwoAdicField
-        + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>
-        + Ord,
-> PCS<F, EF> for WhirConfig<F, EF>
+impl<F: Field + TwoAdicField + Ord, RCF: Field> PCS<F, F> for WhirConfig<F, RCF>
 where
-    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    F::PrimeSubfield: TwoAdicField,
+    F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield> + MyExtensionField<RCF>,
+    RCF: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
 {
-    type Witness = WhirWitness<F, EF>;
-    type ParsedCommitment = ParsedCommitment<EF, KeccakDigest>;
+    type Witness = WhirWitness<F>;
+    type ParsedCommitment = ParsedCommitment<F>;
     type VerifError = WhirError;
     type Params = WhirConfigBuilder;
 
@@ -47,37 +43,35 @@ where
     }
 
     fn commit(&self, pol: Multilinear<F>, fs_prover: &mut FsProver) -> Self::Witness {
-        Committer::new(self.clone()).commit(fs_prover, pol).unwrap()
+        Committer::new(self.clone()).commit(fs_prover, pol)
     }
 
     fn parse_commitment(
         &self,
         fs_verifier: &mut FsVerifier,
     ) -> Result<Self::ParsedCommitment, Self::VerifError> {
-        Verifier::<F, EF>::new(self.clone()).parse_commitment(fs_verifier)
+        Verifier(self.clone()).parse_commitment(fs_verifier)
     }
 
-    fn open(&self, witness: Self::Witness, eval: &Evaluation<EF>, fs_prover: &mut FsProver) {
+    fn open(&self, witness: Self::Witness, eval: &Evaluation<F>, fs_prover: &mut FsProver) {
         let statement = Statement {
             points: vec![eval.point.clone()],
             evaluations: vec![eval.value],
         };
-        Prover(self.clone())
-            .prove(fs_prover, statement, witness)
-            .unwrap();
+        Prover(self.clone()).prove(fs_prover, statement, witness);
     }
 
     fn verify(
         &self,
         parsed_commitment: &Self::ParsedCommitment,
-        eval: &Evaluation<EF>,
+        eval: &Evaluation<F>,
         fs_verifier: &mut FsVerifier,
     ) -> Result<(), Self::VerifError> {
         let statement = Statement {
             points: vec![eval.point.clone()],
             evaluations: vec![eval.value],
         };
-        Verifier::new(self.clone()).verify(fs_verifier, parsed_commitment, statement)
+        Verifier(self.clone()).verify(fs_verifier, parsed_commitment, statement)
     }
 }
 
@@ -91,7 +85,7 @@ mod test {
         cuda_preprocess_many_sumcheck_computations, cuda_preprocess_twiddles, cuda_sync,
         memcpy_htod,
     };
-    use p3_field::{BasedVectorSpace, PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_field::{extension::BinomialExtensionField, BasedVectorSpace, PrimeCharacteristicRing, PrimeField32};
     use p3_koala_bear::KoalaBear;
     use tracing_forest::{ForestLayer, util::LevelFilter};
     use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
@@ -108,22 +102,22 @@ mod test {
             .with(ForestLayer::default())
             .init();
 
-        type F = KoalaBear;
-        type EF = BinomialExtensionField<KoalaBear, 8>;
+        type F = BinomialExtensionField<KoalaBear, 8>;
+        type RCF = BinomialExtensionField<KoalaBear, 4>;
 
-        let num_vars = 20;
+        let num_vars = 15;
         let folding = FoldingFactor::Constant(4);
-        let log_inv_rate = 1;
+        let log_inv_rate = 3;
         let cuda = true;
         let params = WhirConfigBuilder::standard(
             SoundnessType::ProvableList,
-            100,
+            128,
             log_inv_rate,
             folding,
             cuda,
         );
 
-        test_whir_pcs_helper::<F, EF>(&params, num_vars);
+        test_whir_pcs_helper::<F, RCF>(&params, num_vars);
     }
 
     #[test]
@@ -149,8 +143,8 @@ mod test {
     #[test]
     #[ignore]
     fn test_whir_pcs_long() {
-        type F = KoalaBear;
-        type EF = BinomialExtensionField<KoalaBear, 4>;
+        type F = BinomialExtensionField<KoalaBear, 8>;
+        type RCF = BinomialExtensionField<KoalaBear, 4>;
 
         for cuda in [true, false] {
             for num_vars in 5..20 {
@@ -168,28 +162,23 @@ mod test {
                             folding,
                             cuda,
                         );
-                        test_whir_pcs_helper::<F, EF>(&params, num_vars);
-                        test_whir_pcs_helper::<EF, EF>(&params, num_vars);
+                        test_whir_pcs_helper::<F, RCF>(&params, num_vars);
                     }
                 }
             }
         }
     }
 
-    fn test_whir_pcs_helper<
-        F: TwoAdicField + Ord + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-        EF: TwoAdicField
-            + Ord
-            + ExtensionField<F>
-            + BasedVectorSpace<<F as PrimeCharacteristicRing>::PrimeSubfield>
-            + p3_field::ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-    >(
+    fn test_whir_pcs_helper<F: Field + TwoAdicField + Ord, RCF: Field>(
         params: &WhirConfigBuilder,
         num_vars: usize,
     ) where
-        <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+        F::PrimeSubfield: TwoAdicField,
+        F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield> + MyExtensionField<RCF>,
+        RCF: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
+        <F as PrimeCharacteristicRing>::PrimeSubfield: PrimeField32
     {
-        let config = WhirConfig::<F, EF>::new(num_vars, params);
+        let config = WhirConfig::<F, RCF>::new(num_vars, params);
 
         dbg!(&config);
 
@@ -201,11 +190,11 @@ mod test {
                 n_multilinears: 2,
                 eq_mle_multiplier: false,
             };
-            cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+             cuda_load_function(CudaFunctionInfo::one_field::<F::PrimeSubfield>(
                 "multilinear.cu",
                 "eq_mle_start",
             ));
-            cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+            cuda_load_function(CudaFunctionInfo::one_field::<F::PrimeSubfield>(
                 "multilinear.cu",
                 "eq_mle_steps",
             ));
@@ -217,15 +206,15 @@ mod test {
                 "multilinear.cu",
                 "eq_mle_steps",
             ));
-            cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
+            cuda_load_function(CudaFunctionInfo::two_fields::<F, F::PrimeSubfield>(
                 "multilinear.cu",
                 "eval_multilinear_in_lagrange_basis",
             ));
-            cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
+            cuda_load_function(CudaFunctionInfo::two_fields::<F, F>(
                 "multilinear.cu",
                 "eval_multilinear_in_lagrange_basis",
             ));
-            cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+            cuda_load_function(CudaFunctionInfo::one_field::<F>(
                 "multilinear.cu",
                 "lagrange_to_monomial_basis",
             ));
@@ -233,63 +222,75 @@ mod test {
                 "multilinear.cu",
                 "lagrange_to_monomial_basis",
             ));
-            cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<EF>());
             cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<F>());
-            cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+            cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<F>());
+            cuda_load_function(CudaFunctionInfo::one_field::<F>(
                 "multilinear.cu",
                 "scale_in_place",
             ));
-            cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+            cuda_load_function(CudaFunctionInfo::one_field::<F>(
                 "multilinear.cu",
                 "add_slices",
             ));
-            cuda_load_function(CudaFunctionInfo::two_fields::<EF, KoalaBear>(
+            cuda_load_function(CudaFunctionInfo::two_fields::<F, F::PrimeSubfield>(
                 "multilinear.cu",
                 "fold_rectangular",
             ));
-            cuda_load_function(CudaFunctionInfo::two_fields::<KoalaBear, EF>(
+            cuda_load_function(CudaFunctionInfo::two_fields::<F::PrimeSubfield, F>(
                 "multilinear.cu",
                 "fold_rectangular",
             ));
-            cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
+            cuda_load_function(CudaFunctionInfo::two_fields::<F, F>(
                 "multilinear.cu",
                 "fold_rectangular",
             ));
-            cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
+            cuda_load_function(CudaFunctionInfo::two_fields::<F::PrimeSubfield, RCF>(
                 "multilinear.cu",
                 "linear_combination",
             ));
-            cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
+            cuda_load_function(CudaFunctionInfo::two_fields::<F, RCF>(
                 "multilinear.cu",
                 "linear_combination",
             ));
-            cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+            cuda_load_function(CudaFunctionInfo::two_fields::<F, F>(
+                "multilinear.cu",
+                "linear_combination",
+            ));
+            cuda_load_function(CudaFunctionInfo::one_field::<F>(
                 "multilinear.cu",
                 "sum_in_place",
             ));
-            cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
+            cuda_load_function(CudaFunctionInfo::two_fields::<F, F>(
                 "multilinear.cu",
                 "linear_combination_at_row_level",
             ));
-            cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
+            cuda_load_function(CudaFunctionInfo::two_fields::<F, F>(
                 "multilinear.cu",
                 "linear_combination_at_row_level",
             ));
-            cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+            cuda_load_function(CudaFunctionInfo::two_fields::<F, F>(
+                "multilinear.cu",
+                "add_assign_slices",
+            ));
+            cuda_load_function(CudaFunctionInfo::two_fields::<RCF, F>(
+                "multilinear.cu",
+                "add_assign_slices",
+            ));
+            cuda_load_function(CudaFunctionInfo::two_fields::<F::PrimeSubfield, RCF>(
                 "multilinear.cu",
                 "add_assign_slices",
             ));
             cuda_load_function(CudaFunctionInfo::basic("keccak.cu", "batch_keccak256"));
             cuda_load_function(CudaFunctionInfo::basic("keccak.cu", "pow_grinding"));
-            cuda_preprocess_twiddles::<KoalaBear>(
+            cuda_preprocess_twiddles::<F::PrimeSubfield>(
                 num_vars + config.starting_log_inv_rate - config.folding_factor.maximum(),
             );
-            let dim_ef = <EF as BasedVectorSpace<F::PrimeSubfield>>::DIMENSION;
+            let dim_ef = <F as BasedVectorSpace<F::PrimeSubfield>>::DIMENSION;
             cuda_preprocess_many_sumcheck_computations(&prod_sumcheck, &[(1, dim_ef, dim_ef)]);
             cuda_sync();
         }
 
-        let mut fs_prover = FsProver::new();
+        let mut fs_prover = FsProver::new(config.cuda);
 
         let evals = (0..1 << config.num_variables)
             .map(|x| F::from_u64(x as u64))
@@ -300,9 +301,9 @@ mod test {
             Multilinear::Host(MultilinearHost::new(evals))
         };
         let point = (0..config.num_variables)
-            .map(|x| EF::from_u64(x as u64))
+            .map(|x| F::from_u64(x as u64))
             .collect::<Vec<_>>();
-        let value = pol.evaluate(&point);
+        let value = pol.evaluate_in_large_field(&point);
         let eval = Evaluation { point, value };
 
         let time = std::time::Instant::now();

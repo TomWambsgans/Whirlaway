@@ -1,5 +1,3 @@
-use std::any::TypeId;
-
 use crate::fs_utils::get_challenge_stir_queries;
 
 use super::{committer::Witness, parameters::WhirConfig};
@@ -12,19 +10,15 @@ use p3_field::{ExtensionField, PrimeCharacteristicRing};
 use p3_field::{Field, TwoAdicField};
 use sumcheck::SumcheckGrinding;
 use tracing::instrument;
-use utils::{Statement, powers};
-use utils::{dot_product, multilinear_point_from_univariate};
+use utils::multilinear_point_from_univariate;
+use utils::{MyExtensionField, Statement, dot_product_1, dot_product_2, log2_up, powers};
 
-pub struct Prover<F: Field, EF: ExtensionField<F>>(pub WhirConfig<F, EF>);
+pub struct Prover<F, RCF>(pub WhirConfig<F, RCF>);
 
-impl<
-    F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield> + TwoAdicField + Ord,
-    EF: ExtensionField<F>
-        + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>
-        + TwoAdicField
-        + Ord,
-> Prover<F, EF>
+impl<F: TwoAdicField + Ord, RCF: Field> Prover<F, RCF>
 where
+    F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield> + MyExtensionField<RCF>,
+    RCF: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
     F::PrimeSubfield: TwoAdicField,
 {
     fn validate_parameters(&self) -> bool {
@@ -32,7 +26,7 @@ where
             == self.0.folding_factor.total_number(self.0.n_rounds()) + self.0.final_sumcheck_rounds
     }
 
-    fn validate_statement(&self, statement: &Statement<EF>) -> bool {
+    fn validate_statement(&self, statement: &Statement<F>) -> bool {
         if statement.points.len() != statement.evaluations.len() {
             return false;
         }
@@ -46,33 +40,18 @@ where
         true
     }
 
-    fn validate_witness(&self, witness: &Witness<F, EF>) -> bool {
+    fn validate_witness(&self, witness: &Witness<F>) -> bool {
         assert_eq!(witness.ood_points.len(), witness.ood_answers.len());
         witness.polynomial.n_vars() == self.0.num_variables
     }
 
     #[instrument(name = "whir: prove", skip_all)]
-    pub fn prove(
-        &self,
-        fs_prover: &mut FsProver,
-        statement: Statement<EF>,
-        witness: Witness<F, EF>,
-    ) -> Option<()> {
+    pub fn prove(&self, fs_prover: &mut FsProver, statement: Statement<F>, witness: Witness<F>) {
         assert!(self.validate_parameters());
         debug_assert!(self.validate_statement(&statement));
         assert!(self.validate_witness(&witness));
 
-        let initial_claims = witness
-            .ood_points
-            .into_iter()
-            .map(|ood_point| multilinear_point_from_univariate(ood_point, self.0.num_variables))
-            .chain(statement.points)
-            .collect::<Vec<_>>();
-        let initial_answers = witness
-            .ood_answers
-            .into_iter()
-            .chain(statement.evaluations)
-            .collect::<Vec<_>>();
+        let n_initial_claims = witness.ood_points.len() + statement.points.len();
 
         let sumcheck_mles;
         let hypercube_sum;
@@ -80,25 +59,28 @@ where
         {
             // If there is initial statement, then we run the sum-check for
             // this initial statement.
-            let combination_randomness_gen = fs_prover.challenge_scalars::<EF>(1)[0];
-            let combination_randomness = powers(combination_randomness_gen, initial_claims.len());
+            fs_prover.challenge_pow(
+                self.0
+                    .security_level
+                    .saturating_sub(RCF::bits() - log2_up(n_initial_claims)),
+            );
+            let combination_randomness_gen = fs_prover.challenge_scalars::<RCF>(1)[0];
+            let combination_randomness = powers(combination_randomness_gen, n_initial_claims);
 
-            let liner_comb = randomized_eq_extensions::<F, EF>(
-                &[],
-                &initial_claims,
+            let liner_comb = randomized_eq_extensions::<F, RCF>(
+                &witness.ood_points,
+                &statement.points,
                 &combination_randomness,
                 self.0.cuda,
             );
-            let embbedded_lagrange_polynomial = if TypeId::of::<F>() == TypeId::of::<EF>() {
-                unsafe { std::mem::transmute::<_, &Multilinear<EF>>(&witness.lagrange_polynomial) }
-            } else {
-                &witness.lagrange_polynomial.embed::<EF>()
-            };
 
-            let nodes = vec![&embbedded_lagrange_polynomial, &liner_comb];
+            let nodes = vec![&witness.lagrange_polynomial, &liner_comb];
             let initial_folding_factor = Some(self.0.folding_factor.at_round(0));
             let pow_bits = self.0.starting_folding_pow_bits;
-            let sum = dot_product(&initial_answers, &combination_randomness);
+            let sum = dot_product_2(
+                &combination_randomness,
+                (&witness.ood_answers, &statement.evaluations),
+            );
             (folding_randomness, sumcheck_mles, hypercube_sum) =
                 sumcheck::prove::<F::PrimeSubfield, _, _, _>(
                     1,
@@ -107,7 +89,7 @@ where
                         (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
                             .fix_computation(false),
                     ],
-                    &[EF::ONE],
+                    &[F::ONE],
                     None,
                     false,
                     fs_prover,
@@ -117,7 +99,7 @@ where
                     None,
                 );
         }
-        let round_state = RoundState::<F, EF> {
+        let round_state = RoundState::<F> {
             round: 0,
             sumcheck_mles,
             hypercube_sum,
@@ -128,17 +110,10 @@ where
             prev_merkle_answers: witness.merkle_leaves,
         };
 
-        self.round::<F>(fs_prover, round_state)
+        self.round(fs_prover, round_state);
     }
 
-    fn round<IF: ExtensionField<F>>(
-        &self,
-        fs_prover: &mut FsProver,
-        mut round_state: RoundState<IF, EF>,
-    ) -> Option<()>
-    where
-        EF: ExtensionField<IF>,
-    {
+    fn round(&self, fs_prover: &mut FsProver, mut round_state: RoundState<F>) {
         // Fold the coefficients
         let _fold_span = tracing::info_span!("whir folding").entered();
         let folded_coefficients = round_state
@@ -183,7 +158,7 @@ where
             fs_prover.add_variable_bytes(&merkle_proof.to_bytes());
             fs_prover.add_scalar_matrix(&answers, false);
 
-            fs_prover.challenge_pow(self.0.final_pow_bits, self.0.cuda);
+            fs_prover.challenge_pow(self.0.final_pow_bits);
 
             // Final sumcheck
             if self.0.final_sumcheck_rounds > 0 {
@@ -196,7 +171,7 @@ where
                         (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
                             .fix_computation(false),
                     ],
-                    &[EF::ONE],
+                    &[F::ONE],
                     None,
                     false,
                     fs_prover,
@@ -207,7 +182,7 @@ where
                 );
             }
 
-            return Some(());
+            return;
         }
 
         let round_params = &self.0.round_parameters[round_state.round];
@@ -228,16 +203,16 @@ where
         fs_prover.add_bytes(&merkle_tree.root().0);
 
         // OOD Samples
-        let mut ood_points = vec![EF::ZERO; round_params.ood_samples];
-        let mut ood_answers = Vec::with_capacity(round_params.ood_samples);
+        let mut ood_points = vec![];
+        let mut ood_answers = vec![];
         if round_params.ood_samples > 0 {
-            ood_points = fs_prover.challenge_scalars::<EF>(round_params.ood_samples);
-            ood_answers.extend(ood_points.iter().map(|ood_point| {
-                round_state.sumcheck_mles[0].evaluate(&multilinear_point_from_univariate(
-                    *ood_point,
-                    num_variables,
-                ))
-            }));
+            ood_points = (0..round_params.ood_samples)
+                .map(|_| fs_prover.challenge_scalars::<F::PrimeSubfield>(num_variables))
+                .collect::<Vec<_>>();
+            ood_answers = ood_points
+                .iter()
+                .map(|ood_point| round_state.sumcheck_mles[0].evaluate_in_small_field(ood_point))
+                .collect::<Vec<_>>();
             cuda_sync();
             fs_prover.add_scalars(&ood_answers);
         }
@@ -250,15 +225,11 @@ where
             fs_prover,
         );
         // Compute the generator of the folded domain, in the extension field
-        let domain_scaled_gen = F::two_adic_generator(
+        let domain_scaled_gen = F::PrimeSubfield::two_adic_generator(
             round_state.domain_size.trailing_zeros() as usize
                 - self.0.folding_factor.at_round(round_state.round),
         );
-        let stir_challenges_ext: Vec<Vec<EF>> = ood_points
-            .into_iter()
-            .map(|univariate| multilinear_point_from_univariate(univariate, num_variables))
-            .collect();
-        let stir_challenges_base: Vec<Vec<F>> = stir_challenges_indexes
+        let stir_challenges_base: Vec<Vec<F::PrimeSubfield>> = stir_challenges_indexes
             .iter()
             .map(|i| {
                 multilinear_point_from_univariate(
@@ -296,21 +267,24 @@ where
         fs_prover.add_variable_bytes(&merkle_proof.to_bytes());
         fs_prover.add_scalar_matrix(&answers, false);
 
-        fs_prover.challenge_pow(round_params.pow_bits, self.0.cuda);
+        fs_prover.challenge_pow(round_params.pow_bits);
 
         // Randomness for combination
-        let combination_randomness_gen = fs_prover.challenge_scalars::<EF>(1)[0];
-        let combination_randomness = powers(
-            combination_randomness_gen,
-            stir_challenges_ext.len() + stir_challenges_base.len(),
+        let n_claims = round_params.ood_samples + stir_challenges_base.len();
+        fs_prover.challenge_pow(
+            self.0
+                .security_level
+                .saturating_sub(RCF::bits() - log2_up(n_claims)),
         );
+        let combination_randomness_gen = fs_prover.challenge_scalars::<RCF>(1)[0];
+        let combination_randomness = powers(combination_randomness_gen, n_claims);
 
-        round_state.sumcheck_mles[1] += &randomized_eq_extensions::<F, EF>(
-            &stir_challenges_base,
-            &stir_challenges_ext,
+        round_state.sumcheck_mles[1].add_assign::<F>(&randomized_eq_extensions::<F, RCF>(
+            &[ood_points.clone(), stir_challenges_base.clone()].concat(),
+            &[],
             &combination_randomness,
             self.0.cuda,
-        );
+        ));
         let folding_randomness;
         let hypercube_sum;
         let sumcheck_mles;
@@ -322,11 +296,12 @@ where
                     (TransparentPolynomial::Node(0) * TransparentPolynomial::Node(1))
                         .fix_computation(true),
                 ],
-                &[EF::ONE],
+                &[F::ONE],
                 None,
                 false,
                 fs_prover,
-                round_state.hypercube_sum + dot_product(&combination_randomness, &stir_evaluations),
+                round_state.hypercube_sum
+                    + dot_product_1(&combination_randomness, &stir_evaluations),
                 Some(self.0.folding_factor.at_round(round_state.round + 1)),
                 SumcheckGrinding::Custom(round_params.folding_pow_bits),
                 None,
@@ -343,81 +318,65 @@ where
             prev_merkle_answers: folded_evals,
         };
 
-        self.round::<EF>(fs_prover, round_state)
+        self.round(fs_prover, round_state);
     }
 }
 
-struct RoundState<F: Field, EF: ExtensionField<F>> {
+struct RoundState<F: Field> {
     round: usize,
-    sumcheck_mles: Vec<Multilinear<EF>>,
-    hypercube_sum: EF,
+    sumcheck_mles: Vec<Multilinear<F>>,
+    hypercube_sum: F,
     domain_size: usize,
-    folding_randomness: Vec<EF>,
+    folding_randomness: Vec<F>,
     coefficients: CoefficientList<F>,
     prev_merkle: MerkleTree<F>,
     prev_merkle_answers: HostOrDeviceBuffer<F>,
 }
 
 #[instrument(name = "randomized_eq_extensions", skip_all)]
-fn randomized_eq_extensions<F: Field, EF: ExtensionField<F>>(
-    eq_points_base: &[Vec<F>],
-    eq_points_ext: &[Vec<EF>],
-    randomized_coefs: &[EF],
+fn randomized_eq_extensions<
+    F: Field + ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield> + MyExtensionField<RCF>,
+    RCF: ExtensionField<F::PrimeSubfield>,
+>(
+    eq_points_base: &[Vec<F::PrimeSubfield>],
+    eq_points_ext: &[Vec<F>],
+    randomized_coefs: &[RCF],
     cuda: bool,
-) -> Multilinear<EF> {
+) -> Multilinear<F> {
     assert_eq!(
         eq_points_ext.len() + eq_points_base.len(),
         randomized_coefs.len()
     );
-    let n_vars = eq_points_ext[0].len();
+    let n_vars = eq_points_base[0].len();
     assert!(eq_points_ext.iter().all(|point| point.len() == n_vars));
     assert!(eq_points_base.iter().all(|point| point.len() == n_vars));
 
     // TODO to limit GPU memory usage, use intermediate sums
 
-    let _span = tracing::info_span!("eq_mle (EF)", count = eq_points_ext.len()).entered();
-    let mut all_eq_mles_ext = Vec::new();
-    for point in eq_points_ext {
-        all_eq_mles_ext.push(Multilinear::eq_mle(point, cuda));
-    }
-    cuda_sync();
-    std::mem::drop(_span);
-
-    let _span = tracing::info_span!("eq_mle (F)", count = eq_points_base.len()).entered();
     let mut all_eq_mles_base = Vec::new();
     for point in eq_points_base {
         all_eq_mles_base.push(Multilinear::eq_mle(point, cuda));
     }
-    cuda_sync();
-    std::mem::drop(_span);
 
-    let _span =
-        tracing::info_span!("linear combination (EF)", count = eq_points_ext.len()).entered();
-
-    if TypeId::of::<F>() == TypeId::of::<EF>() {
-        let drained = std::mem::take(&mut all_eq_mles_ext);
-        let transmuted = unsafe { std::mem::transmute::<_, Vec<Multilinear<EF>>>(drained) };
-        all_eq_mles_ext.extend(transmuted);
+    let mut all_eq_mles_ext = Vec::new();
+    for point in eq_points_ext {
+        all_eq_mles_ext.push(Multilinear::eq_mle(point, cuda));
     }
 
-    let mut res = MultilinearsVec::from(all_eq_mles_ext)
-        .as_ref()
-        .linear_comb(&randomized_coefs[0..eq_points_ext.len()]);
-    cuda_sync();
-    std::mem::drop(_span);
-
-    if eq_points_base.len() > 0 {
-        let _span =
-            tracing::info_span!("linear combination (F)", count = eq_points_ext.len()).entered();
-        let res_base = MultilinearsVec::from(all_eq_mles_base)
+    let mut res = if eq_points_ext.is_empty() {
+        Multilinear::zero(n_vars, cuda)
+    } else {
+        MultilinearsVec::<F>::from(all_eq_mles_ext)
             .as_ref()
-            .linear_comb(&randomized_coefs[eq_points_ext.len()..]);
-        cuda_sync();
-        std::mem::drop(_span);
+            .linear_comb_in_small_field(&randomized_coefs[eq_points_base.len()..])
+    };
 
-        let _span = tracing::info_span!("sum", count = eq_points_ext.len()).entered();
-        res += &res_base;
-        cuda_sync();
-    }
+    let res_base = MultilinearsVec::from(all_eq_mles_base)
+        .as_ref()
+        .linear_comb_in_large_field(&randomized_coefs[..eq_points_base.len()]);
+
+    res.add_assign::<RCF>(&res_base);
+
+    cuda_sync();
     res
 }

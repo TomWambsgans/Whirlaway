@@ -69,7 +69,7 @@ fn test_air_fibonacci() {
 
         table.check_validity(&witnesses);
 
-        let mut fs_prover = FsProver::new();
+        let mut fs_prover = FsProver::new(cuda);
         table.prove::<EF, WhirF>(&settings, &mut fs_prover, witnesses, cuda);
 
         let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
@@ -189,7 +189,7 @@ fn test_air_complex() {
 
             table.check_validity(&witnesses);
 
-            let mut fs_prover = FsProver::new();
+            let mut fs_prover = FsProver::new(cuda);
             table.prove::<EF, WhirF>(&settings, &mut fs_prover, witnesses, cuda);
 
             let mut fs_verifier = FsVerifier::new(fs_prover.transcript());

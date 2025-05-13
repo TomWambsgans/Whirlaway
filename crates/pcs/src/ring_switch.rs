@@ -131,7 +131,7 @@ impl<EF: ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>, Pcs: PC
             None,
         );
 
-        let packed_value = witness.inner_witness.pol().evaluate(&r_p);
+        let packed_value = witness.inner_witness.pol().evaluate_in_large_field(&r_p);
         cuda_sync();
         let packed_eval = Evaluation {
             point: r_p.clone(),
@@ -221,6 +221,7 @@ mod test {
 
     use super::*;
     type F = KoalaBear;
+    type RCF = BinomialExtensionField<KoalaBear, 4>;
     type EF = BinomialExtensionField<KoalaBear, 8>;
 
     #[test]
@@ -230,7 +231,7 @@ mod test {
         let log_inv_rate = 4;
 
         let rng = &mut StdRng::seed_from_u64(0);
-        let ring_switch = RingSwitch::<EF, WhirConfig<EF, EF>>::new(
+        let ring_switch = RingSwitch::<EF, WhirConfig<EF, RCF>>::new( 
             n_vars,
             &WhirConfigBuilder::standard(
                 SoundnessType::ProvableList,
@@ -241,10 +242,10 @@ mod test {
             ),
         );
         let pol = Multilinear::Host(MultilinearHost::<F>::random(rng, n_vars));
-        let mut fs_prover = FsProver::new();
+        let mut fs_prover = FsProver::new(false);
         let commitment = ring_switch.commit(pol.clone(), &mut fs_prover);
         let point = (0..n_vars).map(|_| rng.random()).collect::<Vec<_>>();
-        let value = pol.evaluate(&point);
+        let value = pol.evaluate_in_large_field(&point);
         let eval = Evaluation {
             point: point.clone(),
             value,

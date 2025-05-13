@@ -103,7 +103,7 @@ fn test_sumcheck() {
             Some(&eq_mle),
         );
 
-        let mut fs_prover = FsProver::new();
+        let mut fs_prover = FsProver::new(gpu);
 
         let time = std::time::Instant::now();
         prove(
@@ -221,7 +221,7 @@ fn test_univariate_skip() {
             })
             .sum::<EF>();
 
-        let mut fs_prover = FsProver::new();
+        let mut fs_prover = FsProver::new(gpu);
 
         prove(
             skips,
@@ -308,7 +308,7 @@ pub fn eval_batched_exprs_of_multilinears<
 ) -> EF {
     let inner_evals = multilinears
         .iter()
-        .map(|pol| pol.evaluate(point))
+        .map(|pol| pol.evaluate_in_large_field(point))
         .collect::<Vec<_>>();
     eval_batched_exprs(exprs, batching_scalars, &inner_evals)
 }

@@ -184,7 +184,7 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
 
     let pow_bits = grinding
         .pow_bits::<EF>((comp_degree + (eq_factor.is_some() as usize)) * ((1 << skips) - 1));
-    fs_prover.challenge_pow(pow_bits, multilinears.is_device());
+    fs_prover.challenge_pow(pow_bits);
 
     let folding_scalars = selectors
         .iter()

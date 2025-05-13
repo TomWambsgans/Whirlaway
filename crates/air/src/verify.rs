@@ -5,7 +5,7 @@ use p3_field::{ExtensionField, PrimeCharacteristicRing, PrimeField, TwoAdicField
 use pcs::{PCS, RingSwitch};
 use sumcheck::{SumcheckError, SumcheckGrinding};
 use tracing::instrument;
-use utils::{Evaluation, dot_product, eq_extension, powers, small_to_big_extension};
+use utils::{dot_product, eq_extension, powers, small_to_big_extension, Evaluation, MyExtensionField};
 use whir::parameters::{WhirConfig, WhirConfigBuilder};
 
 use crate::{
@@ -53,8 +53,10 @@ impl<F: PrimeField> AirTable<F> {
     ) -> Result<(), AirVerifError>
     where
         WhirF::PrimeSubfield: TwoAdicField,
+        WhirF: MyExtensionField<EF>,
+        EF: ExtensionField<<WhirF as PrimeCharacteristicRing>::PrimeSubfield>,
     {
-        let pcs = RingSwitch::<WhirF, WhirConfig<WhirF, WhirF>>::new(
+        let pcs = RingSwitch::<WhirF, WhirConfig<WhirF, EF>>::new(
             log_length + self.log_n_witness_columns(),
             &WhirConfigBuilder::standard(
                 settings.whir_soudness_type,
@@ -69,12 +71,11 @@ impl<F: PrimeField> AirTable<F> {
             .parse_commitment(fs_verifier)
             .map_err(|_| AirVerifError::InvalidPcsCommitment)?;
 
-        self.constraints_batching_pow::<EF, _>(fs_verifier, settings, false)?;
+        self.constraints_batching_pow::<EF, _>(fs_verifier, settings)?;
 
         let constraints_batching_scalar = fs_verifier.challenge_scalars::<EF>(1)[0];
 
-        self.zerocheck_pow::<EF, _>(fs_verifier, settings, false)
-            .unwrap();
+        self.zerocheck_pow::<EF, _>(fs_verifier, settings).unwrap();
 
         let zerocheck_challenges =
             fs_verifier.challenge_scalars::<EF>(log_length - settings.univariate_skips + 1);
@@ -106,7 +107,7 @@ impl<F: PrimeField> AirTable<F> {
             .map(|c| {
                 column_up_host(c)
                     .fold_rectangular_in_large_field(&outer_selector_evals)
-                    .evaluate(&outer_sumcheck_challenge.point[1..])
+                    .evaluate_in_large_field(&outer_sumcheck_challenge.point[1..])
             })
             .collect::<Vec<_>>();
         let preprocessed_down = self
@@ -115,7 +116,7 @@ impl<F: PrimeField> AirTable<F> {
             .map(|c| {
                 column_down_host(c)
                     .fold_rectangular_in_large_field(&outer_selector_evals)
-                    .evaluate(&outer_sumcheck_challenge.point[1..])
+                    .evaluate_in_large_field(&outer_sumcheck_challenge.point[1..])
             })
             .collect::<Vec<_>>();
 
@@ -150,7 +151,7 @@ impl<F: PrimeField> AirTable<F> {
             return Err(AirVerifError::SumMismatch);
         }
 
-        self.secondary_sumchecks_batching_pow::<EF, _>(fs_verifier, settings, false)?;
+        self.secondary_sumchecks_batching_pow::<EF, _>(fs_verifier, settings)?;
         let secondary_sumcheck_batching_scalar = fs_verifier.challenge_scalars::<EF>(1)[0];
 
         let (batched_inner_sum, inner_sumcheck_challenge) = sumcheck::verify::<EF>(
@@ -194,7 +195,7 @@ impl<F: PrimeField> AirTable<F> {
                         * down);
         }
         batched_inner_value *= MultilinearHost::new(outer_selector_evals)
-            .evaluate(&inner_sumcheck_challenge.point[..settings.univariate_skips]);
+            .evaluate_in_large_field(&inner_sumcheck_challenge.point[..settings.univariate_skips]);
 
         if batched_inner_value != inner_sumcheck_challenge.value {
             return Err(AirVerifError::SumMismatch);
@@ -215,13 +216,13 @@ impl<F: PrimeField> AirTable<F> {
             ]
             .concat(),
         )
-        .evaluate(&final_random_scalars);
+        .evaluate_in_large_field(&final_random_scalars);
         let packed_eval = Evaluation {
             point: final_point
                 .into_iter()
-                .map(small_to_big_extension)
+                .map(small_to_big_extension::<F, EF, WhirF>)
                 .collect(),
-            value: small_to_big_extension(packed_value),
+            value: small_to_big_extension::<F, EF, WhirF>(packed_value),
         };
 
         pcs.verify(&pcs_commitment, &packed_eval, fs_verifier)

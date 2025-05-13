@@ -109,19 +109,34 @@ pub fn powers_parallel<F: Field>(base: F, len: usize) -> Vec<F> {
     }
 }
 
-pub fn eq_extension<F: Field>(s1: &[F], s2: &[F]) -> F {
+pub fn eq_extension<F: Field, EF: ExtensionField<F>>(s1: &[F], s2: &[EF]) -> EF {
     assert_eq!(s1.len(), s2.len());
     if s1.is_empty() {
-        return F::ONE;
+        return EF::ONE;
     }
     (0..s1.len())
-        .map(|i| s1[i] * s2[i] + (F::ONE - s1[i]) * (F::ONE - s2[i]))
+        .map(|i| s2[i] * s1[i] + (EF::ONE - s2[i]) * (F::ONE - s1[i]))
         .product()
 }
 
 pub fn dot_product<F: Field, EF: ExtensionField<F>>(a: &[F], b: &[EF]) -> EF {
     assert_eq!(a.len(), b.len());
     a.iter().zip(b.iter()).map(|(x, y)| *y * *x).sum()
+}
+
+
+pub fn dot_product_1<F: Field, EF: MyExtensionField<F>>(a: &[F], b: &[EF]) -> EF {
+    assert_eq!(a.len(), b.len());
+    a.iter().zip(b.iter()).map(|(x, y)| y.my_multiply(x)).sum()
+}
+
+pub fn dot_product_2<F: Field, EF: MyExtensionField<F>>(a: &[F], (b1, b2): (&[EF], &[EF])) -> EF {
+    assert_eq!(b1.len() + b2.len(), a.len());
+    b1.iter().zip(a).map(|(x, y)| x.my_multiply(y)).sum::<EF>()
+        + b2.iter()
+            .zip(&a[b1.len()..])
+            .map(|(x, y)| x.my_multiply(y))
+            .sum::<EF>()
 }
 
 // TODO find a better name
@@ -184,6 +199,61 @@ pub fn extension_degree<F: Field>() -> usize {
         16
     } else {
         todo!("Add extension degree for this field")
+    }
+}
+
+pub trait MyExtensionField<F: Field>: Field {
+    fn my_from(x: F) -> Self;
+    fn my_multiply(&self, other: &F) -> Self;
+    fn my_add(&self, other: &F) -> Self;
+    fn my_add_assign(&mut self, other: &F) {
+        *self = self.my_add(other);
+    }
+}
+
+impl<F: Field> MyExtensionField<F> for F {
+    fn my_from(x: F) -> Self {
+        x
+    }
+
+    fn my_multiply(&self, other: &F) -> Self {
+        *self * *other
+    }
+
+    fn my_add(&self, other: &F) -> Self {
+        *self + *other
+    }
+}
+
+impl MyExtensionField<BinomialExtensionField<KoalaBear, 4>>
+    for BinomialExtensionField<KoalaBear, 8>
+{
+    fn my_from(x: BinomialExtensionField<KoalaBear, 4>) -> Self {
+        small_to_big_extension::<KoalaBear, _, _>(x)
+    }
+
+    fn my_add(&self, other: &BinomialExtensionField<KoalaBear, 4>) -> Self {
+        *self + Self::my_from(*other)
+    }
+
+    fn my_multiply(&self, other: &BinomialExtensionField<KoalaBear, 4>) -> Self {
+        *self * Self::my_from(*other)
+    }
+}
+
+impl MyExtensionField<BinomialExtensionField<BabyBear, 4>>
+    for BinomialExtensionField<BabyBear, 8>
+{
+    fn my_from(x: BinomialExtensionField<BabyBear, 4>) -> Self {
+        small_to_big_extension::<BabyBear, _, _>(x)
+    }
+
+    fn my_add(&self, other: &BinomialExtensionField<BabyBear, 4>) -> Self {
+        *self + Self::my_from(*other)
+    }
+
+    fn my_multiply(&self, other: &BinomialExtensionField<BabyBear, 4>) -> Self {
+        *self * Self::my_from(*other)
     }
 }
 

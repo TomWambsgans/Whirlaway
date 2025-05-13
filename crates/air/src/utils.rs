@@ -108,13 +108,11 @@ impl<F: PrimeField> AirTable<F> {
         &self,
         fs: &mut FS,
         settings: &AirSettings,
-        cuda: bool,
     ) -> Result<(), FsError> {
         fs.challenge_pow(
             settings
                 .security_bits
                 .saturating_sub(EF::bits().saturating_sub(log2_up(self.constraints.len()))),
-            cuda,
         )
     }
 
@@ -122,13 +120,11 @@ impl<F: PrimeField> AirTable<F> {
         &self,
         fs: &mut FS,
         settings: &AirSettings,
-        cuda: bool,
     ) -> Result<(), FsError> {
         fs.challenge_pow(
             settings
                 .security_bits
                 .saturating_sub(EF::bits().saturating_sub(self.log_length)),
-            cuda,
         )
     }
 
@@ -136,13 +132,11 @@ impl<F: PrimeField> AirTable<F> {
         &self,
         fs: &mut FS,
         settings: &AirSettings,
-        cuda: bool,
     ) -> Result<(), FsError> {
         fs.challenge_pow(
             settings
                 .security_bits
                 .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_witness_columns() * 2))),
-            cuda,
         )
     }
 }

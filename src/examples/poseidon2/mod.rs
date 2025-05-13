@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use tracing::level_filters::LevelFilter;
 use tracing_forest::ForestLayer;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
-use utils::SupportedField;
+use utils::{MyExtensionField, SupportedField};
 use vectorized::{VectorizedPoseidon2Air, write_vectorized_constraints};
 use whir::parameters::FoldingFactor;
 use {columns::num_cols, constants::RoundConstants};
@@ -230,6 +230,7 @@ fn prove_poseidon2<
     F: TwoAdicField + PrimeField32,
     EF: ExtensionField<F>,
     WhirF: ExtensionField<F>
+        + MyExtensionField<EF>
         + ExtensionField<<WhirF as PrimeCharacteristicRing>::PrimeSubfield>
         + TwoAdicField
         + Ord,
@@ -251,6 +252,7 @@ fn prove_poseidon2<
 where
     StandardUniform: Distribution<F>,
     <WhirF as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    EF: ExtensionField<<WhirF as PrimeCharacteristicRing>::PrimeSubfield>,
 {
     if display_logs {
         let env_filter = EnvFilter::builder()
@@ -319,7 +321,7 @@ where
     }
 
     let t = Instant::now();
-    let mut fs_prover = FsProver::new();
+    let mut fs_prover = FsProver::new(cuda);
     table.prove::<EF, WhirF>(&settings, &mut fs_prover, witness, cuda);
     let proof_size = fs_prover.transcript_len();
 

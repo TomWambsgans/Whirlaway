@@ -311,7 +311,7 @@ extern "C" __global__ void add_slices(Field_A **slices, Field_A *res, const uint
     }
 }
 
-extern "C" __global__ void add_assign_slices(Field_A *a, Field_A *b, const uint32_t len)
+extern "C" __global__ void add_assign_slices(LARGER_AB *left, Field_A *right, const uint32_t len)
 {
     // a += b
     const int total_n_threads = blockDim.x * gridDim.x;
@@ -321,7 +321,11 @@ extern "C" __global__ void add_assign_slices(Field_A *a, Field_A *b, const uint3
         const int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
         if (threadIndex < len)
         {
-            ADD_AA(a[threadIndex], b[threadIndex], a[threadIndex]);
+            LARGER_AB l = left[threadIndex];
+            Field_A r = right[threadIndex];
+            LARGER_AB sum;
+            ADD_A_AND_MAX_AB(r, l, sum);
+            left[threadIndex] = sum;
         }
     }
 }

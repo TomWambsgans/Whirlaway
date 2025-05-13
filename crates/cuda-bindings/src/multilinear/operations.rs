@@ -4,6 +4,7 @@ use cuda_engine::{
 };
 use cudarc::driver::{CudaSlice, CudaView, PushKernelArg};
 use p3_field::{BasedVectorSpace, ExtensionField, Field};
+use utils::MyExtensionField;
 use std::borrow::Borrow;
 
 use crate::cuda_eq_mle;
@@ -67,11 +68,11 @@ pub fn cuda_add_slices<F: Field, S: Borrow<CudaSlice<F>>>(slices: &[S]) -> CudaS
 }
 
 // Async
-pub fn cuda_add_assign_slices<F: Field>(a: &mut CudaSlice<F>, b: &CudaSlice<F>) {
+pub fn cuda_add_assign_slices<F: Field, EF: MyExtensionField<F>>(a: &mut CudaSlice<EF>, b: &CudaSlice<F>) {
     // a += b;
     assert_eq!(a.len(), b.len());
     let mut call = CudaCall::new(
-        CudaFunctionInfo::one_field::<F>("multilinear.cu", "add_assign_slices"),
+        CudaFunctionInfo::two_fields::<F, EF>("multilinear.cu", "add_assign_slices"),
         a.len(),
     );
     let n = a.len() as u32;
@@ -132,10 +133,26 @@ pub fn cuda_linear_combination_at_row_level<F: Field, EF: ExtensionField<F>>(
 }
 
 // Async
-pub fn cuda_linear_combination<F: Field, EF: ExtensionField<F>, S: Borrow<CudaSlice<F>>>(
+pub fn cuda_linear_combination_large_field<F: Field, EF: ExtensionField<F>, S: Borrow<CudaSlice<F>>>(
     inputs: &[S],
     scalars: &[EF],
 ) -> CudaSlice<EF> {
+    cuda_linear_combination(inputs, scalars)
+}
+
+// Async
+pub fn cuda_linear_combination_small_field<F: Field, EF: MyExtensionField<F>, S: Borrow<CudaSlice<EF>>>(
+    inputs: &[S],
+    scalars: &[F],
+) -> CudaSlice<EF> {
+    cuda_linear_combination(inputs, scalars)
+}
+
+// Async
+fn cuda_linear_combination<F: Field, EF: Field, R: Field, S: Borrow<CudaSlice<F>>>(
+    inputs: &[S],
+    scalars: &[EF],
+) -> CudaSlice<R> {
     if scalars.len() > 512 {
         tracing::warn!(
             "current CUDA implementation is not optimized for a large linear combination"
@@ -144,7 +161,7 @@ pub fn cuda_linear_combination<F: Field, EF: ExtensionField<F>, S: Borrow<CudaSl
     assert_eq!(inputs.len(), scalars.len());
     let len = inputs[0].borrow().len();
     assert!(inputs.iter().all(|input| input.borrow().len() == len));
-    let mut output = cuda_alloc::<EF>(len);
+    let mut output = cuda_alloc::<R>(len);
     let len_u32 = len as u32;
     let n_scalars_u32 = scalars.len() as u32;
     let scalars_dev = memcpy_htod(scalars);
@@ -467,7 +484,7 @@ mod tests {
                 cuda_sync();
                 let scalars = (0..n_scalars).map(|_| rng.random()).collect::<Vec<EF>>();
                 let time = std::time::Instant::now();
-                let cuda_res = cuda_linear_combination(&inputs_dev, &scalars);
+                let cuda_res = cuda_linear_combination_large_field(&inputs_dev, &scalars);
                 cuda_sync();
                 println!("CUDA time: {:?} ms", time.elapsed().as_millis());
                 let cuda_res = memcpy_dtoh(&cuda_res);
