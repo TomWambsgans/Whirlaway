@@ -21,8 +21,6 @@ Source: https://github.com/MrSpike63/vanity-eth-address
 #include <stdio.h>
 #include <stdint.h>
 #include <cinttypes>
-#include <device_launch_parameters.h>
-#include <cooperative_groups.h>
 
 int main()
 {
@@ -297,9 +295,6 @@ extern "C" __global__ void pow_grinding(
     uint32_t n_iters,
     size_t *__restrict__ solution_increment)
 {
-
-    namespace cg = cooperative_groups;
-    cg::grid_group grid = cg::this_grid();
 
     uint64_t total_threads = blockDim.x * gridDim.x;
     uint64_t idx = blockIdx.x * blockDim.x + threadIdx.x;

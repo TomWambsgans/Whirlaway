@@ -138,7 +138,6 @@ extern "C" __global__ void lagrange_to_monomial_basis_steps(Field_A *input, Fiel
     }
 }
 
-
 template <int extra_steps>
 __device__ void process_eq_mle_steps_helper(Field_A *__restrict__ point, Field_A *starting_element, Field_A *__restrict__ res,
                                             int n_vars, int offset, int res_spacing, int step)
@@ -565,27 +564,71 @@ extern "C" __global__ void repeat_slice_from_inside(const Field_A *input, Field_
     }
 }
 
-extern "C" __global__ void sum_in_place(Field_A *terms, const uint32_t log_len)
+extern "C" __global__ void sum_in_place(Field_A *terms, uint32_t log_len, uint32_t n_big_steps, uint32_t n_small_steps)
 {
-    // will alter terms. The final result will be in terms[0]
+    // will alter terms, final result is in terms[0]
 
-    namespace cg = cooperative_groups;
-    cg::grid_group grid = cg::this_grid();
-
-    const int n_total_threads = blockDim.x * gridDim.x;
-
-    for (int step = 0; step < log_len; step++)
+    assert(n_big_steps <= log_len);
+    int n_ops;
+    if (n_small_steps == 0)
     {
-        const int half_len = 1 << (log_len - step - 1);
-        const int n_reps = (half_len + n_total_threads - 1) / n_total_threads;
-        for (int rep = 0; rep < n_reps; rep++)
+        n_ops = 1 << (log_len - n_big_steps);
+    }
+    else
+    {
+        assert(n_big_steps + n_small_steps == log_len);
+        assert(blockDim.x == 1 << n_small_steps);
+        assert(gridDim.x == 1);
+
+        n_ops = 1 << n_small_steps;
+    }
+
+    int n_total_threads = blockDim.x * gridDim.x;
+
+    int n_reps = (n_ops + n_total_threads - 1) / n_total_threads;
+    for (int rep = 0; rep < n_reps; rep++)
+    {
+        int idx = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
+        if (idx >= n_ops)
         {
-            const int thread_index = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
-            if (thread_index < half_len)
-            {
-                ADD_AA(terms[thread_index], terms[thread_index + half_len], terms[thread_index]);
-            }
+            return;
         }
-        grid.sync();
+
+        Field_A sum = terms[idx];
+        for (int i = 1; i < 1 << n_big_steps; i++)
+        {
+            ADD_AA(sum, terms[idx + i * n_ops], sum);
+        }
+
+        if (n_small_steps == 0)
+        {
+            // copy back to global memory
+            terms[idx] = sum;
+            continue;
+        }
+        // write back the result to shared memory
+
+        extern __shared__ Field_A shared_cache[];
+        shared_cache[threadIdx.x] = sum;
+        __syncthreads();
+
+        // sum in small_steps steps
+        for (int step = 0; step < n_small_steps; step++)
+        {
+            int half = 1 << (n_small_steps - step - 1);
+            if (threadIdx.x < half)
+            {
+                Field_A left = shared_cache[threadIdx.x];
+                Field_A right = shared_cache[threadIdx.x + half];
+                ADD_AA(left, right, left);
+                shared_cache[threadIdx.x] = left;
+            }
+            __syncthreads();
+        }
+
+        if (threadIdx.x == 0)
+        {
+            terms[idx] = shared_cache[0];
+        }
     }
 }

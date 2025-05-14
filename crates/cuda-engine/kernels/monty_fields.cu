@@ -76,11 +76,6 @@ public:
         return MontyField<MontyPrime, MontyBits, MontyMu>::from(diff + corr);
     }
 
-    __device__ void print() const
-    {
-        printf("Field(%u)\n", MontyField<MontyPrime, MontyBits, MontyMu>::monty_reduce(x));
-    }
-
     __device__ void print(char *name) const
     {
         printf("%s: Field(%u)\n", name, MontyField<MontyPrime, MontyBits, MontyMu>::monty_reduce(x));
@@ -169,6 +164,16 @@ struct ExtensionField
         {
             to->coeffs[i] = {0};
         }
+    }
+
+    __device__ void print(char *name) const
+    {
+        printf("%s: Field(", name);
+        for (int i = 0; i < N; i++)
+        {
+            printf(" %u", BaseField::monty_reduce(coeffs[i].x));
+        }
+        printf(" )\n");
     }
 };
 // Macro for N=4 extension field multiplication

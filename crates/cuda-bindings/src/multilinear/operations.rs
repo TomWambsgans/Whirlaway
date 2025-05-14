@@ -1,11 +1,11 @@
 use cuda_engine::{
-    CudaCall, CudaFunctionInfo, concat_pointers, cuda_alloc, cuda_get_at_index, memcpy_dtoh,
-    memcpy_htod,
+    CudaCall, CudaFunctionInfo, LOG_MAX_THREADS_PER_BLOCK, concat_pointers, cuda_alloc,
+    cuda_get_at_index, memcpy_dtoh, memcpy_htod, shared_memory,
 };
 use cudarc::driver::{CudaSlice, CudaView, PushKernelArg};
 use p3_field::{BasedVectorSpace, ExtensionField, Field};
 use std::borrow::Borrow;
-use utils::MyExtensionField;
+use utils::{MyExtensionField, log2_down};
 
 use crate::cuda_eq_mle;
 
@@ -241,22 +241,56 @@ fn cuda_repeat_slice<F: Field>(
     output
 }
 
+const MAX_SUM_BIG_STEPS: usize = 6;
+
 // Async
-pub fn cuda_sum<F: Field>(terms: CudaSlice<F>) -> F {
+pub fn cuda_sum<F: Field>(mut terms: CudaSlice<F>) -> F {
     // we take owneship of `terms` because it will be aletered
     assert!(terms.len().is_power_of_two());
     if terms.len() == 1 {
         return cuda_get_at_index(&terms, 0);
     }
-    let log_len = terms.len().ilog2();
+    let mut log_len = terms.len().ilog2() as usize;
+
+    let max_small_steps =
+        log2_down(shared_memory() / size_of::<F>()).min(LOG_MAX_THREADS_PER_BLOCK);
+
+    while log_len > max_small_steps + MAX_SUM_BIG_STEPS {
+        cuda_sum_helper(&mut terms, log_len, MAX_SUM_BIG_STEPS, 0);
+        log_len -= MAX_SUM_BIG_STEPS;
+    }
+
+    let big_steps = 1.max(log_len.saturating_sub(max_small_steps));
+    let small_steps = log_len - big_steps;
+
+    cuda_sum_helper(&mut terms, log_len, big_steps, small_steps);
+    cuda_get_at_index(&terms, 0)
+}
+
+pub fn cuda_sum_helper<F: Field>(
+    terms: &mut CudaSlice<F>,
+    log_len: usize,
+    n_big_steps: usize,
+    n_small_steps: usize,
+) {
+    assert!(n_big_steps > 0 && n_big_steps <= MAX_SUM_BIG_STEPS);
     let mut call = CudaCall::new(
         CudaFunctionInfo::one_field::<F>("multilinear.cu", "sum_in_place"),
-        terms.len() / 2,
-    );
-    call.arg(&terms);
+        1 << (log_len - n_big_steps),
+    )
+    .shared_mem_bytes(if n_small_steps == 0 {
+        0
+    } else {
+        size_of::<F>() * (1 << n_small_steps)
+    });
+    let log_len = log_len as u32;
+    let n_big_steps_u32 = n_big_steps as u32;
+    let n_small_steps_u32 = n_small_steps as u32;
+    call.arg(terms);
     call.arg(&log_len);
-    call.launch_cooperative();
-    cuda_get_at_index(&terms, 0)
+    call.arg(&n_big_steps_u32);
+    call.arg(&n_small_steps_u32);
+    call.launch();
 }
 
 // Async
@@ -526,7 +560,7 @@ mod tests {
             "multilinear.cu",
             "sum_in_place",
         ));
-        for log_len in [1, 3, 11, 20] {
+        for log_len in [1, 4, 8, 9, 10, 13, 16, 19, 21] {
             let len = 1 << log_len;
             let input = (0..len).map(|_| rng.random()).collect::<Vec<F>>();
             let input_dev = memcpy_htod(&input);
