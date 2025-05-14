@@ -81,18 +81,34 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
             "multilinear.cu",
             "multilinears_down",
         ));
+
         cuda_load_function(CudaFunctionInfo::two_fields::<F, WhirF>(
-            "multilinear.cu",
-            "eval_multilinear_in_lagrange_basis",
+            "multilinear_evaluations.cu",
+            "eval_multilinear_in_lagrange_basis_steps",
+        ));
+        cuda_load_function(CudaFunctionInfo::two_fields::<F, WhirF>(
+            "multilinear_evaluations.cu",
+            "eval_multilinear_in_lagrange_basis_shared_memory",
+        ));
+
+        cuda_load_function(CudaFunctionInfo::two_fields::<WhirF, WhirF>(
+            "multilinear_evaluations.cu",
+            "eval_multilinear_in_lagrange_basis_steps",
         ));
         cuda_load_function(CudaFunctionInfo::two_fields::<WhirF, WhirF>(
-            "multilinear.cu",
-            "eval_multilinear_in_lagrange_basis",
+            "multilinear_evaluations.cu",
+            "eval_multilinear_in_lagrange_basis_shared_memory",
+        ));
+
+        cuda_load_function(CudaFunctionInfo::two_fields::<WhirF, F>(
+            "multilinear_evaluations.cu",
+            "eval_multilinear_in_lagrange_basis_steps",
         ));
         cuda_load_function(CudaFunctionInfo::two_fields::<WhirF, F>(
-            "multilinear.cu",
-            "eval_multilinear_in_lagrange_basis",
+            "multilinear_evaluations.cu",
+            "eval_multilinear_in_lagrange_basis_shared_memory",
         ));
+
         cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
             "multilinear.cu",
             "eq_mle_start",

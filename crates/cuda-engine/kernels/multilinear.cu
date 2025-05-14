@@ -67,7 +67,6 @@ lagrange_to_monomial_inner(const Field_A *input,
 
 #pragma unroll
     for (int i = 0; i < (1 << STEPS); ++i)
-    // print offset + index_in_chunk + i * jump
     {
         reg[i] = input[offset + index_in_chunk + i * jump];
     }
@@ -110,7 +109,6 @@ extern "C" __global__ void lagrange_to_monomial_basis_steps(Field_A *input, Fiel
             return;
         }
 
-        int chunck = (((long)tid) << ((long)steps_to_perform)) >> previous_steps;
         int index_in_chunk = tid % (1 << (n_vars - previous_steps - steps_to_perform));
 
         int offset = (tid >> (n_vars - previous_steps - steps_to_perform)) << (n_vars - previous_steps);
@@ -140,95 +138,6 @@ extern "C" __global__ void lagrange_to_monomial_basis_steps(Field_A *input, Fiel
     }
 }
 
-extern "C" __global__ void eval_multilinear_in_lagrange_basis(Field_A *coeffs, Field_B *point, uint32_t n_vars, LARGER_AB *buff)
-{
-    // coeffs has size 2^n_vars
-    // buff has size 2^n_vars - 1
-    // result is stored at the last index of the buffer
-
-    namespace cg = cooperative_groups;
-    cg::grid_group grid = cg::this_grid();
-
-    int total_n_threads = blockDim.x * gridDim.x;
-
-    int n_iters = (1 << (n_vars - 1));
-    int n_repetitions = (n_iters + total_n_threads - 1) / total_n_threads;
-    for (int rep = 0; rep < n_repetitions; rep++)
-    {
-        int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
-        if (threadIndex < n_iters)
-        {
-            Field_A left = coeffs[threadIndex];
-            Field_A right = coeffs[threadIndex + (1 << (n_vars - 1))];
-            Field_A diff;
-            SUB_AA(right, left, diff);
-            Field_B p = point[0];
-            LARGER_AB prod;
-            MUL_AB(diff, p, prod);
-            ADD_A_AND_MAX_AB(left, prod, buff[threadIndex]);
-        }
-    }
-
-    grid.sync();
-
-    for (int step = 1; step < n_vars; step++)
-    {
-
-        // 2^(nvars - 1) + 2^(nvars - 2) + ... + 2^(nvars - step + 1) = 2^(nvars - step + 1) (2^(step - 1) - 1) = 2^nvars - 2^(nvars - step + 1)
-        LARGER_AB *input = &buff[(1 << n_vars) - (1 << (n_vars - step + 1))];
-        // same formula, just shifted by one
-        LARGER_AB *output = &buff[(1 << n_vars) - (1 << (n_vars - step))];
-
-        int n_iters = (1 << (n_vars - step - 1));
-        int n_repetitions = (n_iters + total_n_threads - 1) / total_n_threads;
-        for (int rep = 0; rep < n_repetitions; rep++)
-        {
-            const int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
-            if (threadIndex < n_iters)
-            {
-                LARGER_AB left = input[threadIndex];
-                LARGER_AB right = input[threadIndex + (1 << (n_vars - 1 - step))];
-                LARGER_AB diff;
-                SUB_MAX_AB(right, left, diff);
-                Field_B p = point[step];
-                LARGER_AB prod;
-                MUL_B_and_MAX_AB(p, diff, prod);
-                ADD_MAX_AB(left, prod, output[threadIndex]);
-            }
-        }
-        grid.sync();
-    }
-}
-
-// extern "C" __global__ void eq_mle(Field_A *point, const uint32_t n_vars, Field_A *res)
-// {
-//     namespace cg = cooperative_groups;
-//     cg::grid_group grid = cg::this_grid();
-
-//     const int total_n_threads = blockDim.x * gridDim.x;
-
-//     if (threadIdx.x == 0 && blockIdx.x == 0)
-//     {
-//         res[0] = Field_A::one();
-//     }
-//     grid.sync();
-
-//     for (int step = 0; step < n_vars; step++)
-//     {
-//         const int n_iters = (1 << step);
-//         const int n_repetitions = (n_iters + total_n_threads - 1) / total_n_threads;
-//         for (int rep = 0; rep < n_repetitions; rep++)
-//         {
-//             const int threadIndex = threadIdx.x + (blockIdx.x + gridDim.x * rep) * blockDim.x;
-//             if (threadIndex < n_iters)
-//             {
-//                 MUL_AA(res[threadIndex], point[n_vars - 1 - step], res[threadIndex + (1 << step)]);
-//                 SUB_AA(res[threadIndex], res[threadIndex + (1 << step)], res[threadIndex]);
-//             }
-//         }
-//         grid.sync();
-//     }
-// }
 
 template <int extra_steps>
 __device__ void process_eq_mle_steps_helper(Field_A *__restrict__ point, Field_A *starting_element, Field_A *__restrict__ res,

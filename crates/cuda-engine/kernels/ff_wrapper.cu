@@ -11,7 +11,7 @@
 #endif
 
 #if !defined(EXTENSION_DEGREE_B)
-#define EXTENSION_DEGREE_B 1
+#define EXTENSION_DEGREE_B 8
 #endif
 
 #if !defined(EXTENSION_DEGREE_C)
@@ -120,6 +120,8 @@ using Field_C = Field_t<EXTENSION_DEGREE_C>;
 #define MUL_BA(x, y, res) res = Field_B::mul(x, y);
 #define MUL_BB(x, y, res) res = Field_B::mul(x, y);
 
+#define CONVERT_A_TO_B(from, to) to = from;
+
 #elif EXTENSION_DEGREE_A == 1 && EXTENSION_DEGREE_B > 1
 
 #define ADD_AA(x, y, res) res = Field_A::add(x, y);
@@ -136,6 +138,9 @@ using Field_C = Field_t<EXTENSION_DEGREE_C>;
 #define MUL_AB(x, y, res) Field_B::mul_prime_field(&y, x, &res);
 #define MUL_BA(x, y, res) Field_B::mul_prime_field(&x, y, &res);
 #define MUL_BB(x, y, res) Field_B::mul(&x, &y, &res);
+
+#define CONVERT_A_TO_B(from, to) Field_B::from_base_field(from, &to);
+
 
 #elif EXTENSION_DEGREE_A > 1 && EXTENSION_DEGREE_B == 1
 
@@ -154,6 +159,8 @@ using Field_C = Field_t<EXTENSION_DEGREE_C>;
 #define MUL_BA(x, y, res) Field_A::mul_prime_field(&y, x, &res);
 #define MUL_BB(x, y, res) res = Field_B::mul(x, y);
 
+#define CONVERT_A_TO_B(from, to) assert(0);
+
 #elif EXTENSION_DEGREE_A == EXTENSION_DEGREE_B
 
 #define ADD_AA(x, y, res) Field_A::add(&x, &y, &res);
@@ -170,6 +177,8 @@ using Field_C = Field_t<EXTENSION_DEGREE_C>;
 #define MUL_AB(x, y, res) Field_A::mul(&x, &y, &res);
 #define MUL_BA(x, y, res) Field_A::mul(&x, &y, &res);
 #define MUL_BB(x, y, res) Field_A::mul(&x, &y, &res);
+
+#define CONVERT_A_TO_B(from, to) to = from;
 
 #elif EXTENSION_DEGREE_A == 8 && EXTENSION_DEGREE_B == 4
 
@@ -188,6 +197,8 @@ using Field_C = Field_t<EXTENSION_DEGREE_C>;
 #define MUL_BA(x, y, res) mul_ext4_ext8(&x, &y, &res);
 #define MUL_BB(x, y, res) Field_B::mul(&x, &y, &res);
 
+#define CONVERT_A_TO_B(from, to) assert(0);
+
 #elif EXTENSION_DEGREE_A == 4 && EXTENSION_DEGREE_B == 8
 
 #define ADD_AA(x, y, res) Field_A::add(&x, &y, &res);
@@ -204,6 +215,8 @@ using Field_C = Field_t<EXTENSION_DEGREE_C>;
 #define MUL_AB(x, y, res) mul_ext4_ext8(&x, &y, &res);
 #define MUL_BA(x, y, res) mul_ext8_ext4(&x, &y, &res);
 #define MUL_BB(x, y, res) Field_B::mul(&x, &y, &res);
+
+#define CONVERT_A_TO_B(from, to) ext4_to_ext8(&from, &to);
 
 #else
 #error "Invalid combination of EXTENSION_DEGREE_A and EXTENSION_DEGREE_B."
@@ -323,12 +336,13 @@ using Field_C = Field_t<EXTENSION_DEGREE_C>;
 #define LARGER_TYPE(T1, T2) typename std::conditional<(sizeof(T1) > sizeof(T2)), T1, T2>::type
 typedef LARGER_TYPE(Field_A, Field_B) LARGER_AB;
 
-#if EXTENSION_DEGREE_A > EXTENSION_DEGREE_B
+#if EXTENSION_DEGREE_A >= EXTENSION_DEGREE_B
 #define ADD_A_AND_MAX_AB(x, y, res) ADD_AA(x, y, res);
 #define MUL_B_and_MAX_AB(x, y, res) MUL_BA(x, y, res);
 #define ADD_MAX_AB(x, y, res) ADD_AA(x, y, res);
 #define MUL_MAX_AB(x, y, res) MUL_AA(x, y, res);
 #define SUB_MAX_AB(x, y, res) SUB_AA(x, y, res);
+#define CONVERT_A_TO_MAX_AB(from, to) to = from;
 
 #else
 #define ADD_A_AND_MAX_AB(x, y, res) ADD_AB(x, y, res);
@@ -336,4 +350,5 @@ typedef LARGER_TYPE(Field_A, Field_B) LARGER_AB;
 #define ADD_MAX_AB(x, y, res) ADD_BB(x, y, res);
 #define MUL_MAX_AB(x, y, res) MUL_BB(x, y, res);
 #define SUB_MAX_AB(x, y, res) SUB_BB(x, y, res);
+#define CONVERT_A_TO_MAX_AB(from, to) CONVERT_A_TO_B(from, to);
 #endif

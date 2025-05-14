@@ -2,9 +2,11 @@ use cuda_engine::{
     CudaCall, CudaFunctionInfo, LOG_MAX_THREADS_PER_BLOCK, cuda_alloc, cuda_get_at_index,
     cuda_sync, memcpy_htod, shared_memory,
 };
-use cudarc::driver::{CudaSlice, PushKernelArg};
+use cudarc::driver::{CudaSlice, CudaView, CudaViewMut, PushKernelArg};
 use p3_field::{ExtensionField, Field};
 use utils::log2_down;
+
+const EVAL_MULTILINEAR_MAX_STEPS_PER_INTERMEDIATE_KERNEL: usize = 6;
 
 // Async
 pub fn cuda_eval_multilinear_in_lagrange_basis<
@@ -12,34 +14,134 @@ pub fn cuda_eval_multilinear_in_lagrange_basis<
     F2: Field,
     ResField: ExtensionField<F1>,
 >(
-    coeffs: &CudaSlice<F1>,
+    input: &CudaSlice<F1>,
     point: &[F2],
 ) -> ResField {
-    assert!(coeffs.len().is_power_of_two());
-    let n_vars = coeffs.len().ilog2();
-    assert_eq!(n_vars, point.len() as u32);
+    assert!(input.len().is_power_of_two());
+    let mut n_vars = input.len().ilog2() as usize;
 
     if n_vars == 0 {
-        return ResField::from(cuda_get_at_index(coeffs, 0));
+        return ResField::from(cuda_get_at_index(input, 0));
     }
 
-    let point_dev = memcpy_htod(point);
-    let mut buff = cuda_alloc::<ResField>(coeffs.len() - 1);
+    let max_steps_with_shared_memory =
+        log2_down((shared_memory() - n_vars * size_of::<F2>()) / size_of::<ResField>())
+            .min(LOG_MAX_THREADS_PER_BLOCK)
+            + EVAL_MULTILINEAR_MAX_STEPS_PER_INTERMEDIATE_KERNEL;
+
+    let point = memcpy_htod(point);
+
+    if n_vars <= max_steps_with_shared_memory {
+        return cuda_eval_multilinear_in_lagrange_basis_shared_memory(
+            &input.as_view(),
+            &point.as_view(),
+        );
+    }
+
+    let mut output =
+        cuda_alloc::<ResField>(1 << (n_vars - EVAL_MULTILINEAR_MAX_STEPS_PER_INTERMEDIATE_KERNEL));
+
+    cuda_eval_multilinear_in_lagrange_basis_steps::<F1, F2, ResField>(
+        &input.as_view(),
+        &mut output.as_view_mut(),
+        &point.as_view(),
+        EVAL_MULTILINEAR_MAX_STEPS_PER_INTERMEDIATE_KERNEL,
+    );
+
+    n_vars -= EVAL_MULTILINEAR_MAX_STEPS_PER_INTERMEDIATE_KERNEL;
+    let mut input = unsafe { &*(&output as *const CudaSlice<_>) }.as_view();
+    let mut point = point.slice(EVAL_MULTILINEAR_MAX_STEPS_PER_INTERMEDIATE_KERNEL..);
+
+    while n_vars > max_steps_with_shared_memory {
+        let mut sliced_output =
+            output.slice_mut(0..1 << (n_vars - EVAL_MULTILINEAR_MAX_STEPS_PER_INTERMEDIATE_KERNEL));
+        cuda_eval_multilinear_in_lagrange_basis_steps::<ResField, F2, ResField>(
+            &input,
+            &mut sliced_output,
+            &point,
+            EVAL_MULTILINEAR_MAX_STEPS_PER_INTERMEDIATE_KERNEL,
+        );
+        n_vars -= EVAL_MULTILINEAR_MAX_STEPS_PER_INTERMEDIATE_KERNEL;
+        input = input.slice(0..1 << n_vars);
+        point = point.slice(EVAL_MULTILINEAR_MAX_STEPS_PER_INTERMEDIATE_KERNEL..);
+    }
+
+    return cuda_eval_multilinear_in_lagrange_basis_shared_memory(&input, &point);
+}
+
+// Async
+fn cuda_eval_multilinear_in_lagrange_basis_steps<
+    F1: Field,
+    F2: Field,
+    ResField: ExtensionField<F1>,
+>(
+    input: &CudaView<F1>,
+    output: &mut CudaViewMut<ResField>,
+    point: &CudaView<F2>,
+    steps_to_perform: usize,
+) {
+    let n_vars = point.len() as u32;
+    assert_eq!(n_vars, input.len().ilog2());
+    assert_eq!(output.len(), input.len() >> steps_to_perform);
+
+    let steps_to_perform_u32 = steps_to_perform as u32;
 
     let mut call = CudaCall::new(
         CudaFunctionInfo::two_fields::<F1, F2>(
-            "multilinear.cu",
-            "eval_multilinear_in_lagrange_basis",
+            "multilinear_evaluations.cu",
+            "eval_multilinear_in_lagrange_basis_steps",
         ),
-        1 << (n_vars - 1),
-    );
-    call.arg(coeffs);
-    call.arg(&point_dev);
-    call.arg(&n_vars);
-    call.arg(&mut buff);
-    call.launch_cooperative();
+        1 << (n_vars - steps_to_perform_u32),
+    )
+    .shared_mem_bytes(n_vars as usize * size_of::<F2>());
 
-    cuda_get_at_index(&buff, buff.len() - 1)
+    call.arg(input);
+    call.arg(output);
+    call.arg(point);
+    call.arg(&n_vars);
+    call.arg(&steps_to_perform_u32);
+    call.launch();
+}
+
+// Async
+fn cuda_eval_multilinear_in_lagrange_basis_shared_memory<
+    F1: Field,
+    F2: Field,
+    ResField: ExtensionField<F1>,
+>(
+    input: &CudaView<F1>,
+    point: &CudaView<F2>,
+) -> ResField {
+    assert!(input.len().is_power_of_two());
+    let n_vars = input.len().ilog2();
+    assert!(n_vars > 0);
+
+    assert!(shared_memory() > n_vars as usize * size_of::<F2>());
+    let log_n_ops =
+        (log2_down((shared_memory() - n_vars as usize * size_of::<F2>()) / size_of::<ResField>()))
+            .min(LOG_MAX_THREADS_PER_BLOCK)
+            .min(n_vars as usize - 1);
+
+    let mut call = CudaCall::new(
+        CudaFunctionInfo::two_fields::<F1, F2>(
+            "multilinear_evaluations.cu",
+            "eval_multilinear_in_lagrange_basis_shared_memory",
+        ),
+        1 << log_n_ops,
+    )
+    .shared_mem_bytes(
+        n_vars as usize * size_of::<F2>() + (1 << (log_n_ops + 1)) * size_of::<ResField>(),
+    );
+
+    let mut output = cuda_alloc::<ResField>(1);
+
+    call.arg(input);
+    call.arg(&mut output);
+    call.arg(point);
+    call.arg(&n_vars);
+    call.launch();
+
+    cuda_get_at_index(&output, 0)
 }
 
 fn eq_mle_steps_within_shared_memory<F: Field>(n_vars: usize) -> usize {
@@ -166,30 +268,43 @@ mod tests {
     {
         cuda_init();
         cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
-            "multilinear.cu",
-            "eval_multilinear_in_lagrange_basis",
+            "multilinear_evaluations.cu",
+            "eval_multilinear_in_lagrange_basis_steps",
+        ));
+        cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
+            "multilinear_evaluations.cu",
+            "eval_multilinear_in_lagrange_basis_steps",
+        ));
+        cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
+            "multilinear_evaluations.cu",
+            "eval_multilinear_in_lagrange_basis_shared_memory",
+        ));
+        cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
+            "multilinear_evaluations.cu",
+            "eval_multilinear_in_lagrange_basis_shared_memory",
         ));
         let rng = &mut StdRng::seed_from_u64(0);
-        let n_vars = 20;
-        let len = 1 << n_vars;
-        let coeffs = (0..len).map(|_| rng.random()).collect::<Vec<F>>();
-        let point = (0..n_vars).map(|_| rng.random()).collect::<Vec<EF>>();
+        for n_vars in 1..23 {
+            let len = 1 << n_vars;
+            let coeffs = (0..len).map(|_| rng.random()).collect::<Vec<F>>();
+            let point = (0..n_vars).map(|_| rng.random()).collect::<Vec<EF>>();
 
-        let coeffs_dev = memcpy_htod(&coeffs);
-        cuda_sync();
+            let coeffs_dev = memcpy_htod(&coeffs);
+            cuda_sync();
 
-        let time = std::time::Instant::now();
-        let cuda_result: EF = cuda_eval_multilinear_in_lagrange_basis(&coeffs_dev, &point);
-        cuda_sync();
-        println!(
-            "CUDA eval_multilinear_in_lagrange_basis took {} ms",
-            time.elapsed().as_millis()
-        );
-        let time = std::time::Instant::now();
-        let expected_result = MultilinearHost::new(coeffs).evaluate_in_large_field(&point);
-        println!("CPU took {} ms", time.elapsed().as_millis());
+            let time = std::time::Instant::now();
+            let cuda_result: EF = cuda_eval_multilinear_in_lagrange_basis(&coeffs_dev, &point);
+            cuda_sync();
+            println!(
+                "CUDA eval_multilinear_in_lagrange_basis took {} ms",
+                time.elapsed().as_millis()
+            );
+            let time = std::time::Instant::now();
+            let expected_result = MultilinearHost::new(coeffs).evaluate_in_large_field(&point);
+            println!("CPU took {} ms", time.elapsed().as_millis());
 
-        assert_eq!(cuda_result, expected_result);
+            assert_eq!(cuda_result, expected_result);
+        }
     }
 
     #[test]

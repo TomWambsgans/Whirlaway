@@ -11,10 +11,10 @@
 - matrix_up_folded / matrix_down_folded in cuda
 - AIR inner sumcheck can bee accelerated (some factors have not all the variables + it's sparse -> avoid "dummy variables")
 - Neg in ArithmeticCircuitComposed
-- use cuda constant memory for batching_scalars
-- use cuda constant memory for small twiddles
+- use cuda constant memory (can speed up a big number of kernels)
 - sparse preprocessed columns
 - MaybeUninit instead of allocating zeros when it's rewritten just after
+- refactor the disgusting multilinear_evaluations.cu
 
 - Add ZK?
 

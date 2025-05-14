@@ -76,12 +76,12 @@ public:
         return MontyField<MontyPrime, MontyBits, MontyMu>::from(diff + corr);
     }
 
-    __device__ void print()
+    __device__ void print() const
     {
         printf("Field(%u)\n", MontyField<MontyPrime, MontyBits, MontyMu>::monty_reduce(x));
     }
 
-    __device__ void print(char *name)
+    __device__ void print(char *name) const
     {
         printf("%s: Field(%u)\n", name, MontyField<MontyPrime, MontyBits, MontyMu>::monty_reduce(x));
     }
@@ -159,6 +159,15 @@ struct ExtensionField
         for (int i = 1; i < N; i++)
         {
             result->coeffs[i] = a->coeffs[i];
+        }
+    }
+
+    __device__ static MAYBE_NOINLINE void from_base_field(const BaseField from, ExtensionField<N, BaseField> *to)
+    {
+        to->coeffs[0] = from;
+        for (int i = 1; i < N; i++)
+        {
+            to->coeffs[i] = {0};
         }
     }
 };
@@ -288,15 +297,15 @@ typedef ExtensionField<8, BabyBear> BabyBear8;
  *********************************************************************/
 template <typename BaseField>
 __device__ MAYBE_NOINLINE void add_ext8_ext4(
-        const ExtensionField<8, BaseField>* a8,
-        const ExtensionField<4, BaseField>* a4,
-        ExtensionField<8, BaseField>*       r)
+    const ExtensionField<8, BaseField> *a8,
+    const ExtensionField<4, BaseField> *a4,
+    ExtensionField<8, BaseField> *r)
 {
     /*  result may alias a8, so write directly */
     for (int i = 0; i < 4; ++i)
     {
         /* even indices = “a” part gets the + a4         */
-        r->coeffs[2 * i]     = BaseField::add(a8->coeffs[2 * i], a4->coeffs[i]);
+        r->coeffs[2 * i] = BaseField::add(a8->coeffs[2 * i], a4->coeffs[i]);
         /* odd  indices = “b” part is left unchanged      */
         r->coeffs[2 * i + 1] = a8->coeffs[2 * i + 1];
     }
@@ -304,9 +313,9 @@ __device__ MAYBE_NOINLINE void add_ext8_ext4(
 
 template <typename BaseField>
 __device__ MAYBE_NOINLINE void add_ext4_ext8(
-        const ExtensionField<4, BaseField>* a4,
-        const ExtensionField<8, BaseField>* a8,
-        ExtensionField<8, BaseField>*       r)
+    const ExtensionField<4, BaseField> *a4,
+    const ExtensionField<8, BaseField> *a8,
+    ExtensionField<8, BaseField> *r)
 {
     /* addition is commutative – just call the other order */
     add_ext8_ext4<BaseField>(a8, a4, r);
@@ -314,9 +323,9 @@ __device__ MAYBE_NOINLINE void add_ext4_ext8(
 
 template <typename BaseField>
 __device__ MAYBE_NOINLINE void mul_ext8_ext4(
-        const ExtensionField<8, BaseField>* a8,
-        const ExtensionField<4, BaseField>* a4,
-        ExtensionField<8, BaseField>*       r)
+    const ExtensionField<8, BaseField> *a8,
+    const ExtensionField<4, BaseField> *a4,
+    ExtensionField<8, BaseField> *r)
 {
     /* -----------------------------------------------------------------
      *  Split a8 into the two degree-4 halves               a and b
@@ -342,16 +351,16 @@ __device__ MAYBE_NOINLINE void mul_ext8_ext4(
      * ----------------------------------------------------------------*/
     for (int i = 0; i < 4; ++i)
     {
-        r->coeffs[2 * i]     = ac.coeffs[i];
+        r->coeffs[2 * i] = ac.coeffs[i];
         r->coeffs[2 * i + 1] = bc.coeffs[i];
     }
 }
 
 template <typename BaseField>
 __device__ MAYBE_NOINLINE void mul_ext4_ext8(
-        const ExtensionField<4, BaseField>* a4,
-        const ExtensionField<8, BaseField>* a8,
-        ExtensionField<8, BaseField>*       r)
+    const ExtensionField<4, BaseField> *a4,
+    const ExtensionField<8, BaseField> *a8,
+    ExtensionField<8, BaseField> *r)
 {
     /* multiplication is commutative – just call the other order */
     mul_ext8_ext4<BaseField>(a8, a4, r);
@@ -361,33 +370,43 @@ __device__ MAYBE_NOINLINE void mul_ext4_ext8(
  *  Mixed subtraction :  ExtensionField<8 , F>  –/+  ExtensionField<4 ,F>
  *********************************************************************/
 template <typename BaseField>
-__device__ MAYBE_NOINLINE void sub_ext8_ext4(          //  r = e8 – e4
-        const ExtensionField<8, BaseField>* e8,
-        const ExtensionField<4, BaseField>* e4,
-        ExtensionField<8, BaseField>*       r)
+__device__ MAYBE_NOINLINE void sub_ext8_ext4( //  r = e8 – e4
+    const ExtensionField<8, BaseField> *e8,
+    const ExtensionField<4, BaseField> *e4,
+    ExtensionField<8, BaseField> *r)
 {
     for (int i = 0; i < 4; ++i)
     {
         /* even indices = “a” part  minus e4 */
-        r->coeffs[2 * i]     = BaseField::sub(e8->coeffs[2 * i], e4->coeffs[i]);
+        r->coeffs[2 * i] = BaseField::sub(e8->coeffs[2 * i], e4->coeffs[i]);
         /* odd  indices = “b” part unchanged */
         r->coeffs[2 * i + 1] = e8->coeffs[2 * i + 1];
     }
 }
 
 template <typename BaseField>
-__device__ MAYBE_NOINLINE void sub_ext4_ext8(          //  r = e4 – e8
-        const ExtensionField<4, BaseField>* e4,
-        const ExtensionField<8, BaseField>* e8,
-        ExtensionField<8, BaseField>*       r)
+__device__ MAYBE_NOINLINE void sub_ext4_ext8( //  r = e4 – e8
+    const ExtensionField<4, BaseField> *e4,
+    const ExtensionField<8, BaseField> *e8,
+    ExtensionField<8, BaseField> *r)
 {
     for (int i = 0; i < 4; ++i)
     {
         /* even indices = e4 minus “a” part              */
-        r->coeffs[2 * i]     = BaseField::sub(e4->coeffs[i], e8->coeffs[2 * i]);
+        r->coeffs[2 * i] = BaseField::sub(e4->coeffs[i], e8->coeffs[2 * i]);
         /* odd  indices = negate the “b” part of e8       */
         r->coeffs[2 * i + 1] = BaseField::sub(
-                                   BaseField::from_canonical(0),
-                                   e8->coeffs[2 * i + 1]);
+            BaseField::from_canonical(0),
+            e8->coeffs[2 * i + 1]);
+    }
+}
+
+template <typename BaseField>
+__device__ MAYBE_NOINLINE void ext4_to_ext8(const ExtensionField<4, BaseField> *from, ExtensionField<8, BaseField> *to)
+{
+    for (int i = 0; i < 4; ++i)
+    {
+        to->coeffs[2 * i] = from->coeffs[i];
+        to->coeffs[2 * i + 1] = {0};
     }
 }

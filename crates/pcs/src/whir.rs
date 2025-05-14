@@ -208,13 +208,21 @@ mod test {
                 "multilinear.cu",
                 "eq_mle_steps",
             ));
-            cuda_load_function(CudaFunctionInfo::two_fields::<F, F::PrimeSubfield>(
-                "multilinear.cu",
-                "eval_multilinear_in_lagrange_basis",
+            cuda_load_function(CudaFunctionInfo::two_fields::<F, F>(
+                "multilinear_evaluations.cu",
+                "eval_multilinear_in_lagrange_basis_steps",
             ));
             cuda_load_function(CudaFunctionInfo::two_fields::<F, F>(
-                "multilinear.cu",
-                "eval_multilinear_in_lagrange_basis",
+                "multilinear_evaluations.cu",
+                "eval_multilinear_in_lagrange_basis_shared_memory",
+            ));
+            cuda_load_function(CudaFunctionInfo::two_fields::<F, F::PrimeSubfield>(
+                "multilinear_evaluations.cu",
+                "eval_multilinear_in_lagrange_basis_steps",
+            ));
+            cuda_load_function(CudaFunctionInfo::two_fields::<F, F::PrimeSubfield>(
+                "multilinear_evaluations.cu",
+                "eval_multilinear_in_lagrange_basis_shared_memory",
             ));
             cuda_load_function(CudaFunctionInfo::one_field::<F>(
                 "multilinear.cu",
