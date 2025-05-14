@@ -396,40 +396,79 @@ extern "C" __global__ void fold_rectangular(const Field_A **inputs, LARGER_AB **
         res[slice_index][slice_offset] = sum;
     }
 }
-extern "C" __global__ void dot_product(Field_A *a, Field_B *b, LARGER_AB *res, const uint32_t log_len)
+
+extern "C" __global__ void dot_product(Field_A *a, Field_B *b, LARGER_AB *res, uint32_t log_len, uint32_t n_big_steps, uint32_t n_small_steps)
 {
-    // a, b and res have size 2^log_len
-    // the final result is stored in res[0]
+    // will alter terms, final result is in terms[0]
 
-    namespace cg = cooperative_groups;
-    cg::grid_group grid = cg::this_grid();
-    const int n_total_threads = blockDim.x * gridDim.x;
-
-    // 1) Product
-    const int len = (1 << log_len);
-    const int n_repetitions = (len + n_total_threads - 1) / n_total_threads;
-    for (int rep = 0; rep < n_repetitions; rep++)
+    assert(n_big_steps <= log_len);
+    int n_ops;
+    if (n_small_steps == 0)
     {
-        const int idx = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
-        if (idx < len)
-        {
-            MUL_BA(b[idx], a[idx], res[idx]);
-        }
+        n_ops = 1 << (log_len - n_big_steps);
+    }
+    else
+    {
+        assert(n_big_steps + n_small_steps == log_len);
+        assert(blockDim.x == 1 << n_small_steps);
+        assert(gridDim.x == 1);
+
+        n_ops = 1 << n_small_steps;
     }
 
-    // 2) Sum
-    for (int step = 0; step < log_len; step++)
+    int n_total_threads = blockDim.x * gridDim.x;
+
+    int n_reps = (n_ops + n_total_threads - 1) / n_total_threads;
+    for (int rep = 0; rep < n_reps; rep++)
     {
-        grid.sync();
-        const int half_len = 1 << (log_len - step - 1);
-        const int n_reps = (half_len + n_total_threads - 1) / n_total_threads;
-        for (int rep = 0; rep < n_reps; rep++)
+        int idx = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
+        if (idx >= n_ops)
         {
-            const int thread_index = threadIdx.x + (blockIdx.x + rep * gridDim.x) * blockDim.x;
-            if (thread_index < half_len)
+            return;
+        }
+
+        LARGER_AB sum;
+        Field_A l = a[idx];
+        Field_B r = b[idx];
+        MUL_AB(l, r, sum);
+        for (int i = 1; i < 1 << n_big_steps; i++)
+        {
+            Field_A l = a[idx + i * n_ops];
+            Field_B r = b[idx + i * n_ops];
+            LARGER_AB term;
+            MUL_AB(l, r, term);
+            ADD_MAX_AB(sum, term, sum);
+        }
+
+        if (n_small_steps == 0)
+        {
+            // copy back to global memory
+            res[idx] = sum;
+            continue;
+        }
+        // write back the result to shared memory
+
+        extern __shared__ LARGER_AB my_cache[];
+        my_cache[threadIdx.x] = sum;
+        __syncthreads();
+
+        // sum in small_steps steps
+        for (int step = 0; step < n_small_steps; step++)
+        {
+            int half = 1 << (n_small_steps - step - 1);
+            if (threadIdx.x < half)
             {
-                ADD_MAX_AB(res[thread_index], res[thread_index + half_len], res[thread_index]);
+                LARGER_AB left = my_cache[threadIdx.x];
+                LARGER_AB right = my_cache[threadIdx.x + half];
+                ADD_MAX_AB(left, right, left);
+                my_cache[threadIdx.x] = left;
             }
+            __syncthreads();
+        }
+
+        if (threadIdx.x == 0)
+        {
+            res[idx] = my_cache[0];
         }
     }
 }

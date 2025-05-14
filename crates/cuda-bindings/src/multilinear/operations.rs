@@ -9,6 +9,8 @@ use utils::{MyExtensionField, log2_down};
 
 use crate::cuda_eq_mle;
 
+const MAX_SUM_BIG_STEPS: usize = 6;
+
 // Async
 pub fn cuda_dot_product<F: Field, EF: ExtensionField<F>>(
     a: &CudaSlice<F>,
@@ -16,19 +18,54 @@ pub fn cuda_dot_product<F: Field, EF: ExtensionField<F>>(
 ) -> EF {
     assert_eq!(a.len(), b.len());
     assert!(a.len().is_power_of_two());
-    let log_len = a.len().ilog2();
-    let buff = cuda_alloc::<EF>(a.len());
+    if a.len() == 1 {
+        return cuda_get_at_index(&b, 0) * cuda_get_at_index(&a, 0);
+    }
+    let log_len = a.len().ilog2() as usize;
+
+    let max_small_steps =
+        log2_down(shared_memory() / size_of::<EF>()).min(LOG_MAX_THREADS_PER_BLOCK);
+
+    if log_len <= max_small_steps + MAX_SUM_BIG_STEPS {
+        let big_steps = 1.max(log_len.saturating_sub(max_small_steps));
+        let small_steps = log_len - big_steps;
+        let mut res = cuda_alloc::<EF>(1);
+        cuda_dot_product_helper(a, b, &mut res, log_len, big_steps, small_steps);
+        return cuda_get_at_index(&res, 0);
+    }
+    let mut res = cuda_alloc::<EF>(1 << (log_len - MAX_SUM_BIG_STEPS));
+    cuda_dot_product_helper(a, b, &mut res, log_len, MAX_SUM_BIG_STEPS, 0);
+    cuda_sum(res)
+}
+
+pub fn cuda_dot_product_helper<F: Field, EF: ExtensionField<F>>(
+    a: &CudaSlice<F>,
+    b: &CudaSlice<EF>,
+    res: &mut CudaSlice<EF>,
+    log_len: usize,
+    n_big_steps: usize,
+    n_small_steps: usize,
+) {
+    assert!(n_big_steps > 0 && n_big_steps <= MAX_SUM_BIG_STEPS);
     let mut call = CudaCall::new(
         CudaFunctionInfo::two_fields::<F, EF>("multilinear.cu", "dot_product"),
-        a.len(),
-    );
+        1 << (log_len - n_big_steps),
+    )
+    .shared_mem_bytes(if n_small_steps == 0 {
+        0
+    } else {
+        size_of::<EF>() * (1 << n_small_steps)
+    });
+    let log_len = log_len as u32;
+    let n_big_steps_u32 = n_big_steps as u32;
+    let n_small_steps_u32 = n_small_steps as u32;
     call.arg(a);
     call.arg(b);
-    call.arg(&buff);
+    call.arg(res);
     call.arg(&log_len);
-    call.launch_cooperative();
-
-    cuda_get_at_index(&buff, 0)
+    call.arg(&n_big_steps_u32);
+    call.arg(&n_small_steps_u32);
+    call.launch();
 }
 
 // Async
@@ -241,8 +278,6 @@ fn cuda_repeat_slice<F: Field>(
     output
 }
 
-const MAX_SUM_BIG_STEPS: usize = 6;
-
 // Async
 pub fn cuda_sum<F: Field>(mut terms: CudaSlice<F>) -> F {
     // we take owneship of `terms` because it will be aletered
@@ -355,9 +390,13 @@ mod tests {
             "multilinear.cu",
             "dot_product",
         ));
+        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+            "multilinear.cu",
+            "sum_in_place",
+        ));
 
-        for log_len in [1, 3, 11, 15] {
-            println!("Testing CUDA dot product with len = {}", 1 << log_len);
+        for log_len in [0, 1, 3, 7, 9, 12, 15, 19] {
+            println!("Testing CUDA dot product with log_len = {}", log_len);
             let rng = &mut StdRng::seed_from_u64(0);
             let a = (0..1 << log_len).map(|_| rng.random()).collect::<Vec<F>>();
             let b = (0..1 << log_len).map(|_| rng.random()).collect::<Vec<EF>>();
