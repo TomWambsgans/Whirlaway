@@ -15,3 +15,12 @@ __device__ int index_transpose(int i, int log_rows, int log_cols)
     int new_col = index_in_matrix / cols;
     return initial_shift + (new_row * rows) + new_col;
 }
+
+__device__ __forceinline__ int trailing_zeros(unsigned int x)
+{
+    if (x == 0)
+    {
+        return 32;
+    }
+    return __ffs(x) - 1;
+}

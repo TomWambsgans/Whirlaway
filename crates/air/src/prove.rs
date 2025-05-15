@@ -2,17 +2,20 @@ use algebra::pols::{Multilinear, MultilinearDevice, MultilinearHost, Multilinear
 use arithmetic_circuit::ArithmeticCircuit;
 use cuda_engine::{cuda_sync, memcpy_htod};
 use fiat_shamir::FsProver;
-use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, PrimeField, TwoAdicField};
+use p3_field::{ExtensionField, PrimeCharacteristicRing, PrimeField, TwoAdicField};
 use pcs::{PCS, RingSwitch};
-use rayon::prelude::*;
 use sumcheck::SumcheckGrinding;
 use tracing::{Level, instrument, span};
-use utils::{
-    Evaluation, HypercubePoint, MyExtensionField, dot_product, powers, small_to_big_extension,
-};
+use utils::{Evaluation, MyExtensionField, dot_product, powers, small_to_big_extension};
 use whir::parameters::{WhirConfig, WhirConfigBuilder};
 
-use crate::{AirSettings, utils::columns_up_and_down};
+use crate::{
+    AirSettings,
+    uni_skip_utils::{
+        matrix_down_folded_with_univariate_skips, matrix_up_folded_with_univariate_skips,
+    },
+    utils::columns_up_and_down,
+};
 
 use super::table::AirTable;
 
@@ -104,7 +107,7 @@ impl<F: PrimeField> AirTable<F> {
             MultilinearsVec::Host(self.preprocessed_columns.clone())
         };
         let preprocessed_and_witness = preprocessed_columns.as_ref().chain(&witness.as_ref());
-        let (outer_challenges, all_inner_sums, _) = {
+        let (zerocheck_challenges, all_inner_sums, _) = {
             let _span = span!(Level::INFO, "zerocheck").entered();
             sumcheck::prove(
                 settings.univariate_skips,
@@ -127,7 +130,7 @@ impl<F: PrimeField> AirTable<F> {
 
         let inner_sums_up = &all_inner_sums[self.n_preprocessed_columns()..self.n_columns];
         let inner_sums_down = &all_inner_sums[self.n_columns + self.n_preprocessed_columns()..];
-        let _span_evals = span!(Level::INFO, "transfering column evalutations from cuda").entered();
+        let _span_evals = span!(Level::INFO, "column evalutations").entered();
         let inner_sums = inner_sums_up
             .into_iter()
             .chain(inner_sums_down)
@@ -137,8 +140,10 @@ impl<F: PrimeField> AirTable<F> {
         std::mem::drop(_span_evals);
         fs_prover.add_scalars(&inner_sums);
 
+        let _span_pow = span!(Level::INFO, "pow grinding").entered();
         self.secondary_sumchecks_batching_pow::<EF, _>(fs_prover, settings)
             .unwrap();
+        std::mem::drop(_span_pow);
         let secondary_sumcheck_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
 
         let mles_for_inner_sumcheck = {
@@ -163,12 +168,12 @@ impl<F: PrimeField> AirTable<F> {
             cuda_sync();
             std::mem::drop(_span_linear_comb);
             nodes.push(matrix_up_folded_with_univariate_skips(
-                &outer_challenges,
+                &zerocheck_challenges,
                 cuda,
                 settings.univariate_skips,
             ));
             nodes.push(matrix_down_folded_with_univariate_skips(
-                &outer_challenges,
+                &zerocheck_challenges,
                 cuda,
                 settings.univariate_skips,
             ));
@@ -177,7 +182,7 @@ impl<F: PrimeField> AirTable<F> {
             let expanded_host = MultilinearHost::new(
                 self.univariate_selectors
                     .iter()
-                    .map(|s| s.eval(&outer_challenges[0]))
+                    .map(|s| s.eval(&zerocheck_challenges[0]))
                     .collect(),
             );
             let expanded = if cuda {
@@ -187,7 +192,7 @@ impl<F: PrimeField> AirTable<F> {
             }
             .add_dummy_ending_variables(log_length);
             nodes.push(expanded);
-
+            cuda_sync();
             nodes
         };
 
@@ -195,6 +200,7 @@ impl<F: PrimeField> AirTable<F> {
             * ((ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
                 + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3)));
 
+        let _span_dot_product = span!(Level::INFO, "dot product").entered();
         let inner_sum = dot_product(
             &inner_sums,
             &powers(
@@ -202,6 +208,8 @@ impl<F: PrimeField> AirTable<F> {
                 self.n_witness_columns() * 2,
             ),
         );
+        cuda_sync();
+        std::mem::drop(_span_dot_product);
 
         let (inner_challenges, _, _) = sumcheck::prove(
             1,
@@ -223,9 +231,9 @@ impl<F: PrimeField> AirTable<F> {
         let values = witness
             .as_ref()
             .batch_evaluate_in_large_field(&inner_challenges[settings.univariate_skips..]);
-
         cuda_sync();
         std::mem::drop(_span_evals);
+
         fs_prover.add_scalars(&values);
 
         let final_random_scalars = fs_prover.challenge_scalars::<EF>(self.log_n_witness_columns()); // PoW grinding required ?
@@ -234,6 +242,8 @@ impl<F: PrimeField> AirTable<F> {
             inner_challenges[settings.univariate_skips..].to_vec(),
         ]
         .concat();
+
+        let _span_final_point = span!(Level::INFO, "final point").entered();
         let packed_value = MultilinearHost::new(
             [
                 values,
@@ -249,99 +259,10 @@ impl<F: PrimeField> AirTable<F> {
                 .collect(),
             value: small_to_big_extension::<F, EF, WhirF>(packed_value),
         };
-
+        cuda_sync();
+        std::mem::drop(_span_final_point);
         std::mem::drop(_span);
 
         pcs.open(packed_pol_witness, &packed_eval, fs_prover);
-    }
-}
-
-/// Async
-#[instrument(name = "matrix_up_folded_with_univariate_skips", skip_all)]
-fn matrix_up_folded_with_univariate_skips<F: Field>(
-    outer_challenges: &[F],
-    on_device: bool,
-    univariate_skips: usize,
-) -> Multilinear<F> {
-    // TODO: It's sparse => bad performance
-    let n = outer_challenges.len();
-    let n_vars = n + univariate_skips * 2 - 1;
-    let mut folded = MultilinearHost::zero(n_vars);
-    let point_len = univariate_skips + (n - 1);
-    let inner_mle = MultilinearHost::eq_mle(&outer_challenges[1..]);
-    folded
-        .evals
-        .par_chunks_mut(1 << point_len)
-        .enumerate()
-        .for_each(|(i, block)| {
-            block[i << (n - 1)..(i + 1) << (n - 1)].copy_from_slice(&inner_mle.evals);
-        });
-
-    let outer_challenges_prod = outer_challenges[1..].iter().copied().product::<F>();
-    folded.evals[(1 << n_vars) - 1] -= outer_challenges_prod;
-    folded.evals[(1 << n_vars) - 2] += outer_challenges_prod;
-
-    // TODO do it on the device directly
-    if on_device {
-        MultilinearDevice::new(memcpy_htod(&folded.evals)).into()
-    } else {
-        folded.into()
-    }
-}
-
-/// Async
-#[instrument(name = "matrix_down_folded_with_univariate_skips", skip_all)]
-fn matrix_down_folded_with_univariate_skips<F: Field>(
-    outer_challenges: &[F],
-    on_device: bool,
-    univariate_skips: usize,
-) -> Multilinear<F> {
-    // TODO: It's sparse => bad performance
-    let n = outer_challenges.len();
-    // n_vars defined as in the original function.
-    let n_vars = n + univariate_skips * 2 - 1;
-    let mut folded = MultilinearHost::zero(n_vars);
-    let point_len = univariate_skips + (n - 1);
-    let inner_mles = (1..outer_challenges.len())
-        .map(|i| MultilinearHost::eq_mle(&outer_challenges[1..i]))
-        .collect::<Vec<_>>();
-    folded
-        .evals
-        .par_chunks_mut(1 << point_len)
-        .enumerate()
-        .for_each(|(i, block)| {
-            let x = HypercubePoint {
-                n_vars: univariate_skips,
-                val: i,
-            };
-            let mut point = x.to_vec();
-            point.extend_from_slice(&outer_challenges[1..]);
-            let m = point.len();
-            for k in 0..m {
-                let outer_challenges_prod =
-                    (F::ONE - point[m - k - 1]) * point[m - k..].iter().copied().product::<F>();
-                if outer_challenges_prod.is_zero() {
-                    continue;
-                }
-                let eq_mle = &inner_mles[(m - k - 1).saturating_sub(x.n_vars)];
-                // MultilinearHost::eq_mle(&outer_challenges[0..n - k - 1]);
-                let eq_mle = eq_mle.scale_large_field(outer_challenges_prod);
-                let n_coefs = eq_mle.n_coefs();
-                for (mut i, v) in eq_mle.evals.into_iter().enumerate() {
-                    i += (x.val >> (x.n_vars - x.n_vars.min(m - k - 1))) * n_coefs;
-                    i <<= k + 1;
-                    i += 1 << k;
-                    block[i] += v;
-                }
-            }
-        });
-
-    folded.evals[(1 << n_vars) - 1] += outer_challenges[1..].iter().copied().product::<F>();
-
-    // TODO do it on the device directly
-    if on_device {
-        MultilinearDevice::new(memcpy_htod(&folded.evals)).into()
-    } else {
-        folded.into()
     }
 }

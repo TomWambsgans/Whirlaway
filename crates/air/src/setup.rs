@@ -108,7 +108,14 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
             "multilinear_evaluations.cu",
             "eval_multilinear_in_lagrange_basis_shared_memory",
         ));
-
+        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+            "univariate_skip.cu",
+            "matrix_up_folded_with_univariate_skips",
+        ));
+        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+            "univariate_skip.cu",
+            "matrix_down_folded_with_univariate_skips",
+        ));
         cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
             "multilinear.cu",
             "eq_mle_start",

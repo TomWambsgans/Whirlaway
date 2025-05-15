@@ -42,6 +42,11 @@ impl<F: Field> MultilinearHost<F> {
         1 << self.n_vars
     }
 
+    /// Debug purpose
+    pub fn hash(&self) -> u64 {
+        default_hash(&self.evals)
+    }
+
     pub fn zero(n_vars: usize) -> Self {
         Self {
             n_vars,
@@ -386,6 +391,12 @@ impl<F: Field> MultilinearDevice<F> {
         1 << self.n_vars
     }
 
+    /// Debug purpose
+    /// Sync
+    pub fn hash(&self) -> u64 {
+        default_hash(&self.transfer_to_host().evals)
+    }
+
     pub fn zero(n_vars: usize) -> Self {
         Self {
             n_vars,
@@ -694,8 +705,8 @@ impl<F: Field> Multilinear<F> {
     /// Sync
     pub fn hash(&self) -> u64 {
         match self {
-            Self::Host(pol) => default_hash(&pol.evals),
-            Self::Device(pol) => default_hash(&pol.transfer_to_host().evals),
+            Self::Host(pol) => pol.hash(),
+            Self::Device(pol) => pol.hash(),
         }
     }
 

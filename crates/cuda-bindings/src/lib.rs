@@ -12,4 +12,7 @@ pub use sumcheck::*;
 mod multilinear;
 pub use multilinear::*;
 
+mod univariate_skip;
+pub use univariate_skip::*;
+
 pub use cudarc::driver::{CudaSlice, DeviceRepr};
