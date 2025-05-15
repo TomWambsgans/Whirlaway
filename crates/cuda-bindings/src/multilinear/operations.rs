@@ -1,8 +1,8 @@
 use cuda_engine::{
     CudaCall, CudaFunctionInfo, LOG_MAX_THREADS_PER_BLOCK, concat_pointers, cuda_alloc,
-    cuda_get_at_index, memcpy_dtoh, memcpy_htod, shared_memory,
+    cuda_get_at_index, memcpy_htod, shared_memory,
 };
-use cudarc::driver::{CudaSlice, CudaView, PushKernelArg};
+use cudarc::driver::{CudaSlice, CudaView, CudaViewMut, PushKernelArg};
 use p3_field::{BasedVectorSpace, ExtensionField, Field};
 use std::borrow::Borrow;
 use utils::{MyExtensionField, log2_down};
@@ -279,11 +279,20 @@ fn cuda_repeat_slice<F: Field>(
 }
 
 // Async
-pub fn cuda_sum<F: Field>(mut terms: CudaSlice<F>) -> F {
-    // we take owneship of `terms` because it will be aletered
-    assert!(terms.len().is_power_of_two());
+pub fn cuda_sum<F: Field>(terms: CudaSlice<F>) -> F {
     if terms.len() == 1 {
         return cuda_get_at_index(&terms, 0);
+    }
+    _cuda_sum(&mut terms.as_view_mut());
+    cuda_get_at_index(&terms, 0)
+}
+
+// Async
+fn _cuda_sum<F: Field>(terms: &mut CudaViewMut<F>) {
+    // we take owneship of `terms` because it will be aletered
+    assert!(terms.len().is_power_of_two());
+    if terms.len() <= 1 {
+        return;
     }
     let mut log_len = terms.len().ilog2() as usize;
 
@@ -291,19 +300,18 @@ pub fn cuda_sum<F: Field>(mut terms: CudaSlice<F>) -> F {
         log2_down(shared_memory() / size_of::<F>()).min(LOG_MAX_THREADS_PER_BLOCK);
 
     while log_len > max_small_steps + MAX_SUM_BIG_STEPS {
-        cuda_sum_helper(&mut terms, log_len, MAX_SUM_BIG_STEPS, 0);
+        cuda_sum_helper(terms, log_len, MAX_SUM_BIG_STEPS, 0);
         log_len -= MAX_SUM_BIG_STEPS;
     }
 
     let big_steps = 1.max(log_len.saturating_sub(max_small_steps));
     let small_steps = log_len - big_steps;
 
-    cuda_sum_helper(&mut terms, log_len, big_steps, small_steps);
-    cuda_get_at_index(&terms, 0)
+    cuda_sum_helper(terms, log_len, big_steps, small_steps);
 }
 
 pub fn cuda_sum_helper<F: Field>(
-    terms: &mut CudaSlice<F>,
+    terms: &mut CudaViewMut<F>,
     log_len: usize,
     n_big_steps: usize,
     n_small_steps: usize,
@@ -336,7 +344,7 @@ pub fn cuda_eval_mixed_tensor<F: Field, EF: ExtensionField<F>>(
     assert!(terms.len().is_power_of_two());
     let n_vars = terms.len().ilog2();
     assert_eq!(point.len(), n_vars as usize);
-    let log_n_tasks_per_thread = n_vars.min(5); // TODO find the best value
+    let log_n_tasks_per_thread = n_vars.min(6);
 
     let eq_mle = cuda_eq_mle(point);
 
@@ -345,7 +353,6 @@ pub fn cuda_eval_mixed_tensor<F: Field, EF: ExtensionField<F>>(
     let n_ops = terms.len() >> log_n_tasks_per_thread;
 
     let mut buffer = cuda_alloc::<F>(n_ops * ext_degree.pow(2));
-    let mut result = cuda_alloc::<F>(ext_degree.pow(2));
 
     let mut call = CudaCall::new(
         CudaFunctionInfo::two_fields::<F, EF>("tensor_algebra.cu", "tensor_algebra_dot_product"),
@@ -354,17 +361,17 @@ pub fn cuda_eval_mixed_tensor<F: Field, EF: ExtensionField<F>>(
     call.arg(&eq_mle);
     call.arg(terms);
     call.arg(&mut buffer);
-    call.arg(&mut result);
     call.arg(&n_vars);
     call.arg(&log_n_tasks_per_thread);
-    call.launch_cooperative();
+    call.launch();
 
-    let retrieved_result = memcpy_dtoh(&result);
-    assert_eq!(retrieved_result.len(), ext_degree.pow(2));
+    for i in 0..ext_degree.pow(2) {
+        _cuda_sum(&mut buffer.slice_mut(n_ops * i..n_ops * (i + 1)));
+    }
     let mut final_result = vec![vec![F::ZERO; ext_degree]; ext_degree];
     for i in 0..ext_degree {
         for j in 0..ext_degree {
-            final_result[i][j] = retrieved_result[i * ext_degree + j];
+            final_result[i][j] = cuda_get_at_index::<F>(&buffer, (i * ext_degree + j) * n_ops);
         }
     }
     final_result
@@ -436,6 +443,10 @@ mod tests {
         cuda_load_function(CudaFunctionInfo::one_field::<EF>(
             "multilinear.cu",
             "eq_mle_steps",
+        ));
+        cuda_load_function(CudaFunctionInfo::one_field::<F>(
+            "multilinear.cu",
+            "sum_in_place",
         ));
         let n_vars = 20;
         let rng = &mut StdRng::seed_from_u64(0);

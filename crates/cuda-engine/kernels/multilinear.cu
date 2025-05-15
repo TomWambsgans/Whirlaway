@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <device_launch_parameters.h>
-#include <cooperative_groups.h>
+#include "cassert"
 
 #include "ff_wrapper.cu"
 

@@ -38,7 +38,7 @@ pub fn cuda_pow_grinding(seed: &KeccakDigest, ending_zeros_count: usize) -> u64 
             1u32.checked_shl(ending_zeros_count as u32).unwrap() as usize,
         );
 
-        let total_n_threads = launch_args.total_n_threads(false) as u64;
+        let total_n_threads = launch_args.total_n_threads() as u64;
         let n_iters = (1_u64 << ending_zeros_count).div_ceil(10 * total_n_threads) as u32; // each kernel has 10 % chance of finding a correct nonce
 
         launch_args.arg(&seed_dev);

@@ -232,6 +232,10 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
             "multilinear.cu",
             "sum_in_place",
         ));
+        cuda_load_function(CudaFunctionInfo::one_field::<F>(
+            "multilinear.cu",
+            "sum_in_place",
+        ));
         cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
             "multilinear.cu",
             "sum_in_place",

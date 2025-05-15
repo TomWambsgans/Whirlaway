@@ -15,7 +15,6 @@
 - sparse preprocessed columns
 - MaybeUninit instead of allocating zeros when it's rewritten just after
 - refactor the disgusting multilinear_evaluations.cu
+- avoid launching 64 kernels in test_cuda_eval_mixed_tensor (and avoid using the auxialry eq_mle kernel)
 
 - Add ZK?
-
-- remove ntt bit reverse

@@ -6,13 +6,10 @@ use cudarc::driver::{CudaSlice, DeviceRepr};
 use utils::log2_up;
 
 // TODO Avoid hardcoding : This is GPU dependent
-pub const LOG_MAX_THREADS_PER_COOPERATIVE_BLOCK: usize = 8;
 pub const LOG_MAX_THREADS_PER_BLOCK: usize = 8;
 
-pub const MAX_THREADS_PER_COOPERATIVE_BLOCK: usize = 1 << LOG_MAX_THREADS_PER_COOPERATIVE_BLOCK;
 pub const MAX_THREADS_PER_BLOCK: usize = 1 << LOG_MAX_THREADS_PER_BLOCK;
 
-pub const MAX_COOPERATIVE_BLOCKS: usize = 1 << 4;
 pub const MAX_BLOCKS: usize = 1 << 14;
 
 /// Does nothing if cuda has not been initialized
@@ -119,8 +116,8 @@ impl CudaCall<'_> {
         }
     }
 
-    pub fn total_n_threads(&self, cooperative: bool) -> usize {
-        let launch_config = self.launch_config(cooperative);
+    pub fn total_n_threads(&self) -> usize {
+        let launch_config = self.launch_config();
         (launch_config.block_dim.0 * launch_config.grid_dim.0) as usize
     }
 
@@ -135,21 +132,12 @@ impl CudaCall<'_> {
         self
     }
 
-    fn launch_config(&self, cooperative: bool) -> LaunchConfig {
+    fn launch_config(&self) -> LaunchConfig {
         assert!(self.n_ops > 0);
-        let max_log_threads = if cooperative {
-            LOG_MAX_THREADS_PER_COOPERATIVE_BLOCK // also harcoded in ntt.cu
-        } else {
-            LOG_MAX_THREADS_PER_BLOCK
-        }
-        .min(self.max_log_threads_per_block.unwrap_or(usize::MAX));
-        let max_blocks = if cooperative {
-            MAX_COOPERATIVE_BLOCKS
-        } else {
-            MAX_BLOCKS
-        }; // TODO why only 16 cooperative blocks? Sometimes it works with 32 wtf
+        let max_log_threads =
+            LOG_MAX_THREADS_PER_BLOCK.min(self.max_log_threads_per_block.unwrap_or(usize::MAX));
         let log_threads = max_log_threads.min(log2_up(self.n_ops));
-        let blocks = max_blocks.min(self.n_ops.div_ceil(1 << log_threads));
+        let blocks = MAX_BLOCKS.min(self.n_ops.div_ceil(1 << log_threads));
         LaunchConfig {
             grid_dim: (blocks as u32, 1, 1),
             block_dim: (1 << log_threads, 1, 1),
@@ -158,12 +146,7 @@ impl CudaCall<'_> {
     }
 
     pub fn launch(mut self) {
-        unsafe { self.args.launch(self.launch_config(false)) }
-            .unwrap_or_else(|e| panic!("{:?} failed with: {}", self.info, e));
-    }
-
-    pub fn launch_cooperative(mut self) {
-        unsafe { self.args.launch_cooperative(self.launch_config(true)) }
+        unsafe { self.args.launch(self.launch_config()) }
             .unwrap_or_else(|e| panic!("{:?} failed with: {}", self.info, e));
     }
 }

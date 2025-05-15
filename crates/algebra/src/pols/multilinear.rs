@@ -678,7 +678,11 @@ impl<F: Field> Multilinear<F> {
     {
         match self {
             Self::Host(pol) => pol.eval_mixed_tensor(point),
-            Self::Device(pol) => pol.eval_mixed_tensor(point),
+            Self::Device(pol) => {
+                let res = pol.eval_mixed_tensor(point);
+                cuda_sync();
+                res
+            }
         }
     }
 
