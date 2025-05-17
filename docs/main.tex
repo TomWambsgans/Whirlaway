@@ -19,7 +19,7 @@
 \newcommand{\Pol}{T}
 
 \title{Whirlaway}
-\author{}
+\author{Thomas Coratger, Tom Wambsgans}
 \date{}
 \begin{document}
 \maketitle
@@ -214,9 +214,148 @@ The verifier sends a vector $z$ of $m' = \left\lceil  \log M' \right\rceil$ rand
 
 The verifier computes $\sum_{i \in \{0, 1\}^{m'}} eq(i, z) \cdot v_i$, then requests a PCS opening for $\Pol((z, \delta))$, and requires that both evaluations coincide.
 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 \section{Univariate skip}
 
-In order to improve the prover performance, we use the "univariate skip" from the section 5 of \cite{univariate_skip} in the zerocheck. TODO 
+
+The sumcheck protocol reduces a sum over a multivariate polynomial by sending a sequence of univariate polynomials. Traditionally, this is done one variable at a time, across $n$ rounds. However, only the first round happens fully in the base field $\Fp$ — later rounds require evaluating at verifier-sent points in the extension field $\Fq$, which is computationally more expensive.
+
+The \emph{univariate skip} optimization (from \cite{univariate_skip}) leverages this asymmetry: by reorganizing the domain and algebraic structure, we can perform the first $k$ rounds of sumcheck all at once, entirely within $\Fp$. This leads to major efficiency improvements.
+
+
+\subsection{Changing the evaluation domain}
+
+Traditionally, all evaluations are performed over the Boolean hypercube $H^n = \{0,1\}^n$. To skip $k$ variables, we restructure the domain to:
+\begin{equation}
+    D \times H^{n - k}
+\end{equation}
+where:
+\begin{itemize}
+    \item $D \subset \Fp$ is a multiplicative subgroup of size $2^k$
+    \item $H^{n - k}$ is the Boolean hypercube in the remaining $n - k$ variables
+\end{itemize}
+
+Each row of the table is now indexed by a pair $(x, \mathbf{y})$ with $x \in D$, $\mathbf{y} \in H^{n-k}$.
+
+\subsection{Table columns as polynomials}
+
+Each table column is reinterpreted as a polynomial:
+\begin{equation}
+f_i(x, \mathbf{y}) \in \Fp[x, y_0, \dots, y_{n-k-1}]
+\end{equation}
+such that:
+\begin{itemize}
+    \item $\deg_x f_i \leq |D| - 1$ (i.e. low-degree over $x$)
+    \item $f_i$ is multilinear in each $y_j$
+\end{itemize}
+
+This is just a change of viewpoint: instead of thinking of table columns as defined over $H^n$, we interpolate them over $D \times H^{n-k}$.
+
+
+
+
+\subsection{Constraint polynomial and composition}
+
+Let the prover have $\ell$ table columns $f_0(x, \mathbf{y}), \dots, f_{\ell-1}(x, \mathbf{y})$ defined over the domain $D \times H^{n-k}$. These are low-degree in $x$ and multilinear in $\mathbf{y}$. A constraint polynomial is a function $C(z_0, \dots, z_{\ell-1})$ that expresses relations among columns. Composing it with the table polynomials gives:
+\begin{equation}
+C(x, \mathbf{y}) := C(f_0(x, \mathbf{y}), \dots, f_{\ell-1}(x, \mathbf{y}))
+\end{equation}
+This multivariate polynomial should vanish on all points of the table if the constraint is satisfied.
+
+\paragraph{Example.} Consider $n = 2$, $k = 1$ (so $x \in D$ and $\mathbf{y} \in H^1 = \{0,1\}$), and $\ell = 2$ columns. Suppose the constraint is simply:
+\begin{equation}
+C(z_0, z_1) = z_1 - z_0
+\end{equation}
+This means, column 1 must equal column 0. Let $D = \{1, \omega\} \subset \Fp$ for some subgroup of size $2$ (e.g., $\omega^2 = 1$). The table is indexed by $(x, y) \in D \times \{0,1\}$, and might look like:
+
+\begin{table}[h!]
+\centering
+\caption{Constraint $f_1(x, y) = f_0(x, y)$}
+\begin{tabular}{ccccc}
+\toprule
+$x$ & $y$ & $f_0(x, y)$ & $f_1(x, y)$ & Constraint holds? \\
+\midrule
+$1$     & $0$ & 3 & 3 & Yes \\
+$1$     & $1$ & 4 & 4 & Yes \\
+$\omega$ & $0$ & 5 & 5 & Yes \\
+$\omega$ & $1$ & 6 & 6 & Yes \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+In this case, the composed polynomial is:
+\begin{equation}
+C(x, y) = f_1(x, y) - f_0(x, y)
+\end{equation}
+which vanishes on all $4$ points of $D \times H^1$. This confirms that the constraint is satisfied. This small example illustrates how table rows correspond to evaluations of low-degree polynomials, and how polynomial constraints can be reduced to checking vanishing over a structured domain.
+
+
+
+
+\subsection{Constructing the skipped sumcheck polynomial}
+
+TODO
+
+Let the verifier send a random challenge vector $\boldsymbol{\alpha} \in \Fq^{n-k}$ for the $y$-variables. The prover computes the following univariate polynomial:
+\begin{equation}
+v(x) := \sum_{\mathbf{y} \in H^{n-k}} eq(\mathbf{y}, \boldsymbol{\alpha}) \cdot C(x, \mathbf{y})
+\end{equation}
+This is a standard sumcheck-style reduction: the verifier will later check that $v(x_0)$ equals the expected value at a randomly chosen $x_0 \in D$. The key point: this polynomial $v(x)$ encodes all $k$ skipped rounds at once. It is univariate, and its degree is at most:
+\begin{equation}
+\deg v(x) \leq d (|D| - 1) = d(2^k - 1)
+\end{equation}
+The prover can compute this using at most $d \cdot 2^k$ evaluations of $C(x, \mathbf{y})$, all in the base field $\Fp$.
+
+
+% Optional subsection, not sure we need it
+\subsection{Why this is cheaper}
+
+Compare this to the naive approach where one attempts to skip $k$ rounds by constructing a multivariate polynomial $v(X_0, \dots, X_{k-1})$. That polynomial would require:
+\begin{equation}
+(d + 1)^k
+\end{equation}
+evaluations for interpolation — exponential in $k$. In contrast, the univariate skip produces a degree-$d(2^k - 1)$ polynomial that can be interpolated with only $O(2^k)$ evaluations, which scales much better.
+
+\subsection{Verifier check}
+
+The verifier:
+\begin{itemize}
+    \item sends $\boldsymbol{\alpha} \in \Fq^{n-k}$
+    \item receives the univariate polynomial $v(x)$ from the prover
+    \item samples a random $x_0 \in D$
+    \item evaluates or requests an opening at $x_0$
+\end{itemize}
+
+This single round replaces $k$ rounds of classical sumcheck — and crucially, all the evaluations are in $\Fp$.
+
+\subsection{Cost comparison}
+
+Let $C_{\Fp}$ and $C_{\Fq}$ be the cost of evaluating the constraint in the base field and extension field respectively.
+
+\begin{itemize}
+    \item Standard sumcheck (with $k$ rounds):
+    \begin{equation}
+    \underbrace{2^{n - 1}(d - 1) C_{\Fp}}_{\text{round 0}} + \underbrace{2^{n - k}(d - 1)(2^{k - 1} - 1) C_{\Fq}}_{\text{rounds 1 to } k-1}
+    \end{equation}
+
+    \item Univariate skip (skip $k$ rounds):
+    \begin{equation}
+    \underbrace{2^{n - k}(d - 1)(2^k - 1) C_{\Fp}}_{\text{all done in base field}}
+    \end{equation}
+\end{itemize}
+
+
+When $\Fq$ is significantly more expensive to evaluate in than $\Fp$ (as is typically the case), this optimization leads to substantial speedups.
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 % TODO
 % - section 4.4 gamma can be removed, by running 2M sumchecks in parallel ?
