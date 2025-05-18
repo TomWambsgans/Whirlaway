@@ -3,11 +3,10 @@ use arithmetic_circuit::ArithmeticCircuit;
 use cuda_engine::{cuda_sync, memcpy_htod};
 use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, PrimeCharacteristicRing, PrimeField, TwoAdicField};
-use pcs::{PCS, RingSwitch};
 use sumcheck::SumcheckGrinding;
 use tracing::{Level, instrument, span};
-use utils::{Evaluation, MyExtensionField, dot_product, powers, small_to_big_extension};
-use whir::parameters::{WhirConfig, WhirConfigBuilder};
+use utils::{Evaluation, dot_product, powers};
+use whir::parameters::WhirConfigBuilder;
 
 use crate::{
     AirSettings,
@@ -27,22 +26,17 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 
 impl<F: PrimeField> AirTable<F> {
     #[instrument(name = "air: prove", skip_all)]
-    pub fn prove<
-        EF: ExtensionField<F>,
-        WhirF: ExtensionField<F>
-            + ExtensionField<<WhirF as PrimeCharacteristicRing>::PrimeSubfield>
-            + TwoAdicField
-            + Ord,
-    >(
+    pub fn prove<EF: ExtensionField<F>>(
         &self,
         settings: &AirSettings,
         fs_prover: &mut FsProver,
         witness_host: Vec<MultilinearHost<F>>,
         cuda: bool,
     ) where
-        WhirF::PrimeSubfield: TwoAdicField,
-        WhirF: MyExtensionField<EF>,
-        EF: ExtensionField<<WhirF as PrimeCharacteristicRing>::PrimeSubfield>,
+        F: TwoAdicField + Ord,
+        F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
+        EF: ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield> + TwoAdicField + Ord,
+        F::PrimeSubfield: TwoAdicField,
     {
         assert!(
             settings.univariate_skips < self.log_length,
@@ -51,16 +45,15 @@ impl<F: PrimeField> AirTable<F> {
         let log_length = self.log_length;
         assert!(witness_host.iter().all(|w| w.n_vars == log_length));
 
-        let pcs = RingSwitch::<WhirF, WhirConfig<WhirF, EF>>::new(
-            log_length + self.log_n_witness_columns(),
-            &WhirConfigBuilder::standard(
-                settings.whir_soudness_type,
-                settings.security_bits,
-                settings.whir_log_inv_rate,
-                settings.whir_folding_factor,
-                cuda,
-            ),
-        );
+        let pcs = WhirConfigBuilder::standard(
+            settings.whir_soudness_type,
+            settings.security_bits,
+            settings.whir_log_inv_rate,
+            settings.whir_folding_factor,
+            settings.whir_innitial_domain_reduction_factor,
+            cuda,
+        )
+        .build::<F, EF>(log_length + self.log_n_witness_columns());
 
         // 1) Commit to the witness columns
 
@@ -109,7 +102,7 @@ impl<F: PrimeField> AirTable<F> {
         let preprocessed_and_witness = preprocessed_columns.as_ref().chain(&witness.as_ref());
         let (zerocheck_challenges, all_inner_sums, _) = {
             let _span = span!(Level::INFO, "zerocheck").entered();
-            sumcheck::prove(
+            sumcheck::prove::<F, F, EF, _>(
                 settings.univariate_skips,
                 columns_up_and_down(&preprocessed_and_witness).as_ref(),
                 &self.constraints,
@@ -211,7 +204,7 @@ impl<F: PrimeField> AirTable<F> {
         cuda_sync();
         std::mem::drop(_span_dot_product);
 
-        let (inner_challenges, _, _) = sumcheck::prove(
+        let (inner_challenges, _, _) = sumcheck::prove::<F, EF, EF, _>(
             1,
             &mles_for_inner_sumcheck,
             &[inner_sumcheck_circuit.fix_computation(false)],
@@ -253,16 +246,13 @@ impl<F: PrimeField> AirTable<F> {
         )
         .evaluate_in_large_field(&final_random_scalars);
         let packed_eval = Evaluation {
-            point: final_point
-                .into_iter()
-                .map(small_to_big_extension::<F, EF, WhirF>)
-                .collect(),
-            value: small_to_big_extension::<F, EF, WhirF>(packed_value),
+            point: final_point,
+            value: packed_value,
         };
         cuda_sync();
         std::mem::drop(_span_final_point);
         std::mem::drop(_span);
 
-        pcs.open(packed_pol_witness, &packed_eval, fs_prover);
+        pcs.open(packed_pol_witness, vec![packed_eval], fs_prover);
     }
 }

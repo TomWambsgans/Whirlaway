@@ -48,6 +48,11 @@ pub fn cuda_ntt_at_block_level<F: Field>(
         previous_internal_transposition.unwrap_or((0, 0));
     let (mut tr_row_0, mut tr_col_0, mut tr_row_1, mut tr_col_1, mut tr_row_2, mut tr_col_2) =
         Default::default();
+    let max_ntt_domain_size = if final_twiddles {
+        log_chunck_size.max(inner_log_len)
+    } else {
+        log_chunck_size
+    };
     for ((row_u32, col_u32), (row, col)) in [
         (&mut tr_row_0, &mut tr_col_0),
         (&mut tr_row_1, &mut tr_col_1),
@@ -66,7 +71,7 @@ pub fn cuda_ntt_at_block_level<F: Field>(
     call.arg(&log_chunck_size_u32);
     call.arg(&on_rows);
     call.arg(&final_twiddles);
-    call.arg(cuda_twiddles::<F>(log_chunck_size));
+    call.arg(cuda_twiddles::<F>(max_ntt_domain_size));
     call.arg(&log_whir_expansion_factor_u32);
     call.arg(&n_final_transpositions_u32);
     call.arg(&tr_row_0);

@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use tracing::level_filters::LevelFilter;
 use tracing_forest::ForestLayer;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
-use utils::{MyExtensionField, SupportedField};
+use utils::SupportedField;
 use vectorized::{VectorizedPoseidon2Air, write_vectorized_constraints};
 use whir::parameters::FoldingFactor;
 use {columns::num_cols, constants::RoundConstants};
@@ -50,6 +50,7 @@ mod tests {
             FoldingFactor::Constant(4),
             2,
             3,
+            1,
         );
         prove_poseidon2_baby_bear(7, settings.clone(), false, false);
         prove_poseidon2_koala_bear(7, settings.clone(), false, false);
@@ -128,7 +129,6 @@ fn prove_poseidon2_koala_bear(
 ) -> Poseidon2Benchmark {
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, 4>;
-    type WhirF = BinomialExtensionField<F, 8>;
     type LinearLayers = GenericPoseidon2LinearLayersKoalaBear;
 
     const WIDTH: usize = 16;
@@ -142,7 +142,6 @@ fn prove_poseidon2_koala_bear(
     prove_poseidon2::<
         F,
         EF,
-        WhirF,
         LinearLayers,
         WIDTH,
         SBOX_DEGREE,
@@ -162,7 +161,6 @@ fn prove_poseidon2_baby_bear(
 ) -> Poseidon2Benchmark {
     type F = BabyBear;
     type EF = BinomialExtensionField<F, 4>;
-    type WhirF = BinomialExtensionField<F, 8>;
     type LinearLayers = GenericPoseidon2LinearLayersBabyBear;
 
     const WIDTH: usize = 16;
@@ -176,7 +174,6 @@ fn prove_poseidon2_baby_bear(
     prove_poseidon2::<
         F,
         EF,
-        WhirF,
         LinearLayers,
         WIDTH,
         SBOX_DEGREE,
@@ -190,12 +187,7 @@ fn prove_poseidon2_baby_bear(
 
 fn prove_poseidon2<
     F: TwoAdicField + PrimeField32,
-    EF: ExtensionField<F>,
-    WhirF: ExtensionField<F>
-        + MyExtensionField<EF>
-        + ExtensionField<<WhirF as PrimeCharacteristicRing>::PrimeSubfield>
-        + TwoAdicField
-        + Ord,
+    EF: ExtensionField<F> + TwoAdicField + Ord,
     LinearLayers: GenericPoseidon2LinearLayers<F, WIDTH>
         + GenericPoseidon2LinearLayers<ArithmeticCircuit<F, ConstraintVariable>, WIDTH>,
     const WIDTH: usize,
@@ -213,8 +205,9 @@ fn prove_poseidon2<
 ) -> Poseidon2Benchmark
 where
     StandardUniform: Distribution<F>,
-    <WhirF as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
-    EF: ExtensionField<<WhirF as PrimeCharacteristicRing>::PrimeSubfield>,
+    EF: ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
+    F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
+    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
 {
     if display_logs {
         let env_filter = EnvFilter::builder()
@@ -279,19 +272,19 @@ where
     // table.check_validity(&witness);
 
     if cuda {
-        table.cuda_setup::<EF, WhirF>(&settings);
+        table.cuda_setup::<EF>(&settings);
     }
 
     let t = Instant::now();
     let mut fs_prover = FsProver::new(cuda);
-    table.prove::<EF, WhirF>(&settings, &mut fs_prover, witness, cuda);
+    table.prove::<EF>(&settings, &mut fs_prover, witness, cuda);
     let proof_size = fs_prover.transcript_len();
 
     let prover_time = t.elapsed();
     let time = Instant::now();
     let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
     table
-        .verify::<EF, WhirF>(&settings, &mut fs_verifier, log_n_rows)
+        .verify::<EF>(&settings, &mut fs_verifier, log_n_rows)
         .unwrap();
     let verifier_time = time.elapsed();
 

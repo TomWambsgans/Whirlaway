@@ -46,6 +46,11 @@ pub fn cuda_twiddles<F: Field>(
                 std::any::type_name::<F::PrimeSubfield>()
             )
         });
-    assert!(log_domain_size <= twiddles.len());
+    assert!(
+        log_domain_size <= twiddles.len(),
+        "{} > {}",
+        log_domain_size,
+        twiddles.len()
+    );
     unsafe { std::mem::transmute(ptrs) }
 }

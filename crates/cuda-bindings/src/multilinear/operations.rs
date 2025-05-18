@@ -3,11 +3,9 @@ use cuda_engine::{
     cuda_get_at_index, memcpy_htod, shared_memory,
 };
 use cudarc::driver::{CudaSlice, CudaView, CudaViewMut, PushKernelArg};
-use p3_field::{BasedVectorSpace, ExtensionField, Field};
+use p3_field::{ExtensionField, Field};
 use std::borrow::Borrow;
-use utils::{MyExtensionField, log2_down};
-
-use crate::cuda_eq_mle;
+use utils::log2_down;
 
 const MAX_SUM_BIG_STEPS: usize = 6;
 
@@ -105,7 +103,7 @@ pub fn cuda_add_slices<F: Field, S: Borrow<CudaSlice<F>>>(slices: &[S]) -> CudaS
 }
 
 // Async
-pub fn cuda_add_assign_slices<F: Field, EF: MyExtensionField<F>>(
+pub fn cuda_add_assign_slices<F: Field, EF: ExtensionField<F>>(
     a: &mut CudaSlice<EF>,
     b: &CudaSlice<F>,
 ) {
@@ -187,7 +185,7 @@ pub fn cuda_linear_combination_large_field<
 // Async
 pub fn cuda_linear_combination_small_field<
     F: Field,
-    EF: MyExtensionField<F>,
+    EF: ExtensionField<F>,
     S: Borrow<CudaSlice<EF>>,
 >(
     inputs: &[S],
@@ -336,51 +334,9 @@ pub fn cuda_sum_helper<F: Field>(
     call.launch();
 }
 
-// Async
-pub fn cuda_eval_mixed_tensor<F: Field, EF: ExtensionField<F>>(
-    terms: &CudaSlice<EF>,
-    point: &[EF],
-) -> Vec<Vec<F>> {
-    assert!(terms.len().is_power_of_two());
-    let n_vars = terms.len().ilog2();
-    assert_eq!(point.len(), n_vars as usize);
-    let log_n_tasks_per_thread = n_vars.min(6);
-
-    let eq_mle = cuda_eq_mle(point);
-
-    let ext_degree = <EF as BasedVectorSpace<F>>::DIMENSION;
-
-    let n_ops = terms.len() >> log_n_tasks_per_thread;
-
-    let mut buffer = cuda_alloc::<F>(n_ops * ext_degree.pow(2));
-
-    let mut call = CudaCall::new(
-        CudaFunctionInfo::two_fields::<F, EF>("tensor_algebra.cu", "tensor_algebra_dot_product"),
-        n_ops,
-    );
-    call.arg(&eq_mle);
-    call.arg(terms);
-    call.arg(&mut buffer);
-    call.arg(&n_vars);
-    call.arg(&log_n_tasks_per_thread);
-    call.launch();
-
-    for i in 0..ext_degree.pow(2) {
-        _cuda_sum(&mut buffer.slice_mut(n_ops * i..n_ops * (i + 1)));
-    }
-    let mut final_result = vec![vec![F::ZERO; ext_degree]; ext_degree];
-    for i in 0..ext_degree {
-        for j in 0..ext_degree {
-            final_result[i][j] = cuda_get_at_index::<F>(&buffer, (i * ext_degree + j) * n_ops);
-        }
-    }
-    final_result
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use algebra::pols::MultilinearHost;
     use cuda_engine::*;
     use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
     use p3_koala_bear::KoalaBear;
@@ -425,46 +381,6 @@ mod tests {
 
             assert!(res_cuda == res_cpu);
         }
-    }
-
-    #[test]
-    fn test_cuda_eval_mixed_tensor() {
-        type F = KoalaBear;
-        type EF = BinomialExtensionField<F, 8>;
-        cuda_init();
-        cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
-            "tensor_algebra.cu",
-            "tensor_algebra_dot_product",
-        ));
-        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
-            "multilinear.cu",
-            "eq_mle_start",
-        ));
-        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
-            "multilinear.cu",
-            "eq_mle_steps",
-        ));
-        cuda_load_function(CudaFunctionInfo::one_field::<F>(
-            "multilinear.cu",
-            "sum_in_place",
-        ));
-        let n_vars = 20;
-        let rng = &mut StdRng::seed_from_u64(0);
-        let terms = MultilinearHost::random(rng, n_vars);
-        let point = (0..n_vars).map(|_| rng.random()).collect::<Vec<EF>>();
-        let terms_dev = memcpy_htod(&terms.evals);
-        cuda_sync();
-
-        let time = std::time::Instant::now();
-        let res_cuda = cuda_eval_mixed_tensor::<F, EF>(&terms_dev, &point);
-        cuda_sync();
-        println!("CUDA time: {:?} ms", time.elapsed().as_millis());
-
-        let time = std::time::Instant::now();
-        let res_cpu = terms.eval_mixed_tensor::<F>(&point);
-        println!("CPU time: {:?} ms", time.elapsed().as_millis());
-
-        assert_eq!(res_cuda, res_cpu.data);
     }
 
     #[test]

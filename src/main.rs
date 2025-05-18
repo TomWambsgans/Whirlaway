@@ -8,22 +8,23 @@ use utils::SupportedField;
 use whir::parameters::{FoldingFactor, SoundnessType};
 
 const USE_CUDA: bool = true;
-const SECURITY_BITS: usize = 128;
+const SECURITY_BITS: usize = 100; // (temporary)
 
 fn main() {
-    for (log_n_rows, log_inv_rate) in [(17, 3)] {
+    for (log_n_rows, log_inv_rate) in [(17, 1)] {
         let benchmark = prove_poseidon2_with(
             SupportedField::KoalaBear,
             log_n_rows,
             AirSettings::new(
                 SECURITY_BITS,
-                SoundnessType::ProvableList,
-                FoldingFactor::Constant(4),
+                SoundnessType::ConjectureList,
+                FoldingFactor::ConstantFromSecondRound(6, 4),
                 log_inv_rate,
                 4,
+                3,
             ),
             USE_CUDA,
-            true,
+            false,
         );
         println!("\n{}", benchmark.to_string());
     }

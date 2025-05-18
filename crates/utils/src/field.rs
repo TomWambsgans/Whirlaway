@@ -1,9 +1,7 @@
 use std::{any::TypeId, fmt::Display};
 
 use p3_baby_bear::BabyBear;
-use p3_field::{
-    BasedVectorSpace, ExtensionField, Field, PrimeField, extension::BinomialExtensionField,
-};
+use p3_field::{ExtensionField, Field, extension::BinomialExtensionField};
 use p3_koala_bear::KoalaBear;
 use rayon::prelude::*;
 
@@ -33,38 +31,6 @@ impl SupportedField {
         } else {
             panic!("Unsupported field type for CUDA")
         }
-    }
-}
-
-// TODO this is ugly but to remove it we need BinomialExtensionField<2N, X> to implement ExtensionField<BinomialExtensionField<N, X>>
-pub fn small_to_big_extension<
-    F: PrimeField,
-    SmallExt: ExtensionField<F>,
-    BigExt: ExtensionField<F>,
->(
-    x: SmallExt,
-) -> BigExt {
-    let small_dim = <SmallExt as BasedVectorSpace<F>>::DIMENSION;
-    let big_dim = <BigExt as BasedVectorSpace<F>>::DIMENSION;
-    assert!(big_dim % small_dim == 0);
-
-    if small_dim == 1 {
-        let mut coeffs = x.as_basis_coefficients_slice().to_vec();
-        coeffs.resize(big_dim, F::ZERO);
-        return BigExt::from_basis_coefficients_slice(&coeffs).unwrap();
-    } else if TypeId::of::<SmallExt>() == TypeId::of::<BigExt>() {
-        return BigExt::from_basis_coefficients_slice(x.as_basis_coefficients_slice()).unwrap();
-    } else if [TypeId::of::<BabyBear>(), TypeId::of::<KoalaBear>()].contains(&TypeId::of::<F>())
-        && big_dim % small_dim == 0
-    {
-        let small_coeffs = x.as_basis_coefficients_slice();
-        let mut big_coeffs = vec![F::ZERO; big_dim];
-        for i in 0..small_dim {
-            big_coeffs[i * big_dim / small_dim] = small_coeffs[i];
-        }
-        return BigExt::from_basis_coefficients_slice(&big_coeffs).unwrap();
-    } else {
-        todo!()
     }
 }
 
@@ -124,18 +90,26 @@ pub fn dot_product<F: Field, EF: ExtensionField<F>>(a: &[F], b: &[EF]) -> EF {
     a.iter().zip(b.iter()).map(|(x, y)| *y * *x).sum()
 }
 
-pub fn dot_product_1<F: Field, EF: MyExtensionField<F>>(a: &[F], b: &[EF]) -> EF {
+pub fn dot_product_1<F: Field, EF: ExtensionField<F>>(a: &[F], b: &[EF]) -> EF {
     assert_eq!(a.len(), b.len());
-    a.iter().zip(b.iter()).map(|(x, y)| y.my_multiply(x)).sum()
+    a.iter().zip(b.iter()).map(|(x, y)| *y * *x).sum()
 }
 
-pub fn dot_product_2<F: Field, EF: MyExtensionField<F>>(a: &[F], (b1, b2): (&[EF], &[EF])) -> EF {
+pub fn dot_product_2<F: Field, EF: ExtensionField<F>>(a: &[F], (b1, b2): (&[EF], &[EF])) -> EF {
     assert_eq!(b1.len() + b2.len(), a.len());
-    b1.iter().zip(a).map(|(x, y)| x.my_multiply(y)).sum::<EF>()
+    b1.iter().zip(a).map(|(x, y)| *x * *y).sum::<EF>()
         + b2.iter()
             .zip(&a[b1.len()..])
-            .map(|(x, y)| x.my_multiply(y))
+            .map(|(x, y)| *x * *y)
             .sum::<EF>()
+}
+
+pub fn embed_vec<F: Field, EF: ExtensionField<F>>(a: &Vec<F>) -> Vec<EF> {
+    a.iter().copied().map(EF::from).collect()
+}
+
+pub fn embed_vec_vec<F: Field, EF: ExtensionField<F>>(a: &[Vec<F>]) -> Vec<Vec<EF>> {
+    a.iter().map(embed_vec).collect()
 }
 
 // TODO find a better name
@@ -201,59 +175,6 @@ pub fn extension_degree<F: Field>() -> usize {
     }
 }
 
-pub trait MyExtensionField<F: Field>: Field {
-    fn my_from(x: F) -> Self;
-    fn my_multiply(&self, other: &F) -> Self;
-    fn my_add(&self, other: &F) -> Self;
-    fn my_add_assign(&mut self, other: &F) {
-        *self = self.my_add(other);
-    }
-}
-
-impl<F: Field> MyExtensionField<F> for F {
-    fn my_from(x: F) -> Self {
-        x
-    }
-
-    fn my_multiply(&self, other: &F) -> Self {
-        *self * *other
-    }
-
-    fn my_add(&self, other: &F) -> Self {
-        *self + *other
-    }
-}
-
-impl MyExtensionField<BinomialExtensionField<KoalaBear, 4>>
-    for BinomialExtensionField<KoalaBear, 8>
-{
-    fn my_from(x: BinomialExtensionField<KoalaBear, 4>) -> Self {
-        small_to_big_extension::<KoalaBear, _, _>(x)
-    }
-
-    fn my_add(&self, other: &BinomialExtensionField<KoalaBear, 4>) -> Self {
-        *self + Self::my_from(*other)
-    }
-
-    fn my_multiply(&self, other: &BinomialExtensionField<KoalaBear, 4>) -> Self {
-        *self * Self::my_from(*other)
-    }
-}
-
-impl MyExtensionField<BinomialExtensionField<BabyBear, 4>> for BinomialExtensionField<BabyBear, 8> {
-    fn my_from(x: BinomialExtensionField<BabyBear, 4>) -> Self {
-        small_to_big_extension::<BabyBear, _, _>(x)
-    }
-
-    fn my_add(&self, other: &BinomialExtensionField<BabyBear, 4>) -> Self {
-        *self + Self::my_from(*other)
-    }
-
-    fn my_multiply(&self, other: &BinomialExtensionField<BabyBear, 4>) -> Self {
-        *self * Self::my_from(*other)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use p3_field::extension::BinomialExtensionField;
@@ -277,23 +198,5 @@ mod tests {
         let bytes = serialize_field(&f);
         let deserialized: F = deserialize_field(&bytes).unwrap();
         assert_eq!(f, deserialized);
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use p3_field::extension::BinomialExtensionField;
-    use p3_koala_bear::KoalaBear;
-    use rand::{Rng, SeedableRng, rngs::StdRng};
-
-    #[test]
-    fn test_small_to_big_extension() {
-        type F = KoalaBear;
-        type EF = BinomialExtensionField<F, 4>;
-        type NF = BinomialExtensionField<F, 8>;
-        let a: EF = StdRng::seed_from_u64(0).random();
-        let b = small_to_big_extension::<F, EF, NF>(a);
-        assert_eq!(b * b + b, small_to_big_extension::<F, EF, NF>(a * a + a))
     }
 }

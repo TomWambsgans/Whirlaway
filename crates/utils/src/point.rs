@@ -123,9 +123,3 @@ pub fn expanded_point_for_multilinear_monomial_evaluation<F: Field>(point: &[F])
         });
     res
 }
-
-#[derive(Debug, Clone, Default)]
-pub struct Statement<EF> {
-    pub points: Vec<Vec<EF>>,
-    pub evaluations: Vec<EF>,
-}

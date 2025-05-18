@@ -10,7 +10,6 @@ use crate::{AirBuilder, AirSettings};
 
 type F = KoalaBear;
 type EF = BinomialExtensionField<KoalaBear, 4>;
-type WhirF = BinomialExtensionField<KoalaBear, 8>;
 
 #[test]
 fn test_air_fibonacci() {
@@ -21,6 +20,7 @@ fn test_air_fibonacci() {
         FoldingFactor::Constant(4),
         3,
         3,
+        1,
     );
 
     for cuda in [false, true] {
@@ -55,7 +55,7 @@ fn test_air_fibonacci() {
         let table = builder.build(settings.univariate_skips);
 
         if cuda {
-            table.cuda_setup::<EF, WhirF>(&settings);
+            table.cuda_setup::<EF>(&settings);
         }
 
         let mut col_1 = vec![F::ZERO];
@@ -70,11 +70,11 @@ fn test_air_fibonacci() {
         table.check_validity(&witnesses);
 
         let mut fs_prover = FsProver::new(cuda);
-        table.prove::<EF, WhirF>(&settings, &mut fs_prover, witnesses, cuda);
+        table.prove::<EF>(&settings, &mut fs_prover, witnesses, cuda);
 
         let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
         table
-            .verify::<EF, WhirF>(&settings, &mut fs_verifier, log_length)
+            .verify::<EF>(&settings, &mut fs_verifier, log_length)
             .unwrap();
     }
 }
@@ -87,6 +87,7 @@ fn test_air_complex() {
         FoldingFactor::Constant(4),
         3,
         3,
+        1,
     );
     for log_length in [4, 7, 13] {
         for cuda in [false, true] {
@@ -155,7 +156,7 @@ fn test_air_complex() {
             let table = builder.build(settings.univariate_skips);
 
             if cuda {
-                table.cuda_setup::<EF, WhirF>(&settings);
+                table.cuda_setup::<EF>(&settings);
             }
 
             let mut col_0 = vec![F::ZERO];
@@ -190,11 +191,11 @@ fn test_air_complex() {
             table.check_validity(&witnesses);
 
             let mut fs_prover = FsProver::new(cuda);
-            table.prove::<EF, WhirF>(&settings, &mut fs_prover, witnesses, cuda);
+            table.prove::<EF>(&settings, &mut fs_prover, witnesses, cuda);
 
             let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
             table
-                .verify::<EF, WhirF>(&settings, &mut fs_verifier, log_length)
+                .verify::<EF>(&settings, &mut fs_verifier, log_length)
                 .unwrap();
         }
     }

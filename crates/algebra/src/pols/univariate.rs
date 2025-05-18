@@ -34,6 +34,17 @@ impl<F: Field> UnivariatePolynomial<F> {
             .rfold(EF::ZERO, move |result, coeff| result * *point + *coeff)
     }
 
+    #[inline]
+    // Horner's method for polynomial evaluation
+    pub fn horner_evaluate_in_small_field<SF: Field>(poly_coeffs: &[F], point: &SF) -> F
+    where
+        F: ExtensionField<SF>,
+    {
+        poly_coeffs
+            .iter()
+            .rfold(F::ZERO, move |result, coeff| result * *point + *coeff)
+    }
+
     pub fn eval<EF: ExtensionField<F>>(&self, x: &EF) -> EF {
         if self.coeffs.is_empty() {
             return EF::ZERO;
@@ -42,6 +53,19 @@ impl<F: Field> UnivariatePolynomial<F> {
         }
         // Horner's method
         Self::horner_evaluate(&self.coeffs, x)
+    }
+
+    pub fn eval_in_small_field<SF: Field>(&self, x: &SF) -> F
+    where
+        F: ExtensionField<SF>,
+    {
+        if self.coeffs.is_empty() {
+            return F::ZERO;
+        } else if x.is_zero() {
+            return F::from(self.coeffs[0]);
+        }
+        // Horner's method
+        Self::horner_evaluate_in_small_field(&self.coeffs, x)
     }
 
     pub fn sum_evals<EF: ExtensionField<F>>(&self, xs: &[EF]) -> EF {

@@ -18,7 +18,6 @@ whir = { path = "crates/whir" }
 fiat-shamir = { path = "crates/fiat-shamir" }
 algebra = { path = "crates/algebra" }
 merkle-tree = { path = "crates/merkle-tree" }
-pcs = { path = "crates/pcs" }
 air = { path = "crates/air" }
 sumcheck = { path = "crates/sumcheck" }
 arithmetic-circuit = { path = "crates/arithmetic-circuit" }

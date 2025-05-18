@@ -1,8 +1,7 @@
 use super::CoefficientListHost;
 use super::{CoefficientList, CoefficientListDevice};
-use crate::tensor_algebra::TensorAlgebra;
 use cuda_bindings::{
-    cuda_add_assign_slices, cuda_add_slices, cuda_dot_product, cuda_eq_mle, cuda_eval_mixed_tensor,
+    cuda_add_assign_slices, cuda_add_slices, cuda_dot_product, cuda_eq_mle,
     cuda_eval_multilinear_in_lagrange_basis, cuda_fold_rectangular_in_small_field,
     cuda_lagrange_to_monomial_basis, cuda_linear_combination_at_row_level,
     cuda_linear_combination_large_field, cuda_linear_combination_small_field,
@@ -21,8 +20,7 @@ use rand::{
 };
 use rayon::prelude::*;
 use std::borrow::Borrow;
-use tracing::instrument;
-use utils::{HypercubePoint, MyExtensionField, PartialHypercubePoint};
+use utils::{HypercubePoint, PartialHypercubePoint};
 use utils::{default_hash, dot_product};
 
 /*
@@ -168,7 +166,7 @@ impl<F: Field> MultilinearHost<F> {
         assert_eq!(pols.len(), scalars.len());
         let mut sum = MultilinearHost::<EF>::zero(pols[0].n_vars);
         for i in 0..scalars.len() {
-            sum.add_assign(&pols[i].scale_large_field::<EF>(scalars[i]));
+            sum.add_assign::<EF>(&pols[i].scale_large_field::<EF>(scalars[i]));
         }
         sum
     }
@@ -178,7 +176,7 @@ impl<F: Field> MultilinearHost<F> {
         scalars: &[SF],
     ) -> MultilinearHost<F>
     where
-        F: MyExtensionField<SF>,
+        F: ExtensionField<SF>,
     {
         assert_eq!(pols.len(), scalars.len());
         let mut sum = MultilinearHost::<F>::zero(pols[0].n_vars);
@@ -186,20 +184,6 @@ impl<F: Field> MultilinearHost<F> {
             sum.add_assign::<F>(&pols[i].scale_small_field::<SF>(scalars[i]));
         }
         sum
-    }
-
-    pub fn eval_mixed_tensor<SubF: Field>(&self, point: &[F]) -> TensorAlgebra<SubF, F>
-    where
-        F: ExtensionField<SubF>,
-    {
-        // returns φ1(self)(φ0(point[0]), φ0(point[1]), ...)
-        assert_eq!(point.len(), self.n_vars);
-        MultilinearHost::eq_mle(point)
-            .evals
-            .par_iter()
-            .zip(&self.evals)
-            .map(|(l, e)| TensorAlgebra::phi_0_times_phi_1(l, e))
-            .sum()
     }
 
     pub fn to_monomial_basis(self) -> CoefficientListHost<F> {
@@ -270,14 +254,9 @@ impl<F: Field> MultilinearHost<F> {
 
     pub fn scale_small_field<SF: Field>(&self, scalar: SF) -> MultilinearHost<F>
     where
-        F: MyExtensionField<SF>,
+        F: ExtensionField<SF>,
     {
-        MultilinearHost::new(
-            self.evals
-                .par_iter()
-                .map(|&e| e.my_multiply(&scalar))
-                .collect(),
-        )
+        MultilinearHost::new(self.evals.par_iter().map(|&e| e * scalar).collect())
     }
 
     pub fn eq_mle(scalars: &[F]) -> Self {
@@ -370,13 +349,13 @@ impl<F: Field> MultilinearHost<F> {
 
     fn add_assign<S: Field>(&mut self, other: &MultilinearHost<S>)
     where
-        F: MyExtensionField<S>,
+        F: ExtensionField<S>,
     {
         assert_eq!(self.n_vars, other.n_vars);
         self.evals
             .par_iter_mut()
             .zip(other.evals.par_iter())
-            .for_each(|(a, b)| a.my_add_assign(b));
+            .for_each(|(a, b)| *a += *b);
     }
 }
 
@@ -462,14 +441,6 @@ impl<F: Field> MultilinearDevice<F> {
         res
     }
 
-    /// Async
-    pub fn eval_mixed_tensor<SubF: Field>(&self, point: &[F]) -> TensorAlgebra<SubF, F>
-    where
-        F: ExtensionField<SubF>,
-    {
-        TensorAlgebra::new(cuda_eval_mixed_tensor::<SubF, F>(&self.evals, point))
-    }
-
     // Async
     pub fn add_dummy_starting_variables(&self, n: usize) -> Self {
         // TODO remove
@@ -512,7 +483,7 @@ impl<F: Field> MultilinearDevice<F> {
     // Async
     fn add_assign<S: Field>(&mut self, other: &MultilinearDevice<S>)
     where
-        F: MyExtensionField<S>,
+        F: ExtensionField<S>,
     {
         assert_eq!(self.n_vars, other.n_vars);
         cuda_add_assign_slices(&mut self.evals, &other.evals);
@@ -671,22 +642,6 @@ impl<F: Field> Multilinear<F> {
     }
 
     /// Async
-    #[instrument(name = "eval_mixed_tensor", skip_all)]
-    pub fn eval_mixed_tensor<SubF: Field>(&self, point: &[F]) -> TensorAlgebra<SubF, F>
-    where
-        F: ExtensionField<SubF>,
-    {
-        match self {
-            Self::Host(pol) => pol.eval_mixed_tensor(point),
-            Self::Device(pol) => {
-                let res = pol.eval_mixed_tensor(point);
-                cuda_sync();
-                res
-            }
-        }
-    }
-
-    /// Async
     pub fn evaluate_in_large_field<EF: ExtensionField<F>>(&self, point: &[EF]) -> EF {
         match self {
             Self::Host(pol) => pol.evaluate_in_large_field(point),
@@ -741,7 +696,7 @@ impl<F: Field> Multilinear<F> {
 
     pub fn add_assign<S: Field>(&mut self, other: &Multilinear<S>)
     where
-        F: MyExtensionField<S>,
+        F: ExtensionField<S>,
     {
         match (self, other) {
             (Multilinear::Host(pol), Multilinear::Host(other)) => pol.add_assign(other),
@@ -925,7 +880,7 @@ impl<F: Field> MultilinearsSlice<'_, F> {
     /// Async
     pub fn linear_comb_in_small_field<SF: Field>(&self, scalars: &[SF]) -> Multilinear<F>
     where
-        F: MyExtensionField<SF>,
+        F: ExtensionField<SF>,
     {
         assert_eq!(self.len(), scalars.len());
         match self {

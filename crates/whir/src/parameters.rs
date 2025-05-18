@@ -13,6 +13,7 @@ pub struct WhirConfigBuilder {
     pub starting_log_inv_rate: usize,
     pub folding_factor: FoldingFactor,
     pub target_pow_bits: usize,
+    pub innitial_domain_reduction_factor: usize,
     pub cuda: bool,
 }
 
@@ -22,6 +23,7 @@ impl WhirConfigBuilder {
         security_level: usize,
         starting_log_inv_rate: usize,
         folding_factor: FoldingFactor,
+        innitial_domain_reduction_factor: usize,
         cuda: bool,
     ) -> Self {
         Self {
@@ -29,19 +31,20 @@ impl WhirConfigBuilder {
             security_level,
             starting_log_inv_rate,
             folding_factor,
-            cuda,
             target_pow_bits: 16,
+            innitial_domain_reduction_factor,
+            cuda,
         }
     }
 }
 
 #[derive(Clone, Deref)]
-pub struct WhirConfig<F, RCF> {
+pub struct WhirConfig<F, EF> {
     #[deref]
     builder: WhirConfigBuilder,
     pub num_variables: usize,
-    _main_field: PhantomData<F>,
-    _random_combination_field: PhantomData<RCF>,
+    _coeffs_field: PhantomData<F>,
+    _extension_field: PhantomData<EF>,
 
     pub(crate) committment_ood_samples: usize,
     pub(crate) starting_folding_pow_bits: usize,
@@ -65,7 +68,8 @@ pub(crate) struct RoundConfig {
 }
 
 impl WhirConfigBuilder {
-    pub fn build<F: Field, RCF>(&self, num_variables: usize) -> WhirConfig<F, RCF> {
+    pub fn build<F: Field, EF: Field>(&self, num_variables: usize) -> WhirConfig<F, EF> {
+        assert!(self.innitial_domain_reduction_factor <= self.folding_factor.at_round(0));
         self.folding_factor.check_validity(num_variables).unwrap();
 
         let protocol_security_level = self.security_level.saturating_sub(self.target_pow_bits);
@@ -73,21 +77,19 @@ impl WhirConfigBuilder {
         let (num_rounds, final_sumcheck_rounds) =
             self.folding_factor.compute_number_of_rounds(num_variables);
 
-        let field_size_bits = F::bits() as usize;
-
         let committment_ood_samples = ood_samples(
             self.security_level,
             self.soundness_type,
             num_variables,
             self.starting_log_inv_rate,
             compute_log_eta(self.soundness_type, self.starting_log_inv_rate),
-            field_size_bits,
+            EF::bits(),
         );
 
         let starting_folding_pow_bits = folding_pow_bits(
             self.security_level,
             self.soundness_type,
-            field_size_bits,
+            EF::bits(),
             num_variables,
             self.starting_log_inv_rate,
             compute_log_eta(self.soundness_type, self.starting_log_inv_rate),
@@ -98,7 +100,13 @@ impl WhirConfigBuilder {
         let mut log_inv_rate = self.starting_log_inv_rate;
         for round in 0..num_rounds {
             // Queries are set w.r.t. to old rate, while the rest to the new rate
-            let next_rate = log_inv_rate + (self.folding_factor.at_round(round) - 1);
+            let domain_reduction_factor = if round == 0 {
+                self.innitial_domain_reduction_factor
+            } else {
+                1
+            };
+            let next_rate =
+                log_inv_rate + (self.folding_factor.at_round(round) - domain_reduction_factor);
 
             let log_next_eta = compute_log_eta(self.soundness_type, next_rate);
             let num_queries = queries(self.soundness_type, protocol_security_level, log_inv_rate);
@@ -109,13 +117,13 @@ impl WhirConfigBuilder {
                 num_variables_new,
                 next_rate,
                 log_next_eta,
-                field_size_bits,
+                EF::bits(),
             );
 
             let query_error = rbr_queries(self.soundness_type, log_inv_rate, num_queries);
             let combination_error = rbr_soundness_queries_combination(
                 self.soundness_type,
-                field_size_bits,
+                EF::bits(),
                 num_variables_new,
                 next_rate,
                 log_next_eta,
@@ -130,7 +138,7 @@ impl WhirConfigBuilder {
             let folding_pow_bits = folding_pow_bits(
                 self.security_level,
                 self.soundness_type,
-                field_size_bits,
+                EF::bits(),
                 num_variables_new,
                 next_rate,
                 log_next_eta,
@@ -158,14 +166,14 @@ impl WhirConfigBuilder {
             .ceil() as usize;
 
         let final_folding_pow_bits = 0_f64
-            .max(self.security_level as f64 - (field_size_bits - 1) as f64)
+            .max(self.security_level as f64 - (EF::bits() - 1) as f64)
             .ceil() as usize;
 
         WhirConfig {
             builder: self.clone(),
             num_variables,
-            _main_field: PhantomData,
-            _random_combination_field: PhantomData,
+            _coeffs_field: PhantomData,
+            _extension_field: PhantomData,
             committment_ood_samples,
             starting_folding_pow_bits,
             round_parameters,
@@ -357,7 +365,7 @@ fn rbr_soundness_queries_combination(
     field_size_bits as f64 - (log_combination + list_size + 1.)
 }
 
-impl<F, RCF> WhirConfig<F, RCF> {
+impl<F, EF> WhirConfig<F, EF> {
     pub fn n_rounds(&self) -> usize {
         self.round_parameters.len()
     }
@@ -375,7 +383,7 @@ impl<F, RCF> WhirConfig<F, RCF> {
     }
 }
 
-impl<F: Field, RCF> Debug for WhirConfig<F, RCF> {
+impl<F, EF: Field> Debug for WhirConfig<F, EF> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "num variables: {}", self.num_variables)?;
         writeln!(f, ", folding factor: {:?}", self.folding_factor)?;
@@ -407,7 +415,7 @@ impl<F: Field, RCF> Debug for WhirConfig<F, RCF> {
         writeln!(f, "Round by round soundness analysis:")?;
         writeln!(f, "------------------------------------")?;
 
-        let field_size_bits = F::bits() as usize;
+        let field_size_bits = EF::bits();
         let log_eta = compute_log_eta(self.soundness_type, self.starting_log_inv_rate);
         let mut num_variables = self.num_variables;
 

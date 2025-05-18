@@ -5,3 +5,6 @@ pub mod fs_utils;
 pub mod parameters;
 pub mod prover;
 pub mod verifier;
+
+#[cfg(test)]
+mod test;

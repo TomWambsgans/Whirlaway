@@ -2,13 +2,10 @@ use algebra::pols::MultilinearHost;
 use arithmetic_circuit::max_composition_degree;
 use fiat_shamir::{FsError, FsVerifier};
 use p3_field::{ExtensionField, PrimeCharacteristicRing, PrimeField, TwoAdicField};
-use pcs::{PCS, RingSwitch};
 use sumcheck::{SumcheckError, SumcheckGrinding};
 use tracing::instrument;
-use utils::{
-    Evaluation, MyExtensionField, dot_product, eq_extension, powers, small_to_big_extension,
-};
-use whir::parameters::{WhirConfig, WhirConfigBuilder};
+use utils::{Evaluation, dot_product, eq_extension, powers};
+use whir::parameters::WhirConfigBuilder;
 
 use crate::{
     AirSettings,
@@ -41,34 +38,26 @@ impl From<SumcheckError> for AirVerifError {
 
 impl<F: PrimeField> AirTable<F> {
     #[instrument(name = "air table: verify", skip_all)]
-    pub fn verify<
-        EF: ExtensionField<F>,
-        WhirF: ExtensionField<F>
-            + ExtensionField<<WhirF as PrimeCharacteristicRing>::PrimeSubfield>
-            + TwoAdicField
-            + Ord,
-    >(
+    pub fn verify<EF: ExtensionField<F>>(
         &self,
         settings: &AirSettings,
         fs_verifier: &mut FsVerifier,
         log_length: usize,
     ) -> Result<(), AirVerifError>
     where
-        WhirF::PrimeSubfield: TwoAdicField,
-        WhirF: MyExtensionField<EF>,
-        EF: ExtensionField<<WhirF as PrimeCharacteristicRing>::PrimeSubfield>,
+        F: TwoAdicField,
+        EF: TwoAdicField,
+        F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
     {
-        let pcs = RingSwitch::<WhirF, WhirConfig<WhirF, EF>>::new(
-            log_length + self.log_n_witness_columns(),
-            &WhirConfigBuilder::standard(
-                settings.whir_soudness_type,
-                settings.security_bits,
-                settings.whir_log_inv_rate,
-                settings.whir_folding_factor,
-                false,
-            ),
-        );
-
+        let pcs = WhirConfigBuilder::standard(
+            settings.whir_soudness_type,
+            settings.security_bits,
+            settings.whir_log_inv_rate,
+            settings.whir_folding_factor,
+            settings.whir_innitial_domain_reduction_factor,
+            false,
+        )
+        .build::<F, EF>(log_length + self.log_n_witness_columns());
         let pcs_commitment = pcs
             .parse_commitment(fs_verifier)
             .map_err(|_| AirVerifError::InvalidPcsCommitment)?;
@@ -220,14 +209,11 @@ impl<F: PrimeField> AirTable<F> {
         )
         .evaluate_in_large_field(&final_random_scalars);
         let packed_eval = Evaluation {
-            point: final_point
-                .into_iter()
-                .map(small_to_big_extension::<F, EF, WhirF>)
-                .collect(),
-            value: small_to_big_extension::<F, EF, WhirF>(packed_value),
+            point: final_point,
+            value: packed_value,
         };
 
-        pcs.verify(&pcs_commitment, &packed_eval, fs_verifier)
+        pcs.verify(&pcs_commitment, vec![packed_eval], fs_verifier)
             .map_err(|_| AirVerifError::InvalidPcsOpening)?;
 
         Ok(())

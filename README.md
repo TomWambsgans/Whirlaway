@@ -6,7 +6,7 @@ A hash-based SNARK with lightweight proofs, powered by the [Whir](https://eprint
 
 - **Arithmetization**: AIR (Algebraic Intermediate Representation) with preprocessed columns
 - **Security level**: 128 bits, presumably post-quantum (hash-based protocol)
-- **Ingredients**: WHIR + Ring-Switching + Sumcheck + Univariate Skip
+- **Ingredients**: WHIR + Sumcheck + Univariate Skip
 
 > **Note**: This library is under construction and not production-ready. Roadmap: Phase 1 = Perf. Phase 2 = Code quality.
 
@@ -21,7 +21,6 @@ Key techniques:
 - AIR table committed as a single multilinear polynomial
 - Multiple column openings batched into a single PCS opening via the sumcheck protocol
 - "Univariate Skip" from [Some Improvements for the PIOP for ZeroCheck](https://eprint.iacr.org/2024/108.pdf) (Angus Gruen) to skip the "embedding overhead" in the initial rounds of the sumcheck
-- "Ring-switching" from [Binius' 2nd paper](https://eprint.iacr.org/2024/504.pdf) eliminates field "embedding overhead" in the PCS
 
 ## Poseidon2 Benchmark
 

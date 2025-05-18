@@ -22,7 +22,6 @@ dependencies = [
  "fiat-shamir",
  "p3-field",
  "p3-koala-bear",
- "pcs",
  "rand",
  "rayon",
  "sumcheck",
@@ -539,28 +538,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
-name = "pcs"
-version = "0.1.0"
-dependencies = [
- "algebra",
- "arithmetic-circuit",
- "cuda-bindings",
- "cuda-engine",
- "fiat-shamir",
- "merkle-tree",
- "p3-field",
- "p3-koala-bear",
- "rand",
- "rayon",
- "sumcheck",
- "tracing",
- "tracing-forest",
- "tracing-subscriber",
- "utils",
- "whir",
-]
-
-[[package]]
 name = "pin-project-lite"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -948,14 +925,18 @@ version = "0.1.0"
 dependencies = [
  "algebra",
  "arithmetic-circuit",
+ "cuda-bindings",
  "cuda-engine",
  "derive_more",
  "fiat-shamir",
  "merkle-tree",
  "p3-field",
+ "p3-koala-bear",
  "serde",
  "sumcheck",
  "tracing",
+ "tracing-forest",
+ "tracing-subscriber",
  "utils",
 ]
 

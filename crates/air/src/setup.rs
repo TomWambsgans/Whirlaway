@@ -9,15 +9,16 @@ use utils::{extension_degree, log2_up};
 use crate::{AirSettings, table::AirTable};
 
 impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
-    pub fn cuda_setup<EF: ExtensionField<F>, WhirF: ExtensionField<F>>(
-        &self,
-        settings: &AirSettings,
-    ) {
+    pub fn cuda_setup<EF: ExtensionField<F>>(&self, settings: &AirSettings) {
         cuda_init();
 
         let n_vars = log2_up(self.n_columns) + self.log_length;
         cuda_preprocess_twiddles::<F>(
-            n_vars + settings.whir_log_inv_rate - settings.whir_folding_factor.maximum(),
+            (n_vars + settings.whir_log_inv_rate - settings.whir_folding_factor.at_round(0)).max(
+                n_vars + settings.whir_log_inv_rate
+                    - settings.whir_innitial_domain_reduction_factor
+                    - settings.whir_folding_factor.at_round(1),
+            ),
         );
 
         let constraint_sumcheck_computations = SumcheckComputation::<F> {
@@ -44,7 +45,7 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
         assert!(extension_degree::<F>() == 1);
         let deg_a = extension_degree::<F>();
         let deg_b = extension_degree::<EF>();
-        let deg_c = extension_degree::<WhirF>();
+        let deg_c = extension_degree::<EF>();
         cuda_preprocess_many_sumcheck_computations(
             &constraint_sumcheck_computations,
             &[(deg_a, deg_a, deg_b), (deg_a, deg_b, deg_b)],
@@ -57,19 +58,11 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
 
         cuda_load_function(CudaFunctionInfo::basic("keccak.cu", "batch_keccak256"));
         cuda_load_function(CudaFunctionInfo::basic("keccak.cu", "pow_grinding"));
-        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
+        cuda_load_function(CudaFunctionInfo::one_field::<F>(
             "multilinear.cu",
             "lagrange_to_monomial_basis_steps",
         ));
-        cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
-            "multilinear.cu",
-            "lagrange_to_monomial_basis_steps",
-        ));
-        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
-            "multilinear.cu",
-            "lagrange_to_monomial_basis_end",
-        ));
-        cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
+        cuda_load_function(CudaFunctionInfo::one_field::<F>(
             "multilinear.cu",
             "lagrange_to_monomial_basis_end",
         ));
@@ -82,29 +75,29 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
             "multilinears_down",
         ));
 
-        cuda_load_function(CudaFunctionInfo::two_fields::<F, WhirF>(
+        cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
             "multilinear_evaluations.cu",
             "eval_multilinear_in_lagrange_basis_steps",
         ));
-        cuda_load_function(CudaFunctionInfo::two_fields::<F, WhirF>(
+        cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
             "multilinear_evaluations.cu",
             "eval_multilinear_in_lagrange_basis_shared_memory",
         ));
 
-        cuda_load_function(CudaFunctionInfo::two_fields::<WhirF, WhirF>(
+        cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
             "multilinear_evaluations.cu",
             "eval_multilinear_in_lagrange_basis_steps",
         ));
-        cuda_load_function(CudaFunctionInfo::two_fields::<WhirF, WhirF>(
+        cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
             "multilinear_evaluations.cu",
             "eval_multilinear_in_lagrange_basis_shared_memory",
         ));
 
-        cuda_load_function(CudaFunctionInfo::two_fields::<WhirF, F>(
+        cuda_load_function(CudaFunctionInfo::two_fields::<EF, F>(
             "multilinear_evaluations.cu",
             "eval_multilinear_in_lagrange_basis_steps",
         ));
-        cuda_load_function(CudaFunctionInfo::two_fields::<WhirF, F>(
+        cuda_load_function(CudaFunctionInfo::two_fields::<EF, F>(
             "multilinear_evaluations.cu",
             "eval_multilinear_in_lagrange_basis_shared_memory",
         ));
@@ -116,11 +109,11 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
             "univariate_skip.cu",
             "matrix_down_folded_with_univariate_skips",
         ));
-        cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
+        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
             "multilinear.cu",
             "eq_mle_start",
         ));
-        cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
+        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
             "multilinear.cu",
             "eq_mle_steps",
         ));
@@ -152,7 +145,7 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
             "multilinear.cu",
             "fold_rectangular",
         ));
-        cuda_load_function(CudaFunctionInfo::two_fields::<WhirF, WhirF>(
+        cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
             "multilinear.cu",
             "fold_rectangular",
         ));
@@ -160,7 +153,7 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
             "multilinear.cu",
             "fold_rectangular",
         ));
-        cuda_load_function(CudaFunctionInfo::two_fields::<WhirF, F>(
+        cuda_load_function(CudaFunctionInfo::two_fields::<EF, F>(
             "multilinear.cu",
             "fold_rectangular",
         ));
@@ -172,27 +165,27 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
             "multilinear.cu",
             "dot_product",
         ));
-        cuda_load_function(CudaFunctionInfo::two_fields::<WhirF, WhirF>(
+        cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
             "multilinear.cu",
             "dot_product",
         ));
-        cuda_load_function(CudaFunctionInfo::two_fields::<F, WhirF>(
+        cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
             "multilinear.cu",
             "dot_product",
         ));
-        cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
+        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
             "multilinear.cu",
             "scale_in_place",
         ));
-        cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
+        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
             "multilinear.cu",
             "add_slices",
         ));
-        cuda_load_function(CudaFunctionInfo::two_fields::<EF, WhirF>(
+        cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
             "multilinear.cu",
             "add_assign_slices",
         ));
-        cuda_load_function(CudaFunctionInfo::two_fields::<WhirF, WhirF>(
+        cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
             "multilinear.cu",
             "add_assign_slices",
         ));
@@ -200,11 +193,11 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
             "multilinear.cu",
             "piecewise_sum",
         ));
-        cuda_load_function(CudaFunctionInfo::two_fields::<F, WhirF>(
+        cuda_load_function(CudaFunctionInfo::two_fields::<F, EF>(
             "multilinear.cu",
             "linear_combination_at_row_level",
         ));
-        cuda_load_function(CudaFunctionInfo::two_fields::<WhirF, WhirF>(
+        cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
             "multilinear.cu",
             "linear_combination_at_row_level",
         ));
@@ -212,11 +205,11 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
             "multilinear.cu",
             "linear_combination",
         ));
-        cuda_load_function(CudaFunctionInfo::two_fields::<WhirF, WhirF>(
+        cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
             "multilinear.cu",
             "linear_combination",
         ));
-        cuda_load_function(CudaFunctionInfo::two_fields::<WhirF, EF>(
+        cuda_load_function(CudaFunctionInfo::two_fields::<EF, EF>(
             "multilinear.cu",
             "linear_combination",
         ));
@@ -236,14 +229,11 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
             "multilinear.cu",
             "sum_in_place",
         ));
-        cuda_load_function(CudaFunctionInfo::one_field::<WhirF>(
+        cuda_load_function(CudaFunctionInfo::one_field::<EF>(
             "multilinear.cu",
             "sum_in_place",
         ));
-        cuda_load_function(CudaFunctionInfo::two_fields::<F, WhirF>(
-            "tensor_algebra.cu",
-            "tensor_algebra_dot_product",
-        ));
-        cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<WhirF>());
+        cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<F>());
+        cuda_load_function(CudaFunctionInfo::ntt_at_block_level::<EF>());
     }
 }
