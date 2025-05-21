@@ -1,6 +1,5 @@
 use std::borrow::Borrow;
 
-use super::CoefficientList;
 use arithmetic_circuit::SumcheckComputation;
 use p3_field::{BasedVectorSpace, ExtensionField, Field, PrimeCharacteristicRing};
 use rand::{
@@ -10,6 +9,7 @@ use rand::{
 use rayon::prelude::*;
 use utils::{HypercubePoint, PartialHypercubePoint};
 use utils::{default_hash, dot_product};
+use whir_p3::poly::coeffs::CoefficientList;
 
 /*
 
@@ -172,25 +172,6 @@ impl<F: Field> Multilinear<F> {
                     coeffs[j | step] -= temp;
                 }
             }
-        }
-
-        CoefficientList::new(coeffs)
-    }
-
-    pub fn to_monomial_basis_rev(self) -> CoefficientList<F> {
-        let mut coeffs = self.evals;
-        let n = self.n_vars;
-
-        for i in 0..n {
-            coeffs.par_chunks_mut(1 << (n - i)).for_each(|chunk| {
-                let n = chunk.len();
-                let left = (0..n / 2).map(|j| chunk[2 * j]).collect::<Vec<_>>();
-                let right = (0..n / 2)
-                    .map(|j| chunk[2 * j + 1] - chunk[2 * j])
-                    .collect::<Vec<_>>();
-                chunk[..n / 2].copy_from_slice(&left);
-                chunk[n / 2..].copy_from_slice(&right);
-            });
         }
 
         CoefficientList::new(coeffs)
@@ -417,25 +398,4 @@ pub fn eval_sumcheck_computation<
         res *= eq_mle_eval.unwrap();
     }
     res
-}
-
-#[cfg(test)]
-mod tests {
-    use p3_koala_bear::KoalaBear;
-    use rand::{SeedableRng, rngs::StdRng};
-
-    use super::*;
-
-    #[test]
-    fn test_to_monomial_basis_rev() {
-        let rng = &mut StdRng::seed_from_u64(0);
-        let n_vars = 7;
-        type F = KoalaBear;
-        let mut point = (0..n_vars).map(|_| rng.random()).collect::<Vec<F>>();
-        let multilinear = Multilinear::<F>::random(rng, n_vars);
-        let eval_1 = multilinear.clone().to_monomial_basis_rev().evaluate(&point);
-        point.reverse();
-        let eval_2 = multilinear.evaluate_in_large_field(&point);
-        assert_eq!(eval_1, eval_2);
-    }
 }

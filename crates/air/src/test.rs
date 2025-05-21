@@ -4,7 +4,7 @@ use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::KoalaBear;
 
 use algebra::pols::Multilinear;
-use whir::parameters::{FoldingFactor, SoundnessType};
+use whir_p3::parameters::{FoldingFactor, errors::SecurityAssumption};
 
 use crate::{AirBuilder, AirSettings};
 
@@ -16,7 +16,7 @@ fn test_air_fibonacci() {
     let log_length = 14;
     let settings = AirSettings::new(
         60,
-        SoundnessType::ProvableList,
+        SecurityAssumption::JohnsonBound,
         FoldingFactor::Constant(4),
         3,
         3,
@@ -65,11 +65,11 @@ fn test_air_fibonacci() {
     table.check_validity(&witnesses);
 
     let mut fs_prover = FsProver::new();
-    table.prove::<EF>(&settings, &mut fs_prover, witnesses);
+    let whir_poof = table.prove::<EF>(&settings, &mut fs_prover, witnesses);
 
     let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
     table
-        .verify::<EF>(&settings, &mut fs_verifier, log_length)
+        .verify::<EF>(&settings, &mut fs_verifier, log_length, whir_poof)
         .unwrap();
 }
 
@@ -77,7 +77,7 @@ fn test_air_fibonacci() {
 fn test_air_complex() {
     let settings = AirSettings::new(
         60,
-        SoundnessType::ProvableList,
+        SecurityAssumption::JohnsonBound,
         FoldingFactor::Constant(4),
         3,
         3,
@@ -180,11 +180,11 @@ fn test_air_complex() {
         table.check_validity(&witnesses);
 
         let mut fs_prover = FsProver::new();
-        table.prove::<EF>(&settings, &mut fs_prover, witnesses);
+        let whir_poof = table.prove::<EF>(&settings, &mut fs_prover, witnesses);
 
         let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
         table
-            .verify::<EF>(&settings, &mut fs_verifier, log_length)
+            .verify::<EF>(&settings, &mut fs_verifier, log_length, whir_poof)
             .unwrap();
     }
 }

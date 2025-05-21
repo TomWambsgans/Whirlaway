@@ -23,7 +23,7 @@ use tracing_forest::ForestLayer;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use utils::SupportedField;
 use vectorized::{VectorizedPoseidon2Air, write_vectorized_constraints};
-use whir::parameters::FoldingFactor;
+use whir_p3::parameters::FoldingFactor;
 use {columns::num_cols, constants::RoundConstants};
 
 pub(crate) mod air;
@@ -38,7 +38,8 @@ const BABY_BEAR_VECTOR_LEN: usize = if VECTORIZED { 3 } else { 1 };
 
 #[cfg(test)]
 mod tests {
-    use whir::parameters::SoundnessType;
+
+    use whir_p3::parameters::errors::SecurityAssumption;
 
     use super::*;
 
@@ -46,7 +47,7 @@ mod tests {
     fn test_poseidon2() {
         let settings = AirSettings::new(
             100,
-            SoundnessType::ProvableList,
+            SecurityAssumption::CapacityBound,
             FoldingFactor::Constant(4),
             2,
             3,
@@ -266,14 +267,14 @@ where
 
     let t = Instant::now();
     let mut fs_prover = FsProver::new();
-    table.prove::<EF>(&settings, &mut fs_prover, witness);
+    let whir_proof = table.prove::<EF>(&settings, &mut fs_prover, witness);
     let proof_size = fs_prover.transcript_len();
 
     let prover_time = t.elapsed();
     let time = Instant::now();
     let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
     table
-        .verify::<EF>(&settings, &mut fs_verifier, log_n_rows)
+        .verify::<EF>(&settings, &mut fs_verifier, log_n_rows, whir_proof)
         .unwrap();
     let verifier_time = time.elapsed();
 

@@ -10,13 +10,20 @@ mod verify;
 #[cfg(test)]
 mod test;
 
+type ByteHash = Blake3;
+type FieldHash = SerializingHasher<ByteHash>;
+type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
+const WHIR_POW_BITS: usize = 16;
+
 pub use builder::*;
-use whir::parameters::{FoldingFactor, SoundnessType};
+use p3_blake3::Blake3;
+use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
+use whir_p3::parameters::{FoldingFactor, errors::SecurityAssumption};
 
 #[derive(Clone, Debug)]
 pub struct AirSettings {
     pub security_bits: usize,
-    pub whir_soudness_type: SoundnessType,
+    pub whir_soudness_type: SecurityAssumption,
     pub whir_folding_factor: FoldingFactor,
     pub whir_log_inv_rate: usize,
     pub univariate_skips: usize,
@@ -26,7 +33,7 @@ pub struct AirSettings {
 impl AirSettings {
     pub fn new(
         security_bits: usize,
-        whir_soudness_type: SoundnessType,
+        whir_soudness_type: SecurityAssumption,
         whir_folding_factor: FoldingFactor,
         whir_log_inv_rate: usize,
         univariate_skips: usize,

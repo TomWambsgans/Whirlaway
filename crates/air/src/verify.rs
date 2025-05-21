@@ -1,12 +1,21 @@
 use algebra::pols::Multilinear;
 use arithmetic_circuit::max_composition_degree;
 use fiat_shamir::{FsError, FsVerifier};
-use p3_field::{ExtensionField, PrimeCharacteristicRing, PrimeField, TwoAdicField};
+use p3_field::{ExtensionField, PrimeCharacteristicRing, PrimeField64, TwoAdicField};
 use rand::distr::{Distribution, StandardUniform};
 use sumcheck::{SumcheckError, SumcheckGrinding};
 use tracing::instrument;
-use utils::{Evaluation, dot_product, eq_extension, powers};
-use whir::parameters::WhirConfigBuilder;
+use utils::{dot_product, eq_extension, powers};
+use whir_p3::{
+    fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
+    poly::multilinear::MultilinearPoint,
+    whir::{
+        committer::reader::CommitmentReader,
+        prover::proof::WhirProof,
+        statement::{Statement, StatementVerifier, Weights},
+        verifier::Verifier,
+    },
+};
 
 use crate::{
     AirSettings,
@@ -37,13 +46,14 @@ impl From<SumcheckError> for AirVerifError {
     }
 }
 
-impl<F: PrimeField> AirTable<F> {
+impl<F: PrimeField64> AirTable<F> {
     #[instrument(name = "air table: verify", skip_all)]
     pub fn verify<EF: ExtensionField<F>>(
         &self,
         settings: &AirSettings,
         fs_verifier: &mut FsVerifier,
         log_length: usize,
+        (whir_proof, prover_state): (WhirProof<F, EF, 32>, ProverState<EF, F>),
     ) -> Result<(), AirVerifError>
     where
         F: TwoAdicField,
@@ -52,16 +62,16 @@ impl<F: PrimeField> AirTable<F> {
         StandardUniform: Distribution<EF>,
         StandardUniform: Distribution<F>,
     {
-        let pcs = WhirConfigBuilder::standard(
-            settings.whir_soudness_type,
-            settings.security_bits,
-            settings.whir_log_inv_rate,
-            settings.whir_folding_factor,
-            settings.whir_innitial_domain_reduction_factor,
-        )
-        .build::<F, EF>(log_length + self.log_n_witness_columns());
-        let pcs_commitment = pcs
-            .parse_commitment(fs_verifier)
+        let whir_params = self.build_whir_params::<EF>(settings);
+
+        let commitment_reader = CommitmentReader::new(&whir_params);
+        let whir_verifier = Verifier::new(&whir_params);
+        let mut domainsep = DomainSeparator::new("🐎");
+        domainsep.commit_statement(&whir_params);
+        domainsep.add_whir_proof(&whir_params);
+        let mut verifier_state = domainsep.to_verifier_state(prover_state.narg_string());
+        let parsed_commitment = commitment_reader
+            .parse_commitment::<32>(&mut verifier_state)
             .map_err(|_| AirVerifError::InvalidPcsCommitment)?;
 
         self.constraints_batching_pow::<EF, _>(fs_verifier, settings)?;
@@ -210,12 +220,20 @@ impl<F: PrimeField> AirTable<F> {
             .concat(),
         )
         .evaluate_in_large_field(&final_random_scalars);
-        let packed_eval = Evaluation {
-            point: final_point,
-            value: packed_value,
-        };
 
-        pcs.verify(&pcs_commitment, vec![packed_eval], fs_verifier)
+        let mut statement = Statement::<EF>::new(final_point.len());
+        statement.add_constraint(
+            Weights::evaluation(MultilinearPoint(final_point.clone())),
+            packed_value,
+        );
+        let statement_verifier = StatementVerifier::from_statement(&statement);
+        whir_verifier
+            .verify(
+                &mut verifier_state,
+                &parsed_commitment,
+                &statement_verifier,
+                &whir_proof,
+            )
             .map_err(|_| AirVerifError::InvalidPcsOpening)?;
 
         Ok(())

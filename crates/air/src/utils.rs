@@ -1,7 +1,7 @@
 use algebra::pols::Multilinear;
 use arithmetic_circuit::{ArithmeticCircuit, TransparentPolynomial};
 use fiat_shamir::{FsError, FsParticipant};
-use p3_field::{Field, PrimeField};
+use p3_field::{Field, PrimeField, TwoAdicField};
 use rayon::prelude::*;
 use utils::log2_up;
 
@@ -81,7 +81,7 @@ pub(crate) fn column_down<F: Field>(column: &Multilinear<F>) -> Multilinear<F> {
     Multilinear::new(down)
 }
 
-impl<F: PrimeField> AirTable<F> {
+impl<F: PrimeField + TwoAdicField> AirTable<F> {
     pub(crate) fn constraints_batching_pow<EF: Field, FS: FsParticipant>(
         &self,
         fs: &mut FS,

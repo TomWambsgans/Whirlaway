@@ -1,12 +1,21 @@
 use algebra::pols::Multilinear;
 use arithmetic_circuit::ArithmeticCircuit;
 use fiat_shamir::FsProver;
-use p3_field::{ExtensionField, PrimeCharacteristicRing, PrimeField, TwoAdicField};
+use p3_dft::Radix2DitParallel;
+use p3_field::{ExtensionField, PrimeCharacteristicRing, PrimeField64, TwoAdicField};
 use rand::distr::{Distribution, StandardUniform};
 use sumcheck::SumcheckGrinding;
 use tracing::{Level, instrument, span};
-use utils::{Evaluation, dot_product, powers};
-use whir::parameters::WhirConfigBuilder;
+use utils::{dot_product, powers};
+use whir_p3::{
+    fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
+    poly::multilinear::MultilinearPoint,
+    whir::{
+        committer::writer::CommitmentWriter,
+        prover::{Prover, proof::WhirProof},
+        statement::{Statement, Weights},
+    },
+};
 
 use crate::{
     AirSettings,
@@ -24,15 +33,15 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 
 */
 
-impl<F: PrimeField> AirTable<F> {
+impl<F: PrimeField64 + TwoAdicField> AirTable<F> {
     #[instrument(name = "air: prove", skip_all)]
     pub fn prove<EF: ExtensionField<F>>(
         &self,
         settings: &AirSettings,
         fs_prover: &mut FsProver,
         witness: Vec<Multilinear<F>>,
-    ) where
-        F: TwoAdicField + Ord,
+    ) -> (WhirProof<F, EF, 32>, ProverState<EF, F>)
+    where
         F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
         EF: ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield> + TwoAdicField + Ord,
         F::PrimeSubfield: TwoAdicField,
@@ -46,23 +55,29 @@ impl<F: PrimeField> AirTable<F> {
         let log_length = self.log_length;
         assert!(witness.iter().all(|w| w.n_vars == log_length));
 
-        let pcs = WhirConfigBuilder::standard(
-            settings.whir_soudness_type,
-            settings.security_bits,
-            settings.whir_log_inv_rate,
-            settings.whir_folding_factor,
-            settings.whir_innitial_domain_reduction_factor,
-        )
-        .build::<F, EF>(log_length + self.log_n_witness_columns());
+        let whir_params = self.build_whir_params::<EF>(settings);
+        let mut domainsep = DomainSeparator::new("🐎");
+        domainsep.commit_statement(&whir_params);
+        domainsep.add_whir_proof(&whir_params);
+        let mut prover_state = domainsep.to_prover_state();
 
         // 1) Commit to the witness columns
 
         // TODO avoid cloning (use a row major matrix for the witness)
 
-        // transmute is safe because WhirF::PrimeSubField == F
-        let packed_pol = unsafe { std::mem::transmute(Multilinear::packed(&witness)) };
+        let packed_pol = Multilinear::packed(&witness);
 
-        let packed_pol_witness = pcs.commit(packed_pol, fs_prover);
+        let committer = CommitmentWriter::new(&whir_params);
+
+        let dft_committer = Radix2DitParallel::<F>::default();
+
+        let packed_witness = committer
+            .commit(
+                &dft_committer,
+                &mut prover_state,
+                packed_pol.to_monomial_basis(),
+            )
+            .unwrap();
 
         self.constraints_batching_pow::<EF, _>(fs_prover, settings)
             .unwrap();
@@ -220,14 +235,25 @@ impl<F: PrimeField> AirTable<F> {
             .concat(),
         )
         .evaluate_in_large_field(&final_random_scalars);
-        let packed_eval = Evaluation {
-            point: final_point,
-            value: packed_value,
-        };
 
         std::mem::drop(_span_final_point);
         std::mem::drop(_span);
 
-        pcs.open(packed_pol_witness, vec![packed_eval], fs_prover);
+        //pcs.open(packed_pol_witness, vec![packed_eval], fs_prover);
+        let prover = Prover(&whir_params);
+
+        let dft_prover = Radix2DitParallel::<F>::default();
+
+        let mut statement = Statement::<EF>::new(final_point.len());
+        statement.add_constraint(
+            Weights::evaluation(MultilinearPoint(final_point.clone())),
+            packed_value,
+        );
+
+        let whir_proof = prover
+            .prove(&dft_prover, &mut prover_state, statement, packed_witness)
+            .unwrap();
+
+        (whir_proof, prover_state)
     }
 }

@@ -12,7 +12,6 @@ members = ["crates/*"]
 
 [workspace.dependencies]
 # Local
-whir = { path = "crates/whir" }
 fiat-shamir = { path = "crates/fiat-shamir" }
 algebra = { path = "crates/algebra" }
 merkle-tree = { path = "crates/merkle-tree" }
@@ -31,15 +30,18 @@ derive_more = { version = "2.0.1", features = ["full"] }
 tracing = "0.1.26"
 tracing-subscriber = { version = "0.3.19", features = ["std", "env-filter"] }
 tracing-forest = { version = "0.1.6", features = ["ansi", "smallvec"] }
-p3-koala-bear = { git = "https://github.com/Plonky3/Plonky3.git" }
-p3-baby-bear = { git = "https://github.com/Plonky3/Plonky3.git" }
-p3-field = { git = "https://github.com/Plonky3/Plonky3.git" }
-p3-dft = { git = "https://github.com/Plonky3/Plonky3.git" }
-p3-poseidon2 = { git = "https://github.com/Plonky3/Plonky3.git" }
-p3-matrix = { git = "https://github.com/Plonky3/Plonky3.git" }
+p3-koala-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "86666b4" }
+p3-baby-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "86666b4" }
+p3-field = { git = "https://github.com/Plonky3/Plonky3.git", rev = "86666b4" }
+p3-dft = { git = "https://github.com/Plonky3/Plonky3.git", rev = "86666b4" }
+p3-poseidon2 = { git = "https://github.com/Plonky3/Plonky3.git", rev = "86666b4" }
+p3-matrix = { git = "https://github.com/Plonky3/Plonky3.git", rev = "86666b4" }
+p3-blake3 = { git = "https://github.com/Plonky3/Plonky3.git", rev = "86666b4" }
+p3-symmetric = { git = "https://github.com/Plonky3/Plonky3.git", rev = "86666b4" }
+
+whir-p3 = { git = "https://github.com/tcoratger/whir-p3" }
 
 [dependencies]
-whir.workspace = true
 fiat-shamir.workspace = true
 algebra.workspace = true
 air.workspace = true
@@ -56,3 +58,4 @@ tracing-subscriber.workspace = true
 colored.workspace = true
 arithmetic-circuit.workspace = true
 utils.workspace = true
+whir-p3.workspace = true

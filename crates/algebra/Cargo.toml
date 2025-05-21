@@ -9,9 +9,8 @@ rand.workspace = true
 # tracing.workspace = true
 p3-field.workspace = true
 utils.workspace = true
-p3-matrix.workspace = true
-p3-dft.workspace = true
 arithmetic-circuit.workspace = true
+whir-p3.workspace = true
 
 [dev-dependencies]
 p3-koala-bear.workspace = true
