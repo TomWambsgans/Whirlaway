@@ -1,5 +1,5 @@
 use ::air::{AirBuilder, AirSettings, ConstraintVariable};
-use algebra::pols::MultilinearHost;
+use algebra::pols::Multilinear;
 use arithmetic_circuit::ArithmeticCircuit;
 use colored::Colorize;
 use fiat_shamir::{FsProver, FsVerifier, get_total_grinding_time, reset_total_grinding_time};
@@ -52,8 +52,8 @@ mod tests {
             3,
             1,
         );
-        prove_poseidon2_baby_bear(7, settings.clone(), false, false);
-        prove_poseidon2_koala_bear(7, settings.clone(), false, false);
+        prove_poseidon2_baby_bear(7, settings.clone(), false);
+        prove_poseidon2_koala_bear(7, settings.clone(), false);
     }
 }
 
@@ -108,23 +108,17 @@ pub fn prove_poseidon2_with(
     field: SupportedField,
     log_n_rows: usize,
     settings: AirSettings,
-    cuda: bool,
     display_logs: bool,
 ) -> Poseidon2Benchmark {
     match field {
-        SupportedField::KoalaBear => {
-            prove_poseidon2_koala_bear(log_n_rows, settings, cuda, display_logs)
-        }
-        SupportedField::BabyBear => {
-            prove_poseidon2_baby_bear(log_n_rows, settings, cuda, display_logs)
-        }
+        SupportedField::KoalaBear => prove_poseidon2_koala_bear(log_n_rows, settings, display_logs),
+        SupportedField::BabyBear => prove_poseidon2_baby_bear(log_n_rows, settings, display_logs),
     }
 }
 
 fn prove_poseidon2_koala_bear(
     log_n_rows: usize,
     settings: AirSettings,
-    cuda: bool,
     display_logs: bool,
 ) -> Poseidon2Benchmark {
     type F = KoalaBear;
@@ -150,13 +144,12 @@ fn prove_poseidon2_koala_bear(
         PARTIAL_ROUNDS,
         COLS,
         KOALA_BEAR_VECTOR_LEN,
-    >(log_n_rows, settings, cuda, display_logs)
+    >(log_n_rows, settings, display_logs)
 }
 
 fn prove_poseidon2_baby_bear(
     log_n_rows: usize,
     settings: AirSettings,
-    cuda: bool,
     display_logs: bool,
 ) -> Poseidon2Benchmark {
     type F = BabyBear;
@@ -182,7 +175,7 @@ fn prove_poseidon2_baby_bear(
         PARTIAL_ROUNDS,
         COLS,
         BABY_BEAR_VECTOR_LEN,
-    >(log_n_rows, settings, cuda, display_logs)
+    >(log_n_rows, settings, display_logs)
 }
 
 fn prove_poseidon2<
@@ -200,7 +193,6 @@ fn prove_poseidon2<
 >(
     log_n_rows: usize,
     settings: AirSettings,
-    cuda: bool,
     display_logs: bool,
 ) -> Poseidon2Benchmark
 where
@@ -208,6 +200,7 @@ where
     EF: ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
     F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    StandardUniform: Distribution<EF>,
 {
     if display_logs {
         let env_filter = EnvFilter::builder()
@@ -264,20 +257,16 @@ where
 
     let witness = witness_matrix
         .rows()
-        .map(|col| MultilinearHost::new(col.collect()))
+        .map(|col| Multilinear::new(col.collect()))
         .collect::<Vec<_>>();
 
     let table = air_builder.build(settings.univariate_skips);
     // println!("Constraints degree: {}", table.constraint_degree());
     // table.check_validity(&witness);
 
-    if cuda {
-        table.cuda_setup::<EF>(&settings);
-    }
-
     let t = Instant::now();
-    let mut fs_prover = FsProver::new(cuda);
-    table.prove::<EF>(&settings, &mut fs_prover, witness, cuda);
+    let mut fs_prover = FsProver::new();
+    table.prove::<EF>(&settings, &mut fs_prover, witness);
     let proof_size = fs_prover.transcript_len();
 
     let prover_time = t.elapsed();

@@ -8,3 +8,6 @@ pub use circuit_computation::*;
 
 mod transparent_polynomial;
 pub use transparent_polynomial::*;
+
+mod sumcheck_computation;
+pub use sumcheck_computation::*;

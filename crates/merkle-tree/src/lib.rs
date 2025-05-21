@@ -1,17 +1,11 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-use cuda_bindings::cuda_keccak256;
-use cuda_engine::{HostOrDeviceBuffer, cuda_alloc, cuda_get_at_index, cuda_sync};
-use cudarc::driver::{CudaSlice, DeviceRepr};
 use rayon::prelude::*;
 use sha3::Digest;
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 use tracing::instrument;
 use utils::{KeccakDigest, keccak256};
-
-#[cfg(test)]
-mod test;
 
 fn leaf_hash<F>(input: &[F]) -> KeccakDigest {
     // TODO this is ugly
@@ -170,7 +164,7 @@ impl MultiPath {
 pub struct MerkleTree<F> {
     /// The ith nodes (starting at 1st) children are at indices `2*i`, `2*i+1`
     /// (The first element is the root, and the last elements are the leaves)
-    nodes: HostOrDeviceBuffer<KeccakDigest>,
+    nodes: Vec<KeccakDigest>,
     /// Stores the height of the MerkleTree
     height: usize,
     root: KeccakDigest,
@@ -180,19 +174,8 @@ pub struct MerkleTree<F> {
 
 impl<F: Sync> MerkleTree<F> {
     /// `leaves.len()` should be power of two.
-    /// Sync
-    pub fn new(leaves: &HostOrDeviceBuffer<F>, batch_size: usize) -> Self
-    where
-        F: DeviceRepr,
-    {
-        match leaves {
-            HostOrDeviceBuffer::Host(leaves) => Self::new_cpu(leaves, batch_size),
-            HostOrDeviceBuffer::Device(leaves) => Self::new_gpu(leaves, batch_size),
-        }
-    }
-    /// // `leaves.len()` should be power of two.
-    #[instrument(name = "merkle tree creation in ram", skip_all)]
-    pub fn new_cpu(leaves: &[F], batch_size: usize) -> Self {
+    #[instrument(name = "merkle tree creation", skip_all)]
+    pub fn new(leaves: &[F], batch_size: usize) -> Self {
         assert!(leaves.len() % batch_size == 0);
         let leaf_digests = leaves
             .par_chunks_exact(batch_size)
@@ -217,42 +200,7 @@ impl<F: Sync> MerkleTree<F> {
         }
         let root = nodes[0].clone();
         MerkleTree {
-            nodes: HostOrDeviceBuffer::Host(nodes),
-            height,
-            root,
-            _field: std::marker::PhantomData,
-        }
-    }
-
-    // Sync
-    #[instrument(name = "merkle tree creation in cuda", skip_all)]
-    pub fn new_gpu(leaves: &CudaSlice<F>, batch_size: usize) -> Self
-    where
-        F: DeviceRepr,
-    {
-        assert!(leaves.len() % batch_size == 0);
-        let leaf_nodes_size = leaves.len() / batch_size;
-        assert!(leaf_nodes_size.is_power_of_two() && leaf_nodes_size > 1);
-        let height = leaf_nodes_size.ilog2() as usize;
-        let mut nodes = cuda_alloc::<KeccakDigest>((1 << (height + 1)) - 1);
-        cuda_keccak256(
-            &leaves.as_view(),
-            batch_size,
-            &mut nodes.slice_mut((1 << height) - 1..),
-        );
-        for level in (1..=height).rev() {
-            let start = (1 << level) - 1;
-            let (mut left, right) = nodes.split_at_mut(start);
-            cuda_keccak256(
-                &right.slice(..1 << level),
-                2,
-                &mut left.slice_mut((1 << (level - 1)) - 1..),
-            );
-        }
-        let root = cuda_get_at_index(&nodes, 0);
-        cuda_sync();
-        MerkleTree {
-            nodes: HostOrDeviceBuffer::Device(nodes),
+            nodes,
             height,
             root,
             _field: std::marker::PhantomData,
@@ -261,14 +209,6 @@ impl<F: Sync> MerkleTree<F> {
 
     pub fn root(&self) -> &KeccakDigest {
         &self.root
-    }
-
-    pub fn is_gpu(&self) -> bool {
-        matches!(self.nodes, HostOrDeviceBuffer::Device(_))
-    }
-
-    pub fn is_cpu(&self) -> bool {
-        matches!(self.nodes, HostOrDeviceBuffer::Host(_))
     }
 
     /// Returns the authentication path from leaf at `index` to root, as a Vec of digests
@@ -285,14 +225,11 @@ impl<F: Sync> MerkleTree<F> {
             } else {
                 current_node - 1
             };
-            path.push(self.nodes.index(sibling_node));
+            path.push(self.nodes[sibling_node].clone());
             current_node = (current_node - 1) >> 1;
         }
         assert_eq!(path.len(), self.height);
 
-        if self.is_gpu() {
-            cuda_sync();
-        }
         // we want to make path from root to bottom
         path.reverse();
         path

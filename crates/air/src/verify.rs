@@ -1,7 +1,8 @@
-use algebra::pols::MultilinearHost;
+use algebra::pols::Multilinear;
 use arithmetic_circuit::max_composition_degree;
 use fiat_shamir::{FsError, FsVerifier};
 use p3_field::{ExtensionField, PrimeCharacteristicRing, PrimeField, TwoAdicField};
+use rand::distr::{Distribution, StandardUniform};
 use sumcheck::{SumcheckError, SumcheckGrinding};
 use tracing::instrument;
 use utils::{Evaluation, dot_product, eq_extension, powers};
@@ -9,7 +10,7 @@ use whir::parameters::WhirConfigBuilder;
 
 use crate::{
     AirSettings,
-    utils::{column_down_host, column_up_host},
+    utils::{column_down, column_up},
 };
 
 use super::table::AirTable;
@@ -48,6 +49,8 @@ impl<F: PrimeField> AirTable<F> {
         F: TwoAdicField,
         EF: TwoAdicField,
         F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
+        StandardUniform: Distribution<EF>,
+        StandardUniform: Distribution<F>,
     {
         let pcs = WhirConfigBuilder::standard(
             settings.whir_soudness_type,
@@ -55,7 +58,6 @@ impl<F: PrimeField> AirTable<F> {
             settings.whir_log_inv_rate,
             settings.whir_folding_factor,
             settings.whir_innitial_domain_reduction_factor,
-            false,
         )
         .build::<F, EF>(log_length + self.log_n_witness_columns());
         let pcs_commitment = pcs
@@ -96,7 +98,7 @@ impl<F: PrimeField> AirTable<F> {
             .preprocessed_columns
             .iter()
             .map(|c| {
-                column_up_host(c)
+                column_up(c)
                     .fold_rectangular_in_large_field(&outer_selector_evals)
                     .evaluate_in_large_field(&outer_sumcheck_challenge.point[1..])
             })
@@ -105,7 +107,7 @@ impl<F: PrimeField> AirTable<F> {
             .preprocessed_columns
             .iter()
             .map(|c| {
-                column_down_host(c)
+                column_down(c)
                     .fold_rectangular_in_large_field(&outer_selector_evals)
                     .evaluate_in_large_field(&outer_sumcheck_challenge.point[1..])
             })
@@ -185,7 +187,7 @@ impl<F: PrimeField> AirTable<F> {
                         .exp_u64((u + self.n_witness_columns()) as u64)
                         * down);
         }
-        batched_inner_value *= MultilinearHost::new(outer_selector_evals)
+        batched_inner_value *= Multilinear::new(outer_selector_evals)
             .evaluate_in_large_field(&inner_sumcheck_challenge.point[..settings.univariate_skips]);
 
         if batched_inner_value != inner_sumcheck_challenge.value {
@@ -200,7 +202,7 @@ impl<F: PrimeField> AirTable<F> {
         ]
         .concat();
 
-        let packed_value = MultilinearHost::new(
+        let packed_value = Multilinear::new(
             [
                 final_inner_claims,
                 vec![EF::ZERO; (1 << self.log_n_witness_columns()) - self.n_witness_columns()],

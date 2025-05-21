@@ -1,10 +1,7 @@
-use cudarc::driver::DeviceRepr;
 use sha3::{Digest, Keccak256};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct KeccakDigest(pub [u8; 32]);
-
-unsafe impl DeviceRepr for KeccakDigest {}
 
 impl KeccakDigest {
     pub fn to_string(&self) -> String {

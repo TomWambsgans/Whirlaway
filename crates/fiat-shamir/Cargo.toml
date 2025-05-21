@@ -9,4 +9,3 @@ p3-field.workspace = true
 rand.workspace = true
 rayon.workspace = true
 tracing.workspace = true
-cuda-bindings.workspace = true

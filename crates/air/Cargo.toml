@@ -11,9 +11,8 @@ fiat-shamir.workspace = true
 sumcheck.workspace = true
 utils.workspace = true
 whir.workspace = true
+rand.workspace = true
 rayon.workspace = true
-cuda-bindings.workspace = true
-cuda-engine.workspace = true
 arithmetic-circuit.workspace = true
 
 [dev-dependencies]

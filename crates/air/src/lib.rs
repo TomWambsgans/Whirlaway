@@ -2,7 +2,6 @@
 
 mod builder;
 mod prove;
-mod setup;
 mod table;
 mod uni_skip_utils;
 mod utils;

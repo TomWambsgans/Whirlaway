@@ -1,9 +1,11 @@
 use crate::fs_utils::get_challenge_stir_queries;
-use algebra::pols::{CoefficientListHost, UnivariatePolynomial};
+use algebra::pols::{CoefficientList, UnivariatePolynomial};
 use fiat_shamir::{FsError, FsVerifier};
 use merkle_tree::MultiPath;
 use p3_field::PrimeCharacteristicRing;
 use p3_field::{ExtensionField, Field, TwoAdicField};
+use rand::distr::Distribution;
+use rand::distr::StandardUniform;
 use std::iter;
 use tracing::instrument;
 use utils::{Evaluation, KeccakDigest, embed_vec_vec, powers};
@@ -42,7 +44,7 @@ struct ParsedProof<EF: Field> {
     final_folding_randomness: Vec<EF>,
     final_sumcheck_rounds: Vec<(UnivariatePolynomial<EF>, EF)>,
     final_sumcheck_randomness: Vec<EF>,
-    final_coefficients: CoefficientListHost<EF>,
+    final_coefficients: CoefficientList<EF>,
 }
 
 #[derive(Debug, Clone, Hash)]
@@ -59,6 +61,8 @@ struct ParsedRound<EF: Field> {
 impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField> WhirConfig<F, EF>
 where
     F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
+    StandardUniform: Distribution<EF>,
+    StandardUniform: Distribution<F>,
 {
     pub fn parse_commitment(
         &self,
@@ -263,7 +267,7 @@ where
         }
 
         let final_coefficients = fs.next_scalars(1 << self.final_sumcheck_rounds)?;
-        let final_coefficients = CoefficientListHost::new(final_coefficients);
+        let final_coefficients = CoefficientList::new(final_coefficients);
 
         // Final queries verify
         let stir_challenges_indexes = get_challenge_stir_queries(
@@ -391,7 +395,7 @@ where
                 .map(|answers| {
                     let mut folding_randomness_rev = round.folding_randomness.clone();
                     folding_randomness_rev.reverse();
-                    CoefficientListHost::new(answers.to_vec()).evaluate(&folding_randomness_rev)
+                    CoefficientList::new(answers.to_vec()).evaluate(&folding_randomness_rev)
                 })
                 .collect();
             result.push(evaluations);
@@ -404,7 +408,7 @@ where
             .map(|answers| {
                 let mut folding_randomness_rev = parsed.final_folding_randomness.clone();
                 folding_randomness_rev.reverse();
-                CoefficientListHost::new(answers.to_vec()).evaluate(&folding_randomness_rev)
+                CoefficientList::new(answers.to_vec()).evaluate(&folding_randomness_rev)
             })
             .collect();
         result.push(evaluations);

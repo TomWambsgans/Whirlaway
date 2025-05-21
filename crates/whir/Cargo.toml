@@ -11,14 +11,12 @@ merkle-tree.workspace = true
 p3-field.workspace = true
 sumcheck.workspace = true
 tracing.workspace = true
-cuda-engine.workspace = true
 arithmetic-circuit.workspace = true
 utils.workspace = true
 derive_more.workspace = true
+rand.workspace = true
 
 [dev-dependencies]
-cuda-engine.workspace = true
-cuda-bindings.workspace = true
 p3-koala-bear.workspace = true
 tracing-subscriber.workspace = true
 tracing-forest.workspace = true

@@ -1,10 +1,10 @@
-use algebra::pols::{
-    Multilinear, MultilinearsSlice, MultilinearsVec, UnivariatePolynomial, univariate_selectors,
-};
-use arithmetic_circuit::{CircuitComputation, max_composition_degree};
-use cuda_engine::{SumcheckComputation, cuda_sync};
+use std::borrow::Borrow;
+
+use algebra::pols::{Multilinear, UnivariatePolynomial, univariate_selectors};
+use arithmetic_circuit::{CircuitComputation, SumcheckComputation, max_composition_degree};
 use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};
+use rand::distr::{Distribution, StandardUniform};
 use rayon::prelude::*;
 use tracing::instrument;
 
@@ -17,10 +17,10 @@ pub fn prove<
     F: Field,
     NF: ExtensionField<F>,
     EF: ExtensionField<NF> + ExtensionField<F>,
-    ML: Into<MultilinearsSlice<'a, NF>>,
+    M: Borrow<Multilinear<NF>>,
 >(
     skips: usize, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
-    multilinears: ML,
+    multilinears: &[M],
     exprs: &[CircuitComputation<F>],
     batching_scalars: &[EF],
     eq_factor: Option<&[EF]>,
@@ -30,10 +30,13 @@ pub fn prove<
     n_rounds: Option<usize>,
     grinding: SumcheckGrinding,
     mut missing_mul_factor: Option<EF>,
-) -> (Vec<EF>, Vec<Multilinear<EF>>, EF) {
-    let multilinears: MultilinearsSlice<'_, _> = multilinears.into();
-    let on_device = multilinears.is_device();
-    let mut n_vars = multilinears.n_vars();
+) -> (Vec<EF>, Vec<Multilinear<EF>>, EF)
+where
+    StandardUniform: Distribution<EF>,
+{
+    let multilinears = multilinears.iter().map(|m| m.borrow()).collect::<Vec<_>>();
+    let mut n_vars = multilinears[0].n_vars;
+    assert!(multilinears.iter().all(|m| m.n_vars == n_vars));
 
     let mut challenges = Vec::new();
     let n_rounds = n_rounds.unwrap_or(n_vars - skips + 1);
@@ -66,18 +69,10 @@ pub fn prove<
         &mut missing_mul_factor,
     );
 
-    let mut need_to_transfer_back_to_device = false;
     for i in 1..n_rounds {
-        if on_device && !need_to_transfer_back_to_device && n_vars < MIN_VARS_FOR_GPU {
-            // transfer GPU -> CPU
-            let _span = tracing::span!(tracing::Level::INFO, "Sumcheck transfer to CPU").entered();
-            folded_multilinears = folded_multilinears.as_ref().transfer_to_host();
-            need_to_transfer_back_to_device = true;
-        }
-
         folded_multilinears = sc_round(
             1,
-            &folded_multilinears.as_ref(),
+            &folded_multilinears.iter().collect::<Vec<_>>(),
             &mut n_vars,
             &sumcheck_computation,
             batching_scalars,
@@ -92,17 +87,14 @@ pub fn prove<
             &mut missing_mul_factor,
         );
     }
-    if need_to_transfer_back_to_device {
-        let _span = tracing::span!(tracing::Level::INFO, "Sumcheck transfer back to GPU").entered();
-        folded_multilinears = folded_multilinears.transfer_to_device();
-    }
-    (challenges, folded_multilinears.decompose(), sum)
+
+    (challenges, folded_multilinears, sum)
 }
 
 #[instrument(name = "sumcheck_round", skip_all, fields(round))]
 pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionField<F>>(
     skips: usize, // the first round will fold 2^skips (instead of 2 in the basic sumcheck)
-    multilinears: &MultilinearsSlice<'a, NF>,
+    multilinears: &[&Multilinear<NF>],
     n_vars: &mut usize,
     sumcheck_computation: &SumcheckComputation<F>,
     batching_scalars: &[EF],
@@ -115,9 +107,11 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
     challenges: &mut Vec<EF>,
     round: usize,
     missing_mul_factor: &mut Option<EF>,
-) -> MultilinearsVec<EF> {
-    let eq_mle = eq_factor
-        .map(|eq_factor| Multilinear::eq_mle(&eq_factor[1 + round..], multilinears.is_device()));
+) -> Vec<Multilinear<EF>>
+where
+    StandardUniform: Distribution<EF>,
+{
+    let eq_mle = eq_factor.map(|eq_factor| Multilinear::eq_mle(&eq_factor[1 + round..]));
 
     let selectors = univariate_selectors::<F>(skips);
 
@@ -145,8 +139,10 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
                 .map(|s| s.eval(&F::from_usize(z)))
                 .collect::<Vec<_>>();
             // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication below: TODO not urgent)
-            let folded = multilinears.fold_rectangular_in_small_field(&folding_scalars);
-            let mut sum_z = folded.as_ref().compute_over_hypercube(
+            let folded =
+                Multilinear::batch_fold_rectangular_in_small_field(multilinears, &folding_scalars);
+            let mut sum_z = Multilinear::compute_over_hypercube(
+                &folded,
                 sumcheck_computation,
                 batching_scalars,
                 eq_mle.as_ref(),
@@ -160,7 +156,6 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
 
         p_evals.push((F::from_usize(z), sum_z));
     }
-    cuda_sync();
 
     let mut p = UnivariatePolynomial::lagrange_interpolation(&p_evals).unwrap();
 
@@ -200,5 +195,5 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
         );
     }
     // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication below: TODO not urgent)
-    multilinears.fold_rectangular_in_large_field(&folding_scalars)
+    Multilinear::batch_fold_rectangular_in_large_field(multilinears, &folding_scalars)
 }

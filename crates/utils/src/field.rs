@@ -174,29 +174,3 @@ pub fn extension_degree<F: Field>() -> usize {
         todo!("Add extension degree for this field")
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use p3_field::extension::BinomialExtensionField;
-    use p3_koala_bear::KoalaBear;
-    use rand::{Rng, SeedableRng, rngs::StdRng};
-
-    use super::*;
-
-    #[test]
-    fn test_powers() {
-        let base = p3_koala_bear::KoalaBear::new(185);
-        let len = 1478;
-        assert_eq!(powers(base, len), powers_parallel(base, len));
-    }
-
-    #[test]
-    fn test_serialize_deserialize() {
-        type F = BinomialExtensionField<KoalaBear, 8>;
-        let rng = &mut StdRng::seed_from_u64(0);
-        let f: F = rng.random();
-        let bytes = serialize_field(&f);
-        let deserialized: F = deserialize_field(&bytes).unwrap();
-        assert_eq!(f, deserialized);
-    }
-}

@@ -5,8 +5,11 @@ use std::{
     time::Duration,
 };
 
-use cuda_bindings::cuda_pow_grinding;
-use rand::{SeedableRng, rngs::StdRng};
+use rand::{
+    Rng, SeedableRng,
+    distr::{Distribution, StandardUniform},
+    rngs::StdRng,
+};
 use rayon::prelude::*;
 
 use utils::{KeccakDigest, count_ending_zero_bits, deserialize_field, keccak256, serialize_field};
@@ -17,7 +20,6 @@ use p3_field::Field;
 pub struct FsError;
 
 pub struct FsProver {
-    cuda: bool,
     state: KeccakDigest,
     transcript: Vec<u8>,
 }
@@ -45,9 +47,8 @@ pub fn reset_total_grinding_time() {
 }
 
 impl FsProver {
-    pub fn new(cuda: bool) -> Self {
+    pub fn new() -> Self {
         FsProver {
-            cuda,
             state: KeccakDigest::default(),
             transcript: Vec::new(),
         }
@@ -102,9 +103,12 @@ impl FsProver {
         }
     }
 
-    pub fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F> {
+    pub fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F>
+    where
+        StandardUniform: Distribution<F>,
+    {
         let mut rng = StdRng::from_seed(self.challenge_bytes(32).try_into().unwrap());
-        (0..len).map(|_| F::random(&mut rng)).collect::<Vec<_>>()
+        (0..len).map(|_| rng.random()).collect::<Vec<_>>()
     }
 
     pub fn challenge_pow(&mut self, bits: usize) {
@@ -115,17 +119,13 @@ impl FsProver {
             return;
         }
         let time = std::time::Instant::now();
-        let nonce = if self.cuda && bits > 18 {
-            cuda_pow_grinding(&self.state, bits)
-        } else {
-            (0..u64::MAX)
-                .into_par_iter()
-                .find_any(|&nonce| {
-                    let hash = keccak256(&[&self.state.0[..], &nonce.to_be_bytes()].concat());
-                    count_ending_zero_bits(&hash.0) >= bits
-                })
-                .expect("Failed to find a nonce")
-        };
+        let nonce = (0..u64::MAX)
+            .into_par_iter()
+            .find_any(|&nonce| {
+                let hash = keccak256(&[&self.state.0[..], &nonce.to_be_bytes()].concat());
+                count_ending_zero_bits(&hash.0) >= bits
+            })
+            .expect("Failed to find a nonce");
         let grinding_time = time.elapsed();
         if grinding_time > Duration::from_millis(10) {
             tracing::warn!("long PoW grinding: {} ms", grinding_time.as_millis());
@@ -215,9 +215,12 @@ impl FsVerifier {
         Ok(res)
     }
 
-    pub fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F> {
+    pub fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F>
+    where
+        StandardUniform: Distribution<F>,
+    {
         let mut rng = StdRng::from_seed(self.challenge_bytes(32).try_into().unwrap());
-        (0..len).map(|_| F::random(&mut rng)).collect::<Vec<_>>()
+        (0..len).map(|_| rng.random()).collect::<Vec<_>>()
     }
 
     pub fn challenge_pow(&mut self, bits: usize) -> Result<(), FsError> {
@@ -239,7 +242,9 @@ impl FsVerifier {
 
 pub trait FsParticipant {
     fn challenge_bytes(&mut self, len: usize) -> Vec<u8>;
-    fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F>;
+    fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F>
+    where
+        StandardUniform: Distribution<F>;
     fn challenge_pow(&mut self, bits: usize) -> Result<(), FsError>;
 }
 
@@ -248,7 +253,10 @@ impl FsParticipant for FsProver {
         FsProver::challenge_bytes(self, len)
     }
 
-    fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F> {
+    fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F>
+    where
+        StandardUniform: Distribution<F>,
+    {
         FsProver::challenge_scalars(self, len)
     }
 
@@ -263,7 +271,10 @@ impl FsParticipant for FsVerifier {
         FsVerifier::challenge_bytes(self, len)
     }
 
-    fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F> {
+    fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F>
+    where
+        StandardUniform: Distribution<F>,
+    {
         FsVerifier::challenge_scalars(self, len)
     }
 
@@ -296,7 +307,7 @@ mod tests {
 
     #[test]
     fn benchmark_pow() {
-        let mut prover = FsProver::new(false);
+        let mut prover = FsProver::new();
         let time = std::time::Instant::now();
         prover.challenge_pow(12);
         println!("Time: {:?}", time.elapsed());

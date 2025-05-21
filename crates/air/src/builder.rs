@@ -1,6 +1,6 @@
 use std::array;
 
-use algebra::pols::{MultilinearHost, univariate_selectors};
+use algebra::pols::{Multilinear, univariate_selectors};
 use arithmetic_circuit::ArithmeticCircuit;
 use p3_field::Field;
 
@@ -104,7 +104,7 @@ impl<F: Field, const COLS: usize> AirBuilder<F, COLS> {
             preprocessed_columns: self
                 .preprocessed_columns
                 .into_iter()
-                .map(MultilinearHost::new)
+                .map(Multilinear::new)
                 .collect(),
             univariate_selectors: univariate_selectors(univariate_skips),
             lde_matrix_up: matrix_up_lde(self.log_length).fix_computation(true),

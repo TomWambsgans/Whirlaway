@@ -366,7 +366,7 @@ mod test {
     #[test]
     fn test_optimize_stack_usage() {
         type F = KoalaBear;
-        type EF = BinomialExtensionField<F, 8>;
+        type EF = BinomialExtensionField<F, 4>;
 
         let circuit = TransparentPolynomial::<F>::random(&mut StdRng::seed_from_u64(0), 10, 100);
 

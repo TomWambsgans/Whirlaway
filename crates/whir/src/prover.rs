@@ -1,13 +1,13 @@
 use crate::fs_utils::get_challenge_stir_queries;
 
 use super::{committer::Witness, parameters::WhirConfig};
-use algebra::pols::{CoefficientList, CoefficientListHost, Multilinear, MultilinearsVec};
+use algebra::pols::{CoefficientList, Multilinear};
 use arithmetic_circuit::TransparentPolynomial;
-use cuda_engine::{HostOrDeviceBuffer, cuda_sync};
 use fiat_shamir::FsProver;
 use merkle_tree::MerkleTree;
 use p3_field::{ExtensionField, PrimeCharacteristicRing};
 use p3_field::{Field, TwoAdicField};
+use rand::distr::{Distribution, StandardUniform};
 use sumcheck::SumcheckGrinding;
 use tracing::instrument;
 use utils::{Evaluation, multilinear_point_from_univariate};
@@ -18,6 +18,8 @@ where
     F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
     EF: ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield> + TwoAdicField + Ord,
     F::PrimeSubfield: TwoAdicField,
+    StandardUniform: Distribution<EF>,
+    StandardUniform: Distribution<F>,
 {
     fn validate_parameters(&self) -> bool {
         self.num_variables
@@ -36,7 +38,7 @@ where
 
     fn validate_witness(&self, witness: &Witness<F, EF>) -> bool {
         assert_eq!(witness.ood_points.len(), witness.ood_answers.len());
-        witness.polynomial.n_vars() == self.num_variables
+        witness.polynomial.n_vars == self.num_variables
     }
 
     #[instrument(name = "whir: prove", skip_all)]
@@ -67,7 +69,6 @@ where
                 &witness.ood_points,
                 &statement_points,
                 &combination_randomness,
-                self.cuda,
             );
 
             // TODO avoid embedding
@@ -124,18 +125,18 @@ where
         let folded_coefficients = round_state
             .coefficients
             .whir_fold(&round_state.folding_randomness);
-        cuda_sync();
+
         std::mem::drop(_fold_span);
 
         let num_variables =
             self.num_variables - self.folding_factor.total_number(round_state.round);
         // num_variables should match the folded_coefficients here.
-        assert_eq!(num_variables, folded_coefficients.n_vars());
+        assert_eq!(num_variables, folded_coefficients.n_vars);
 
         // Base case
         if round_state.round == self.n_rounds() {
             // Directly send coefficients of the polynomial to the verifier.
-            fs.add_scalars(&folded_coefficients.transfer_to_host().coeffs);
+            fs.add_scalars(&folded_coefficients.coeffs);
 
             // Final verifier queries and answers. The indices are over the
             // *folded* domain.
@@ -154,12 +155,10 @@ where
             let answers = final_challenge_indexes
                 .into_iter()
                 .map(|i| {
-                    round_state
-                        .prev_merkle_answers
-                        .slice(i * fold_size..(i + 1) * fold_size)
+                    round_state.prev_merkle_answers[i * fold_size..(i + 1) * fold_size].to_vec()
                 })
                 .collect::<Vec<_>>();
-            cuda_sync();
+
             fs.add_variable_bytes(&merkle_proof.to_bytes());
             fs.add_scalar_matrix(&answers, false);
 
@@ -223,7 +222,7 @@ where
                 .iter()
                 .map(|ood_point| round_state.sumcheck_mles[0].evaluate_in_small_field(ood_point))
                 .collect::<Vec<_>>();
-            cuda_sync();
+
             fs.add_scalars(&ood_answers);
         }
 
@@ -255,13 +254,9 @@ where
         let fold_size = 1 << self.folding_factor.at_round(round_state.round);
         let answers: Vec<_> = stir_challenges_indexes
             .iter()
-            .map(|i| {
-                round_state
-                    .prev_merkle_answers
-                    .slice(i * fold_size..(i + 1) * fold_size)
-            })
+            .map(|i| round_state.prev_merkle_answers[i * fold_size..(i + 1) * fold_size].to_vec())
             .collect();
-        cuda_sync();
+
         // Evaluate answers in the folding randomness.
         let mut stir_evaluations = ood_answers.clone();
         stir_evaluations.extend(answers.iter().map(|answers| {
@@ -271,7 +266,7 @@ where
             // is just the folding of f evaluated at the folded point.
             let mut folding_randomness_rev = round_state.folding_randomness.clone();
             folding_randomness_rev.reverse();
-            CoefficientListHost::new(answers.to_vec()).evaluate(&folding_randomness_rev)
+            CoefficientList::new(answers.to_vec()).evaluate(&folding_randomness_rev)
         }));
 
         fs.add_variable_bytes(&merkle_proof.to_bytes());
@@ -289,7 +284,6 @@ where
             &[ood_points.clone(), stir_challenges_base.clone()].concat(),
             &[],
             &combination_randomness,
-            self.cuda,
         ));
         let folding_randomness;
         let hypercube_sum;
@@ -334,7 +328,7 @@ struct RoundState<CoeffsField: Field, EF: ExtensionField<CoeffsField>> {
     folding_randomness: Vec<EF>,
     coefficients: CoefficientList<CoeffsField>,
     prev_merkle: MerkleTree<CoeffsField>,
-    prev_merkle_answers: HostOrDeviceBuffer<CoeffsField>,
+    prev_merkle_answers: Vec<CoeffsField>,
 }
 
 #[instrument(name = "randomized_eq_extensions", skip_all)]
@@ -342,7 +336,6 @@ fn randomized_eq_extensions<F: Field, EF: ExtensionField<F>>(
     eq_points_base: &[Vec<F>],
     eq_points_ext: &[Vec<EF>],
     randomized_coefs: &[EF],
-    cuda: bool,
 ) -> Multilinear<EF> {
     assert_eq!(
         eq_points_ext.len() + eq_points_base.len(),
@@ -360,30 +353,31 @@ fn randomized_eq_extensions<F: Field, EF: ExtensionField<F>>(
 
     let mut all_eq_mles_base = Vec::new();
     for point in eq_points_base {
-        all_eq_mles_base.push(Multilinear::eq_mle(point, cuda));
+        all_eq_mles_base.push(Multilinear::eq_mle(point));
     }
 
     let mut all_eq_mles_ext = Vec::new();
     for point in eq_points_ext {
-        all_eq_mles_ext.push(Multilinear::eq_mle(point, cuda));
+        all_eq_mles_ext.push(Multilinear::eq_mle(point));
     }
 
     let mut res = if eq_points_ext.is_empty() {
-        Multilinear::zero(n_vars, cuda)
+        Multilinear::<EF>::zero(n_vars)
     } else {
-        MultilinearsVec::<EF>::from(all_eq_mles_ext)
-            .as_ref()
-            .linear_comb_in_large_field::<EF>(&randomized_coefs[eq_points_base.len()..])
+        Multilinear::<EF>::linear_comb_in_large_field::<EF, _>(
+            &all_eq_mles_ext,
+            &randomized_coefs[eq_points_base.len()..],
+        )
     };
 
     if all_eq_mles_base.len() > 0 {
-        let res_base = MultilinearsVec::from(all_eq_mles_base)
-            .as_ref()
-            .linear_comb_in_large_field(&randomized_coefs[..eq_points_base.len()]);
+        let res_base = Multilinear::linear_comb_in_large_field(
+            &all_eq_mles_base,
+            &randomized_coefs[..eq_points_base.len()],
+        );
 
         res.add_assign::<EF>(&res_base);
     }
 
-    cuda_sync();
     res
 }

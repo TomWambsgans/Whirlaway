@@ -8,9 +8,9 @@ fiat-shamir.workspace = true
 algebra.workspace = true
 p3-field.workspace = true
 tracing.workspace = true
+rand.workspace = true
 arithmetic-circuit.workspace = true
 utils.workspace = true
-cuda-engine.workspace = true
 rayon.workspace = true
 
 [dev-dependencies]

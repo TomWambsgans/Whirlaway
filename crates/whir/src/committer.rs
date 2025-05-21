@@ -1,17 +1,17 @@
 use super::parameters::WhirConfig;
 use algebra::pols::{CoefficientList, Multilinear};
-use cuda_engine::{HostOrDeviceBuffer, cuda_sync};
 use fiat_shamir::FsProver;
 use merkle_tree::MerkleTree;
 
 use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, TwoAdicField};
+use rand::distr::{Distribution, StandardUniform};
 use tracing::instrument;
 
 pub struct Witness<F: Field, EF: ExtensionField<F>> {
     pub(crate) polynomial: CoefficientList<F>,
     pub lagrange_polynomial: Multilinear<F>,
     pub(crate) merkle_tree: MerkleTree<F>,
-    pub(crate) merkle_leaves: HostOrDeviceBuffer<F>,
+    pub(crate) merkle_leaves: Vec<F>,
     pub(crate) ood_points: Vec<Vec<EF>>,
     pub(crate) ood_answers: Vec<EF>,
 }
@@ -26,10 +26,13 @@ where
         &self,
         lagrange_polynomial: Multilinear<F>,
         fs_prover: &mut FsProver,
-    ) -> Witness<F, EF> {
+    ) -> Witness<F, EF>
+    where
+        StandardUniform: Distribution<EF>,
+    {
         let _span = tracing::info_span!("lagrange -> monomial convertion").entered();
-        let polynomial = lagrange_polynomial.to_monomial_basis();
-        cuda_sync();
+        let polynomial = lagrange_polynomial.clone().to_monomial_basis();
+
         std::mem::drop(_span);
 
         let expansion = 1 << self.starting_log_inv_rate;
@@ -54,7 +57,7 @@ where
                 .iter()
                 .map(|ood_point| lagrange_polynomial.evaluate_in_large_field(ood_point))
                 .collect::<Vec<_>>();
-            cuda_sync();
+
             fs_prover.add_scalars(&ood_answers);
         }
 

@@ -7,11 +7,10 @@ use examples::poseidon2::prove_poseidon2_with;
 use utils::SupportedField;
 use whir::parameters::{FoldingFactor, SoundnessType};
 
-const USE_CUDA: bool = true;
 const SECURITY_BITS: usize = 100; // (temporary)
 
 fn main() {
-    for (log_n_rows, log_inv_rate) in [(17, 1)] {
+    for (log_n_rows, log_inv_rate) in [(13, 2)] {
         let benchmark = prove_poseidon2_with(
             SupportedField::KoalaBear,
             log_n_rows,
@@ -23,8 +22,7 @@ fn main() {
                 4,
                 3,
             ),
-            USE_CUDA,
-            false,
+            true,
         );
         println!("\n{}", benchmark.to_string());
     }

@@ -2,14 +2,14 @@ use arithmetic_circuit::CircuitComputation;
 use p3_field::{Field, PrimeField};
 use tracing::instrument;
 
-use algebra::pols::{MultilinearHost, UnivariatePolynomial};
+use algebra::pols::{Multilinear, UnivariatePolynomial};
 use utils::{HypercubePoint, log2_up};
 
 pub struct AirTable<F: Field> {
     pub log_length: usize,
     pub n_columns: usize,
     pub constraints: Vec<CircuitComputation<F>>, // n_vars = 2 * n_columns. First half = columns of row i, second half = columns of row i + 1
-    pub preprocessed_columns: Vec<MultilinearHost<F>>, // TODO 'sparse' preprocessed columns (with non zero values at cylic shifts)
+    pub preprocessed_columns: Vec<Multilinear<F>>, // TODO 'sparse' preprocessed columns (with non zero values at cylic shifts)
     // below are the data which is common to all proofs / verifications
     pub(crate) univariate_selectors: Vec<UnivariatePolynomial<F>>,
     pub(crate) lde_matrix_up: CircuitComputation<F>,
@@ -31,7 +31,7 @@ impl<F: PrimeField> AirTable<F> {
     }
 
     #[instrument(name = "check_validity", skip_all)]
-    pub fn check_validity(&self, witness: &[MultilinearHost<F>]) {
+    pub fn check_validity(&self, witness: &[Multilinear<F>]) {
         let log_length = witness[0].n_vars;
         assert_eq!(self.n_witness_columns(), witness.len());
         assert!(witness.iter().all(|w| w.n_vars == log_length));

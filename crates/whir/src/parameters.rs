@@ -14,7 +14,6 @@ pub struct WhirConfigBuilder {
     pub folding_factor: FoldingFactor,
     pub target_pow_bits: usize,
     pub innitial_domain_reduction_factor: usize,
-    pub cuda: bool,
 }
 
 impl WhirConfigBuilder {
@@ -24,7 +23,6 @@ impl WhirConfigBuilder {
         starting_log_inv_rate: usize,
         folding_factor: FoldingFactor,
         innitial_domain_reduction_factor: usize,
-        cuda: bool,
     ) -> Self {
         Self {
             soundness_type,
@@ -33,7 +31,6 @@ impl WhirConfigBuilder {
             folding_factor,
             target_pow_bits: 16,
             innitial_domain_reduction_factor,
-            cuda,
         }
     }
 }
