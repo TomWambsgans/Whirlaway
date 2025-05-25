@@ -1,4 +1,4 @@
-use algebra::pols::Multilinear;
+use algebra::Multilinear;
 
 use p3_field::Field;
 use rayon::prelude::*;
@@ -10,7 +10,6 @@ pub(crate) fn matrix_up_folded_with_univariate_skips<F: Field>(
     zerocheck_challenges: &[F],
     univariate_skips: usize,
 ) -> Multilinear<F> {
-    // TODO: It's sparse => bad performance
     // TODO: It's sparse => bad performance
     let n = zerocheck_challenges.len();
     let n_vars = n + univariate_skips * 2 - 1;
@@ -32,7 +31,6 @@ pub(crate) fn matrix_up_folded_with_univariate_skips<F: Field>(
     folded.into()
 }
 
-/// Async
 #[instrument(name = "matrix_down_folded_with_univariate_skips", skip_all)]
 pub fn matrix_down_folded_with_univariate_skips<F: Field>(
     outer_challenges: &[F],

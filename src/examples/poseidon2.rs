@@ -1,6 +1,6 @@
 use ::air::AirSettings;
 use air::table::AirTable;
-use algebra::pols::Multilinear;
+use algebra::Multilinear;
 use colored::Colorize;
 use fiat_shamir::{FsProver, FsVerifier, get_total_grinding_time, reset_total_grinding_time};
 use p3_field::extension::BinomialExtensionField;
@@ -160,7 +160,7 @@ pub fn prove_poseidon2_koala_bear(
     let t = Instant::now();
     let mut fs_prover = FsProver::new();
     let whir_proof = table.prove(&settings, &mut fs_prover, witness);
-    let proof_size = fs_prover.transcript_len();
+    let proof_size = fs_prover.transcript_len() + whir_proof.narg_string().len();
 
     let prover_time = t.elapsed();
     let time = Instant::now();

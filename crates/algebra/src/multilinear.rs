@@ -6,7 +6,6 @@ use rand::{
     distr::{Distribution, StandardUniform},
 };
 use rayon::prelude::*;
-use whir_p3::poly::coeffs::CoefficientList;
 
 /*
 
@@ -114,24 +113,6 @@ impl<F: Field> Multilinear<F> {
         sum
     }
 
-    pub fn to_monomial_basis(self) -> CoefficientList<F> {
-        let mut coeffs = self.evals;
-        let n = self.n_vars;
-
-        // TODO parallelize
-        for i in 0..n {
-            let step = 1 << i;
-            for j in 0..(1 << n) {
-                if (j & step) == 0 {
-                    let temp = coeffs[j];
-                    coeffs[j | step] -= temp;
-                }
-            }
-        }
-
-        CoefficientList::new(coeffs)
-    }
-
     pub fn random<R: Rng>(rng: &mut R, n_vars: usize) -> Self
     where
         StandardUniform: Distribution<F>,
@@ -210,11 +191,6 @@ impl<F: Field> Multilinear<F> {
                 });
         }
         Self::new(evals)
-    }
-
-    // TODO remove
-    pub fn embed<EF: ExtensionField<F>>(&self) -> Multilinear<EF> {
-        Multilinear::new(self.evals.par_iter().map(|e| EF::from(*e)).collect())
     }
 
     pub fn add_assign<S: Field>(&mut self, other: &Multilinear<S>)

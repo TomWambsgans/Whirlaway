@@ -1,7 +1,7 @@
 use p3_air::Air;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
-use algebra::pols::{Multilinear, UnivariatePolynomial, univariate_selectors};
+use algebra::{Multilinear, UnivariatePolynomial, univariate_selectors};
 use p3_uni_stark::{SymbolicAirBuilder, get_symbolic_constraints};
 use utils::log2_up;
 use whir_p3::{

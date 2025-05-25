@@ -1,4 +1,4 @@
-use algebra::pols::Multilinear;
+use algebra::Multilinear;
 use fiat_shamir::{FsError, FsParticipant};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use rayon::prelude::*;

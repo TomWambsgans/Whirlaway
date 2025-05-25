@@ -1,6 +1,6 @@
 use std::borrow::Borrow;
 
-use algebra::pols::{Multilinear, UnivariatePolynomial, univariate_selectors};
+use algebra::{Multilinear, UnivariatePolynomial, univariate_selectors};
 use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};
 use rand::distr::{Distribution, StandardUniform};

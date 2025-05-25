@@ -1,4 +1,4 @@
-use algebra::pols::UnivariatePolynomial;
+use algebra::UnivariatePolynomial;
 use fiat_shamir::{FsError, FsVerifier};
 use p3_field::Field;
 use rand::distr::{Distribution, StandardUniform};

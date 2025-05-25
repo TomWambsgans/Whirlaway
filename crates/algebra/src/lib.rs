@@ -1,3 +1,7 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-pub mod pols;
+mod multilinear;
+pub use multilinear::*;
+
+mod univariate;
+pub use univariate::*;

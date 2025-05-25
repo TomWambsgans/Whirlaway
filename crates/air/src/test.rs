@@ -3,7 +3,7 @@
 // use p3_field::extension::BinomialExtensionField;
 // use p3_koala_bear::KoalaBear;
 
-// use algebra::pols::Multilinear;
+// use algebra::Multilinear;
 // use whir_p3::parameters::{FoldingFactor, errors::SecurityAssumption};
 
 // use crate::{AirBuilder, AirSettings};

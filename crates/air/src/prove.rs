@@ -1,4 +1,4 @@
-use algebra::pols::Multilinear;
+use algebra::Multilinear;
 use fiat_shamir::FsProver;
 use p3_air::Air;
 use p3_dft::Radix2DitParallel;
@@ -9,11 +9,11 @@ use tracing::{Level, instrument, span};
 use utils::{ConstraintFolder, dot_product, powers};
 use whir_p3::{
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
-    poly::multilinear::MultilinearPoint,
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::writer::CommitmentWriter,
-        prover::{Prover, proof::WhirProof},
-        statement::{Statement, Weights},
+        prover::Prover,
+        statement::{Statement, weights::Weights},
     },
 };
 
@@ -46,7 +46,7 @@ impl<
         settings: &AirSettings,
         fs_prover: &mut FsProver,
         witness: Vec<Multilinear<F>>,
-    ) -> (WhirProof<F, EF, 32>, ProverState<EF, F>)
+    ) -> ProverState<EF, F>
     where
         F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
         EF: ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield> + TwoAdicField + Ord,
@@ -81,7 +81,7 @@ impl<
             .commit(
                 &dft_committer,
                 &mut prover_state,
-                packed_pol.to_monomial_basis(),
+                EvaluationsList::new(packed_pol.evals),
             )
             .unwrap();
 
@@ -251,12 +251,11 @@ impl<
             Weights::evaluation(MultilinearPoint(final_point.clone())),
             packed_value,
         );
-
-        let whir_proof = prover
+        prover
             .prove(&dft_prover, &mut prover_state, statement, packed_witness)
             .unwrap();
 
-        (whir_proof, prover_state)
+        prover_state
     }
 }
 

@@ -1,4 +1,4 @@
-use algebra::pols::Multilinear;
+use algebra::Multilinear;
 use fiat_shamir::{FsError, FsVerifier};
 use p3_air::Air;
 use p3_field::{ExtensionField, PrimeCharacteristicRing, PrimeField64, TwoAdicField};
@@ -11,8 +11,7 @@ use whir_p3::{
     poly::multilinear::MultilinearPoint,
     whir::{
         committer::reader::CommitmentReader,
-        prover::proof::WhirProof,
-        statement::{Statement, StatementVerifier, Weights},
+        statement::{Statement, weights::Weights},
         verifier::Verifier,
     },
 };
@@ -59,7 +58,7 @@ impl<
         settings: &AirSettings,
         fs_verifier: &mut FsVerifier,
         log_length: usize,
-        (whir_proof, prover_state): (WhirProof<F, EF, 32>, ProverState<EF, F>),
+        prover_state: ProverState<EF, F>,
     ) -> Result<(), AirVerifError>
     where
         F: TwoAdicField,
@@ -231,14 +230,8 @@ impl<
             Weights::evaluation(MultilinearPoint(final_point.clone())),
             packed_value,
         );
-        let statement_verifier = StatementVerifier::from_statement(&statement);
         whir_verifier
-            .verify(
-                &mut verifier_state,
-                &parsed_commitment,
-                &statement_verifier,
-                &whir_proof,
-            )
+            .verify(&mut verifier_state, &parsed_commitment, &statement)
             .map_err(|_| AirVerifError::InvalidPcsOpening)?;
 
         Ok(())
