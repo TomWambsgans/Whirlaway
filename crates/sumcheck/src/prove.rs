@@ -1,27 +1,28 @@
 use std::borrow::Borrow;
 
 use algebra::pols::{Multilinear, UnivariatePolynomial, univariate_selectors};
-use arithmetic_circuit::{CircuitComputation, SumcheckComputation, max_composition_degree};
 use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};
 use rand::distr::{Distribution, StandardUniform};
 use rayon::prelude::*;
 use tracing::instrument;
+use utils::HypercubePoint;
 
-use crate::SumcheckGrinding;
+use crate::{SumcheckComputation, SumcheckGrinding};
 
 pub const MIN_VARS_FOR_GPU: usize = 0; // When there are a small number of variables, it's not worth using GPU
 
 pub fn prove<
-    'a,
     F: Field,
     NF: ExtensionField<F>,
     EF: ExtensionField<NF> + ExtensionField<F>,
     M: Borrow<Multilinear<NF>>,
+    SC: SumcheckComputation<F, NF, EF> + SumcheckComputation<F, EF, EF>,
 >(
     skips: usize, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
     multilinears: &[M],
-    exprs: &[CircuitComputation<F>],
+    computation: &SC,
+    constraints_degree: usize,
     batching_scalars: &[EF],
     eq_factor: Option<&[EF]>,
     is_zerofier: bool,
@@ -40,28 +41,21 @@ where
 
     let mut challenges = Vec::new();
     let n_rounds = n_rounds.unwrap_or(n_vars - skips + 1);
-    let comp_degree = max_composition_degree(exprs);
     if let Some(eq_factor) = &eq_factor {
         assert_eq!(eq_factor.len(), n_vars - skips + 1);
     }
-
-    let sumcheck_computation = SumcheckComputation {
-        exprs: exprs,
-        n_multilinears: multilinears.len() + eq_factor.is_some() as usize,
-        eq_mle_multiplier: eq_factor.is_some(),
-    };
 
     let mut folded_multilinears;
     folded_multilinears = sc_round(
         skips,
         &multilinears,
         &mut n_vars,
-        &sumcheck_computation,
-        batching_scalars,
+        computation,
         eq_factor,
+        batching_scalars,
         is_zerofier,
         fs_prover,
-        comp_degree,
+        constraints_degree,
         &mut sum,
         grinding,
         &mut challenges,
@@ -70,16 +64,16 @@ where
     );
 
     for i in 1..n_rounds {
-        folded_multilinears = sc_round(
+        folded_multilinears = sc_round::<F, EF, EF, SC>(
             1,
             &folded_multilinears.iter().collect::<Vec<_>>(),
             &mut n_vars,
-            &sumcheck_computation,
-            batching_scalars,
+            computation,
             eq_factor,
+            batching_scalars,
             false,
             fs_prover,
-            comp_degree,
+            constraints_degree,
             &mut sum,
             grinding,
             &mut challenges,
@@ -92,13 +86,18 @@ where
 }
 
 #[instrument(name = "sumcheck_round", skip_all, fields(round))]
-pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionField<F>>(
+pub fn sc_round<
+    F: Field,
+    NF: ExtensionField<F>,
+    EF: ExtensionField<NF> + ExtensionField<F>,
+    SC: SumcheckComputation<F, NF, EF>,
+>(
     skips: usize, // the first round will fold 2^skips (instead of 2 in the basic sumcheck)
     multilinears: &[&Multilinear<NF>],
     n_vars: &mut usize,
-    sumcheck_computation: &SumcheckComputation<F>,
-    batching_scalars: &[EF],
+    computation: &SC,
     eq_factor: Option<&[EF]>,
+    batching_scalars: &[EF],
     is_zerofier: bool,
     fs_prover: &mut FsProver,
     comp_degree: usize,
@@ -141,12 +140,8 @@ where
             // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication below: TODO not urgent)
             let folded =
                 Multilinear::batch_fold_rectangular_in_small_field(multilinears, &folding_scalars);
-            let mut sum_z = Multilinear::compute_over_hypercube(
-                &folded,
-                sumcheck_computation,
-                batching_scalars,
-                eq_mle.as_ref(),
-            );
+            let mut sum_z =
+                compute_over_hypercube(&folded, computation, batching_scalars, eq_mle.as_ref());
             if let Some(missing_mul_factor) = missing_mul_factor {
                 sum_z *= *missing_mul_factor;
             }
@@ -196,4 +191,47 @@ where
     }
     // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication below: TODO not urgent)
     Multilinear::batch_fold_rectangular_in_large_field(multilinears, &folding_scalars)
+}
+
+fn compute_over_hypercube<
+    F: Field,
+    NF: ExtensionField<F>,
+    EF: ExtensionField<F> + ExtensionField<NF>,
+    SC: SumcheckComputation<F, NF, EF>,
+>(
+    pols: &[Multilinear<NF>],
+    computation: &SC,
+    batching_scalars: &[EF],
+    eq_mle: Option<&Multilinear<EF>>,
+) -> EF
+where
+    F: ExtensionField<F>,
+{
+    assert!(pols.iter().all(|p| p.n_vars == pols[0].n_vars));
+    HypercubePoint::par_iter(pols[0].n_vars)
+        .map(|x| {
+            let point = pols.iter().map(|pol| pol.evals[x.val]).collect::<Vec<_>>();
+            let eq_mle_eval = eq_mle.map(|p| p.evals[x.val]);
+            eval_sumcheck_computation(computation, batching_scalars, &point, eq_mle_eval)
+        })
+        .sum::<EF>()
+}
+
+pub fn eval_sumcheck_computation<
+    'a,
+    F: Field,
+    NF: ExtensionField<F>,
+    EF: ExtensionField<F> + ExtensionField<NF>,
+    SC: SumcheckComputation<F, NF, EF>,
+>(
+    computation: &SC,
+    batching_scalars: &[EF],
+    point: &'a [NF],
+    eq_mle_eval: Option<EF>,
+) -> EF {
+    let mut res = computation.eval(point, batching_scalars);
+    if let Some(eq_mle_eval) = eq_mle_eval {
+        res *= eq_mle_eval;
+    }
+    res
 }

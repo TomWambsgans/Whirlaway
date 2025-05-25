@@ -1,13 +1,12 @@
 use algebra::pols::Multilinear;
-use arithmetic_circuit::{ArithmeticCircuit, TransparentPolynomial};
 use fiat_shamir::{FsError, FsParticipant};
-use p3_field::{Field, PrimeField, TwoAdicField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use rayon::prelude::*;
-use utils::log2_up;
+use utils::{eq_extension, log2_up};
 
 use crate::{AirSettings, table::AirTable};
 
-pub(crate) fn matrix_up_lde<F: Field>(log_length: usize) -> TransparentPolynomial<F> {
+pub(crate) fn matrix_up_lde<F: Field>(point: &[F]) -> F {
     /*
         Matrix UP:
 
@@ -26,13 +25,14 @@ pub(crate) fn matrix_up_lde<F: Field>(log_length: usize) -> TransparentPolynomia
        - self.n_columns last variables -> encoding the column index
     */
 
-    TransparentPolynomial::eq_extension_2n_vars(log_length)
-        + TransparentPolynomial::eq_extension_n_scalars(&vec![F::ONE; log_length * 2 - 1])
-            * (ArithmeticCircuit::Scalar(F::ONE)
-                - ArithmeticCircuit::Node(log_length * 2 - 1) * F::TWO)
+    assert_eq!(point.len() % 2, 0);
+    let n = point.len() / 2;
+    eq_extension(&point[..n], &point[n..])
+        + point[..point.len() - 1].iter().copied().product::<F>()
+            * (F::ONE - point[point.len() - 1] * F::TWO)
 }
 
-pub(crate) fn matrix_down_lde<F: Field>(log_length: usize) -> TransparentPolynomial<F> {
+pub(crate) fn matrix_down_lde<F: Field>(point: &[F]) -> F {
     /*
         Matrix DOWN:
 
@@ -56,10 +56,31 @@ pub(crate) fn matrix_down_lde<F: Field>(log_length: usize) -> TransparentPolynom
        (However it is not representable as a polynomial in this case, but as a fraction instead)
 
     */
+    next_mle(point) + point.iter().copied().product::<F>()
 
-    TransparentPolynomial::next(log_length)
-        + TransparentPolynomial::eq_extension_n_scalars(&vec![F::ONE; log_length * 2])
     // bottom right corner
+}
+
+fn next_mle<F: Field>(point: &[F]) -> F {
+    // returns a polynomial P in 2n vars, where P(x, y) = 1 iif y = x + 1 in big indian (both numbers are n bits)
+    assert!(point.len() % 2 == 0);
+    let n = point.len() / 2;
+    let factor = |l, r| point[l] * (F::ONE - point[r]);
+    let g = |k| {
+        let mut factors = vec![];
+        for i in (n - k)..n {
+            factors.push(factor(i, i + n));
+        }
+        factors.push(factor(2 * n - 1 - k, n - 1 - k));
+        if k < n - 1 {
+            factors.push(eq_extension(
+                &(0..n - k - 1).map(|i| point[i]).collect::<Vec<_>>(),
+                &(0..n - k - 1).map(|i| point[i + n]).collect::<Vec<_>>(),
+            ));
+        }
+        factors.into_iter().product()
+    };
+    (0..n).map(g).sum()
 }
 
 pub(crate) fn columns_up_and_down<F: Field>(columns: &[&Multilinear<F>]) -> Vec<Multilinear<F>> {
@@ -81,8 +102,8 @@ pub(crate) fn column_down<F: Field>(column: &Multilinear<F>) -> Multilinear<F> {
     Multilinear::new(down)
 }
 
-impl<F: PrimeField + TwoAdicField> AirTable<F> {
-    pub(crate) fn constraints_batching_pow<EF: Field, FS: FsParticipant>(
+impl<'a, F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<'a, F, EF, A> {
+    pub(crate) fn constraints_batching_pow<FS: FsParticipant>(
         &self,
         fs: &mut FS,
         settings: &AirSettings,
@@ -90,11 +111,11 @@ impl<F: PrimeField + TwoAdicField> AirTable<F> {
         fs.challenge_pow(
             settings
                 .security_bits
-                .saturating_sub(EF::bits().saturating_sub(log2_up(self.constraints.len()))),
+                .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_constraints))),
         )
     }
 
-    pub(crate) fn zerocheck_pow<EF: Field, FS: FsParticipant>(
+    pub(crate) fn zerocheck_pow<FS: FsParticipant>(
         &self,
         fs: &mut FS,
         settings: &AirSettings,
@@ -106,7 +127,7 @@ impl<F: PrimeField + TwoAdicField> AirTable<F> {
         )
     }
 
-    pub(crate) fn secondary_sumchecks_batching_pow<EF: Field, FS: FsParticipant>(
+    pub(crate) fn secondary_sumchecks_batching_pow<FS: FsParticipant>(
         &self,
         fs: &mut FS,
         settings: &AirSettings,

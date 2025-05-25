@@ -1,7 +1,4 @@
-use std::{
-    cmp::max,
-    ops::{Mul, MulAssign},
-};
+use std::ops::{Mul, MulAssign};
 
 use p3_field::{ExtensionField, Field};
 use rand::distr::{Distribution, StandardUniform};
@@ -11,10 +8,6 @@ use rayon::prelude::*;
 pub struct UnivariatePolynomial<F: Field> {
     pub coeffs: Vec<F>,
 }
-
-// Set some minimum number of field elements to be worked on per thread
-// to avoid per-thread costs dominating parallel execution time.
-const MIN_ELEMENTS_PER_THREAD: usize = 16;
 
 // Dense
 impl<F: Field> UnivariatePolynomial<F> {
@@ -72,36 +65,6 @@ impl<F: Field> UnivariatePolynomial<F> {
         xs.iter().map(|x| self.eval(x)).sum()
     }
 
-    pub fn eval_parallel<EF: ExtensionField<F>>(&self, x: &EF) -> EF {
-        if self.coeffs.is_empty() {
-            return EF::ZERO;
-        } else if x.is_zero() {
-            return EF::from(self.coeffs[0]);
-        }
-        // Horners method - parallel method
-        // compute the number of threads we will be using.
-        let num_cpus_available = rayon::current_num_threads();
-        let num_coeffs = self.coeffs.len();
-        let num_elem_per_thread = max(num_coeffs / num_cpus_available, MIN_ELEMENTS_PER_THREAD);
-
-        // run Horners method on each thread as follows:
-        // 1) Split up the coefficients across each thread evenly.
-        // 2) Do polynomial evaluation via horner's method for the thread's coefficients
-        // 3) Scale the result point^{thread coefficient start index}
-        // Then obtain the final polynomial evaluation by summing each threads result.
-        let result = self
-            .coeffs
-            .par_chunks(num_elem_per_thread)
-            .enumerate()
-            .map(|(i, chunk)| {
-                let mut thread_result = Self::horner_evaluate(chunk, x);
-                thread_result *= x.exp_u64((i * num_elem_per_thread) as u64);
-                thread_result
-            })
-            .sum();
-        result
-    }
-
     pub fn lagrange_interpolation<S: Field>(values: &[(S, F)]) -> Option<Self>
     where
         F: ExtensionField<S>,
@@ -142,15 +105,7 @@ impl<F: Field> UnivariatePolynomial<F> {
             }
         }
 
-        // while result.len() > 1 && result.last() == Some(&F::zero()) {
-        //     result.pop();
-        // }
-
         Some(Self::new(result))
-    }
-
-    pub fn sum_over_hypercube(&self) -> F {
-        self.eval(&F::ZERO) + self.eval(&F::ONE)
     }
 
     pub fn random<R: rand::Rng>(rng: &mut R, degree: usize) -> Self

@@ -3,16 +3,14 @@
 mod examples;
 
 use air::AirSettings;
-use examples::poseidon2::prove_poseidon2_with;
-use utils::SupportedField;
+use examples::poseidon2::prove_poseidon2_koala_bear;
 use whir_p3::parameters::{FoldingFactor, errors::SecurityAssumption};
 
 const SECURITY_BITS: usize = 100; // (temporary)
 
 fn main() {
-    for (log_n_rows, log_inv_rate) in [(14, 1)] {
-        let benchmark = prove_poseidon2_with(
-            SupportedField::KoalaBear,
+    for (log_n_rows, log_inv_rate) in [(15, 1)] {
+        let benchmark = prove_poseidon2_koala_bear(
             log_n_rows,
             AirSettings::new(
                 SECURITY_BITS,

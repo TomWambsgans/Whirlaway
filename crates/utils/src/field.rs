@@ -1,38 +1,4 @@
-use std::{any::TypeId, fmt::Display};
-
-use p3_baby_bear::BabyBear;
-use p3_field::{ExtensionField, Field, extension::BinomialExtensionField};
-use p3_koala_bear::KoalaBear;
-use rayon::prelude::*;
-
-use crate::log2_up;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SupportedField {
-    KoalaBear,
-    BabyBear,
-}
-
-impl Display for SupportedField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SupportedField::KoalaBear => write!(f, "KoalaBear"),
-            SupportedField::BabyBear => write!(f, "BabyBear"),
-        }
-    }
-}
-
-impl SupportedField {
-    pub fn guess<F: Field>() -> Self {
-        if TypeId::of::<F::PrimeSubfield>() == TypeId::of::<KoalaBear>() {
-            SupportedField::KoalaBear
-        } else if TypeId::of::<F::PrimeSubfield>() == TypeId::of::<BabyBear>() {
-            SupportedField::BabyBear
-        } else {
-            panic!("Unsupported field type for CUDA")
-        }
-    }
-}
+use p3_field::{ExtensionField, Field};
 
 /// outputs the vector [1, base, base^2, base^3, ...] of length len.
 pub fn powers<F: Field>(base: F, len: usize) -> Vec<F> {
@@ -44,35 +10,6 @@ pub fn powers<F: Field>(base: F, len: usize) -> Vec<F> {
     }
 
     res
-}
-
-/// outputs the vector [1, base, base^2, base^3, ...] of length len.
-pub fn powers_parallel<F: Field>(base: F, len: usize) -> Vec<F> {
-    let num_threads = rayon::current_num_threads().next_power_of_two();
-
-    if len <= num_threads * log2_up(num_threads) {
-        powers(base, len)
-    } else {
-        let chunk_size = len.div_ceil(num_threads);
-        (0..num_threads)
-            .into_par_iter()
-            .map(|j| {
-                let mut start = base.exp_u64(j as u64 * chunk_size as u64);
-                let mut chunck = Vec::new();
-                let chunk_size = if j == num_threads - 1 {
-                    len - j * chunk_size
-                } else {
-                    chunk_size
-                };
-                for _ in 0..chunk_size {
-                    chunck.push(start);
-                    start *= base;
-                }
-                chunck
-            })
-            .flatten()
-            .collect()
-    }
 }
 
 pub fn eq_extension<F: Field, EF: ExtensionField<F>>(s1: &[F], s2: &[EF]) -> EF {
@@ -90,38 +27,12 @@ pub fn dot_product<F: Field, EF: ExtensionField<F>>(a: &[F], b: &[EF]) -> EF {
     a.iter().zip(b.iter()).map(|(x, y)| *y * *x).sum()
 }
 
-pub fn dot_product_1<F: Field, EF: ExtensionField<F>>(a: &[F], b: &[EF]) -> EF {
-    assert_eq!(a.len(), b.len());
-    a.iter().zip(b.iter()).map(|(x, y)| *y * *x).sum()
-}
-
-pub fn dot_product_2<F: Field, EF: ExtensionField<F>>(a: &[F], (b1, b2): (&[EF], &[EF])) -> EF {
-    assert_eq!(b1.len() + b2.len(), a.len());
-    b1.iter().zip(a).map(|(x, y)| *x * *y).sum::<EF>()
-        + b2.iter()
-            .zip(&a[b1.len()..])
-            .map(|(x, y)| *x * *y)
-            .sum::<EF>()
-}
-
 pub fn embed_vec<F: Field, EF: ExtensionField<F>>(a: &Vec<F>) -> Vec<EF> {
     a.iter().copied().map(EF::from).collect()
 }
 
 pub fn embed_vec_vec<F: Field, EF: ExtensionField<F>>(a: &[Vec<F>]) -> Vec<Vec<EF>> {
     a.iter().map(embed_vec).collect()
-}
-
-// TODO find a better name
-pub fn multilinear_point_from_univariate<F: Field>(point: F, num_variables: usize) -> Vec<F> {
-    let mut res = Vec::with_capacity(num_variables);
-    let mut cur = point;
-    for _ in 0..num_variables {
-        res.push(cur);
-        cur = cur * cur;
-    }
-
-    res
 }
 
 pub fn serialize_field<F: Field>(f: &F) -> Vec<u8> {
@@ -147,30 +58,5 @@ pub fn deserialize_field<F: Field>(bytes: &[u8]) -> Option<F> {
         std::ptr::copy_nonoverlapping(bytes.as_ptr(), result.as_mut_ptr() as *mut u8, bytes.len());
 
         Some(result.assume_init())
-    }
-}
-
-pub fn extension_degree<F: Field>() -> usize {
-    // TODO there must be a simpler way
-    if [TypeId::of::<KoalaBear>(), TypeId::of::<BabyBear>()].contains(&TypeId::of::<F>()) {
-        1
-    } else if [
-        TypeId::of::<BinomialExtensionField<KoalaBear, 4>>(),
-        TypeId::of::<BinomialExtensionField<BabyBear, 4>>(),
-    ]
-    .contains(&TypeId::of::<F>())
-    {
-        4
-    } else if [
-        TypeId::of::<BinomialExtensionField<KoalaBear, 8>>(),
-        TypeId::of::<BinomialExtensionField<BabyBear, 8>>(),
-    ]
-    .contains(&TypeId::of::<F>())
-    {
-        8
-    } else if [TypeId::of::<BinomialExtensionField<KoalaBear, 16>>()].contains(&TypeId::of::<F>()) {
-        16
-    } else {
-        todo!("Add extension degree for this field")
     }
 }

@@ -1,12 +1,12 @@
 use algebra::pols::Multilinear;
-use arithmetic_circuit::ArithmeticCircuit;
 use fiat_shamir::FsProver;
+use p3_air::Air;
 use p3_dft::Radix2DitParallel;
-use p3_field::{ExtensionField, PrimeCharacteristicRing, PrimeField64, TwoAdicField};
+use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, PrimeField64, TwoAdicField};
 use rand::distr::{Distribution, StandardUniform};
-use sumcheck::SumcheckGrinding;
+use sumcheck::{SumcheckComputation, SumcheckGrinding};
 use tracing::{Level, instrument, span};
-use utils::{dot_product, powers};
+use utils::{ConstraintFolder, dot_product, powers};
 use whir_p3::{
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
     poly::multilinear::MultilinearPoint,
@@ -33,9 +33,15 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 
 */
 
-impl<F: PrimeField64 + TwoAdicField> AirTable<F> {
+impl<
+    'a,
+    F: TwoAdicField + PrimeField64,
+    EF: ExtensionField<F> + TwoAdicField,
+    A: Air<ConstraintFolder<'a, F, F, EF>> + Air<ConstraintFolder<'a, F, EF, EF>>,
+> AirTable<'a, F, EF, A>
+{
     #[instrument(name = "air: prove", skip_all)]
-    pub fn prove<EF: ExtensionField<F>>(
+    pub fn prove(
         &self,
         settings: &AirSettings,
         fs_prover: &mut FsProver,
@@ -55,7 +61,7 @@ impl<F: PrimeField64 + TwoAdicField> AirTable<F> {
         let log_length = self.log_length;
         assert!(witness.iter().all(|w| w.n_vars == log_length));
 
-        let whir_params = self.build_whir_params::<EF>(settings);
+        let whir_params = self.build_whir_params(settings);
         let mut domainsep = DomainSeparator::new("🐎");
         domainsep.commit_statement(&whir_params);
         domainsep.add_whir_proof(&whir_params);
@@ -79,15 +85,13 @@ impl<F: PrimeField64 + TwoAdicField> AirTable<F> {
             )
             .unwrap();
 
-        self.constraints_batching_pow::<EF, _>(fs_prover, settings)
-            .unwrap();
+        self.constraints_batching_pow(fs_prover, settings).unwrap();
 
         let constraints_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
 
-        let constraints_batching_scalars =
-            powers(constraints_batching_scalar, self.constraints.len());
+        let constraints_batching_scalars = powers(constraints_batching_scalar, self.n_constraints);
 
-        self.zerocheck_pow::<EF, _>(fs_prover, settings).unwrap();
+        self.zerocheck_pow(fs_prover, settings).unwrap();
 
         let zerocheck_challenges =
             fs_prover.challenge_scalars::<EF>(log_length + 1 - settings.univariate_skips);
@@ -99,10 +103,11 @@ impl<F: PrimeField64 + TwoAdicField> AirTable<F> {
             .collect::<Vec<_>>();
         let (zerocheck_challenges, all_inner_sums, _) = {
             let _span = span!(Level::INFO, "zerocheck").entered();
-            sumcheck::prove::<F, F, EF, _>(
+            sumcheck::prove::<F, F, EF, _, A>(
                 settings.univariate_skips,
                 columns_up_and_down(&preprocessed_and_witness).as_ref(),
-                &self.constraints,
+                &self.air,
+                self.constraint_degree,
                 &constraints_batching_scalars,
                 Some(&zerocheck_challenges),
                 true,
@@ -124,14 +129,14 @@ impl<F: PrimeField64 + TwoAdicField> AirTable<F> {
         let inner_sums = inner_sums_up
             .into_iter()
             .chain(inner_sums_down)
-            .map(|s| s.evaluate_in_large_field::<EF>(&[]))
+            .map(|s| s.evaluate::<EF>(&[]))
             .collect::<Vec<_>>();
 
         std::mem::drop(_span_evals);
         fs_prover.add_scalars(&inner_sums);
 
         let _span_pow = span!(Level::INFO, "pow grinding").entered();
-        self.secondary_sumchecks_batching_pow::<EF, _>(fs_prover, settings)
+        self.secondary_sumchecks_batching_pow(fs_prover, settings)
             .unwrap();
         std::mem::drop(_span_pow);
         let secondary_sumcheck_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
@@ -146,7 +151,7 @@ impl<F: PrimeField64 + TwoAdicField> AirTable<F> {
             );
             for i in 0..2 {
                 // up and down
-                let sum = Multilinear::linear_comb_in_large_field(
+                let sum = Multilinear::linear_combination(
                     &witness,
                     &expanded_scalars
                         [i * self.n_witness_columns()..(i + 1) * self.n_witness_columns()],
@@ -178,10 +183,6 @@ impl<F: PrimeField64 + TwoAdicField> AirTable<F> {
             nodes
         };
 
-        let inner_sumcheck_circuit = ArithmeticCircuit::<F, _>::Node(4)
-            * ((ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
-                + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3)));
-
         let _span_dot_product = span!(Level::INFO, "dot product").entered();
         let inner_sum = dot_product(
             &inner_sums,
@@ -193,10 +194,11 @@ impl<F: PrimeField64 + TwoAdicField> AirTable<F> {
 
         std::mem::drop(_span_dot_product);
 
-        let (inner_challenges, _, _) = sumcheck::prove::<F, EF, EF, _>(
+        let (inner_challenges, _, _) = sumcheck::prove::<F, EF, EF, _, _>(
             1,
             &mles_for_inner_sumcheck,
-            &[inner_sumcheck_circuit.fix_computation(false)],
+            &InnerSumcheckCircuit,
+            3,
             &[EF::ONE],
             None,
             false,
@@ -234,7 +236,7 @@ impl<F: PrimeField64 + TwoAdicField> AirTable<F> {
             ]
             .concat(),
         )
-        .evaluate_in_large_field(&final_random_scalars);
+        .evaluate(&final_random_scalars);
 
         std::mem::drop(_span_final_point);
         std::mem::drop(_span);
@@ -255,5 +257,13 @@ impl<F: PrimeField64 + TwoAdicField> AirTable<F> {
             .unwrap();
 
         (whir_proof, prover_state)
+    }
+}
+
+pub struct InnerSumcheckCircuit;
+
+impl<F: Field, EF: ExtensionField<F>> SumcheckComputation<F, EF, EF> for InnerSumcheckCircuit {
+    fn eval(&self, point: &[EF], _: &[EF]) -> EF {
+        EF::from(point[4] * ((point[0] * point[2]) + (point[1] * point[3])))
     }
 }

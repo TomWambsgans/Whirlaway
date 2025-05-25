@@ -1,9 +1,9 @@
-use arithmetic_circuit::CircuitComputation;
-use p3_field::{ExtensionField, Field, PrimeField, TwoAdicField};
-use tracing::instrument;
+use p3_air::Air;
+use p3_field::{ExtensionField, Field, TwoAdicField};
 
-use algebra::pols::{Multilinear, UnivariatePolynomial};
-use utils::{HypercubePoint, log2_up};
+use algebra::pols::{Multilinear, UnivariatePolynomial, univariate_selectors};
+use p3_uni_stark::{SymbolicAirBuilder, get_symbolic_constraints};
+use utils::log2_up;
 use whir_p3::{
     fiat_shamir::pow::blake3::Blake3PoW,
     parameters::{MultivariateParameters, ProtocolParameters},
@@ -12,18 +12,46 @@ use whir_p3::{
 
 use crate::{AirSettings, ByteHash, FieldHash, MyCompress, WHIR_POW_BITS};
 
-pub struct AirTable<F: Field> {
+pub struct AirTable<'a, F: Field, EF, A> {
     pub log_length: usize,
     pub n_columns: usize,
-    pub constraints: Vec<CircuitComputation<F>>, // n_vars = 2 * n_columns. First half = columns of row i, second half = columns of row i + 1
+    pub air: A,
     pub preprocessed_columns: Vec<Multilinear<F>>, // TODO 'sparse' preprocessed columns (with non zero values at cylic shifts)
-    // below are the data which is common to all proofs / verifications
+    pub n_constraints: usize,
+    pub constraint_degree: usize,
     pub(crate) univariate_selectors: Vec<UnivariatePolynomial<F>>,
-    pub(crate) lde_matrix_up: CircuitComputation<F>,
-    pub(crate) lde_matrix_down: CircuitComputation<F>,
+
+    _phantom: std::marker::PhantomData<(&'a (), EF)>,
 }
 
-impl<F: PrimeField + TwoAdicField> AirTable<F> {
+impl<'a, F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<'a, F, EF, A> {
+    pub fn new(
+        air: A,
+        log_length: usize,
+        univariate_skips: usize,
+        preprocessed_columns: Vec<Vec<F>>,
+        constraint_degree: usize,
+    ) -> Self
+    where
+        A: Air<SymbolicAirBuilder<F>>,
+    {
+        let symbolic_constraints = get_symbolic_constraints::<F, A>(&air, 0, 0);
+        let n_constraints = symbolic_constraints.len();
+
+        AirTable {
+            log_length,
+            n_columns: air.width() + preprocessed_columns.len(),
+            air,
+            preprocessed_columns: preprocessed_columns
+                .into_iter()
+                .map(Multilinear::new)
+                .collect(),
+            n_constraints,
+            constraint_degree,
+            univariate_selectors: univariate_selectors(univariate_skips),
+            _phantom: std::marker::PhantomData,
+        }
+    }
     pub fn n_witness_columns(&self) -> usize {
         self.n_columns - self.preprocessed_columns.len()
     }
@@ -37,46 +65,7 @@ impl<F: PrimeField + TwoAdicField> AirTable<F> {
         self.preprocessed_columns.len()
     }
 
-    #[instrument(name = "check_validity", skip_all)]
-    pub fn check_validity(&self, witness: &[Multilinear<F>]) {
-        let log_length = witness[0].n_vars;
-        assert_eq!(self.n_witness_columns(), witness.len());
-        assert!(witness.iter().all(|w| w.n_vars == log_length));
-
-        for constraint in &self.constraints {
-            for (up, down) in
-                HypercubePoint::iter(log_length).zip(HypercubePoint::iter(log_length).skip(1))
-            {
-                let mut point = self
-                    .preprocessed_columns
-                    .iter()
-                    .chain(witness)
-                    .map(|col| col.eval_hypercube(&up))
-                    .collect::<Vec<_>>();
-                point.extend(
-                    self.preprocessed_columns
-                        .iter()
-                        .chain(witness)
-                        .map(|col| col.eval_hypercube(&down))
-                        .collect::<Vec<_>>(),
-                );
-                assert!(
-                    constraint.eval(&point).is_zero(),
-                    "Constraint is not satisfied",
-                );
-            }
-        }
-    }
-
-    pub fn constraint_degree(&self) -> usize {
-        self.constraints
-            .iter()
-            .map(|c| c.composition_degree)
-            .max_by_key(|d| *d)
-            .unwrap()
-    }
-
-    pub fn build_whir_params<EF: ExtensionField<F> + TwoAdicField>(
+    pub fn build_whir_params(
         &self,
         settings: &AirSettings,
     ) -> WhirConfig<EF, F, FieldHash, MyCompress, Blake3PoW> {

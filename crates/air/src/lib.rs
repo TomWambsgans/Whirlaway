@@ -1,8 +1,7 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-mod builder;
 mod prove;
-mod table;
+pub mod table;
 mod uni_skip_utils;
 mod utils;
 mod verify;
@@ -15,7 +14,6 @@ type FieldHash = SerializingHasher<ByteHash>;
 type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
 const WHIR_POW_BITS: usize = 16;
 
-pub use builder::*;
 use p3_blake3::Blake3;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
 use whir_p3::parameters::{FoldingFactor, errors::SecurityAssumption};

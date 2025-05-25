@@ -1,14 +1,11 @@
 use std::borrow::Borrow;
 
-use arithmetic_circuit::SumcheckComputation;
-use p3_field::{BasedVectorSpace, ExtensionField, Field, PrimeCharacteristicRing};
+use p3_field::{ExtensionField, Field};
 use rand::{
     Rng,
     distr::{Distribution, StandardUniform},
 };
 use rayon::prelude::*;
-use utils::{HypercubePoint, PartialHypercubePoint};
-use utils::{default_hash, dot_product};
 use whir_p3::poly::coeffs::CoefficientList;
 
 /*
@@ -28,11 +25,6 @@ impl<F: Field> Multilinear<F> {
         1 << self.n_vars
     }
 
-    /// Debug purpose
-    pub fn hash(&self) -> u64 {
-        default_hash(&self.evals)
-    }
-
     pub fn zero(n_vars: usize) -> Self {
         Self {
             n_vars,
@@ -46,7 +38,7 @@ impl<F: Field> Multilinear<F> {
         Self { n_vars, evals }
     }
 
-    pub fn evaluate_in_large_field<EF: ExtensionField<F>>(&self, point: &[EF]) -> EF {
+    pub fn evaluate<EF: ExtensionField<F>>(&self, point: &[EF]) -> EF {
         assert_eq!(self.n_vars, point.len());
         if self.n_vars == 0 {
             return EF::from(self.evals[0]);
@@ -63,31 +55,6 @@ impl<F: Field> Multilinear<F> {
                 .par_iter()
                 .zip(&buff[n / 2..])
                 .map(|(l, r)| *p * (*r - *l) + *l)
-                .collect();
-        }
-        buff[0]
-    }
-
-    pub fn evaluate_in_small_field<S: Field>(&self, point: &[S]) -> F
-    where
-        F: ExtensionField<S>,
-    {
-        assert_eq!(self.n_vars, point.len());
-        if self.n_vars == 0 {
-            return F::from(self.evals[0]);
-        }
-        let mut n = self.n_coefs();
-        let mut buff = self.evals[..n / 2]
-            .par_iter()
-            .zip(&self.evals[n / 2..])
-            .map(|(l, r)| (*r - *l) * point[0] + *l)
-            .collect::<Vec<_>>();
-        for p in &point[1..] {
-            n /= 2;
-            buff = buff[..n / 2]
-                .par_iter()
-                .zip(&buff[n / 2..])
-                .map(|(l, r)| (*r - *l) * *p + *l)
                 .collect();
         }
         buff[0]
@@ -135,7 +102,7 @@ impl<F: Field> Multilinear<F> {
         Multilinear::new(new_evals)
     }
 
-    pub fn linear_comb_in_large_field<EF: ExtensionField<F>, P: Borrow<Self>>(
+    pub fn linear_combination<EF: ExtensionField<F>, P: Borrow<Self>>(
         pols: &[P],
         scalars: &[EF],
     ) -> Multilinear<EF> {
@@ -143,18 +110,6 @@ impl<F: Field> Multilinear<F> {
         let mut sum = Multilinear::<EF>::zero(pols[0].borrow().n_vars);
         for i in 0..scalars.len() {
             sum.add_assign::<EF>(&pols[i].borrow().scale_large_field::<EF>(scalars[i]));
-        }
-        sum
-    }
-
-    pub fn linear_comb_in_small_field<SF: Field>(pols: &[&Self], scalars: &[SF]) -> Multilinear<F>
-    where
-        F: ExtensionField<SF>,
-    {
-        assert_eq!(pols.len(), scalars.len());
-        let mut sum = Multilinear::<F>::zero(pols[0].n_vars);
-        for i in 0..scalars.len() {
-            sum.add_assign::<F>(&pols[i].scale_small_field::<SF>(scalars[i]));
         }
         sum
     }
@@ -175,17 +130,6 @@ impl<F: Field> Multilinear<F> {
         }
 
         CoefficientList::new(coeffs)
-    }
-
-    pub fn eval_hypercube(&self, point: &HypercubePoint) -> F {
-        assert_eq!(self.n_vars, point.n_vars);
-        self.evals[point.val]
-    }
-
-    pub fn eval_partial_hypercube(&self, point: &PartialHypercubePoint) -> F {
-        assert_eq!(self.n_vars, point.n_vars());
-        F::from_u32(point.left) * self.evals[point.right.val + (1 << (self.n_vars - 1))]
-            + (F::ONE - F::from_u32(point.left)) * self.evals[point.right.val]
     }
 
     pub fn random<R: Rng>(rng: &mut R, n_vars: usize) -> Self
@@ -234,29 +178,6 @@ impl<F: Field> Multilinear<F> {
             .flat_map(|item| std::iter::repeat(*item).take(1 << n))
             .collect();
         Self::new(evals)
-    }
-
-    pub fn piecewise_dot_product_at_field_level(&self, scalars: &[F]) -> Self
-    where
-        F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-    {
-        assert_eq!(
-            <F as BasedVectorSpace<F::PrimeSubfield>>::DIMENSION,
-            scalars.len()
-        );
-        let prime_composed = self
-            .evals
-            .par_iter()
-            .map(|e| {
-                <F as BasedVectorSpace<F::PrimeSubfield>>::as_basis_coefficients_slice(e).to_vec()
-            })
-            .collect::<Vec<_>>();
-
-        let mut res = Vec::new();
-        for w in 0..self.n_coefs() {
-            res.push(dot_product(&prime_composed[w], scalars));
-        }
-        Multilinear::new(res)
     }
 
     fn eq_mle_single_threaded(scalars: &[F]) -> Self {
@@ -311,31 +232,7 @@ impl<F: Field> Multilinear<F> {
         pols: &[Self],
         point: &[EF],
     ) -> Vec<EF> {
-        pols.par_iter()
-            .map(|pol| pol.evaluate_in_large_field(point))
-            .collect()
-    }
-
-    pub fn compute_over_hypercube<S: Field, BigField: ExtensionField<F> + ExtensionField<S>>(
-        pols: &[Multilinear<F>],
-        comp: &SumcheckComputation<S>,
-        batching_scalars: &[BigField],
-        eq_mle: Option<&Multilinear<BigField>>,
-    ) -> BigField
-    where
-        F: ExtensionField<S>,
-    {
-        assert!(pols.iter().all(|p| p.n_vars == pols[0].n_vars));
-        HypercubePoint::par_iter(pols[0].n_vars)
-            .map(|x| {
-                let point = pols
-                    .iter()
-                    .map(|pol| pol.eval_hypercube(&x))
-                    .collect::<Vec<_>>();
-                let eq_mle_eval = eq_mle.map(|p| p.eval_hypercube(&x));
-                eval_sumcheck_computation(comp, batching_scalars, &point, eq_mle_eval)
-            })
-            .sum::<BigField>()
+        pols.par_iter().map(|pol| pol.evaluate(point)).collect()
     }
 
     pub fn batch_fold_rectangular_in_small_field<S: Field>(
@@ -371,31 +268,4 @@ impl<F: Field> Multilinear<F> {
         }
         Multilinear::new(dst).into()
     }
-}
-
-pub fn eval_sumcheck_computation<
-    F: Field,
-    NF: ExtensionField<F>,
-    EF: ExtensionField<NF> + ExtensionField<F>,
->(
-    comp: &SumcheckComputation<F>,
-    batching_scalars: &[EF],
-    point: &[NF],
-    eq_mle_eval: Option<EF>,
-) -> EF {
-    let mut res = if comp.exprs.len() == 1 {
-        EF::from(comp.exprs[0].eval(point))
-    } else {
-        comp.exprs
-            .iter()
-            .zip(batching_scalars)
-            .skip(1)
-            .map(|(expr, scalar)| *scalar * expr.eval(point))
-            .sum::<EF>()
-            + comp.exprs[0].eval(point)
-    };
-    if comp.eq_mle_multiplier {
-        res *= eq_mle_eval.unwrap();
-    }
-    res
 }

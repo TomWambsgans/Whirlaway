@@ -16,13 +16,14 @@ name = "air"
 version = "0.1.0"
 dependencies = [
  "algebra",
- "arithmetic-circuit",
  "fiat-shamir",
+ "p3-air",
  "p3-blake3",
  "p3-dft",
  "p3-field",
  "p3-koala-bear",
  "p3-symmetric",
+ "p3-uni-stark",
  "rand",
  "rayon",
  "sumcheck",
@@ -35,12 +36,10 @@ dependencies = [
 name = "algebra"
 version = "0.1.0"
 dependencies = [
- "arithmetic-circuit",
  "p3-field",
  "p3-koala-bear",
  "rand",
  "rayon",
- "utils",
  "whir-p3",
 ]
 
@@ -101,16 +100,6 @@ dependencies = [
  "anstyle",
  "once_cell",
  "windows-sys",
-]
-
-[[package]]
-name = "arithmetic-circuit"
-version = "0.1.0"
-dependencies = [
- "p3-field",
- "p3-koala-bear",
- "rand",
- "utils",
 ]
 
 [[package]]
@@ -479,6 +468,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 
 [[package]]
+name = "p3-air"
+version = "0.1.0"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=86666b4#86666b4d976b3c54301840e0c078a4a17262c035"
+dependencies = [
+ "p3-field",
+ "p3-matrix",
+]
+
+[[package]]
 name = "p3-baby-bear"
 version = "0.1.0"
 source = "git+https://github.com/Plonky3/Plonky3.git?rev=86666b4#86666b4d976b3c54301840e0c078a4a17262c035"
@@ -693,6 +691,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "p3-poseidon2-air"
+version = "0.1.0"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=86666b4#86666b4d976b3c54301840e0c078a4a17262c035"
+dependencies = [
+ "p3-air",
+ "p3-field",
+ "p3-matrix",
+ "p3-maybe-rayon",
+ "p3-poseidon2",
+ "rand",
+ "tracing",
+]
+
+[[package]]
 name = "p3-symmetric"
 version = "0.1.0"
 source = "git+https://github.com/Plonky3/Plonky3.git?rev=86666b4#86666b4d976b3c54301840e0c078a4a17262c035"
@@ -700,6 +712,24 @@ dependencies = [
  "itertools",
  "p3-field",
  "serde",
+]
+
+[[package]]
+name = "p3-uni-stark"
+version = "0.1.0"
+source = "git+https://github.com/Plonky3/Plonky3.git?rev=86666b4#86666b4d976b3c54301840e0c078a4a17262c035"
+dependencies = [
+ "itertools",
+ "p3-air",
+ "p3-challenger",
+ "p3-commit",
+ "p3-dft",
+ "p3-field",
+ "p3-matrix",
+ "p3-maybe-rayon",
+ "p3-util",
+ "serde",
+ "tracing",
 ]
 
 [[package]]
@@ -916,10 +946,11 @@ name = "sumcheck"
 version = "0.1.0"
 dependencies = [
  "algebra",
- "arithmetic-circuit",
  "fiat-shamir",
+ "p3-air",
  "p3-field",
  "p3-koala-bear",
+ "p3-matrix",
  "rand",
  "rayon",
  "tracing",
@@ -1108,10 +1139,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 name = "utils"
 version = "0.1.0"
 dependencies = [
- "p3-baby-bear",
+ "p3-air",
  "p3-field",
- "p3-koala-bear",
- "rand",
+ "p3-matrix",
  "rayon",
  "sha3",
 ]
@@ -1184,20 +1214,16 @@ version = "0.1.0"
 dependencies = [
  "air",
  "algebra",
- "arithmetic-circuit",
  "colored",
  "fiat-shamir",
- "p3-baby-bear",
  "p3-field",
  "p3-koala-bear",
  "p3-matrix",
- "p3-poseidon2",
+ "p3-poseidon2-air",
  "rand",
- "rayon",
  "tracing",
  "tracing-forest",
  "tracing-subscriber",
- "utils",
  "whir-p3",
 ]
 
