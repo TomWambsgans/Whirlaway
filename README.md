@@ -16,7 +16,7 @@ Key techniques:
 
 ## Poseidon2 Benchmark
 
-WIP
+`RUSTFLAGS='-C target-cpu=native' cargo run --release`
 
 ## Credits
 

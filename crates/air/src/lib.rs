@@ -25,7 +25,7 @@ pub struct AirSettings {
     pub whir_folding_factor: FoldingFactor,
     pub whir_log_inv_rate: usize,
     pub univariate_skips: usize,
-    pub whir_innitial_domain_reduction_factor: usize,
+    pub whir_initial_domain_reduction_factor: usize,
 }
 
 impl AirSettings {
@@ -43,7 +43,7 @@ impl AirSettings {
             whir_folding_factor,
             whir_log_inv_rate,
             univariate_skips,
-            whir_innitial_domain_reduction_factor,
+            whir_initial_domain_reduction_factor: whir_innitial_domain_reduction_factor,
         }
     }
 }

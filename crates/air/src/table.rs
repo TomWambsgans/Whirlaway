@@ -85,6 +85,7 @@ impl<'a, F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<'a, 
             merkle_compress,
             soundness_type: settings.whir_soudness_type,
             starting_log_inv_rate: settings.whir_log_inv_rate,
+            rs_domain_initial_reduction_factor: settings.whir_initial_domain_reduction_factor,
         };
 
         WhirConfig::<EF, F, _, _, _>::new(mv_params, whir_params)

@@ -19,7 +19,7 @@ fn main() {
                 FoldingFactor::ConstantFromSecondRound(6, 4),
                 log_inv_rate,
                 2,
-                3, // TODO
+                3,
             ),
             true,
         );
