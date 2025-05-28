@@ -71,11 +71,6 @@ impl FsProver {
         self.update_state(bytes);
     }
 
-    pub fn add_variable_bytes(&mut self, bytes: &[u8]) {
-        self.add_bytes(&(bytes.len() as u32).to_be_bytes());
-        self.add_bytes(bytes);
-    }
-
     pub fn challenge_bytes(&mut self, len: usize) -> Vec<u8> {
         let challenge = generate_pseudo_random(&self.state, len);
         self.update_state(len.to_be_bytes().as_ref());
@@ -241,7 +236,6 @@ impl FsVerifier {
 }
 
 pub trait FsParticipant {
-    fn challenge_bytes(&mut self, len: usize) -> Vec<u8>;
     fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F>
     where
         StandardUniform: Distribution<F>;
@@ -249,10 +243,6 @@ pub trait FsParticipant {
 }
 
 impl FsParticipant for FsProver {
-    fn challenge_bytes(&mut self, len: usize) -> Vec<u8> {
-        FsProver::challenge_bytes(self, len)
-    }
-
     fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F>
     where
         StandardUniform: Distribution<F>,
@@ -267,10 +257,6 @@ impl FsParticipant for FsProver {
 }
 
 impl FsParticipant for FsVerifier {
-    fn challenge_bytes(&mut self, len: usize) -> Vec<u8> {
-        FsVerifier::challenge_bytes(self, len)
-    }
-
     fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F>
     where
         StandardUniform: Distribution<F>,

@@ -23,6 +23,7 @@ utils = { path = "crates/utils" }
 rand = "0.9.1"
 sha3 = "0.10.8"
 rayon = "1.5.1"
+bincode = { version = "2.0.1", features = ["serde"] }
 colored = "3.0.0"
 serde = { version = "1.0.219", features = ["derive"] }
 derive_more = { version = "2.0.1", features = ["full"] }

@@ -24,27 +24,33 @@ pub fn embed_vec_vec<F: Field, EF: ExtensionField<F>>(a: &[Vec<F>]) -> Vec<Vec<E
 }
 
 pub fn serialize_field<F: Field>(f: &F) -> Vec<u8> {
-    let size = std::mem::size_of::<F>();
-    let mut bytes = Vec::with_capacity(size);
-    unsafe {
-        let src_ptr = f as *const F as *const u8;
-        bytes.set_len(size);
-        std::ptr::copy_nonoverlapping(src_ptr, bytes.as_mut_ptr(), size);
-    }
-    bytes
+    bincode::serde::encode_to_vec(f, bincode::config::standard().with_fixed_int_encoding()).unwrap()
 }
 
 pub fn deserialize_field<F: Field>(bytes: &[u8]) -> Option<F> {
-    // TODO check that the representation is correct
-    if bytes.len() != std::mem::size_of::<F>() {
-        return None;
-    }
+    Some(
+        bincode::serde::decode_from_slice(
+            bytes,
+            bincode::config::standard().with_fixed_int_encoding(),
+        )
+        .ok()?
+        .0,
+    )
+}
 
-    let mut result = std::mem::MaybeUninit::<F>::uninit();
+#[cfg(test)]
+mod test {
+    use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+    use p3_koala_bear::KoalaBear;
 
-    unsafe {
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), result.as_mut_ptr() as *mut u8, bytes.len());
+    use crate::*;
 
-        Some(result.assume_init())
+    #[test]
+    fn test_serialization() {
+        type F = BinomialExtensionField<KoalaBear, 4>;
+        let f = F::ONE;
+        let bytes = serialize_field(&f);
+        let f2 = deserialize_field::<F>(&bytes).unwrap();
+        assert_eq!(f, f2);
     }
 }
