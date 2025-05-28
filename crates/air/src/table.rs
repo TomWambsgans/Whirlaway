@@ -70,13 +70,13 @@ impl<'a, F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<'a, 
         settings: &AirSettings,
     ) -> WhirConfig<EF, F, FieldHash, MyCompress, Blake3PoW> {
         let num_variables = self.log_length + self.log_n_witness_columns();
-        let mv_params = MultivariateParameters::<EF>::new(num_variables);
+        let mv_params = MultivariateParameters::new(num_variables);
 
         let byte_hash = ByteHash {};
         let merkle_hash = FieldHash::new(byte_hash);
         let merkle_compress = MyCompress::new(byte_hash);
 
-        let whir_params = ProtocolParameters::<_, _> {
+        let whir_params = ProtocolParameters {
             initial_statement: true,
             security_level: settings.security_bits,
             pow_bits: WHIR_POW_BITS,
@@ -88,6 +88,6 @@ impl<'a, F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<'a, 
             rs_domain_initial_reduction_factor: settings.whir_initial_domain_reduction_factor,
         };
 
-        WhirConfig::<EF, F, _, _, _>::new(mv_params, whir_params)
+        WhirConfig::new(mv_params, whir_params)
     }
 }

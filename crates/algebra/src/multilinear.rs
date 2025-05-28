@@ -156,7 +156,7 @@ impl<F: Field> Multilinear<F> {
         let evals = self
             .evals
             .iter()
-            .flat_map(|item| std::iter::repeat(*item).take(1 << n))
+            .flat_map(|item| std::iter::repeat_n(*item, 1 << n))
             .collect();
         Self::new(evals)
     }
@@ -242,6 +242,6 @@ impl<F: Field> Multilinear<F> {
             dst[offset..offset + pol.n_coefs()].copy_from_slice(&pol.evals);
             offset += pol.n_coefs();
         }
-        Multilinear::new(dst).into()
+        Multilinear::new(dst)
     }
 }

@@ -129,7 +129,7 @@ impl<
         let inner_sums_down = &all_inner_sums[self.n_columns + self.n_preprocessed_columns()..];
         let _span_evals = span!(Level::INFO, "column evalutations").entered();
         let inner_sums = inner_sums_up
-            .into_iter()
+            .iter()
             .chain(inner_sums_down)
             .map(|s| s.evaluate::<EF>(&[]))
             .collect::<Vec<_>>();
@@ -266,6 +266,6 @@ pub struct InnerSumcheckCircuit;
 
 impl<F: Field, EF: ExtensionField<F>> SumcheckComputation<F, EF, EF> for InnerSumcheckCircuit {
     fn eval(&self, point: &[EF], _: &[EF]) -> EF {
-        EF::from(point[4] * ((point[0] * point[2]) + (point[1] * point[3])))
+        point[4] * ((point[0] * point[2]) + (point[1] * point[3]))
     }
 }

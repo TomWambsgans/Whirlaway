@@ -28,7 +28,7 @@ pub(crate) fn matrix_up_folded_with_univariate_skips<F: Field>(
     folded.evals[(1 << n_vars) - 1] -= zerocheck_challenges_prod;
     folded.evals[(1 << n_vars) - 2] += zerocheck_challenges_prod;
 
-    folded.into()
+    folded
 }
 
 #[instrument(name = "matrix_down_folded_with_univariate_skips", skip_all)]

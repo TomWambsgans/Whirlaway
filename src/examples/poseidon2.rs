@@ -65,9 +65,9 @@ impl ToString for Poseidon2Benchmark {
             self.settings.whir_soudness_type,
             1 << self.settings.whir_log_inv_rate,
             match self.settings.whir_folding_factor {
-                FoldingFactor::Constant(f) => format!("{}", f),
+                FoldingFactor::Constant(f) => format!("{f}"),
                 FoldingFactor::ConstantFromSecondRound(first, then) =>
-                    format!("1st: {} then {}", first, then),
+                    format!("1st: {first} then {then}"),
             }
         );
         let n_rows = 1 << self.log_n_rows;

@@ -35,13 +35,13 @@ pub enum AirVerifError {
 
 impl From<FsError> for AirVerifError {
     fn from(e: FsError) -> Self {
-        AirVerifError::Fs(e)
+        Self::Fs(e)
     }
 }
 
 impl From<SumcheckError> for AirVerifError {
     fn from(e: SumcheckError) -> Self {
-        AirVerifError::Sumcheck(e)
+        Self::Sumcheck(e)
     }
 }
 

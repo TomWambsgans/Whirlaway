@@ -5,7 +5,7 @@ pub struct KeccakDigest(pub [u8; 32]);
 
 impl KeccakDigest {
     pub fn to_string(&self) -> String {
-        self.0.iter().map(|b| format!("{:02x}", b)).collect()
+        self.0.iter().map(|b| format!("{b:02x}")).collect()
     }
 }
 
