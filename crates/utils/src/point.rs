@@ -17,13 +17,15 @@ impl Debug for HypercubePoint {
 
 impl HypercubePoint {
     pub fn to_vec<F: Field>(&self) -> Vec<F> {
-        let mut point = vec![F::ZERO; self.n_vars];
-        for b in 0..self.n_vars {
-            if (self.val >> b) & 1 == 1 {
-                point[self.n_vars - 1 - b] = F::ONE;
-            }
-        }
-        point
+        (0..self.n_vars)
+            .map(|b| {
+                if (self.val >> (self.n_vars - 1 - b)) & 1 == 1 {
+                    F::ONE
+                } else {
+                    F::ZERO
+                }
+            })
+            .collect()
     }
 
     pub fn random<F: Field, R: Rng>(rng: &mut R, n_vars: usize) -> Self {
@@ -43,11 +45,11 @@ impl HypercubePoint {
             .map(move |val| Self { val, n_vars })
     }
 
-    pub fn new(n_vars: usize, val: usize) -> Self {
+    pub const fn new(n_vars: usize, val: usize) -> Self {
         Self { n_vars, val }
     }
 
-    pub fn zero(n_vars: usize) -> Self {
+    pub const fn zero(n_vars: usize) -> Self {
         Self { n_vars, val: 0 }
     }
 }
@@ -69,11 +71,11 @@ pub struct PartialHypercubePoint {
 }
 
 impl PartialHypercubePoint {
-    pub fn n_vars(&self) -> usize {
+    pub const fn n_vars(&self) -> usize {
         1 + self.right.n_vars
     }
 
-    pub fn new(left: u32, right_n_vars: usize, right: usize) -> Self {
+    pub const fn new(left: u32, right_n_vars: usize, right: usize) -> Self {
         Self {
             left,
             right: HypercubePoint::new(right_n_vars, right),
@@ -90,9 +92,7 @@ pub struct MixedPoint<F: Field> {
 
 impl<F: Field> MixedPoint<F> {
     pub fn to_vec(&self) -> Vec<F> {
-        let mut point = self.left.clone();
-        point.extend(self.right.to_vec::<F>());
-        point
+        [self.left.as_slice(), &self.right.to_vec()].concat()
     }
 }
 
@@ -109,18 +109,26 @@ pub struct Evaluation<F> {
 }
 
 pub fn expanded_point_for_multilinear_monomial_evaluation<F: Field>(point: &[F]) -> Vec<F> {
-    if point.is_empty() {
-        return vec![F::ONE];
+    // We start with a vector containing a single 1 (base case for the recursion)
+    let mut res = vec![F::ONE];
+    for &var in point.iter().rev() {
+        let len = res.len();
+        // Reserve space for doubling the vector (avoid reallocations)
+        res.reserve(len);
+        // SAFETY: we will immediately fill the new slots, so it's okay to set the new length
+        unsafe { res.set_len(len * 2) };
+
+        // Split the vector into two non-overlapping halves:
+        // - low: the first half (existing values)
+        // - high: the second half (to be filled with scaled values)
+        let (low, high) = res.split_at_mut(len);
+
+        // Copy the first half into the second half
+        high.copy_from_slice(low);
+
+        // Multiply each element in the second half by the current variable value
+        high.par_iter_mut().for_each(|x| *x *= var);
     }
-    let sub = expanded_point_for_multilinear_monomial_evaluation(&point[1..]);
-    let mut res = vec![F::ZERO; 1 << point.len()];
-    res[..sub.len()].copy_from_slice(&sub);
-    res[sub.len()..]
-        .par_iter_mut()
-        .enumerate()
-        .for_each(|(i, x)| {
-            *x = sub[i] * point[0];
-        });
     res
 }
 
@@ -128,4 +136,121 @@ pub fn expanded_point_for_multilinear_monomial_evaluation<F: Field>(point: &[F])
 pub struct Statement<EF> {
     pub points: Vec<Vec<EF>>,
     pub evaluations: Vec<EF>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use p3_field::PrimeCharacteristicRing;
+    use p3_koala_bear::KoalaBear;
+
+    type F = KoalaBear;
+
+    #[test]
+    fn test_to_vec_all_zero() {
+        let point = HypercubePoint { n_vars: 4, val: 0 };
+        let vec = point.to_vec::<F>();
+        assert_eq!(vec, vec![F::ZERO; 4]);
+    }
+
+    #[test]
+    fn test_to_vec_all_one() {
+        let point = HypercubePoint {
+            n_vars: 3,
+            val: 0b111,
+        };
+        let vec = point.to_vec::<F>();
+        assert_eq!(vec, vec![F::ONE; 3]);
+    }
+
+    #[test]
+    fn test_to_vec_mixed_bits() {
+        // binary 101 → [1, 0, 1]
+        let point = HypercubePoint {
+            n_vars: 3,
+            val: 0b101,
+        };
+        let vec = point.to_vec::<F>();
+        assert_eq!(vec, vec![F::ONE, F::ZERO, F::ONE]);
+    }
+
+    #[test]
+    fn test_to_vec_single_bit() {
+        let point = HypercubePoint { n_vars: 1, val: 1 };
+        let vec = point.to_vec::<F>();
+        assert_eq!(vec, vec![F::ONE]);
+    }
+
+    #[test]
+    fn test_to_vec_large() {
+        let val = 0b110101; // binary 110101 → [1,1,0,1,0,1]
+        let point = HypercubePoint { n_vars: 6, val };
+        let vec = point.to_vec::<F>();
+        let expected = vec![F::ONE, F::ONE, F::ZERO, F::ONE, F::ZERO, F::ONE];
+        assert_eq!(vec, expected);
+    }
+
+    #[test]
+    fn test_empty_point() {
+        let point: Vec<F> = vec![];
+        let expanded = expanded_point_for_multilinear_monomial_evaluation(&point);
+        assert_eq!(expanded, vec![F::ONE]);
+    }
+
+    #[test]
+    fn test_single_zero() {
+        let point = vec![F::ZERO];
+        let expanded = expanded_point_for_multilinear_monomial_evaluation(&point);
+        assert_eq!(expanded, vec![F::ONE, F::ZERO]);
+    }
+
+    #[test]
+    fn test_single_one() {
+        let point = vec![F::ONE];
+        let expanded = expanded_point_for_multilinear_monomial_evaluation(&point);
+        assert_eq!(expanded, vec![F::ONE, F::ONE]);
+    }
+
+    #[test]
+    fn test_two_variables() {
+        let a = F::ONE; // 1
+        let b = F::ZERO; // 0
+        let point = vec![a, b];
+        let expanded = expanded_point_for_multilinear_monomial_evaluation(&point);
+        // Expected:
+        // [1, 0, 1, 0]
+        assert_eq!(expanded, vec![F::ONE, F::ZERO, F::ONE, F::ZERO]);
+    }
+
+    #[test]
+    fn test_two_variables_both_one() {
+        let point = vec![F::ONE, F::ONE];
+        let expanded = expanded_point_for_multilinear_monomial_evaluation(&point);
+        // Expected:
+        // [1, 1, 1, 1]
+        assert_eq!(expanded, vec![F::ONE, F::ONE, F::ONE, F::ONE]);
+    }
+
+    #[test]
+    fn test_three_variables_mixed() {
+        let one = F::ONE;
+        let zero = F::ZERO;
+        let point = vec![one, zero, one];
+        let expanded = expanded_point_for_multilinear_monomial_evaluation(&point);
+        // Expected:
+        // [1, 1, 0, 0, 1, 1, 0, 0]
+        assert_eq!(
+            expanded,
+            vec![
+                F::ONE,
+                F::ONE,
+                F::ZERO,
+                F::ZERO,
+                F::ONE,
+                F::ONE,
+                F::ZERO,
+                F::ZERO
+            ]
+        );
+    }
 }
