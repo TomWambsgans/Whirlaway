@@ -190,10 +190,10 @@ mod tests {
         memcpy_htod,
     };
     use p3_dft::{Radix2DitParallel, TwoAdicSubgroupDft};
-    use p3_field::BasedVectorSpace;
     use p3_field::{TwoAdicField, extension::BinomialExtensionField};
     use p3_koala_bear::KoalaBear;
     use p3_matrix::{Matrix, dense::RowMajorMatrix};
+    use utils::extension_degree;
 
     #[test]
     fn test_cuda_ntt() {
@@ -237,7 +237,7 @@ mod tests {
         assert!(
             cuda_res == cpu_res,
             "log_len = {log_len}, log_width = {log_width}, extension = {}",
-            F::DIMENSION
+            extension_degree::<F>()
         );
     }
 }
