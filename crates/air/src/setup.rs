@@ -3,8 +3,9 @@ use cuda_engine::{
     CudaFunctionInfo, SumcheckComputation, cuda_init, cuda_load_function,
     cuda_preprocess_many_sumcheck_computations, cuda_preprocess_twiddles,
 };
+use p3_field::BasedVectorSpace;
 use p3_field::{ExtensionField, PrimeField32, TwoAdicField};
-use utils::{extension_degree, log2_up};
+use utils::log2_up;
 
 use crate::{AirSettings, table::AirTable};
 
@@ -41,10 +42,10 @@ impl<F: PrimeField32 + TwoAdicField> AirTable<F> {
             eq_mle_multiplier: false,
         };
 
-        assert!(extension_degree::<F>() == 1);
-        let deg_a = extension_degree::<F>();
-        let deg_b = extension_degree::<EF>();
-        let deg_c = extension_degree::<WhirF>();
+        assert!(F::DIMENSION == 1);
+        let deg_a = F::DIMENSION;
+        let deg_b = EF::DIMENSION;
+        let deg_c = WhirF::DIMENSION;
         cuda_preprocess_many_sumcheck_computations(
             &constraint_sumcheck_computations,
             &[(deg_a, deg_a, deg_b), (deg_a, deg_b, deg_b)],

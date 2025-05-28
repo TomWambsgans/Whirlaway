@@ -1,13 +1,13 @@
 use std::borrow::Borrow;
 
-use cudarc::driver::{CudaSlice, PushKernelArg};
-
 use cuda_engine::{
     CudaCall, CudaFunctionInfo, SumcheckComputation, concat_pointers, cuda_alloc,
     cuda_synthetic_dir, memcpy_htod,
 };
+use cudarc::driver::{CudaSlice, PushKernelArg};
+use p3_field::BasedVectorSpace;
 use p3_field::{ExtensionField, Field};
-use utils::{SupportedField, extension_degree};
+use utils::SupportedField;
 
 use crate::{cuda_dot_product, cuda_piecewise_sum, cuda_sum};
 
@@ -49,12 +49,12 @@ pub fn cuda_compute_over_hypercube<
             cuda_file,
             function_name: "compute_over_hypercube".to_string(),
             field: Some(SupportedField::guess::<F>()),
-            extension_degree_a: Some(extension_degree::<F>()),
-            extension_degree_b: Some(extension_degree::<NF>()),
-            extension_degree_c: Some(extension_degree::<EF>()),
+            extension_degree_a: Some(F::DIMENSION),
+            extension_degree_b: Some(NF::DIMENSION),
+            extension_degree_c: Some(<EF as BasedVectorSpace<F>>::DIMENSION),
             max_ntt_log_size_at_block_level: None,
             no_inline: sumcheck_computation.no_inline_cuda_ops(),
-            cache_memory_reads: extension_degree::<NF>() == 1,
+            cache_memory_reads: NF::DIMENSION == 1,
         };
 
         let compute_unit_start = compute_units_range.start as u32;

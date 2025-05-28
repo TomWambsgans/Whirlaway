@@ -169,31 +169,6 @@ pub fn deserialize_field<F: Field>(bytes: &[u8]) -> Option<F> {
     }
 }
 
-pub fn extension_degree<F: Field>() -> usize {
-    // TODO there must be a simpler way
-    if [TypeId::of::<KoalaBear>(), TypeId::of::<BabyBear>()].contains(&TypeId::of::<F>()) {
-        1
-    } else if [
-        TypeId::of::<BinomialExtensionField<KoalaBear, 4>>(),
-        TypeId::of::<BinomialExtensionField<BabyBear, 4>>(),
-    ]
-    .contains(&TypeId::of::<F>())
-    {
-        4
-    } else if [
-        TypeId::of::<BinomialExtensionField<KoalaBear, 8>>(),
-        TypeId::of::<BinomialExtensionField<BabyBear, 8>>(),
-    ]
-    .contains(&TypeId::of::<F>())
-    {
-        8
-    } else if [TypeId::of::<BinomialExtensionField<KoalaBear, 16>>()].contains(&TypeId::of::<F>()) {
-        16
-    } else {
-        todo!("Add extension degree for this field")
-    }
-}
-
 pub trait MyExtensionField<F: Field>: Field {
     fn my_from(x: F) -> Self;
     fn my_multiply(&self, other: &F) -> Self;
