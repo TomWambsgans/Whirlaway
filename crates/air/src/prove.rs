@@ -2,11 +2,13 @@ use algebra::Multilinear;
 use fiat_shamir::FsProver;
 use p3_air::Air;
 use p3_dft::Radix2DitParallel;
-use p3_field::{ExtensionField, Field, PrimeCharacteristicRing, PrimeField64, TwoAdicField};
+use p3_field::{
+    ExtensionField, Field, PrimeCharacteristicRing, PrimeField64, TwoAdicField, dot_product,
+};
 use rand::distr::{Distribution, StandardUniform};
 use sumcheck::{SumcheckComputation, SumcheckGrinding};
 use tracing::{Level, instrument, span};
-use utils::{ConstraintFolder, dot_product, powers};
+use utils::{ConstraintFolder, powers};
 use whir_p3::{
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -185,11 +187,12 @@ impl<
 
         let _span_dot_product = span!(Level::INFO, "dot product").entered();
         let inner_sum = dot_product(
-            &inner_sums,
-            &powers(
+            inner_sums.into_iter(),
+            powers(
                 secondary_sumcheck_batching_scalar,
                 self.n_witness_columns() * 2,
-            ),
+            )
+            .into_iter(),
         );
 
         std::mem::drop(_span_dot_product);

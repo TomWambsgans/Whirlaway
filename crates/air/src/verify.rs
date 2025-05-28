@@ -1,11 +1,11 @@
 use algebra::Multilinear;
 use fiat_shamir::{FsError, FsVerifier};
 use p3_air::Air;
-use p3_field::{ExtensionField, PrimeCharacteristicRing, PrimeField64, TwoAdicField};
+use p3_field::{ExtensionField, PrimeCharacteristicRing, PrimeField64, TwoAdicField, dot_product};
 use rand::distr::{Distribution, StandardUniform};
 use sumcheck::{SumcheckComputation, SumcheckError, SumcheckGrinding};
 use tracing::instrument;
-use utils::{ConstraintFolder, dot_product, eq_extension, powers};
+use utils::{ConstraintFolder, eq_extension, powers};
 use whir_p3::{
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
     poly::multilinear::MultilinearPoint,
@@ -147,12 +147,13 @@ impl<
             .iter()
             .map(|s| s.eval(&zerocheck_challenges[0]))
             .collect::<Vec<_>>();
-        if dot_product(&zerocheck_selector_evals, &outer_selector_evals)
-            * eq_extension(
-                &zerocheck_challenges[1..],
-                &outer_sumcheck_challenge.point[1..],
-            )
-            * global_constraint_eval
+        if dot_product::<EF, _, _>(
+            zerocheck_selector_evals.into_iter(),
+            outer_selector_evals.iter().copied(),
+        ) * eq_extension(
+            &zerocheck_challenges[1..],
+            &outer_sumcheck_challenge.point[1..],
+        ) * global_constraint_eval
             != outer_sumcheck_challenge.value
         {
             return Err(AirVerifError::SumMismatch);
@@ -172,11 +173,12 @@ impl<
 
         if batched_inner_sum
             != dot_product(
-                &witness_shifted_evals,
-                &powers(
+                witness_shifted_evals.into_iter(),
+                powers(
                     secondary_sumcheck_batching_scalar,
                     self.n_witness_columns() * 2,
-                ),
+                )
+                .into_iter(),
             )
         {
             return Err(AirVerifError::SumMismatch);

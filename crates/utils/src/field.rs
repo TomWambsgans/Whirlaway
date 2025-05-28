@@ -15,11 +15,6 @@ pub fn eq_extension<F: Field, EF: ExtensionField<F>>(s1: &[F], s2: &[EF]) -> EF 
         .product()
 }
 
-pub fn dot_product<F: Field, EF: ExtensionField<F>>(a: &[F], b: &[EF]) -> EF {
-    assert_eq!(a.len(), b.len());
-    a.iter().zip(b.iter()).map(|(x, y)| *y * *x).sum()
-}
-
 pub fn embed_vec<F: Field, EF: ExtensionField<F>>(a: &Vec<F>) -> Vec<EF> {
     a.iter().copied().map(EF::from).collect()
 }
