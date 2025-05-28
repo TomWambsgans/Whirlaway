@@ -1,6 +1,7 @@
 use cudarc::driver::sys::CUdevice_attribute;
 use cudarc::driver::{CudaContext, CudaFunction, CudaSlice, CudaStream};
 use cudarc::nvrtc::Ptx;
+use p3_field::BasedVectorSpace;
 use p3_field::Field;
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashMap};
@@ -9,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, OnceLock, RwLock};
 use tracing::instrument;
-use utils::{SupportedField, extension_degree, log2_down};
+use utils::{SupportedField, log2_down};
 
 use crate::{CudaPtr, LOG_MAX_THREADS_PER_BLOCK};
 
@@ -40,7 +41,7 @@ impl CudaFunctionInfo {
             cuda_file: kernels_folder().join(cuda_file.into()),
             function_name: function_name.to_string(),
             field: Some(SupportedField::guess::<FieldA>()),
-            extension_degree_a: Some(extension_degree::<FieldA>()),
+            extension_degree_a: Some(FieldA::DIMENSION),
             ..Default::default()
         }
     }
@@ -57,8 +58,8 @@ impl CudaFunctionInfo {
             cuda_file: kernels_folder().join(cuda_file.into()),
             function_name: function_name.to_string(),
             field: Some(SupportedField::guess::<FieldA>()),
-            extension_degree_a: Some(extension_degree::<FieldA>()),
-            extension_degree_b: Some(extension_degree::<FieldB>()),
+            extension_degree_a: Some(FieldA::DIMENSION),
+            extension_degree_b: Some(FieldB::DIMENSION),
             ..Default::default()
         }
     }
@@ -68,8 +69,8 @@ impl CudaFunctionInfo {
             cuda_file: kernels_folder().join("ntt.cu"),
             function_name: "ntt_at_block_level".to_string(),
             field: Some(SupportedField::guess::<F>()),
-            extension_degree_a: Some(extension_degree::<F::PrimeSubfield>()), // twiddles
-            extension_degree_b: Some(extension_degree::<F>()),
+            extension_degree_a: Some(F::PrimeSubfield::DIMENSION), // twiddles
+            extension_degree_b: Some(F::DIMENSION),
             max_ntt_log_size_at_block_level: Some(max_ntt_log_size_at_block_level::<F>() as u32),
             ..Default::default()
         }
