@@ -6,10 +6,9 @@ use cuda_engine::{HostOrDeviceBuffer, cuda_sync, memcpy_dtoh};
 use cudarc::driver::CudaSlice;
 use p3_dft::Radix2DitParallel;
 use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_matrix::util::reverse_matrix_index_bits;
 use p3_matrix::{Matrix, dense::RowMajorMatrix};
-use utils::{
-    default_hash, expanded_point_for_multilinear_monomial_evaluation, switch_endianness_vec,
-};
+use utils::{default_hash, expanded_point_for_multilinear_monomial_evaluation};
 
 use {rayon::join, std::mem::size_of};
 
@@ -47,8 +46,11 @@ impl<F: Field> CoefficientListHost<F> {
     }
 
     pub fn reverse_vars(&self) -> Self {
+        let mut matrix = RowMajorMatrix::new_col(self.coeffs.clone());
+        reverse_matrix_index_bits(&mut matrix);
+        let coeffs = matrix.values;
         CoefficientListHost {
-            coeffs: switch_endianness_vec(&self.coeffs),
+            coeffs,
             n_vars: self.n_vars,
         }
     }
@@ -303,5 +305,60 @@ impl<F: Field> CoefficientList<F> {
             Self::Host(coeffs) => default_hash(&coeffs.coeffs),
             Self::Device(coeffs) => default_hash(&coeffs.transfer_to_host().coeffs),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use p3_koala_bear::KoalaBear;
+
+    type F = KoalaBear;
+
+    #[test]
+    fn test_reverse_vars_two_vars() {
+        // Two variables → 4 coefficients: c0, c1, c2, c3
+        let coeffs = vec![F::new(0), F::new(1), F::new(2), F::new(3)];
+        let poly = CoefficientListHost::new(coeffs.clone());
+        let reversed = poly.reverse_vars();
+
+        // Bit reversal (00→00, 01→10, 10→01, 11→11)
+        // Should reorder: 0, 2, 1, 3
+        let expected = vec![F::new(0), F::new(2), F::new(1), F::new(3)];
+        assert_eq!(reversed.coeffs, expected);
+
+        // Original must remain unchanged
+        assert_eq!(poly.coeffs, coeffs);
+    }
+
+    #[test]
+    fn test_reverse_vars_single_element() {
+        let coeffs = vec![F::new(42)];
+        let poly = CoefficientListHost::new(coeffs.clone());
+        let reversed = poly.reverse_vars();
+
+        assert_eq!(reversed.coeffs, coeffs);
+    }
+
+    #[test]
+    fn test_reverse_vars_three_vars() {
+        // Three variables → 8 coefficients
+        let coeffs = (0..8).map(F::new).collect::<Vec<_>>();
+        let poly = CoefficientListHost::new(coeffs.clone());
+        let reversed = poly.reverse_vars();
+
+        // Bit reversal on 3 bits:
+        // 000→000, 001→100, 010→010, 011→110, 100→001, 101→101, 110→011, 111→111
+        let expected = vec![
+            F::new(0), // 0
+            F::new(4), // 1
+            F::new(2), // 2
+            F::new(6), // 3
+            F::new(1), // 4
+            F::new(5), // 5
+            F::new(3), // 6
+            F::new(7), // 7
+        ];
+        assert_eq!(reversed.coeffs, expected);
     }
 }

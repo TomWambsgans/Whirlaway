@@ -40,7 +40,16 @@ p3-field = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigg
 p3-dft = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigger_fields" }
 p3-poseidon2 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigger_fields" }
 p3-matrix = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigger_fields" }
-cudarc = { version = "0.16.2", features = ["cuda-12040", "std", "cublas", "cublaslt", "curand", "driver", "runtime", "nvrtc"] }
+cudarc = { version = "0.16.2", features = [
+    "cuda-12040",
+    "std",
+    "cublas",
+    "cublaslt",
+    "curand",
+    "driver",
+    "runtime",
+    "nvrtc",
+] }
 
 [dependencies]
 whir.workspace = true
