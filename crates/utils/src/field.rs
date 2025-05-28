@@ -2,14 +2,7 @@ use p3_field::{ExtensionField, Field};
 
 /// outputs the vector [1, base, base^2, base^3, ...] of length len.
 pub fn powers<F: Field>(base: F, len: usize) -> Vec<F> {
-    let mut res = Vec::with_capacity(len);
-    let mut acc = F::ONE;
-    for _ in 0..len {
-        res.push(acc);
-        acc *= base;
-    }
-
-    res
+    base.powers().take(len).collect()
 }
 
 pub fn eq_extension<F: Field, EF: ExtensionField<F>>(s1: &[F], s2: &[EF]) -> EF {
