@@ -15,14 +15,6 @@ pub fn eq_extension<F: Field, EF: ExtensionField<F>>(s1: &[F], s2: &[EF]) -> EF 
         .product()
 }
 
-pub fn embed_vec<F: Field, EF: ExtensionField<F>>(a: &Vec<F>) -> Vec<EF> {
-    a.iter().copied().map(EF::from).collect()
-}
-
-pub fn embed_vec_vec<F: Field, EF: ExtensionField<F>>(a: &[Vec<F>]) -> Vec<Vec<EF>> {
-    a.iter().map(embed_vec).collect()
-}
-
 pub fn serialize_field<F: Field>(f: &F) -> Vec<u8> {
     bincode::serde::encode_to_vec(f, bincode::config::standard().with_fixed_int_encoding()).unwrap()
 }
