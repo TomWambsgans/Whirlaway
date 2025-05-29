@@ -50,7 +50,7 @@ impl<
     F: TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     A: Air<ConstraintFolder<'a, F, EF, EF>>,
-> AirTable<'a, F, EF, A>
+> AirTable<F, EF, A>
 {
     #[instrument(name = "air table: verify", skip_all)]
     pub fn verify(
@@ -102,8 +102,7 @@ impl<
         }
 
         let witness_shifted_evals = fs_verifier.next_scalars::<EF>(2 * self.n_witness_columns())?;
-        let witness_up = &witness_shifted_evals[..self.n_witness_columns()];
-        let witness_down = &witness_shifted_evals[self.n_witness_columns()..];
+        let (witness_up, witness_down) = witness_shifted_evals.split_at(self.n_witness_columns());
         let outer_selector_evals = self
             .univariate_selectors
             .iter()

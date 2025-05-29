@@ -42,7 +42,7 @@ pub fn matrix_down_folded_with_univariate_skips<F: Field>(
     let n_vars = n + univariate_skips * 2 - 1;
     let mut folded = Multilinear::zero(n_vars);
     let point_len = univariate_skips + (n - 1);
-    let inner_mles = (1..outer_challenges.len())
+    let inner_mles = (1..n)
         .map(|i| Multilinear::eq_mle(&outer_challenges[1..i]))
         .collect::<Vec<_>>();
     folded

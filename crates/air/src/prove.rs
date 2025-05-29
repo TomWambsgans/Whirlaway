@@ -40,7 +40,7 @@ impl<
     F: TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     A: Air<ConstraintFolder<'a, F, F, EF>> + Air<ConstraintFolder<'a, F, EF, EF>>,
-> AirTable<'a, F, EF, A>
+> AirTable<F, EF, A>
 {
     #[instrument(name = "air: prove", skip_all)]
     pub fn prove(

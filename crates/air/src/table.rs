@@ -12,7 +12,7 @@ use whir_p3::{
 
 use crate::{AirSettings, ByteHash, FieldHash, MyCompress, WHIR_POW_BITS};
 
-pub struct AirTable<'a, F: Field, EF, A> {
+pub struct AirTable<F: Field, EF, A> {
     pub log_length: usize,
     pub n_columns: usize,
     pub air: A,
@@ -21,10 +21,10 @@ pub struct AirTable<'a, F: Field, EF, A> {
     pub constraint_degree: usize,
     pub(crate) univariate_selectors: Vec<UnivariatePolynomial<F>>,
 
-    _phantom: std::marker::PhantomData<(&'a (), EF)>,
+    _phantom: std::marker::PhantomData<EF>,
 }
 
-impl<'a, F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<'a, F, EF, A> {
+impl<'a, F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A> {
     pub fn new(
         air: A,
         log_length: usize,

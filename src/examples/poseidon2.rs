@@ -270,7 +270,7 @@ where
         .map(|col| Multilinear::new(col.collect()))
         .collect::<Vec<_>>();
 
-    let table = AirTable::<'_, F, EF, _>::new(
+    let table = AirTable::<F, EF, _>::new(
         poseidon_air,
         log_n_rows,
         settings.univariate_skips,
