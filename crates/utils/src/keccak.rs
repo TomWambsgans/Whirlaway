@@ -1,11 +1,15 @@
 use sha3::{Digest, Keccak256};
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct KeccakDigest(pub [u8; 32]);
 
-impl KeccakDigest {
-    pub fn to_string(&self) -> String {
-        self.0.iter().map(|b| format!("{b:02x}")).collect()
+impl fmt::Display for KeccakDigest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in &self.0 {
+            write!(f, "{byte:02x}")?;
+        }
+        Ok(())
     }
 }
 

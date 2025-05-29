@@ -3,6 +3,9 @@ name = "algebra"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 rayon.workspace = true
 rand.workspace = true
@@ -10,4 +13,3 @@ p3-field.workspace = true
 
 [dev-dependencies]
 p3-koala-bear.workspace = true
-

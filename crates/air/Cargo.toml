@@ -3,6 +3,9 @@ name = "air"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 algebra.workspace = true
 p3-field.workspace = true

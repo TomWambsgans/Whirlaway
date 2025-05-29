@@ -103,10 +103,8 @@ impl MultiPath {
         let mut prev_auth_path: Vec<KeccakDigest> = vec![];
         let mut prev_hash_chain: Vec<KeccakDigest> = vec![];
 
-        for i in 0..n {
+        for (i, (leaf_index, leaf)) in leafs_with_index.iter().enumerate().take(n) {
             // decode i-th auth path
-
-            let (leaf_index, leaf) = leafs_with_index[i];
 
             let suffix = self.auth_paths_suffixes[i].clone();
 
@@ -132,17 +130,17 @@ impl MultiPath {
             let mut curr_hash = leaf_hash(leaf);
             prev_hash_chain.clear();
 
-            let mut index = leaf_index;
+            let mut index = *leaf_index;
             // Check levels between leaf level and root
-            for level in 0..tree_height {
+            for path in auth_path.iter().take(tree_height) {
                 prev_hash_chain.push(curr_hash.clone());
 
                 let (left, right) = if index & 1 == 0 {
                     // left child
-                    (&curr_hash, &auth_path[level])
+                    (&curr_hash, path)
                 } else {
                     // right child
-                    (&auth_path[level], &curr_hash)
+                    (path, &curr_hash)
                 };
                 index /= 2;
                 curr_hash = two_to_one_hash(left, right);
@@ -207,7 +205,7 @@ impl<F: Sync> MerkleTree<F> {
         }
     }
 
-    pub fn root(&self) -> &KeccakDigest {
+    pub const fn root(&self) -> &KeccakDigest {
         &self.root
     }
 

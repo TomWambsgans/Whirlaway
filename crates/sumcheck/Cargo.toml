@@ -3,6 +3,9 @@ name = "sumcheck"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 fiat-shamir.workspace = true
 algebra.workspace = true

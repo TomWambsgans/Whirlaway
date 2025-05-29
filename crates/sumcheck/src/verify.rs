@@ -14,7 +14,7 @@ pub enum SumcheckError {
 
 impl From<FsError> for SumcheckError {
     fn from(e: FsError) -> Self {
-        SumcheckError::Fs(e)
+        Self::Fs(e)
     }
 }
 

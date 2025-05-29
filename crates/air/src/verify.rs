@@ -196,8 +196,12 @@ impl<
 
         let final_inner_claims = fs_verifier.next_scalars::<EF>(self.n_witness_columns())?;
 
-        for u in 0..self.n_witness_columns() {
-            batched_inner_value += final_inner_claims[u]
+        for (u, final_inner_claim) in final_inner_claims
+            .iter()
+            .enumerate()
+            .take(self.n_witness_columns())
+        {
+            batched_inner_value += *final_inner_claim
                 * (secondary_sumcheck_batching_scalar.exp_u64(u as u64) * up
                     + secondary_sumcheck_batching_scalar
                         .exp_u64((u + self.n_witness_columns()) as u64)
@@ -229,7 +233,7 @@ impl<
 
         let mut statement = Statement::<EF>::new(final_point.len());
         statement.add_constraint(
-            Weights::evaluation(MultilinearPoint(final_point.clone())),
+            Weights::evaluation(MultilinearPoint(final_point)),
             packed_value,
         );
         whir_verifier

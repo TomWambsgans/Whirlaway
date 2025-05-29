@@ -19,6 +19,7 @@ use p3_field::Field;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FsError;
 
+#[derive(Default)]
 pub struct FsProver {
     state: KeccakDigest,
     transcript: Vec<u8>,
@@ -48,7 +49,7 @@ pub fn reset_total_grinding_time() {
 
 impl FsProver {
     pub fn new() -> Self {
-        FsProver {
+        Self {
             state: KeccakDigest::default(),
             transcript: Vec::new(),
         }
@@ -58,6 +59,7 @@ impl FsProver {
         self.state.to_string()
     }
 
+    #[allow(clippy::missing_const_for_fn)]
     pub fn transcript_len(&self) -> usize {
         self.transcript.len()
     }
@@ -107,9 +109,7 @@ impl FsProver {
     }
 
     pub fn challenge_pow(&mut self, bits: usize) {
-        if bits >= 30 {
-            panic!("too much grinding: {bits} bits");
-        }
+        assert!(bits < 30, "too much grinding: {bits} bits");
         if bits == 0 {
             return;
         }
@@ -141,7 +141,7 @@ impl FsProver {
 
 impl FsVerifier {
     pub fn new(transcript: Vec<u8>) -> Self {
-        FsVerifier {
+        Self {
             state: KeccakDigest::default(),
             transcript,
             cursor: 0,
@@ -247,11 +247,11 @@ impl FsParticipant for FsProver {
     where
         StandardUniform: Distribution<F>,
     {
-        FsProver::challenge_scalars(self, len)
+        Self::challenge_scalars(self, len)
     }
 
     fn challenge_pow(&mut self, bits: usize) -> Result<(), FsError> {
-        FsProver::challenge_pow(self, bits);
+        Self::challenge_pow(self, bits);
         Ok(())
     }
 }
@@ -261,11 +261,11 @@ impl FsParticipant for FsVerifier {
     where
         StandardUniform: Distribution<F>,
     {
-        FsVerifier::challenge_scalars(self, len)
+        Self::challenge_scalars(self, len)
     }
 
     fn challenge_pow(&mut self, bits: usize) -> Result<(), FsError> {
-        FsVerifier::challenge_pow(self, bits)
+        Self::challenge_pow(self, bits)
     }
 }
 

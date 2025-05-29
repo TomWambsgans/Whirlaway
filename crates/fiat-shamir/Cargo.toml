@@ -3,6 +3,9 @@ name = "fiat-shamir"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 utils.workspace = true
 p3-field.workspace = true
