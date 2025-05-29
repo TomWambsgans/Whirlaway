@@ -84,10 +84,11 @@ fn next_mle<F: Field>(point: &[F]) -> F {
 }
 
 pub(crate) fn columns_up_and_down<F: Field>(columns: &[&Multilinear<F>]) -> Vec<Multilinear<F>> {
-    let mut res = Vec::with_capacity(columns.len() * 2);
-    res.par_extend(columns.par_iter().map(|c| column_up(c)));
-    res.par_extend(columns.par_iter().map(|c| column_down(c)));
-    res
+    columns
+        .par_iter()
+        .map(|c| column_up(c))
+        .chain(columns.par_iter().map(|c| column_down(c)))
+        .collect()
 }
 
 pub(crate) fn column_up<F: Field>(column: &Multilinear<F>) -> Multilinear<F> {
@@ -102,7 +103,7 @@ pub(crate) fn column_down<F: Field>(column: &Multilinear<F>) -> Multilinear<F> {
     Multilinear::new(down)
 }
 
-impl<'a, F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<'a, F, EF, A> {
+impl<'a, F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A> {
     pub(crate) fn constraints_batching_pow<FS: FsParticipant>(
         &self,
         fs: &mut FS,
