@@ -9,7 +9,7 @@ use whir_p3::parameters::{FoldingFactor, errors::SecurityAssumption};
 const SECURITY_BITS: usize = 100; // (temporary)
 
 fn main() {
-    let (log_n_rows, log_inv_rate) = (15, 1);
+    let (log_n_rows, log_inv_rate) = (16, 1);
     let benchmark = prove_poseidon2_with(
         SupportedField::KoalaBear,
         log_n_rows,

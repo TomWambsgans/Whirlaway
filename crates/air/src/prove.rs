@@ -5,6 +5,7 @@ use p3_dft::Radix2DitParallel;
 use p3_field::{
     ExtensionField, Field, PrimeCharacteristicRing, PrimeField64, TwoAdicField, dot_product,
 };
+use p3_keccak::KeccakF;
 use rand::distr::{Distribution, StandardUniform};
 use sumcheck::{SumcheckComputation, SumcheckGrinding};
 use tracing::{Level, instrument, span};
@@ -64,7 +65,7 @@ impl<
         assert!(witness.iter().all(|w| w.n_vars == log_length));
 
         let whir_params = self.build_whir_params(settings);
-        let mut domainsep = DomainSeparator::new("🐎");
+        let mut domainsep = DomainSeparator::new("🐎", KeccakF);
         domainsep.commit_statement(&whir_params);
         domainsep.add_whir_proof(&whir_params);
         let mut prover_state = domainsep.to_prover_state();

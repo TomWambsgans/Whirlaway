@@ -2,6 +2,7 @@ use algebra::Multilinear;
 use fiat_shamir::{FsError, FsVerifier};
 use p3_air::Air;
 use p3_field::{ExtensionField, PrimeCharacteristicRing, PrimeField64, TwoAdicField, dot_product};
+use p3_keccak::KeccakF;
 use rand::distr::{Distribution, StandardUniform};
 use sumcheck::{SumcheckComputation, SumcheckError, SumcheckGrinding};
 use tracing::instrument;
@@ -71,7 +72,7 @@ impl<
 
         let commitment_reader = CommitmentReader::new(&whir_params);
         let whir_verifier = Verifier::new(&whir_params);
-        let mut domainsep = DomainSeparator::new("🐎");
+        let mut domainsep = DomainSeparator::new("🐎", KeccakF);
         domainsep.commit_statement(&whir_params);
         domainsep.add_whir_proof(&whir_params);
         let mut verifier_state = domainsep.to_verifier_state(prover_state.narg_string());
