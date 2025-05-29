@@ -251,7 +251,7 @@ impl<
 
         let mut statement = Statement::<EF>::new(final_point.len());
         statement.add_constraint(
-            Weights::evaluation(MultilinearPoint(final_point.clone())),
+            Weights::evaluation(MultilinearPoint(final_point)),
             packed_value,
         );
         prover

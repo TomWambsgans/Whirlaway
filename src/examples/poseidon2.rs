@@ -1,7 +1,6 @@
 use ::air::AirSettings;
 use air::table::AirTable;
 use algebra::Multilinear;
-use colored::Colorize;
 use fiat_shamir::{FsProver, FsVerifier, get_total_grinding_time, reset_total_grinding_time};
 use p3_baby_bear::{BabyBear, GenericPoseidon2LinearLayersBabyBear};
 use p3_field::{
@@ -18,6 +17,7 @@ use rand::{
     distr::{Distribution, StandardUniform},
     rngs::StdRng,
 };
+use std::fmt;
 use std::time::{Duration, Instant};
 use tracing::level_filters::LevelFilter;
 use tracing_forest::ForestLayer;
@@ -56,38 +56,35 @@ pub struct Poseidon2Benchmark {
     pub total_grinding_time: Duration,
 }
 
-impl ToString for Poseidon2Benchmark {
-    fn to_string(&self) -> String {
-        let mut res = String::new();
-        res += &format!(
-            "Security level: {} bits ({:?}), starting rate: 1/{}, folding factor: {}\n",
+impl fmt::Display for Poseidon2Benchmark {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(
+            f,
+            "Security level: {} bits ({:?}), starting rate: 1/{}, folding factor: {}",
             self.settings.security_bits,
             self.settings.whir_soudness_type,
             1 << self.settings.whir_log_inv_rate,
             match self.settings.whir_folding_factor {
-                FoldingFactor::Constant(f) => format!("{f}"),
+                FoldingFactor::Constant(factor) => format!("{factor}"),
                 FoldingFactor::ConstantFromSecondRound(first, then) =>
                     format!("1st: {first} then {then}"),
             }
-        );
+        )?;
         let n_rows = 1 << self.log_n_rows;
-        res += &format!(
-            "Proved {} poseidon2 hashes in {:.3} s ({} / s)\n",
+        writeln!(
+            f,
+            "Proved {} poseidon2 hashes in {:.3} s ({} / s)",
             n_rows,
             self.prover_time.as_millis() as f64 / 1000.0,
             (n_rows as f64 / self.prover_time.as_secs_f64()).round() as usize
-        );
-        res += &format!("Proof size: {:.1} KiB\n", self.proof_size as f64 / 1024.0);
-        res += &format!("Verification: {} ms\n", self.verifier_time.as_millis());
-
-        res += &format!(
-            "\nTotal grinding time: {:.3} s\n",
+        )?;
+        writeln!(f, "Proof size: {:.1} KiB", self.proof_size as f64 / 1024.0)?;
+        writeln!(f, "Verification: {} ms", self.verifier_time.as_millis())?;
+        writeln!(
+            f,
+            "\nTotal grinding time: {:.3} s",
             self.total_grinding_time.as_millis() as f64 / 1000.0
         )
-        .blue()
-        .to_string();
-
-        res
     }
 }
 
@@ -194,11 +191,9 @@ fn prove_poseidon2_baby_bear(
 // }
 
 fn prove_poseidon2<
-    F: TwoAdicField + PrimeField64,
-    EF: ExtensionField<F> + TwoAdicField + Ord,
-    LinearLayers: GenericPoseidon2LinearLayers<F, WIDTH>
-        + GenericPoseidon2LinearLayers<EF, WIDTH>
-        + GenericPoseidon2LinearLayers<SymbolicExpression<F>, WIDTH>,
+    F,
+    EF,
+    LinearLayers,
     const WIDTH: usize,
     const SBOX_DEGREE: u64,
     const SBOX_REGISTERS: usize,
@@ -212,10 +207,16 @@ fn prove_poseidon2<
 ) -> Poseidon2Benchmark
 where
     StandardUniform: Distribution<F>,
-    EF: ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>,
-    F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
+    EF: ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>
+        + ExtensionField<F>
+        + TwoAdicField
+        + Ord,
+    F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield> + TwoAdicField + PrimeField64,
     <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
     StandardUniform: Distribution<EF>,
+    LinearLayers: GenericPoseidon2LinearLayers<F, WIDTH>
+        + GenericPoseidon2LinearLayers<EF, WIDTH>
+        + GenericPoseidon2LinearLayers<SymbolicExpression<F>, WIDTH>,
 {
     if display_logs {
         let env_filter = EnvFilter::builder()

@@ -12,6 +12,7 @@ use crate::{SumcheckComputation, SumcheckGrinding};
 
 pub const MIN_VARS_FOR_GPU: usize = 0; // When there are a small number of variables, it's not worth using GPU
 
+#[allow(clippy::too_many_arguments)]
 pub fn prove<
     F: Field,
     NF: ExtensionField<F>,
@@ -86,6 +87,7 @@ where
 }
 
 #[instrument(name = "sumcheck_round", skip_all, fields(round))]
+#[allow(clippy::too_many_arguments)]
 pub fn sc_round<
     F: Field,
     NF: ExtensionField<F>,
@@ -193,19 +195,17 @@ where
     Multilinear::batch_fold_rectangular_in_large_field(multilinears, &folding_scalars)
 }
 
-fn compute_over_hypercube<
-    F: Field,
-    NF: ExtensionField<F>,
-    EF: ExtensionField<F> + ExtensionField<NF>,
-    SC: SumcheckComputation<F, NF, EF>,
->(
+fn compute_over_hypercube<F, NF, EF, SC>(
     pols: &[Multilinear<NF>],
     computation: &SC,
     batching_scalars: &[EF],
     eq_mle: Option<&Multilinear<EF>>,
 ) -> EF
 where
-    F: ExtensionField<F>,
+    F: Field + ExtensionField<F>,
+    NF: ExtensionField<F>,
+    EF: ExtensionField<F> + ExtensionField<NF>,
+    SC: SumcheckComputation<F, NF, EF>,
 {
     assert!(pols.iter().all(|p| p.n_vars == pols[0].n_vars));
     HypercubePoint::par_iter(pols[0].n_vars)
@@ -218,7 +218,6 @@ where
 }
 
 pub fn eval_sumcheck_computation<
-    'a,
     F: Field,
     NF: ExtensionField<F>,
     EF: ExtensionField<F> + ExtensionField<NF>,
@@ -226,7 +225,7 @@ pub fn eval_sumcheck_computation<
 >(
     computation: &SC,
     batching_scalars: &[EF],
-    point: &'a [NF],
+    point: &[NF],
     eq_mle_eval: Option<EF>,
 ) -> EF {
     let res = computation.eval(point, batching_scalars);

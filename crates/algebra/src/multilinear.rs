@@ -13,14 +13,14 @@ Multilinear Polynomials represented as a vector of its evaluations on the boolea
 
 */
 
-#[derive(Clone, PartialEq, PartialOrd, Debug)]
+#[derive(Clone, Eq, PartialEq, PartialOrd, Debug)]
 pub struct Multilinear<F: Field> {
     pub n_vars: usize,
     pub evals: Vec<F>, // [f(0, 0, ..., 0), f(0, 0, ..., 0, 1), f(0, 0, ..., 0, 1, 0), f(0, 0, ..., 0, 1, 1), ...]
 }
 
 impl<F: Field> Multilinear<F> {
-    pub fn n_coefs(&self) -> usize {
+    pub const fn n_coefs(&self) -> usize {
         1 << self.n_vars
     }
 
@@ -77,7 +77,7 @@ impl<F: Field> Multilinear<F> {
                     .map(|(j, scalar)| self.evals[i + j * new_size] * *scalar)
                     .sum();
             });
-        Multilinear::new(new_evals)
+        Self::new(new_evals)
     }
 
     pub fn fold_rectangular_in_large_field<EF: ExtensionField<F>>(
@@ -131,11 +131,11 @@ impl<F: Field> Multilinear<F> {
         Multilinear::new(self.evals.par_iter().map(|&e| scalar * e).collect())
     }
 
-    pub fn scale_small_field<SF: Field>(&self, scalar: SF) -> Multilinear<F>
+    pub fn scale_small_field<SF: Field>(&self, scalar: SF) -> Self
     where
         F: ExtensionField<SF>,
     {
-        Multilinear::new(self.evals.par_iter().map(|&e| e * scalar).collect())
+        Self::new(self.evals.par_iter().map(|&e| e * scalar).collect())
     }
 
     pub fn eq_mle(scalars: &[F]) -> Self {
@@ -214,7 +214,7 @@ impl<F: Field> Multilinear<F> {
     pub fn batch_fold_rectangular_in_small_field<S: Field>(
         pols: &[&Self],
         scalars: &[S],
-    ) -> Vec<Multilinear<F>>
+    ) -> Vec<Self>
     where
         F: ExtensionField<S>,
     {
@@ -242,6 +242,6 @@ impl<F: Field> Multilinear<F> {
             dst[offset..offset + pol.n_coefs()].copy_from_slice(&pol.evals);
             offset += pol.n_coefs();
         }
-        Multilinear::new(dst)
+        Self::new(dst)
     }
 }

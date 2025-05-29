@@ -52,6 +52,8 @@ impl<'a, F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<'a, 
             _phantom: std::marker::PhantomData,
         }
     }
+
+    #[allow(clippy::missing_const_for_fn)]
     pub fn n_witness_columns(&self) -> usize {
         self.n_columns - self.preprocessed_columns.len()
     }
@@ -61,6 +63,7 @@ impl<'a, F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<'a, 
         log2_up(self.n_witness_columns())
     }
 
+    #[allow(clippy::missing_const_for_fn)]
     pub fn n_preprocessed_columns(&self) -> usize {
         self.preprocessed_columns.len()
     }

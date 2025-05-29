@@ -11,10 +11,11 @@ pub struct UnivariatePolynomial<F: Field> {
 
 // Dense
 impl<F: Field> UnivariatePolynomial<F> {
-    pub fn new(coeffs: Vec<F>) -> Self {
+    pub const fn new(coeffs: Vec<F>) -> Self {
         Self { coeffs }
     }
 
+    #[allow(clippy::missing_const_for_fn)]
     pub fn degree(&self) -> usize {
         self.coeffs.len() - 1
     }
@@ -53,17 +54,15 @@ impl<F: Field> UnivariatePolynomial<F> {
             let mut term = vec![F::ZERO; n];
             let mut product = F::ONE;
 
-            for j in 0..n {
+            for (j, (x_j, _)) in values.iter().enumerate().take(n) {
                 if i != j {
-                    let (x_j, _) = values[j];
-                    product *= (x_i - x_j).try_inverse()?;
+                    product *= (x_i - *x_j).try_inverse()?;
                 }
             }
 
             term[0] = product * y_i;
-            for j in 0..n {
+            for (j, (x_j, _)) in values.iter().enumerate().take(n) {
                 if i != j {
-                    let (x_j, _) = values[j];
                     let mut new_term = term.clone();
                     for k in (1..n).rev() {
                         new_term[k] = new_term[k - 1];
@@ -71,7 +70,7 @@ impl<F: Field> UnivariatePolynomial<F> {
                     new_term[0] = F::ZERO;
 
                     for k in 0..n {
-                        term[k] = term[k] * (-x_j) + new_term[k];
+                        term[k] = term[k] * (-*x_j) + new_term[k];
                     }
                 }
             }

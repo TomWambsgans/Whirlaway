@@ -3,6 +3,9 @@ name = "merkle-tree"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 rayon.workspace = true
 sha3.workspace = true
