@@ -108,7 +108,7 @@ impl FsProver {
 
     pub fn challenge_pow(&mut self, bits: usize) {
         if bits >= 30 {
-            panic!("too much grinding: {} bits", bits);
+            panic!("too much grinding: {bits} bits");
         }
         if bits == 0 {
             return;

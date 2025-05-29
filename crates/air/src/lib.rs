@@ -29,13 +29,13 @@ pub struct AirSettings {
 }
 
 impl AirSettings {
-    pub fn new(
+    pub const fn new(
         security_bits: usize,
         whir_soudness_type: SecurityAssumption,
         whir_folding_factor: FoldingFactor,
         whir_log_inv_rate: usize,
         univariate_skips: usize,
-        whir_innitial_domain_reduction_factor: usize,
+        whir_initial_domain_reduction_factor: usize,
     ) -> Self {
         Self {
             security_bits,
@@ -43,7 +43,7 @@ impl AirSettings {
             whir_folding_factor,
             whir_log_inv_rate,
             univariate_skips,
-            whir_initial_domain_reduction_factor: whir_innitial_domain_reduction_factor,
+            whir_initial_domain_reduction_factor,
         }
     }
 }

@@ -229,9 +229,6 @@ pub fn eval_sumcheck_computation<
     point: &'a [NF],
     eq_mle_eval: Option<EF>,
 ) -> EF {
-    let mut res = computation.eval(point, batching_scalars);
-    if let Some(eq_mle_eval) = eq_mle_eval {
-        res *= eq_mle_eval;
-    }
-    res
+    let res = computation.eval(point, batching_scalars);
+    eq_mle_eval.map_or(res, |factor| res * factor)
 }
