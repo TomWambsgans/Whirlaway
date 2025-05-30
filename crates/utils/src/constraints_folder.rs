@@ -3,12 +3,12 @@ use p3_field::{ExtensionField, Field};
 use p3_matrix::dense::RowMajorMatrixView;
 
 #[derive(Debug)]
-pub struct ConstraintFolder<
-    'a,
+pub struct ConstraintFolder<'a, F, NF, EF>
+where
     F: Field,
     NF: ExtensionField<F>,
-    EF: ExtensionField<F> + ExtensionField<NF>,
-> {
+    EF: ExtensionField<NF>,
+{
     pub main: RowMajorMatrixView<'a, NF>,
     pub alpha_powers: &'a [EF],
     pub accumulator: EF,
@@ -16,8 +16,11 @@ pub struct ConstraintFolder<
     pub _phantom: std::marker::PhantomData<F>,
 }
 
-impl<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<F> + ExtensionField<NF>> AirBuilder
-    for ConstraintFolder<'a, F, NF, EF>
+impl<'a, F, NF, EF> AirBuilder for ConstraintFolder<'a, F, NF, EF>
+where
+    F: Field,
+    NF: ExtensionField<F>,
+    EF: ExtensionField<NF>,
 {
     type F = F;
     type Expr = NF;

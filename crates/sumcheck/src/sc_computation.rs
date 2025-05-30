@@ -7,7 +7,7 @@ pub trait SumcheckComputation<F, NF, EF>: Sync
 where
     F: Field,
     NF: ExtensionField<F>,
-    EF: ExtensionField<F> + ExtensionField<NF>,
+    EF: ExtensionField<NF>,
 {
     fn eval(&self, point: &[NF], alpha_powers: &[EF]) -> EF;
 }
@@ -16,7 +16,7 @@ impl<'a, F: Field, NF, EF, A> SumcheckComputation<F, NF, EF> for A
 where
     F: Field,
     NF: ExtensionField<F>,
-    EF: ExtensionField<F> + ExtensionField<NF>,
+    EF: ExtensionField<NF>,
     A: Air<ConstraintFolder<'a, F, NF, EF>>,
 {
     fn eval(&self, point: &[NF], alpha_powers: &[EF]) -> EF {
