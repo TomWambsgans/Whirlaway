@@ -214,20 +214,21 @@ where
             let eq_mle_eval = eq_mle.map(|p| p.evals[x.val]);
             eval_sumcheck_computation(computation, batching_scalars, &point, eq_mle_eval)
         })
-        .sum::<EF>()
+        .sum()
 }
 
-pub fn eval_sumcheck_computation<
-    F: Field,
-    NF: ExtensionField<F>,
-    EF: ExtensionField<F> + ExtensionField<NF>,
-    SC: SumcheckComputation<F, NF, EF>,
->(
+pub fn eval_sumcheck_computation<F, NF, EF, SC>(
     computation: &SC,
     batching_scalars: &[EF],
     point: &[NF],
     eq_mle_eval: Option<EF>,
-) -> EF {
+) -> EF
+where
+    F: Field,
+    NF: ExtensionField<F>,
+    EF: ExtensionField<NF>,
+    SC: SumcheckComputation<F, NF, EF>,
+{
     let res = computation.eval(point, batching_scalars);
     eq_mle_eval.map_or(res, |factor| res * factor)
 }
