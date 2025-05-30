@@ -1146,10 +1146,11 @@ dependencies = [
  "bincode",
  "p3-air",
  "p3-field",
+ "p3-keccak",
  "p3-koala-bear",
  "p3-matrix",
+ "p3-symmetric",
  "rayon",
- "sha3",
 ]
 
 [[package]]
