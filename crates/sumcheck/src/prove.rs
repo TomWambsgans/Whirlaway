@@ -204,7 +204,7 @@ fn compute_over_hypercube<F, NF, EF, SC>(
 where
     F: Field,
     NF: ExtensionField<F>,
-    EF: ExtensionField<F> + ExtensionField<NF>,
+    EF: ExtensionField<NF>,
     SC: SumcheckComputation<F, NF, EF>,
 {
     assert!(pols.iter().all(|p| p.n_vars == pols[0].n_vars));
