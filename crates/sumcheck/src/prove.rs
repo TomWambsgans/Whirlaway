@@ -202,7 +202,7 @@ fn compute_over_hypercube<F, NF, EF, SC>(
     eq_mle: Option<&Multilinear<EF>>,
 ) -> EF
 where
-    F: Field + ExtensionField<F>,
+    F: Field,
     NF: ExtensionField<F>,
     EF: ExtensionField<F> + ExtensionField<NF>,
     SC: SumcheckComputation<F, NF, EF>,
