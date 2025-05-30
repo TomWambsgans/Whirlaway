@@ -93,7 +93,7 @@ pub(crate) fn columns_up_and_down<F: Field>(columns: &[&Multilinear<F>]) -> Vec<
 
 pub(crate) fn column_up<F: Field>(column: &Multilinear<F>) -> Multilinear<F> {
     let mut up = column.clone();
-    up.evals[column.n_coefs() - 1] = up.evals[column.n_coefs() - 2];
+    up.evals[column.n_coeffs() - 1] = up.evals[column.n_coeffs() - 2];
     up
 }
 
