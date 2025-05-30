@@ -2,9 +2,7 @@ use algebra::Multilinear;
 use fiat_shamir::FsProver;
 use p3_air::Air;
 use p3_dft::Radix2DitParallel;
-use p3_field::{
-    ExtensionField, Field, PrimeCharacteristicRing, PrimeField64, TwoAdicField, dot_product,
-};
+use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField, dot_product};
 use p3_keccak::KeccakF;
 use rand::distr::{Distribution, StandardUniform};
 use sumcheck::{SumcheckComputation, SumcheckGrinding};
@@ -36,12 +34,11 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 
 */
 
-impl<
-    'a,
+impl<'a, F, EF, A> AirTable<F, EF, A>
+where
     F: TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     A: Air<ConstraintFolder<'a, F, F, EF>> + Air<ConstraintFolder<'a, F, EF, EF>>,
-> AirTable<F, EF, A>
 {
     #[instrument(name = "air: prove", skip_all)]
     pub fn prove(
@@ -51,11 +48,7 @@ impl<
         witness: Vec<Multilinear<F>>,
     ) -> ProverState<EF, F>
     where
-        F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-        EF: ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield> + TwoAdicField + Ord,
-        F::PrimeSubfield: TwoAdicField,
-        StandardUniform: Distribution<EF>,
-        StandardUniform: Distribution<F>,
+        StandardUniform: Distribution<EF> + Distribution<F>,
     {
         assert!(
             settings.univariate_skips < self.log_length,
