@@ -1,7 +1,7 @@
 use algebra::Multilinear;
 use fiat_shamir::{FsError, FsVerifier};
 use p3_air::Air;
-use p3_field::{ExtensionField, PrimeCharacteristicRing, PrimeField64, TwoAdicField, dot_product};
+use p3_field::{ExtensionField, PrimeField64, TwoAdicField, dot_product};
 use p3_keccak::KeccakF;
 use rand::distr::{Distribution, StandardUniform};
 use sumcheck::{SumcheckComputation, SumcheckError, SumcheckGrinding};
@@ -62,11 +62,7 @@ impl<
         prover_state: ProverState<EF, F>,
     ) -> Result<(), AirVerifError>
     where
-        F: TwoAdicField,
-        EF: TwoAdicField,
-        F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-        StandardUniform: Distribution<EF>,
-        StandardUniform: Distribution<F>,
+        StandardUniform: Distribution<EF> + Distribution<F>,
     {
         let whir_params = self.build_whir_params(settings);
 
