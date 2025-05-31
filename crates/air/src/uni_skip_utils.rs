@@ -66,9 +66,9 @@ pub fn matrix_down_folded_with_univariate_skips<F: Field>(
                 let eq_mle = &inner_mles[(m - k - 1).saturating_sub(x.n_vars)];
                 // MultilinearHost::eq_mle(&outer_challenges[0..n - k - 1]);
                 let eq_mle = eq_mle.scale_large_field(outer_challenges_prod);
-                let n_coefs = eq_mle.n_coefs();
+                let n_coeffs = eq_mle.n_coeffs();
                 for (mut i, v) in eq_mle.evals.into_iter().enumerate() {
-                    i += (x.val >> (x.n_vars - x.n_vars.min(m - k - 1))) * n_coefs;
+                    i += (x.val >> (x.n_vars - x.n_vars.min(m - k - 1))) * n_coeffs;
                     i <<= k + 1;
                     i += 1 << k;
                     block[i] += v;

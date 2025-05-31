@@ -20,20 +20,20 @@ pub struct Multilinear<F: Field> {
 }
 
 impl<F: Field> Multilinear<F> {
-    pub const fn n_coefs(&self) -> usize {
+    pub const fn n_coeffs(&self) -> usize {
         1 << self.n_vars
     }
 
     pub fn zero(n_vars: usize) -> Self {
         Self {
             n_vars,
-            evals: vec![F::ZERO; 1 << n_vars],
+            evals: F::zero_vec(1 << n_vars),
         }
     }
 
     pub fn new(evals: Vec<F>) -> Self {
         assert!(evals.is_empty() || evals.len().is_power_of_two());
-        let n_vars = (evals.len() as f64).log2() as usize;
+        let n_vars = evals.len().ilog2() as usize;
         Self { n_vars, evals }
     }
 
@@ -42,7 +42,7 @@ impl<F: Field> Multilinear<F> {
         if self.n_vars == 0 {
             return EF::from(self.evals[0]);
         }
-        let mut n = self.n_coefs();
+        let mut n = self.n_coeffs();
         let mut buff = self.evals[..n / 2]
             .par_iter()
             .zip(&self.evals[n / 2..])
@@ -59,46 +59,45 @@ impl<F: Field> Multilinear<F> {
         buff[0]
     }
 
-    pub fn fold_rectangular_in_small_field<S: Field>(&self, scalars: &[S]) -> Self
+    pub fn fold_rectangular_in_small_field<S>(&self, scalars: &[S]) -> Self
     where
+        S: Field,
         F: ExtensionField<S>,
     {
-        assert!(scalars.len().is_power_of_two());
-        assert!(scalars.len() <= self.n_coefs());
+        assert!(scalars.len().is_power_of_two() && scalars.len() <= self.n_coeffs());
         let new_size = self.evals.len() / scalars.len();
-        let mut new_evals = vec![F::ZERO; new_size];
-        new_evals
-            .par_iter_mut()
-            .enumerate()
-            .for_each(|(i, result)| {
-                *result = scalars
-                    .iter()
-                    .enumerate()
-                    .map(|(j, scalar)| self.evals[i + j * new_size] * *scalar)
-                    .sum();
-            });
-        Self::new(new_evals)
+        Self::new(
+            (0..new_size)
+                .into_par_iter()
+                .map(|i| {
+                    scalars
+                        .iter()
+                        .enumerate()
+                        .map(|(j, s)| self.evals[i + j * new_size] * *s)
+                        .sum()
+                })
+                .collect(),
+        )
     }
 
     pub fn fold_rectangular_in_large_field<EF: ExtensionField<F>>(
         &self,
         scalars: &[EF],
     ) -> Multilinear<EF> {
-        assert!(scalars.len().is_power_of_two());
-        assert!(scalars.len() <= self.n_coefs());
+        assert!(scalars.len().is_power_of_two() && scalars.len() <= self.n_coeffs());
         let new_size = self.evals.len() / scalars.len();
-        let mut new_evals = vec![EF::ZERO; new_size];
-        new_evals
-            .par_iter_mut()
-            .enumerate()
-            .for_each(|(i, result)| {
-                *result = scalars
-                    .iter()
-                    .enumerate()
-                    .map(|(j, scalar)| *scalar * self.evals[i + j * new_size])
-                    .sum();
-            });
-        Multilinear::new(new_evals)
+        Multilinear::new(
+            (0..new_size)
+                .into_par_iter()
+                .map(|i| {
+                    scalars
+                        .iter()
+                        .enumerate()
+                        .map(|(j, s)| *s * self.evals[i + j * new_size])
+                        .sum()
+                })
+                .collect(),
+        )
     }
 
     pub fn linear_combination<EF: ExtensionField<F>, P: Borrow<Self>>(
@@ -108,7 +107,7 @@ impl<F: Field> Multilinear<F> {
         assert_eq!(pols.len(), scalars.len());
         let mut sum = Multilinear::<EF>::zero(pols[0].borrow().n_vars);
         for i in 0..scalars.len() {
-            sum.add_assign::<EF>(&pols[i].borrow().scale_large_field::<EF>(scalars[i]));
+            sum.add_assign::<EF>(&pols[i].borrow().scale_large_field(scalars[i]));
         }
         sum
     }
@@ -123,19 +122,8 @@ impl<F: Field> Multilinear<F> {
         }
     }
 
-    pub fn max_degree_per_vars(&self) -> Vec<usize> {
-        vec![1; self.n_vars]
-    }
-
     pub fn scale_large_field<EF: ExtensionField<F>>(&self, scalar: EF) -> Multilinear<EF> {
         Multilinear::new(self.evals.par_iter().map(|&e| scalar * e).collect())
-    }
-
-    pub fn scale_small_field<SF: Field>(&self, scalar: SF) -> Self
-    where
-        F: ExtensionField<SF>,
-    {
-        Self::new(self.evals.par_iter().map(|&e| e * scalar).collect())
     }
 
     pub fn eq_mle(scalars: &[F]) -> Self {
@@ -211,11 +199,9 @@ impl<F: Field> Multilinear<F> {
         pols.par_iter().map(|pol| pol.evaluate(point)).collect()
     }
 
-    pub fn batch_fold_rectangular_in_small_field<S: Field>(
-        pols: &[&Self],
-        scalars: &[S],
-    ) -> Vec<Self>
+    pub fn batch_fold_rectangular_in_small_field<S>(pols: &[&Self], scalars: &[S]) -> Vec<Self>
     where
+        S: Field,
         F: ExtensionField<S>,
     {
         pols.par_iter()
@@ -239,8 +225,8 @@ impl<F: Field> Multilinear<F> {
         let mut dst = vec![F::ZERO; packed_len];
         let mut offset = 0;
         for pol in pols {
-            dst[offset..offset + pol.n_coefs()].copy_from_slice(&pol.evals);
-            offset += pol.n_coefs();
+            dst[offset..offset + pol.n_coeffs()].copy_from_slice(&pol.evals);
+            offset += pol.n_coeffs();
         }
         Self::new(dst)
     }
