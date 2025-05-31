@@ -2,13 +2,11 @@ use algebra::Multilinear;
 use fiat_shamir::FsProver;
 use p3_air::Air;
 use p3_dft::Radix2DitParallel;
-use p3_field::{
-    ExtensionField, Field, PrimeCharacteristicRing, PrimeField64, TwoAdicField, dot_product,
-};
+use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField, dot_product};
 use p3_keccak::KeccakF;
 use rand::distr::{Distribution, StandardUniform};
 use sumcheck::{SumcheckComputation, SumcheckGrinding};
-use tracing::{Level, instrument, span};
+use tracing::{Level, info_span, instrument, span};
 use utils::{ConstraintFolder, powers};
 use whir_p3::{
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
@@ -36,12 +34,11 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 
 */
 
-impl<
-    'a,
+impl<'a, F, EF, A> AirTable<F, EF, A>
+where
     F: TwoAdicField + PrimeField64,
     EF: ExtensionField<F> + TwoAdicField,
     A: Air<ConstraintFolder<'a, F, F, EF>> + Air<ConstraintFolder<'a, F, EF, EF>>,
-> AirTable<F, EF, A>
 {
     #[instrument(name = "air: prove", skip_all)]
     pub fn prove(
@@ -51,11 +48,7 @@ impl<
         witness: Vec<Multilinear<F>>,
     ) -> ProverState<EF, F>
     where
-        F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield>,
-        EF: ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield> + TwoAdicField + Ord,
-        F::PrimeSubfield: TwoAdicField,
-        StandardUniform: Distribution<EF>,
-        StandardUniform: Distribution<F>,
+        StandardUniform: Distribution<EF> + Distribution<F>,
     {
         assert!(
             settings.univariate_skips < self.log_length,
@@ -78,7 +71,7 @@ impl<
 
         let committer = CommitmentWriter::new(&whir_params);
 
-        let dft_committer = Radix2DitParallel::<F>::default();
+        let dft_committer = Radix2DitParallel::default();
 
         let packed_witness = committer
             .commit(
@@ -104,11 +97,10 @@ impl<
             .iter()
             .chain(&witness)
             .collect::<Vec<_>>();
-        let (zerocheck_challenges, all_inner_sums, _) = {
-            let _span = span!(Level::INFO, "zerocheck").entered();
-            sumcheck::prove::<F, F, EF, _, A>(
+        let (zerocheck_challenges, all_inner_sums, _) = info_span!("zerocheck").in_scope(|| {
+            sumcheck::prove::<_, _, _, _, A>(
                 settings.univariate_skips,
-                columns_up_and_down(&preprocessed_and_witness).as_ref(),
+                &columns_up_and_down(&preprocessed_and_witness),
                 &self.air,
                 self.constraint_degree,
                 &constraints_batching_scalars,
@@ -122,31 +114,30 @@ impl<
                 },
                 None,
             )
-        };
+        });
 
         let _span = span!(Level::INFO, "inner sumchecks").entered();
 
-        let inner_sums_up = &all_inner_sums[self.n_preprocessed_columns()..self.n_columns];
-        let inner_sums_down = &all_inner_sums[self.n_columns + self.n_preprocessed_columns()..];
-        let _span_evals = span!(Level::INFO, "column evalutations").entered();
-        let inner_sums = inner_sums_up
-            .iter()
-            .chain(inner_sums_down)
-            .map(|s| s.evaluate::<EF>(&[]))
-            .collect::<Vec<_>>();
-
-        std::mem::drop(_span_evals);
+        let (inner_sums_up, inner_sums_down) =
+            all_inner_sums.split_at(self.n_columns + self.n_preprocessed_columns());
+        let inner_sums = info_span!("column evaluations").in_scope(|| {
+            inner_sums_up
+                .iter()
+                .chain(inner_sums_down)
+                .map(|s| s.evaluate::<EF>(&[]))
+                .collect::<Vec<_>>()
+        });
         fs_prover.add_scalars(&inner_sums);
 
-        let _span_pow = span!(Level::INFO, "pow grinding").entered();
-        self.secondary_sumchecks_batching_pow(fs_prover, settings)
-            .unwrap();
-        std::mem::drop(_span_pow);
+        info_span!("pow grinding").in_scope(|| {
+            self.secondary_sumchecks_batching_pow(fs_prover, settings)
+                .unwrap();
+        });
         let secondary_sumcheck_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
 
         let mles_for_inner_sumcheck = {
             let _span_mles = span!(Level::INFO, "constructing MLEs").entered();
-            let mut nodes = Vec::<Multilinear<EF>>::new();
+            let mut nodes = Vec::new();
             let _span_linear_comb = span!(Level::INFO, "linear combination of columns").entered();
             let expanded_scalars = powers(
                 secondary_sumcheck_batching_scalar,
@@ -186,19 +177,18 @@ impl<
             nodes
         };
 
-        let _span_dot_product = span!(Level::INFO, "dot product").entered();
-        let inner_sum = dot_product(
-            inner_sums.into_iter(),
-            powers(
-                secondary_sumcheck_batching_scalar,
-                self.n_witness_columns() * 2,
+        let inner_sum = info_span!("dot product").in_scope(|| {
+            dot_product(
+                inner_sums.into_iter(),
+                powers(
+                    secondary_sumcheck_batching_scalar,
+                    self.n_witness_columns() * 2,
+                )
+                .into_iter(),
             )
-            .into_iter(),
-        );
+        });
 
-        std::mem::drop(_span_dot_product);
-
-        let (inner_challenges, _, _) = sumcheck::prove::<F, EF, EF, _, _>(
+        let (inner_challenges, _, _) = sumcheck::prove::<F, _, _, _, _>(
             1,
             &mles_for_inner_sumcheck,
             &InnerSumcheckCircuit,
@@ -215,13 +205,12 @@ impl<
             None,
         );
 
-        let _span_evals = span!(Level::INFO, "evaluating witness").entered();
-        let values = Multilinear::batch_evaluate_in_large_field(
-            &witness,
-            &inner_challenges[settings.univariate_skips..],
-        );
-
-        std::mem::drop(_span_evals);
+        let values = info_span!("evaluating witness").in_scope(|| {
+            Multilinear::batch_evaluate_in_large_field(
+                &witness,
+                &inner_challenges[settings.univariate_skips..],
+            )
+        });
 
         fs_prover.add_scalars(&values);
 
@@ -232,25 +221,25 @@ impl<
         ]
         .concat();
 
-        let _span_final_point = span!(Level::INFO, "final point").entered();
-        let packed_value = Multilinear::new(
-            [
-                values,
-                vec![EF::ZERO; (1 << self.log_n_witness_columns()) - self.n_witness_columns()],
-            ]
-            .concat(),
-        )
-        .evaluate(&final_random_scalars);
+        let packed_value = info_span!("final point").in_scope(|| {
+            Multilinear::new(
+                [
+                    values,
+                    EF::zero_vec((1 << self.log_n_witness_columns()) - self.n_witness_columns()),
+                ]
+                .concat(),
+            )
+            .evaluate(&final_random_scalars)
+        });
 
-        std::mem::drop(_span_final_point);
         std::mem::drop(_span);
 
         //pcs.open(packed_pol_witness, vec![packed_eval], fs_prover);
         let prover = Prover(&whir_params);
 
-        let dft_prover = Radix2DitParallel::<F>::default();
+        let dft_prover = Radix2DitParallel::default();
 
-        let mut statement = Statement::<EF>::new(final_point.len());
+        let mut statement = Statement::new(final_point.len());
         statement.add_constraint(
             Weights::evaluation(MultilinearPoint(final_point)),
             packed_value,
