@@ -1,6 +1,6 @@
-use sha3::{Digest, Keccak256};
+use p3_keccak::Keccak256Hash;
+use p3_symmetric::CryptographicHasher;
 use std::fmt;
-
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct KeccakDigest(pub [u8; 32]);
 
@@ -14,10 +14,5 @@ impl fmt::Display for KeccakDigest {
 }
 
 pub fn keccak256(data: &[u8]) -> KeccakDigest {
-    let mut hasher = Keccak256::new();
-    hasher.update(data);
-    let result = hasher.finalize();
-    let mut output = [0u8; 32];
-    output.copy_from_slice(&result);
-    KeccakDigest(output)
+    KeccakDigest(Keccak256Hash.hash_slice(data))
 }
