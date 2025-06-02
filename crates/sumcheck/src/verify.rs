@@ -18,13 +18,14 @@ impl From<FsError> for SumcheckError {
     }
 }
 
-pub fn verify<EF: Field>(
+pub fn verify<EF>(
     fs_verifier: &mut FsVerifier,
     n_vars: usize,
     degree: usize,
     grinding: SumcheckGrinding,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
+    EF: Field,
     StandardUniform: Distribution<EF>,
 {
     let sumation_sets = vec![(0..2).map(|i| EF::from_usize(i)).collect::<Vec<_>>(); n_vars];
@@ -32,7 +33,7 @@ where
     verify_core(fs_verifier, &max_degree_per_vars, sumation_sets, grinding)
 }
 
-pub fn verify_with_univariate_skip<EF: Field>(
+pub fn verify_with_univariate_skip<EF>(
     fs_verifier: &mut FsVerifier,
     degree: usize,
     n_vars: usize,
@@ -40,6 +41,7 @@ pub fn verify_with_univariate_skip<EF: Field>(
     grinding: SumcheckGrinding,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
+    EF: Field,
     StandardUniform: Distribution<EF>,
 {
     let mut max_degree_per_vars = vec![degree * ((1 << skips) - 1)];
@@ -56,13 +58,14 @@ where
     verify_core(fs_verifier, &max_degree_per_vars, sumation_sets, grinding)
 }
 
-fn verify_core<EF: Field>(
+fn verify_core<EF>(
     fs_verifier: &mut FsVerifier,
     max_degree_per_vars: &[usize],
     sumation_sets: Vec<Vec<EF>>,
     grinding: SumcheckGrinding,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
+    EF: Field,
     StandardUniform: Distribution<EF>,
 {
     assert_eq!(max_degree_per_vars.len(), sumation_sets.len(),);

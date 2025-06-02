@@ -12,7 +12,7 @@ where
     fn eval(&self, point: &[NF], alpha_powers: &[EF]) -> EF;
 }
 
-impl<'a, F: Field, NF, EF, A> SumcheckComputation<F, NF, EF> for A
+impl<'a, F, NF, EF, A> SumcheckComputation<F, NF, EF> for A
 where
     F: Field,
     NF: ExtensionField<F>,

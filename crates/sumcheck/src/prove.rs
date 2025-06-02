@@ -65,7 +65,7 @@ where
     );
 
     for i in 1..n_rounds {
-        folded_multilinears = sc_round::<F, EF, EF, SC>(
+        folded_multilinears = sc_round(
             1,
             &folded_multilinears.iter().collect::<Vec<_>>(),
             &mut n_vars,
