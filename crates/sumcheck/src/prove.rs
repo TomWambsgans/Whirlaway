@@ -1,12 +1,13 @@
 use std::borrow::Borrow;
 
-use algebra::{Multilinear, UnivariatePolynomial, univariate_selectors};
+use algebra::Multilinear;
 use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};
 use rand::distr::{Distribution, StandardUniform};
 use rayon::prelude::*;
 use tracing::instrument;
-use utils::HypercubePoint;
+use utils::{HypercubePoint, univariate_selectors};
+use whir_p3::poly::dense::WhirDensePolynomial;
 
 use crate::{SumcheckComputation, SumcheckGrinding};
 
@@ -128,16 +129,16 @@ where
             if let Some(eq_factor) = eq_factor {
                 (*sum
                     - (0..(1 << skips) - 1)
-                        .map(|i| p_evals[i].1 * selectors[i].eval(&eq_factor[round]))
+                        .map(|i| p_evals[i].1 * selectors[i].evaluate(eq_factor[round]))
                         .sum::<EF>())
-                    / selectors[(1 << skips) - 1].eval(&eq_factor[round])
+                    / selectors[(1 << skips) - 1].evaluate(eq_factor[round])
             } else {
                 *sum - p_evals.iter().map(|(_, s)| *s).sum::<EF>()
             }
         } else {
             let folding_scalars = selectors
                 .iter()
-                .map(|s| s.eval(&F::from_usize(z)))
+                .map(|s| s.evaluate(F::from_usize(z)))
                 .collect::<Vec<_>>();
             // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication below: TODO not urgent)
             let folded =
@@ -154,15 +155,15 @@ where
         p_evals.push((F::from_usize(z), sum_z));
     }
 
-    let mut p = UnivariatePolynomial::lagrange_interpolation(&p_evals).unwrap();
+    let mut p = WhirDensePolynomial::lagrange_interpolation(&p_evals).unwrap();
 
     if let Some(eq_factor) = &eq_factor {
         // https://eprint.iacr.org/2024/108.pdf Section 3.2
         // We do not take advantage of this trick to send less data, but we could do so in the future (TODO)
-        p *= UnivariatePolynomial::lagrange_interpolation(
+        p *= &WhirDensePolynomial::lagrange_interpolation(
             &(0..1 << skips)
                 .into_par_iter()
-                .map(|i| (F::from_usize(i), selectors[i].eval(&eq_factor[round])))
+                .map(|i| (F::from_usize(i), selectors[i].evaluate(eq_factor[round])))
                 .collect::<Vec<_>>(),
         )
         .unwrap();
@@ -171,7 +172,7 @@ where
     fs_prover.add_scalars(&p.coeffs);
     let challenge = fs_prover.challenge_scalars::<EF>(1)[0];
     challenges.push(challenge);
-    *sum = p.eval(&challenge);
+    *sum = p.evaluate(challenge);
     *n_vars -= skips;
 
     let pow_bits = grinding
@@ -180,13 +181,13 @@ where
 
     let folding_scalars = selectors
         .iter()
-        .map(|s| s.eval(&challenge))
+        .map(|s| s.evaluate(challenge))
         .collect::<Vec<_>>();
     if let Some(eq_factor) = eq_factor {
         *missing_mul_factor = Some(
             selectors
                 .iter()
-                .map(|s| s.eval(&eq_factor[round]) * s.eval(&challenge))
+                .map(|s| s.evaluate(eq_factor[round]) * s.evaluate(challenge))
                 .sum::<EF>()
                 * missing_mul_factor.unwrap_or(EF::ONE),
         );

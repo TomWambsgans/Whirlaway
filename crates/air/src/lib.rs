@@ -15,8 +15,17 @@ type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
 const WHIR_POW_BITS: usize = 16;
 
 use p3_blake3::Blake3;
+use p3_keccak::KeccakF;
 use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
-use whir_p3::parameters::{FoldingFactor, errors::SecurityAssumption};
+use whir_p3::{
+    fiat_shamir::duplex_sponge::DuplexSponge,
+    parameters::{FoldingFactor, errors::SecurityAssumption},
+};
+
+type MyPerm = KeccakF;
+type MyU = u8;
+const MY_PERM_WIDTH: usize = 200;
+type MySponge = DuplexSponge<MyU, MyPerm, MY_PERM_WIDTH, 136>;
 
 #[derive(Clone, Debug)]
 pub struct AirSettings {

@@ -176,9 +176,9 @@ checksum = "9134a6ef01ce4b366b50689c94f82c14bc72bc5d0386829828a2e2752ef7958c"
 
 [[package]]
 name = "cc"
-version = "1.2.24"
+version = "1.2.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16595d3be041c03b09d08d0858631facccee9221e579704070e6e9e4915d3bc7"
+checksum = "d0fc897dc1e865cc67c0e05a836d9d3f1df3cbe442aa4a9473b18e12624a4951"
 dependencies = [
  "shlex",
 ]
@@ -959,6 +959,7 @@ dependencies = [
  "rayon",
  "tracing",
  "utils",
+ "whir-p3",
 ]
 
 [[package]]
@@ -1151,6 +1152,7 @@ dependencies = [
  "p3-matrix",
  "p3-symmetric",
  "rayon",
+ "whir-p3",
 ]
 
 [[package]]
@@ -1183,7 +1185,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/tcoratger/whir-p3#b1e0171e6d6902ea32e33a1d69ceb61290bf4149"
+source = "git+https://github.com/tcoratger/whir-p3#4713eb46293c990f9de5b6d46a716413ff1f8a78"
 dependencies = [
  "bincode",
  "blake3",

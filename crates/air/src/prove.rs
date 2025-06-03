@@ -3,7 +3,6 @@ use fiat_shamir::FsProver;
 use p3_air::Air;
 use p3_dft::Radix2DitParallel;
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField, dot_product};
-use p3_keccak::KeccakF;
 use rand::distr::{Distribution, StandardUniform};
 use sumcheck::{SumcheckComputation, SumcheckGrinding};
 use tracing::{Level, info_span, instrument, span};
@@ -19,7 +18,7 @@ use whir_p3::{
 };
 
 use crate::{
-    AirSettings,
+    AirSettings, MY_PERM_WIDTH, MyPerm, MySponge, MyU,
     uni_skip_utils::{
         matrix_down_folded_with_univariate_skips, matrix_up_folded_with_univariate_skips,
     },
@@ -46,7 +45,7 @@ where
         settings: &AirSettings,
         fs_prover: &mut FsProver,
         witness: Vec<Multilinear<F>>,
-    ) -> ProverState<EF, F>
+    ) -> ProverState<EF, F, MyPerm, MySponge, MyU, MY_PERM_WIDTH>
     where
         StandardUniform: Distribution<EF> + Distribution<F>,
     {
@@ -58,10 +57,11 @@ where
         assert!(witness.iter().all(|w| w.n_vars == log_length));
 
         let whir_params = self.build_whir_params(settings);
-        let mut domainsep = DomainSeparator::new("🐎", KeccakF);
+        let mut domainsep: DomainSeparator<EF, F, p3_keccak::KeccakF, u8, 200> =
+            DomainSeparator::new("🐎", MyPerm {});
         domainsep.commit_statement(&whir_params);
         domainsep.add_whir_proof(&whir_params);
-        let mut prover_state = domainsep.to_prover_state();
+        let mut prover_state = domainsep.to_prover_state::<_, 32>();
 
         // 1) Commit to the witness columns
 
@@ -168,7 +168,7 @@ where
             let expanded = Multilinear::new(
                 self.univariate_selectors
                     .iter()
-                    .map(|s| s.eval(&zerocheck_challenges[0]))
+                    .map(|s| s.evaluate(zerocheck_challenges[0]))
                     .collect(),
             );
             let expanded = expanded.add_dummy_ending_variables(log_length);

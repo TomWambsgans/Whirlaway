@@ -1,16 +1,20 @@
 use p3_air::Air;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
-use algebra::{Multilinear, UnivariatePolynomial, univariate_selectors};
+use algebra::Multilinear;
 use p3_uni_stark::{SymbolicAirBuilder, get_symbolic_constraints};
-use utils::log2_up;
+use utils::{log2_up, univariate_selectors};
 use whir_p3::{
     fiat_shamir::pow::blake3::Blake3PoW,
     parameters::{MultivariateParameters, ProtocolParameters},
+    poly::dense::WhirDensePolynomial,
     whir::parameters::WhirConfig,
 };
 
-use crate::{AirSettings, ByteHash, FieldHash, MyCompress, WHIR_POW_BITS};
+use crate::{
+    AirSettings, ByteHash, FieldHash, MY_PERM_WIDTH, MyCompress, MyPerm, MySponge, MyU,
+    WHIR_POW_BITS,
+};
 
 pub struct AirTable<F: Field, EF, A> {
     pub log_length: usize,
@@ -19,7 +23,7 @@ pub struct AirTable<F: Field, EF, A> {
     pub preprocessed_columns: Vec<Multilinear<F>>, // TODO 'sparse' preprocessed columns (with non zero values at cylic shifts)
     pub n_constraints: usize,
     pub constraint_degree: usize,
-    pub(crate) univariate_selectors: Vec<UnivariatePolynomial<F>>,
+    pub(crate) univariate_selectors: Vec<WhirDensePolynomial<F>>,
 
     _phantom: std::marker::PhantomData<EF>,
 }
@@ -71,7 +75,8 @@ impl<'a, F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, E
     pub fn build_whir_params(
         &self,
         settings: &AirSettings,
-    ) -> WhirConfig<EF, F, FieldHash, MyCompress, Blake3PoW> {
+    ) -> WhirConfig<EF, F, FieldHash, MyCompress, Blake3PoW, MyPerm, MySponge, MyU, MY_PERM_WIDTH>
+    {
         let num_variables = self.log_length + self.log_n_witness_columns();
         let mv_params = MultivariateParameters::new(num_variables);
 

@@ -1,8 +1,8 @@
-use algebra::UnivariatePolynomial;
 use fiat_shamir::{FsError, FsVerifier};
 use p3_field::Field;
 use rand::distr::{Distribution, StandardUniform};
 use utils::Evaluation;
+use whir_p3::poly::dense::WhirDensePolynomial;
 
 use crate::SumcheckGrinding;
 
@@ -75,12 +75,13 @@ where
 
     for (&deg, sumation_set) in max_degree_per_vars.iter().zip(sumation_sets) {
         let coefs = fs_verifier.next_scalars(deg + 1)?;
-        let pol = UnivariatePolynomial::new(coefs);
+        let pol = WhirDensePolynomial::from_coefficients_vec(coefs);
 
+        let computed_sum = sumation_set.iter().map(|&s| pol.evaluate(s)).sum();
         if first_round {
             first_round = false;
-            sum = pol.sum_evals(&sumation_set);
-        } else if target != pol.sum_evals(&sumation_set) {
+            sum = computed_sum;
+        } else if target != computed_sum {
             return Err(SumcheckError::InvalidRound);
         }
         let challenge = fs_verifier.challenge_scalars(1)[0];
@@ -88,7 +89,7 @@ where
         let pow_bits = grinding.pow_bits::<EF>(deg);
         fs_verifier.challenge_pow(pow_bits)?;
 
-        target = pol.eval(&challenge);
+        target = pol.evaluate(challenge);
         challenges.push(challenge);
     }
     Ok((

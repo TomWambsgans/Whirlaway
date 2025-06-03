@@ -2,7 +2,6 @@ use algebra::Multilinear;
 use fiat_shamir::{FsError, FsVerifier};
 use p3_air::Air;
 use p3_field::{ExtensionField, PrimeField64, TwoAdicField, dot_product};
-use p3_keccak::KeccakF;
 use rand::distr::{Distribution, StandardUniform};
 use sumcheck::{SumcheckComputation, SumcheckError, SumcheckGrinding};
 use tracing::instrument;
@@ -18,7 +17,7 @@ use whir_p3::{
 };
 
 use crate::{
-    AirSettings,
+    AirSettings, MY_PERM_WIDTH, MyPerm, MySponge, MyU,
     utils::{column_down, column_up, matrix_down_lde, matrix_up_lde},
 };
 
@@ -59,7 +58,7 @@ impl<
         settings: &AirSettings,
         fs_verifier: &mut FsVerifier,
         log_length: usize,
-        prover_state: ProverState<EF, F>,
+        prover_state: ProverState<EF, F, MyPerm, MySponge, MyU, MY_PERM_WIDTH>,
     ) -> Result<(), AirVerifError>
     where
         StandardUniform: Distribution<EF> + Distribution<F>,
@@ -68,10 +67,10 @@ impl<
 
         let commitment_reader = CommitmentReader::new(&whir_params);
         let whir_verifier = Verifier::new(&whir_params);
-        let mut domainsep = DomainSeparator::new("🐎", KeccakF);
+        let mut domainsep = DomainSeparator::new("🐎", MyPerm {});
         domainsep.commit_statement(&whir_params);
         domainsep.add_whir_proof(&whir_params);
-        let mut verifier_state = domainsep.to_verifier_state(prover_state.narg_string());
+        let mut verifier_state = domainsep.to_verifier_state::<_, 32>(prover_state.narg_string());
         let parsed_commitment = commitment_reader
             .parse_commitment::<32>(&mut verifier_state)
             .map_err(|_| AirVerifError::InvalidPcsCommitment)?;
@@ -103,7 +102,7 @@ impl<
         let outer_selector_evals = self
             .univariate_selectors
             .iter()
-            .map(|s| s.eval(&outer_sumcheck_challenge.point[0]))
+            .map(|s| s.evaluate(outer_sumcheck_challenge.point[0]))
             .collect::<Vec<_>>();
         let preprocessed_up = self
             .preprocessed_columns
@@ -141,7 +140,7 @@ impl<
         let zerocheck_selector_evals = self
             .univariate_selectors
             .iter()
-            .map(|s| s.eval(&zerocheck_challenges[0]))
+            .map(|s| s.evaluate(zerocheck_challenges[0]))
             .collect::<Vec<_>>();
         if dot_product::<EF, _, _>(
             zerocheck_selector_evals.into_iter(),
