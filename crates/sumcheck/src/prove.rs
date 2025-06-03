@@ -37,7 +37,7 @@ pub fn prove<
 where
     StandardUniform: Distribution<EF>,
 {
-    let multilinears = multilinears.iter().map(|m| m.borrow()).collect::<Vec<_>>();
+    let multilinears = multilinears.iter().map(Borrow::borrow).collect::<Vec<_>>();
     let mut n_vars = multilinears[0].n_vars;
     assert!(multilinears.iter().all(|m| m.n_vars == n_vars));
 
@@ -176,7 +176,7 @@ where
     *n_vars -= skips;
 
     let pow_bits = grinding
-        .pow_bits::<EF>((comp_degree + (eq_factor.is_some() as usize)) * ((1 << skips) - 1));
+        .pow_bits::<EF>((comp_degree + (usize::from(eq_factor.is_some()))) * ((1 << skips) - 1));
     fs_prover.challenge_pow(pow_bits);
 
     let folding_scalars = selectors

@@ -103,7 +103,7 @@ pub(crate) fn column_down<F: Field>(column: &Multilinear<F>) -> Multilinear<F> {
     Multilinear::new(down)
 }
 
-impl<'a, F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A> {
+impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A> {
     pub(crate) fn constraints_batching_pow<FS: FsParticipant>(
         &self,
         fs: &mut FS,

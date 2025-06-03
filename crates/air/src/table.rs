@@ -28,7 +28,7 @@ pub struct AirTable<F: Field, EF, A> {
     _phantom: std::marker::PhantomData<EF>,
 }
 
-impl<'a, F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A> {
+impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A> {
     pub fn new(
         air: A,
         log_length: usize,
@@ -42,7 +42,7 @@ impl<'a, F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, E
         let symbolic_constraints = get_symbolic_constraints::<F, A>(&air, 0, 0);
         let n_constraints = symbolic_constraints.len();
 
-        AirTable {
+        Self {
             log_length,
             n_columns: air.width() + preprocessed_columns.len(),
             air,

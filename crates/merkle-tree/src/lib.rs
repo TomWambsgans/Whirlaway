@@ -10,7 +10,7 @@ use utils::{KeccakDigest, keccak256};
 fn leaf_hash<F>(input: &[F]) -> KeccakDigest {
     // TODO this is ugly
     let buff = unsafe {
-        std::slice::from_raw_parts(input.as_ptr() as *const u8, std::mem::size_of_val(input))
+        std::slice::from_raw_parts(input.as_ptr().cast::<u8>(), std::mem::size_of_val(input))
     };
     keccak256(buff)
 }
@@ -39,12 +39,12 @@ impl MultiPath {
 
         let mut res = (n as u32).to_le_bytes().to_vec();
         for i in 0..n {
-            assert!(self.auth_paths_suffixes[i].len() <= u8::MAX as usize);
+            assert!(u8::try_from(self.auth_paths_suffixes[i].len()).is_ok());
             res.push(self.auth_paths_suffixes[i].len() as u8);
             for j in 0..self.auth_paths_suffixes[i].len() {
                 res.extend_from_slice(&self.auth_paths_suffixes[i][j].0);
             }
-            assert!(self.leaf_indexes[i] <= u32::MAX as usize);
+            assert!(u32::try_from(self.leaf_indexes[i]).is_ok());
             res.extend_from_slice(&(self.leaf_indexes[i] as u32).to_le_bytes());
         }
         res
@@ -246,7 +246,7 @@ impl<F: Sync> MerkleTree<F> {
         let mut permutation = (0..indexes.len()).collect::<Vec<_>>();
         permutation.sort_by_key(|&i| indexes[i]);
 
-        indexes.sort();
+        indexes.sort_unstable();
 
         let mut auth_paths_suffixes: Vec<Vec<KeccakDigest>> = Vec::with_capacity(indexes.len());
         let mut prev_path = Vec::new();
@@ -275,8 +275,8 @@ impl<F: Sync> MerkleTree<F> {
         }
 
         MultiPath {
-            leaf_indexes,
             auth_paths_suffixes,
+            leaf_indexes,
         }
     }
 }
