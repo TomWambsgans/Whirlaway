@@ -101,7 +101,6 @@ too_long_first_doc_paragraph = "allow"
 [workspace.dependencies]
 # Local
 fiat-shamir = { path = "crates/fiat-shamir" }
-merkle-tree = { path = "crates/merkle-tree" }
 air = { path = "crates/air" }
 sumcheck = { path = "crates/sumcheck" }
 utils = { path = "crates/utils" }
