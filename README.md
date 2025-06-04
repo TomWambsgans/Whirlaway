@@ -18,6 +18,10 @@ Key techniques:
 
 `RUSTFLAGS='-C target-cpu=native' cargo run --release`
 
+CPU optimization still WIP.
+
+1M poseidon2 / s on a RTX 4090 -> switch to branch "gpu"
+
 ## Credits
 
 - [Plonky3](https://github.com/Plonky3/Plonky3) for its finite field crates and poseidon2 AIR arithmetization (`src/examples/poseidon2_koala_bear`).
