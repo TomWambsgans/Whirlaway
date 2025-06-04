@@ -1,13 +1,15 @@
 use std::borrow::Borrow;
 
-use algebra::Multilinear;
 use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};
 use rand::distr::{Distribution, StandardUniform};
 use rayon::prelude::*;
 use tracing::instrument;
-use utils::{HypercubePoint, univariate_selectors};
-use whir_p3::poly::dense::WhirDensePolynomial;
+use utils::{
+    HypercubePoint, batch_fold_multilinear_in_large_field, batch_fold_multilinear_in_small_field,
+    univariate_selectors,
+};
+use whir_p3::poly::{dense::WhirDensePolynomial, evals::EvaluationsList};
 
 use crate::{SumcheckComputation, SumcheckGrinding};
 
@@ -18,7 +20,7 @@ pub fn prove<
     F: Field,
     NF: ExtensionField<F>,
     EF: ExtensionField<NF> + ExtensionField<F>,
-    M: Borrow<Multilinear<NF>>,
+    M: Borrow<EvaluationsList<NF>>,
     SC: SumcheckComputation<F, NF, EF> + SumcheckComputation<F, EF, EF>,
 >(
     skips: usize, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
@@ -33,13 +35,13 @@ pub fn prove<
     n_rounds: Option<usize>,
     grinding: SumcheckGrinding,
     mut missing_mul_factor: Option<EF>,
-) -> (Vec<EF>, Vec<Multilinear<EF>>, EF)
+) -> (Vec<EF>, Vec<EvaluationsList<EF>>, EF)
 where
     StandardUniform: Distribution<EF>,
 {
     let multilinears = multilinears.iter().map(|m| m.borrow()).collect::<Vec<_>>();
-    let mut n_vars = multilinears[0].n_vars;
-    assert!(multilinears.iter().all(|m| m.n_vars == n_vars));
+    let mut n_vars = multilinears[0].num_variables();
+    assert!(multilinears.iter().all(|m| m.num_variables() == n_vars));
 
     let mut challenges = Vec::new();
     let n_rounds = n_rounds.unwrap_or(n_vars - skips + 1);
@@ -96,7 +98,7 @@ pub fn sc_round<
     SC: SumcheckComputation<F, NF, EF>,
 >(
     skips: usize, // the first round will fold 2^skips (instead of 2 in the basic sumcheck)
-    multilinears: &[&Multilinear<NF>],
+    multilinears: &[&EvaluationsList<NF>],
     n_vars: &mut usize,
     computation: &SC,
     eq_factor: Option<&[EF]>,
@@ -109,11 +111,11 @@ pub fn sc_round<
     challenges: &mut Vec<EF>,
     round: usize,
     missing_mul_factor: &mut Option<EF>,
-) -> Vec<Multilinear<EF>>
+) -> Vec<EvaluationsList<EF>>
 where
     StandardUniform: Distribution<EF>,
 {
-    let eq_mle = eq_factor.map(|eq_factor| Multilinear::eq_mle(&eq_factor[1 + round..]));
+    let eq_mle = eq_factor.map(|eq_factor| EvaluationsList::eval_eq(&eq_factor[1 + round..]));
 
     let selectors = univariate_selectors::<F>(skips);
 
@@ -141,8 +143,7 @@ where
                 .map(|s| s.evaluate(F::from_usize(z)))
                 .collect::<Vec<_>>();
             // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication below: TODO not urgent)
-            let folded =
-                Multilinear::batch_fold_rectangular_in_small_field(multilinears, &folding_scalars);
+            let folded = batch_fold_multilinear_in_small_field(multilinears, &folding_scalars);
             let mut sum_z =
                 compute_over_hypercube(&folded, computation, batching_scalars, eq_mle.as_ref());
             if let Some(missing_mul_factor) = missing_mul_factor {
@@ -193,14 +194,14 @@ where
         );
     }
     // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication below: TODO not urgent)
-    Multilinear::batch_fold_rectangular_in_large_field(multilinears, &folding_scalars)
+    batch_fold_multilinear_in_large_field(multilinears, &folding_scalars)
 }
 
 fn compute_over_hypercube<F, NF, EF, SC>(
-    pols: &[Multilinear<NF>],
+    pols: &[EvaluationsList<NF>],
     computation: &SC,
     batching_scalars: &[EF],
-    eq_mle: Option<&Multilinear<EF>>,
+    eq_mle: Option<&EvaluationsList<EF>>,
 ) -> EF
 where
     F: Field,
@@ -208,11 +209,17 @@ where
     EF: ExtensionField<NF>,
     SC: SumcheckComputation<F, NF, EF>,
 {
-    assert!(pols.iter().all(|p| p.n_vars == pols[0].n_vars));
-    HypercubePoint::par_iter(pols[0].n_vars)
+    assert!(
+        pols.iter()
+            .all(|p| p.num_variables() == pols[0].num_variables())
+    );
+    HypercubePoint::par_iter(pols[0].num_variables())
         .map(|x| {
-            let point = pols.iter().map(|pol| pol.evals[x.val]).collect::<Vec<_>>();
-            let eq_mle_eval = eq_mle.map(|p| p.evals[x.val]);
+            let point = pols
+                .iter()
+                .map(|pol| pol.evals()[x.val])
+                .collect::<Vec<_>>();
+            let eq_mle_eval = eq_mle.map(|p| p.evals()[x.val]);
             eval_sumcheck_computation(computation, batching_scalars, &point, eq_mle_eval)
         })
         .sum()

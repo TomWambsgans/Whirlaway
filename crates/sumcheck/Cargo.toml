@@ -8,7 +8,6 @@ workspace = true
 
 [dependencies]
 fiat-shamir.workspace = true
-algebra.workspace = true
 p3-field.workspace = true
 tracing.workspace = true
 rand.workspace = true

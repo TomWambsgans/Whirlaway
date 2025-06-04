@@ -1,8 +1,8 @@
-use algebra::Multilinear;
 use fiat_shamir::{FsError, FsParticipant};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use rayon::prelude::*;
 use utils::{eq_extension, log2_up};
+use whir_p3::poly::evals::EvaluationsList;
 
 use crate::{AirSettings, table::AirTable};
 
@@ -83,7 +83,9 @@ fn next_mle<F: Field>(point: &[F]) -> F {
     (0..n).map(g).sum()
 }
 
-pub(crate) fn columns_up_and_down<F: Field>(columns: &[&Multilinear<F>]) -> Vec<Multilinear<F>> {
+pub(crate) fn columns_up_and_down<F: Field>(
+    columns: &[&EvaluationsList<F>],
+) -> Vec<EvaluationsList<F>> {
     columns
         .par_iter()
         .map(|c| column_up(c))
@@ -91,19 +93,19 @@ pub(crate) fn columns_up_and_down<F: Field>(columns: &[&Multilinear<F>]) -> Vec<
         .collect()
 }
 
-pub(crate) fn column_up<F: Field>(column: &Multilinear<F>) -> Multilinear<F> {
+pub(crate) fn column_up<F: Field>(column: &EvaluationsList<F>) -> EvaluationsList<F> {
     let mut up = column.clone();
-    up.evals[column.n_coeffs() - 1] = up.evals[column.n_coeffs() - 2];
+    up.evals_mut()[column.num_evals() - 1] = up.evals()[column.num_evals() - 2];
     up
 }
 
-pub(crate) fn column_down<F: Field>(column: &Multilinear<F>) -> Multilinear<F> {
-    let mut down = column.evals[1..].to_vec();
+pub(crate) fn column_down<F: Field>(column: &EvaluationsList<F>) -> EvaluationsList<F> {
+    let mut down = column.evals()[1..].to_vec();
     down.push(*down.last().unwrap());
-    Multilinear::new(down)
+    EvaluationsList::new(down)
 }
 
-impl<'a, F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A> {
+impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A> {
     pub(crate) fn constraints_batching_pow<FS: FsParticipant>(
         &self,
         fs: &mut FS,

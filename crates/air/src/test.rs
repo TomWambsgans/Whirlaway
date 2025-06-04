@@ -3,7 +3,7 @@
 // use p3_field::extension::BinomialExtensionField;
 // use p3_koala_bear::KoalaBear;
 
-// use algebra::Multilinear;
+// use algebra::EvaluationsList;
 // use whir_p3::parameters::{FoldingFactor, errors::SecurityAssumption};
 
 // use crate::{AirBuilder, AirSettings};
@@ -60,7 +60,7 @@
 //         col_2.push(col_1[i - 1] + col_2[i - 1]);
 //     }
 
-//     let witnesses = vec![Multilinear::new(col_1), Multilinear::new(col_2)];
+//     let witnesses = vec![EvaluationsList::new(col_1), EvaluationsList::new(col_2)];
 
 //     table.check_validity(&witnesses);
 
@@ -170,11 +170,11 @@
 //         }
 
 //         let witnesses = vec![
-//             Multilinear::new(col_0),
-//             Multilinear::new(col_1),
-//             Multilinear::new(col_2),
-//             Multilinear::new(col_3),
-//             Multilinear::new(col_4),
+//             EvaluationsList::new(col_0),
+//             EvaluationsList::new(col_1),
+//             EvaluationsList::new(col_2),
+//             EvaluationsList::new(col_3),
+//             EvaluationsList::new(col_4),
 //         ];
 
 //         table.check_validity(&witnesses);

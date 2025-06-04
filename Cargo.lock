@@ -15,7 +15,6 @@ dependencies = [
 name = "air"
 version = "0.1.0"
 dependencies = [
- "algebra",
  "fiat-shamir",
  "p3-air",
  "p3-blake3",
@@ -31,16 +30,6 @@ dependencies = [
  "tracing",
  "utils",
  "whir-p3",
-]
-
-[[package]]
-name = "algebra"
-version = "0.1.0"
-dependencies = [
- "p3-field",
- "p3-koala-bear",
- "rand",
- "rayon",
 ]
 
 [[package]]
@@ -949,7 +938,6 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 name = "sumcheck"
 version = "0.1.0"
 dependencies = [
- "algebra",
  "fiat-shamir",
  "p3-air",
  "p3-field",
@@ -1185,7 +1173,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/tcoratger/whir-p3#4713eb46293c990f9de5b6d46a716413ff1f8a78"
+source = "git+https://github.com/tcoratger/whir-p3#a6057b0207e4bcf8b344a601f547031c01850c81"
 dependencies = [
  "bincode",
  "blake3",
@@ -1223,7 +1211,6 @@ name = "whirlaway"
 version = "0.1.0"
 dependencies = [
  "air",
- "algebra",
  "fiat-shamir",
  "p3-baby-bear",
  "p3-field",

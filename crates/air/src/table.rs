@@ -1,13 +1,12 @@
 use p3_air::Air;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
-use algebra::Multilinear;
 use p3_uni_stark::{SymbolicAirBuilder, get_symbolic_constraints};
 use utils::{log2_up, univariate_selectors};
 use whir_p3::{
     fiat_shamir::pow::blake3::Blake3PoW,
     parameters::{MultivariateParameters, ProtocolParameters},
-    poly::dense::WhirDensePolynomial,
+    poly::{dense::WhirDensePolynomial, evals::EvaluationsList},
     whir::parameters::WhirConfig,
 };
 
@@ -20,7 +19,7 @@ pub struct AirTable<F: Field, EF, A> {
     pub log_length: usize,
     pub n_columns: usize,
     pub air: A,
-    pub preprocessed_columns: Vec<Multilinear<F>>, // TODO 'sparse' preprocessed columns (with non zero values at cylic shifts)
+    pub preprocessed_columns: Vec<EvaluationsList<F>>, // TODO 'sparse' preprocessed columns (with non zero values at cylic shifts)
     pub n_constraints: usize,
     pub constraint_degree: usize,
     pub(crate) univariate_selectors: Vec<WhirDensePolynomial<F>>,
@@ -28,7 +27,7 @@ pub struct AirTable<F: Field, EF, A> {
     _phantom: std::marker::PhantomData<EF>,
 }
 
-impl<'a, F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A> {
+impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A> {
     pub fn new(
         air: A,
         log_length: usize,
@@ -42,13 +41,13 @@ impl<'a, F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, E
         let symbolic_constraints = get_symbolic_constraints::<F, A>(&air, 0, 0);
         let n_constraints = symbolic_constraints.len();
 
-        AirTable {
+        Self {
             log_length,
             n_columns: air.width() + preprocessed_columns.len(),
             air,
             preprocessed_columns: preprocessed_columns
                 .into_iter()
-                .map(Multilinear::new)
+                .map(EvaluationsList::new)
                 .collect(),
             n_constraints,
             constraint_degree,

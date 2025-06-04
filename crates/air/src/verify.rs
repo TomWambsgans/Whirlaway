@@ -1,14 +1,13 @@
-use algebra::Multilinear;
 use fiat_shamir::{FsError, FsVerifier};
 use p3_air::Air;
 use p3_field::{ExtensionField, PrimeField64, TwoAdicField, dot_product};
 use rand::distr::{Distribution, StandardUniform};
 use sumcheck::{SumcheckComputation, SumcheckError, SumcheckGrinding};
 use tracing::instrument;
-use utils::{ConstraintFolder, eq_extension, powers};
+use utils::{ConstraintFolder, eq_extension, fold_multilinear_in_large_field, powers};
 use whir_p3::{
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
-    poly::multilinear::MultilinearPoint,
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::reader::CommitmentReader,
         statement::{Statement, weights::Weights},
@@ -108,18 +107,18 @@ impl<
             .preprocessed_columns
             .iter()
             .map(|c| {
-                column_up(c)
-                    .fold_rectangular_in_large_field(&outer_selector_evals)
-                    .evaluate(&outer_sumcheck_challenge.point[1..])
+                fold_multilinear_in_large_field(&column_up(c), &outer_selector_evals).evaluate(
+                    &MultilinearPoint(outer_sumcheck_challenge.point[1..].to_vec()),
+                )
             })
             .collect::<Vec<_>>();
         let preprocessed_down = self
             .preprocessed_columns
             .iter()
             .map(|c| {
-                column_down(c)
-                    .fold_rectangular_in_large_field(&outer_selector_evals)
-                    .evaluate(&outer_sumcheck_challenge.point[1..])
+                fold_multilinear_in_large_field(&column_down(c), &outer_selector_evals).evaluate(
+                    &MultilinearPoint(outer_sumcheck_challenge.point[1..].to_vec()),
+                )
             })
             .collect::<Vec<_>>();
 
@@ -202,8 +201,9 @@ impl<
                         .exp_u64((u + self.n_witness_columns()) as u64)
                         * down);
         }
-        batched_inner_value *= Multilinear::new(outer_selector_evals)
-            .evaluate(&inner_sumcheck_challenge.point[..settings.univariate_skips]);
+        batched_inner_value *= EvaluationsList::new(outer_selector_evals).evaluate(
+            &MultilinearPoint(inner_sumcheck_challenge.point[..settings.univariate_skips].to_vec()),
+        );
 
         if batched_inner_value != inner_sumcheck_challenge.value {
             return Err(AirVerifError::SumMismatch);
@@ -217,14 +217,14 @@ impl<
         ]
         .concat();
 
-        let packed_value = Multilinear::new(
+        let packed_value = EvaluationsList::new(
             [
                 final_inner_claims,
                 vec![EF::ZERO; (1 << self.log_n_witness_columns()) - self.n_witness_columns()],
             ]
             .concat(),
         )
-        .evaluate(&final_random_scalars);
+        .evaluate(&MultilinearPoint(final_random_scalars));
 
         let mut statement = Statement::<EF>::new(final_point.len());
         statement.add_constraint(

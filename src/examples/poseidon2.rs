@@ -1,6 +1,5 @@
 use ::air::AirSettings;
 use air::table::AirTable;
-use algebra::Multilinear;
 use fiat_shamir::{FsProver, FsVerifier, get_total_grinding_time, reset_total_grinding_time};
 use p3_baby_bear::{BabyBear, GenericPoseidon2LinearLayersBabyBear};
 use p3_field::{
@@ -22,7 +21,7 @@ use std::time::{Duration, Instant};
 use tracing::level_filters::LevelFilter;
 use tracing_forest::ForestLayer;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
-use whir_p3::parameters::FoldingFactor;
+use whir_p3::{parameters::FoldingFactor, poly::evals::EvaluationsList};
 
 #[cfg(test)]
 mod tests {
@@ -267,7 +266,7 @@ where
 
     let witness = witness_matrix
         .rows()
-        .map(|col| Multilinear::new(col.collect()))
+        .map(|col| EvaluationsList::new(col.collect()))
         .collect::<Vec<_>>();
 
     let table = AirTable::<F, EF, _>::new(

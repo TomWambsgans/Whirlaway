@@ -1,4 +1,3 @@
-use algebra::Multilinear;
 use fiat_shamir::FsProver;
 use p3_air::Air;
 use p3_dft::Radix2DitParallel;
@@ -6,7 +5,10 @@ use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField, dot_product};
 use rand::distr::{Distribution, StandardUniform};
 use sumcheck::{SumcheckComputation, SumcheckGrinding};
 use tracing::{Level, info_span, instrument, span};
-use utils::{ConstraintFolder, powers};
+use utils::{
+    ConstraintFolder, add_dummy_ending_variables, add_dummy_starting_variables,
+    multilinear_batch_evaluate, multilinears_linear_combination, packed_multilinear, powers,
+};
 use whir_p3::{
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -44,7 +46,7 @@ where
         &self,
         settings: &AirSettings,
         fs_prover: &mut FsProver,
-        witness: Vec<Multilinear<F>>,
+        witness: Vec<EvaluationsList<F>>,
     ) -> ProverState<EF, F, MyPerm, MySponge, MyU, MY_PERM_WIDTH>
     where
         StandardUniform: Distribution<EF> + Distribution<F>,
@@ -54,7 +56,7 @@ where
             "TODO handle the case UNIVARIATE_SKIPS >= log_length"
         );
         let log_length = self.log_length;
-        assert!(witness.iter().all(|w| w.n_vars == log_length));
+        assert!(witness.iter().all(|w| w.num_variables() == log_length));
 
         let whir_params = self.build_whir_params(settings);
         let mut domainsep: DomainSeparator<EF, F, p3_keccak::KeccakF, u8, 200> =
@@ -67,18 +69,14 @@ where
 
         // TODO avoid cloning (use a row major matrix for the witness)
 
-        let packed_pol = Multilinear::packed(&witness);
+        let packed_pol = packed_multilinear(&witness);
 
         let committer = CommitmentWriter::new(&whir_params);
 
         let dft_committer = Radix2DitParallel::default();
 
         let packed_witness = committer
-            .commit(
-                &dft_committer,
-                &mut prover_state,
-                EvaluationsList::new(packed_pol.evals),
-            )
+            .commit(&dft_committer, &mut prover_state, packed_pol)
             .unwrap();
 
         self.constraints_batching_pow(fs_prover, settings).unwrap();
@@ -124,7 +122,7 @@ where
             inner_sums_up
                 .iter()
                 .chain(inner_sums_down)
-                .map(|s| s.evaluate::<EF>(&[]))
+                .map(|s| s.evaluate::<EF>(&MultilinearPoint(vec![])))
                 .collect::<Vec<_>>()
         });
         fs_prover.add_scalars(&inner_sums);
@@ -145,12 +143,14 @@ where
             );
             for i in 0..2 {
                 // up and down
-                let sum = Multilinear::linear_combination(
-                    &witness,
-                    &expanded_scalars
-                        [i * self.n_witness_columns()..(i + 1) * self.n_witness_columns()],
-                )
-                .add_dummy_starting_variables(settings.univariate_skips); // TODO this is not efficient
+                let sum = add_dummy_starting_variables(
+                    &multilinears_linear_combination(
+                        &witness,
+                        &expanded_scalars
+                            [i * self.n_witness_columns()..(i + 1) * self.n_witness_columns()],
+                    ),
+                    settings.univariate_skips,
+                ); // TODO this is not efficient
                 nodes.push(sum);
             }
 
@@ -165,13 +165,13 @@ where
             ));
 
             // TODO remove
-            let expanded = Multilinear::new(
+            let expanded = EvaluationsList::new(
                 self.univariate_selectors
                     .iter()
                     .map(|s| s.evaluate(zerocheck_challenges[0]))
                     .collect(),
             );
-            let expanded = expanded.add_dummy_ending_variables(log_length);
+            let expanded = add_dummy_ending_variables(&expanded, log_length);
             nodes.push(expanded);
 
             nodes
@@ -206,9 +206,9 @@ where
         );
 
         let values = info_span!("evaluating witness").in_scope(|| {
-            Multilinear::batch_evaluate_in_large_field(
+            multilinear_batch_evaluate(
                 &witness,
-                &inner_challenges[settings.univariate_skips..],
+                &MultilinearPoint(inner_challenges[settings.univariate_skips..].to_vec()),
             )
         });
 
@@ -222,14 +222,14 @@ where
         .concat();
 
         let packed_value = info_span!("final point").in_scope(|| {
-            Multilinear::new(
+            EvaluationsList::new(
                 [
                     values,
                     EF::zero_vec((1 << self.log_n_witness_columns()) - self.n_witness_columns()),
                 ]
                 .concat(),
             )
-            .evaluate(&final_random_scalars)
+            .evaluate(&MultilinearPoint(final_random_scalars))
         });
 
         std::mem::drop(_span);

@@ -7,7 +7,6 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
-algebra.workspace = true
 p3-field.workspace = true
 tracing.workspace = true
 fiat-shamir.workspace = true
