@@ -1,18 +1,23 @@
-use algebra::pols::MultilinearHost;
-use arithmetic_circuit::max_composition_degree;
 use fiat_shamir::{FsError, FsVerifier};
-use p3_field::{ExtensionField, PrimeCharacteristicRing, PrimeField, TwoAdicField};
-use pcs::{PCS, RingSwitch};
-use sumcheck::{SumcheckError, SumcheckGrinding};
+use p3_air::Air;
+use p3_field::{ExtensionField, PrimeField64, TwoAdicField, dot_product};
+use rand::distr::{Distribution, StandardUniform};
+use sumcheck::{SumcheckComputation, SumcheckError, SumcheckGrinding};
 use tracing::instrument;
-use utils::{
-    Evaluation, MyExtensionField, dot_product, eq_extension, powers, small_to_big_extension,
+use utils::{ConstraintFolder, eq_extension, fold_multilinear_in_large_field, powers};
+use whir_p3::{
+    fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    whir::{
+        committer::reader::CommitmentReader,
+        statement::{Statement, weights::Weights},
+        verifier::Verifier,
+    },
 };
-use whir::parameters::{WhirConfig, WhirConfigBuilder};
 
 use crate::{
-    AirSettings,
-    utils::{column_down_host, column_up_host},
+    AirSettings, MY_PERM_WIDTH, MyPerm, MySponge, MyU,
+    utils::{column_down, column_up, matrix_down_lde, matrix_up_lde},
 };
 
 use super::table::AirTable;
@@ -29,62 +34,58 @@ pub enum AirVerifError {
 
 impl From<FsError> for AirVerifError {
     fn from(e: FsError) -> Self {
-        AirVerifError::Fs(e)
+        Self::Fs(e)
     }
 }
 
 impl From<SumcheckError> for AirVerifError {
     fn from(e: SumcheckError) -> Self {
-        AirVerifError::Sumcheck(e)
+        Self::Sumcheck(e)
     }
 }
 
-impl<F: PrimeField> AirTable<F> {
+impl<
+    'a,
+    F: TwoAdicField + PrimeField64,
+    EF: ExtensionField<F> + TwoAdicField,
+    A: Air<ConstraintFolder<'a, F, EF, EF>>,
+> AirTable<F, EF, A>
+{
     #[instrument(name = "air table: verify", skip_all)]
-    pub fn verify<
-        EF: ExtensionField<F>,
-        WhirF: ExtensionField<F>
-            + ExtensionField<<WhirF as PrimeCharacteristicRing>::PrimeSubfield>
-            + TwoAdicField
-            + Ord,
-    >(
+    pub fn verify(
         &self,
         settings: &AirSettings,
         fs_verifier: &mut FsVerifier,
         log_length: usize,
+        prover_state: ProverState<EF, F, MyPerm, MySponge, MyU, MY_PERM_WIDTH>,
     ) -> Result<(), AirVerifError>
     where
-        WhirF::PrimeSubfield: TwoAdicField,
-        WhirF: MyExtensionField<EF>,
-        EF: ExtensionField<<WhirF as PrimeCharacteristicRing>::PrimeSubfield>,
+        StandardUniform: Distribution<EF> + Distribution<F>,
     {
-        let pcs = RingSwitch::<WhirF, WhirConfig<WhirF, EF>>::new(
-            log_length + self.log_n_witness_columns(),
-            &WhirConfigBuilder::standard(
-                settings.whir_soudness_type,
-                settings.security_bits,
-                settings.whir_log_inv_rate,
-                settings.whir_folding_factor,
-                false,
-            ),
-        );
+        let whir_params = self.build_whir_params(settings);
 
-        let pcs_commitment = pcs
-            .parse_commitment(fs_verifier)
+        let commitment_reader = CommitmentReader::new(&whir_params);
+        let whir_verifier = Verifier::new(&whir_params);
+        let mut domainsep = DomainSeparator::new("🐎", MyPerm {});
+        domainsep.commit_statement(&whir_params);
+        domainsep.add_whir_proof(&whir_params);
+        let mut verifier_state = domainsep.to_verifier_state::<_, 32>(prover_state.narg_string());
+        let parsed_commitment = commitment_reader
+            .parse_commitment::<32>(&mut verifier_state)
             .map_err(|_| AirVerifError::InvalidPcsCommitment)?;
 
-        self.constraints_batching_pow::<EF, _>(fs_verifier, settings)?;
+        self.constraints_batching_pow(fs_verifier, settings)?;
 
         let constraints_batching_scalar = fs_verifier.challenge_scalars::<EF>(1)[0];
 
-        self.zerocheck_pow::<EF, _>(fs_verifier, settings).unwrap();
+        self.zerocheck_pow(fs_verifier, settings).unwrap();
 
         let zerocheck_challenges =
             fs_verifier.challenge_scalars::<EF>(log_length - settings.univariate_skips + 1);
 
         let (sc_sum, outer_sumcheck_challenge) = sumcheck::verify_with_univariate_skip::<EF>(
             fs_verifier,
-            max_composition_degree(&self.constraints) + 1,
+            self.constraint_degree + 1,
             log_length,
             settings.univariate_skips,
             SumcheckGrinding::Auto {
@@ -96,29 +97,28 @@ impl<F: PrimeField> AirTable<F> {
         }
 
         let witness_shifted_evals = fs_verifier.next_scalars::<EF>(2 * self.n_witness_columns())?;
-        let witness_up = &witness_shifted_evals[..self.n_witness_columns()];
-        let witness_down = &witness_shifted_evals[self.n_witness_columns()..];
+        let (witness_up, witness_down) = witness_shifted_evals.split_at(self.n_witness_columns());
         let outer_selector_evals = self
             .univariate_selectors
             .iter()
-            .map(|s| s.eval(&outer_sumcheck_challenge.point[0]))
+            .map(|s| s.evaluate(outer_sumcheck_challenge.point[0]))
             .collect::<Vec<_>>();
         let preprocessed_up = self
             .preprocessed_columns
             .iter()
             .map(|c| {
-                column_up_host(c)
-                    .fold_rectangular_in_large_field(&outer_selector_evals)
-                    .evaluate_in_large_field(&outer_sumcheck_challenge.point[1..])
+                fold_multilinear_in_large_field(&column_up(c), &outer_selector_evals).evaluate(
+                    &MultilinearPoint(outer_sumcheck_challenge.point[1..].to_vec()),
+                )
             })
             .collect::<Vec<_>>();
         let preprocessed_down = self
             .preprocessed_columns
             .iter()
             .map(|c| {
-                column_down_host(c)
-                    .fold_rectangular_in_large_field(&outer_selector_evals)
-                    .evaluate_in_large_field(&outer_sumcheck_challenge.point[1..])
+                fold_multilinear_in_large_field(&column_down(c), &outer_selector_evals).evaluate(
+                    &MultilinearPoint(outer_sumcheck_challenge.point[1..].to_vec()),
+                )
             })
             .collect::<Vec<_>>();
 
@@ -130,30 +130,30 @@ impl<F: PrimeField> AirTable<F> {
         ]
         .concat();
 
-        let mut global_constraint_eval = EF::ZERO;
-        for (scalar, constraint) in powers(constraints_batching_scalar, self.constraints.len())
-            .into_iter()
-            .zip(&self.constraints)
-        {
-            global_constraint_eval += scalar * constraint.eval(&global_point);
-        }
+        let global_constraint_eval = SumcheckComputation::eval(
+            &self.air,
+            &global_point,
+            &powers(constraints_batching_scalar, self.n_constraints),
+        );
+
         let zerocheck_selector_evals = self
             .univariate_selectors
             .iter()
-            .map(|s| s.eval(&zerocheck_challenges[0]))
+            .map(|s| s.evaluate(zerocheck_challenges[0]))
             .collect::<Vec<_>>();
-        if dot_product(&zerocheck_selector_evals, &outer_selector_evals)
-            * eq_extension(
-                &zerocheck_challenges[1..],
-                &outer_sumcheck_challenge.point[1..],
-            )
-            * global_constraint_eval
+        if dot_product::<EF, _, _>(
+            zerocheck_selector_evals.into_iter(),
+            outer_selector_evals.iter().copied(),
+        ) * eq_extension(
+            &zerocheck_challenges[1..],
+            &outer_sumcheck_challenge.point[1..],
+        ) * global_constraint_eval
             != outer_sumcheck_challenge.value
         {
             return Err(AirVerifError::SumMismatch);
         }
 
-        self.secondary_sumchecks_batching_pow::<EF, _>(fs_verifier, settings)?;
+        self.secondary_sumchecks_batching_pow(fs_verifier, settings)?;
         let secondary_sumcheck_batching_scalar = fs_verifier.challenge_scalars::<EF>(1)[0];
 
         let (batched_inner_sum, inner_sumcheck_challenge) = sumcheck::verify::<EF>(
@@ -167,11 +167,12 @@ impl<F: PrimeField> AirTable<F> {
 
         if batched_inner_sum
             != dot_product(
-                &witness_shifted_evals,
-                &powers(
+                witness_shifted_evals.into_iter(),
+                powers(
                     secondary_sumcheck_batching_scalar,
                     self.n_witness_columns() * 2,
-                ),
+                )
+                .into_iter(),
             )
         {
             return Err(AirVerifError::SumMismatch);
@@ -184,20 +185,25 @@ impl<F: PrimeField> AirTable<F> {
             inner_sumcheck_challenge.point[settings.univariate_skips..].to_vec(),
         ]
         .concat();
-        let up = self.lde_matrix_up.eval(&matrix_lde_point);
-        let down = self.lde_matrix_down.eval(&matrix_lde_point);
+        let up = matrix_up_lde(&matrix_lde_point);
+        let down = matrix_down_lde(&matrix_lde_point);
 
         let final_inner_claims = fs_verifier.next_scalars::<EF>(self.n_witness_columns())?;
 
-        for u in 0..self.n_witness_columns() {
-            batched_inner_value += final_inner_claims[u]
+        for (u, final_inner_claim) in final_inner_claims
+            .iter()
+            .enumerate()
+            .take(self.n_witness_columns())
+        {
+            batched_inner_value += *final_inner_claim
                 * (secondary_sumcheck_batching_scalar.exp_u64(u as u64) * up
                     + secondary_sumcheck_batching_scalar
                         .exp_u64((u + self.n_witness_columns()) as u64)
                         * down);
         }
-        batched_inner_value *= MultilinearHost::new(outer_selector_evals)
-            .evaluate_in_large_field(&inner_sumcheck_challenge.point[..settings.univariate_skips]);
+        batched_inner_value *= EvaluationsList::new(outer_selector_evals).evaluate(
+            &MultilinearPoint(inner_sumcheck_challenge.point[..settings.univariate_skips].to_vec()),
+        );
 
         if batched_inner_value != inner_sumcheck_challenge.value {
             return Err(AirVerifError::SumMismatch);
@@ -211,23 +217,22 @@ impl<F: PrimeField> AirTable<F> {
         ]
         .concat();
 
-        let packed_value = MultilinearHost::new(
+        let packed_value = EvaluationsList::new(
             [
                 final_inner_claims,
                 vec![EF::ZERO; (1 << self.log_n_witness_columns()) - self.n_witness_columns()],
             ]
             .concat(),
         )
-        .evaluate_in_large_field(&final_random_scalars);
-        let packed_eval = Evaluation {
-            point: final_point
-                .into_iter()
-                .map(small_to_big_extension::<F, EF, WhirF>)
-                .collect(),
-            value: small_to_big_extension::<F, EF, WhirF>(packed_value),
-        };
+        .evaluate(&MultilinearPoint(final_random_scalars));
 
-        pcs.verify(&pcs_commitment, &packed_eval, fs_verifier)
+        let mut statement = Statement::<EF>::new(final_point.len());
+        statement.add_constraint(
+            Weights::evaluation(MultilinearPoint(final_point)),
+            packed_value,
+        );
+        whir_verifier
+            .verify(&mut verifier_state, &parsed_commitment, &statement)
             .map_err(|_| AirVerifError::InvalidPcsOpening)?;
 
         Ok(())

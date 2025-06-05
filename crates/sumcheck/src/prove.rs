@@ -1,27 +1,32 @@
-use algebra::pols::{
-    Multilinear, MultilinearsSlice, MultilinearsVec, UnivariatePolynomial, univariate_selectors,
-};
-use arithmetic_circuit::{CircuitComputation, max_composition_degree};
-use cuda_engine::{SumcheckComputation, cuda_sync};
+use std::borrow::Borrow;
+
 use fiat_shamir::FsProver;
 use p3_field::{ExtensionField, Field};
+use rand::distr::{Distribution, StandardUniform};
 use rayon::prelude::*;
 use tracing::instrument;
+use utils::{
+    HypercubePoint, batch_fold_multilinear_in_large_field, batch_fold_multilinear_in_small_field,
+    univariate_selectors,
+};
+use whir_p3::poly::{dense::WhirDensePolynomial, evals::EvaluationsList};
 
-use crate::SumcheckGrinding;
+use crate::{SumcheckComputation, SumcheckGrinding};
 
 pub const MIN_VARS_FOR_GPU: usize = 0; // When there are a small number of variables, it's not worth using GPU
 
+#[allow(clippy::too_many_arguments)]
 pub fn prove<
-    'a,
     F: Field,
     NF: ExtensionField<F>,
     EF: ExtensionField<NF> + ExtensionField<F>,
-    ML: Into<MultilinearsSlice<'a, NF>>,
+    M: Borrow<EvaluationsList<NF>>,
+    SC: SumcheckComputation<F, NF, EF> + SumcheckComputation<F, EF, EF>,
 >(
     skips: usize, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
-    multilinears: ML,
-    exprs: &[CircuitComputation<F>],
+    multilinears: &[M],
+    computation: &SC,
+    constraints_degree: usize,
     batching_scalars: &[EF],
     eq_factor: Option<&[EF]>,
     is_zerofier: bool,
@@ -30,35 +35,31 @@ pub fn prove<
     n_rounds: Option<usize>,
     grinding: SumcheckGrinding,
     mut missing_mul_factor: Option<EF>,
-) -> (Vec<EF>, Vec<Multilinear<EF>>, EF) {
-    let multilinears: MultilinearsSlice<'_, _> = multilinears.into();
-    let on_device = multilinears.is_device();
-    let mut n_vars = multilinears.n_vars();
+) -> (Vec<EF>, Vec<EvaluationsList<EF>>, EF)
+where
+    StandardUniform: Distribution<EF>,
+{
+    let multilinears = multilinears.iter().map(|m| m.borrow()).collect::<Vec<_>>();
+    let mut n_vars = multilinears[0].num_variables();
+    assert!(multilinears.iter().all(|m| m.num_variables() == n_vars));
 
     let mut challenges = Vec::new();
     let n_rounds = n_rounds.unwrap_or(n_vars - skips + 1);
-    let comp_degree = max_composition_degree(exprs);
     if let Some(eq_factor) = &eq_factor {
         assert_eq!(eq_factor.len(), n_vars - skips + 1);
     }
-
-    let sumcheck_computation = SumcheckComputation {
-        exprs: exprs,
-        n_multilinears: multilinears.len() + eq_factor.is_some() as usize,
-        eq_mle_multiplier: eq_factor.is_some(),
-    };
 
     let mut folded_multilinears;
     folded_multilinears = sc_round(
         skips,
         &multilinears,
         &mut n_vars,
-        &sumcheck_computation,
-        batching_scalars,
+        computation,
         eq_factor,
+        batching_scalars,
         is_zerofier,
         fs_prover,
-        comp_degree,
+        constraints_degree,
         &mut sum,
         grinding,
         &mut challenges,
@@ -66,25 +67,17 @@ pub fn prove<
         &mut missing_mul_factor,
     );
 
-    let mut need_to_transfer_back_to_device = false;
     for i in 1..n_rounds {
-        if on_device && !need_to_transfer_back_to_device && n_vars < MIN_VARS_FOR_GPU {
-            // transfer GPU -> CPU
-            let _span = tracing::span!(tracing::Level::INFO, "Sumcheck transfer to CPU").entered();
-            folded_multilinears = folded_multilinears.as_ref().transfer_to_host();
-            need_to_transfer_back_to_device = true;
-        }
-
         folded_multilinears = sc_round(
             1,
-            &folded_multilinears.as_ref(),
+            &folded_multilinears.iter().collect::<Vec<_>>(),
             &mut n_vars,
-            &sumcheck_computation,
-            batching_scalars,
+            computation,
             eq_factor,
+            batching_scalars,
             false,
             fs_prover,
-            comp_degree,
+            constraints_degree,
             &mut sum,
             grinding,
             &mut challenges,
@@ -92,21 +85,24 @@ pub fn prove<
             &mut missing_mul_factor,
         );
     }
-    if need_to_transfer_back_to_device {
-        let _span = tracing::span!(tracing::Level::INFO, "Sumcheck transfer back to GPU").entered();
-        folded_multilinears = folded_multilinears.transfer_to_device();
-    }
-    (challenges, folded_multilinears.decompose(), sum)
+
+    (challenges, folded_multilinears, sum)
 }
 
 #[instrument(name = "sumcheck_round", skip_all, fields(round))]
-pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + ExtensionField<F>>(
+#[allow(clippy::too_many_arguments)]
+pub fn sc_round<
+    F: Field,
+    NF: ExtensionField<F>,
+    EF: ExtensionField<NF> + ExtensionField<F>,
+    SC: SumcheckComputation<F, NF, EF>,
+>(
     skips: usize, // the first round will fold 2^skips (instead of 2 in the basic sumcheck)
-    multilinears: &MultilinearsSlice<'a, NF>,
+    multilinears: &[&EvaluationsList<NF>],
     n_vars: &mut usize,
-    sumcheck_computation: &SumcheckComputation<F>,
-    batching_scalars: &[EF],
+    computation: &SC,
     eq_factor: Option<&[EF]>,
+    batching_scalars: &[EF],
     is_zerofier: bool,
     fs_prover: &mut FsProver,
     comp_degree: usize,
@@ -115,9 +111,11 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
     challenges: &mut Vec<EF>,
     round: usize,
     missing_mul_factor: &mut Option<EF>,
-) -> MultilinearsVec<EF> {
-    let eq_mle = eq_factor
-        .map(|eq_factor| Multilinear::eq_mle(&eq_factor[1 + round..], multilinears.is_device()));
+) -> Vec<EvaluationsList<EF>>
+where
+    StandardUniform: Distribution<EF>,
+{
+    let eq_mle = eq_factor.map(|eq_factor| EvaluationsList::eval_eq(&eq_factor[1 + round..]));
 
     let selectors = univariate_selectors::<F>(skips);
 
@@ -133,24 +131,21 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
             if let Some(eq_factor) = eq_factor {
                 (*sum
                     - (0..(1 << skips) - 1)
-                        .map(|i| p_evals[i].1 * selectors[i].eval(&eq_factor[round]))
+                        .map(|i| p_evals[i].1 * selectors[i].evaluate(eq_factor[round]))
                         .sum::<EF>())
-                    / selectors[(1 << skips) - 1].eval(&eq_factor[round])
+                    / selectors[(1 << skips) - 1].evaluate(eq_factor[round])
             } else {
                 *sum - p_evals.iter().map(|(_, s)| *s).sum::<EF>()
             }
         } else {
             let folding_scalars = selectors
                 .iter()
-                .map(|s| s.eval(&F::from_usize(z)))
+                .map(|s| s.evaluate(F::from_usize(z)))
                 .collect::<Vec<_>>();
             // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication below: TODO not urgent)
-            let folded = multilinears.fold_rectangular_in_small_field(&folding_scalars);
-            let mut sum_z = folded.as_ref().compute_over_hypercube(
-                sumcheck_computation,
-                batching_scalars,
-                eq_mle.as_ref(),
-            );
+            let folded = batch_fold_multilinear_in_small_field(multilinears, &folding_scalars);
+            let mut sum_z =
+                compute_over_hypercube(&folded, computation, batching_scalars, eq_mle.as_ref());
             if let Some(missing_mul_factor) = missing_mul_factor {
                 sum_z *= *missing_mul_factor;
             }
@@ -160,17 +155,16 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
 
         p_evals.push((F::from_usize(z), sum_z));
     }
-    cuda_sync();
 
-    let mut p = UnivariatePolynomial::lagrange_interpolation(&p_evals).unwrap();
+    let mut p = WhirDensePolynomial::lagrange_interpolation(&p_evals).unwrap();
 
     if let Some(eq_factor) = &eq_factor {
         // https://eprint.iacr.org/2024/108.pdf Section 3.2
         // We do not take advantage of this trick to send less data, but we could do so in the future (TODO)
-        p *= UnivariatePolynomial::lagrange_interpolation(
+        p *= &WhirDensePolynomial::lagrange_interpolation(
             &(0..1 << skips)
                 .into_par_iter()
-                .map(|i| (F::from_usize(i), selectors[i].eval(&eq_factor[round])))
+                .map(|i| (F::from_usize(i), selectors[i].evaluate(eq_factor[round])))
                 .collect::<Vec<_>>(),
         )
         .unwrap();
@@ -179,7 +173,7 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
     fs_prover.add_scalars(&p.coeffs);
     let challenge = fs_prover.challenge_scalars::<EF>(1)[0];
     challenges.push(challenge);
-    *sum = p.eval(&challenge);
+    *sum = p.evaluate(challenge);
     *n_vars -= skips;
 
     let pow_bits = grinding
@@ -188,17 +182,61 @@ pub fn sc_round<'a, F: Field, NF: ExtensionField<F>, EF: ExtensionField<NF> + Ex
 
     let folding_scalars = selectors
         .iter()
-        .map(|s| s.eval(&challenge))
+        .map(|s| s.evaluate(challenge))
         .collect::<Vec<_>>();
     if let Some(eq_factor) = eq_factor {
         *missing_mul_factor = Some(
             selectors
                 .iter()
-                .map(|s| s.eval(&eq_factor[round]) * s.eval(&challenge))
+                .map(|s| s.evaluate(eq_factor[round]) * s.evaluate(challenge))
                 .sum::<EF>()
                 * missing_mul_factor.unwrap_or(EF::ONE),
         );
     }
     // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication below: TODO not urgent)
-    multilinears.fold_rectangular_in_large_field(&folding_scalars)
+    batch_fold_multilinear_in_large_field(multilinears, &folding_scalars)
+}
+
+fn compute_over_hypercube<F, NF, EF, SC>(
+    pols: &[EvaluationsList<NF>],
+    computation: &SC,
+    batching_scalars: &[EF],
+    eq_mle: Option<&EvaluationsList<EF>>,
+) -> EF
+where
+    F: Field,
+    NF: ExtensionField<F>,
+    EF: ExtensionField<NF>,
+    SC: SumcheckComputation<F, NF, EF>,
+{
+    assert!(
+        pols.iter()
+            .all(|p| p.num_variables() == pols[0].num_variables())
+    );
+    HypercubePoint::par_iter(pols[0].num_variables())
+        .map(|x| {
+            let point = pols
+                .iter()
+                .map(|pol| pol.evals()[x.val])
+                .collect::<Vec<_>>();
+            let eq_mle_eval = eq_mle.map(|p| p.evals()[x.val]);
+            eval_sumcheck_computation(computation, batching_scalars, &point, eq_mle_eval)
+        })
+        .sum()
+}
+
+pub fn eval_sumcheck_computation<F, NF, EF, SC>(
+    computation: &SC,
+    batching_scalars: &[EF],
+    point: &[NF],
+    eq_mle_eval: Option<EF>,
+) -> EF
+where
+    F: Field,
+    NF: ExtensionField<F>,
+    EF: ExtensionField<NF>,
+    SC: SumcheckComputation<F, NF, EF>,
+{
+    let res = computation.eval(point, batching_scalars);
+    eq_mle_eval.map_or(res, |factor| res * factor)
 }

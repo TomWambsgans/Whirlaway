@@ -1,16 +1,26 @@
-use algebra::pols::{Multilinear, MultilinearDevice, MultilinearHost, MultilinearsVec};
-use arithmetic_circuit::ArithmeticCircuit;
-use cuda_engine::{cuda_sync, memcpy_htod};
 use fiat_shamir::FsProver;
-use p3_field::{ExtensionField, PrimeCharacteristicRing, PrimeField, TwoAdicField};
-use pcs::{PCS, RingSwitch};
-use sumcheck::SumcheckGrinding;
-use tracing::{Level, instrument, span};
-use utils::{Evaluation, MyExtensionField, dot_product, powers, small_to_big_extension};
-use whir::parameters::{WhirConfig, WhirConfigBuilder};
+use p3_air::Air;
+use p3_dft::Radix2DitParallel;
+use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField, dot_product};
+use rand::distr::{Distribution, StandardUniform};
+use sumcheck::{SumcheckComputation, SumcheckGrinding};
+use tracing::{Level, info_span, instrument, span};
+use utils::{
+    ConstraintFolder, add_dummy_ending_variables, add_dummy_starting_variables,
+    multilinear_batch_evaluate, multilinears_linear_combination, packed_multilinear, powers,
+};
+use whir_p3::{
+    fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    whir::{
+        committer::writer::CommitmentWriter,
+        prover::Prover,
+        statement::{Statement, weights::Weights},
+    },
+};
 
 use crate::{
-    AirSettings,
+    AirSettings, MY_PERM_WIDTH, MyPerm, MySponge, MyU,
     uni_skip_utils::{
         matrix_down_folded_with_univariate_skips, matrix_up_folded_with_univariate_skips,
     },
@@ -25,94 +35,72 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 
 */
 
-impl<F: PrimeField> AirTable<F> {
+impl<'a, F, EF, A> AirTable<F, EF, A>
+where
+    F: TwoAdicField + PrimeField64,
+    EF: ExtensionField<F> + TwoAdicField,
+    A: Air<ConstraintFolder<'a, F, F, EF>> + Air<ConstraintFolder<'a, F, EF, EF>>,
+{
     #[instrument(name = "air: prove", skip_all)]
-    pub fn prove<
-        EF: ExtensionField<F>,
-        WhirF: ExtensionField<F>
-            + ExtensionField<<WhirF as PrimeCharacteristicRing>::PrimeSubfield>
-            + TwoAdicField
-            + Ord,
-    >(
+    pub fn prove(
         &self,
         settings: &AirSettings,
         fs_prover: &mut FsProver,
-        witness_host: Vec<MultilinearHost<F>>,
-        cuda: bool,
-    ) where
-        WhirF::PrimeSubfield: TwoAdicField,
-        WhirF: MyExtensionField<EF>,
-        EF: ExtensionField<<WhirF as PrimeCharacteristicRing>::PrimeSubfield>,
+        witness: Vec<EvaluationsList<F>>,
+    ) -> ProverState<EF, F, MyPerm, MySponge, MyU, MY_PERM_WIDTH>
+    where
+        StandardUniform: Distribution<EF> + Distribution<F>,
     {
         assert!(
             settings.univariate_skips < self.log_length,
             "TODO handle the case UNIVARIATE_SKIPS >= log_length"
         );
         let log_length = self.log_length;
-        assert!(witness_host.iter().all(|w| w.n_vars == log_length));
+        assert!(witness.iter().all(|w| w.num_variables() == log_length));
 
-        let pcs = RingSwitch::<WhirF, WhirConfig<WhirF, EF>>::new(
-            log_length + self.log_n_witness_columns(),
-            &WhirConfigBuilder::standard(
-                settings.whir_soudness_type,
-                settings.security_bits,
-                settings.whir_log_inv_rate,
-                settings.whir_folding_factor,
-                cuda,
-            ),
-        );
+        let whir_params = self.build_whir_params(settings);
+        let mut domainsep: DomainSeparator<EF, F, p3_keccak::KeccakF, u8, 200> =
+            DomainSeparator::new("🐎", MyPerm {});
+        domainsep.commit_statement(&whir_params);
+        domainsep.add_whir_proof(&whir_params);
+        let mut prover_state = domainsep.to_prover_state::<_, 32>();
 
         // 1) Commit to the witness columns
 
-        let witness = if cuda {
-            MultilinearsVec::Device(
-                witness_host
-                    .iter()
-                    .map(|w| MultilinearDevice::new(memcpy_htod(&w.evals)))
-                    .collect(),
-            )
-        } else {
-            MultilinearsVec::Host(witness_host)
-        };
-
         // TODO avoid cloning (use a row major matrix for the witness)
 
-        // transmute is safe because WhirF::PrimeSubField == F
-        let packed_pol = unsafe { std::mem::transmute(witness.as_ref().packed()) };
+        let packed_pol = packed_multilinear(&witness);
 
-        cuda_sync();
-        let packed_pol_witness = pcs.commit(packed_pol, fs_prover);
+        let committer = CommitmentWriter::new(&whir_params);
 
-        self.constraints_batching_pow::<EF, _>(fs_prover, settings)
+        let dft_committer = Radix2DitParallel::default();
+
+        let packed_witness = committer
+            .commit(&dft_committer, &mut prover_state, packed_pol)
             .unwrap();
+
+        self.constraints_batching_pow(fs_prover, settings).unwrap();
 
         let constraints_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
 
-        let constraints_batching_scalars =
-            powers(constraints_batching_scalar, self.constraints.len());
+        let constraints_batching_scalars = powers(constraints_batching_scalar, self.n_constraints);
 
-        self.zerocheck_pow::<EF, _>(fs_prover, settings).unwrap();
+        self.zerocheck_pow(fs_prover, settings).unwrap();
 
         let zerocheck_challenges =
             fs_prover.challenge_scalars::<EF>(log_length + 1 - settings.univariate_skips);
 
-        let preprocessed_columns = if cuda {
-            MultilinearsVec::Device(
-                self.preprocessed_columns
-                    .iter()
-                    .map(|w| MultilinearDevice::new(memcpy_htod(&w.evals)))
-                    .collect(),
-            )
-        } else {
-            MultilinearsVec::Host(self.preprocessed_columns.clone())
-        };
-        let preprocessed_and_witness = preprocessed_columns.as_ref().chain(&witness.as_ref());
-        let (zerocheck_challenges, all_inner_sums, _) = {
-            let _span = span!(Level::INFO, "zerocheck").entered();
-            sumcheck::prove(
+        let preprocessed_and_witness = self
+            .preprocessed_columns
+            .iter()
+            .chain(&witness)
+            .collect::<Vec<_>>();
+        let (zerocheck_challenges, all_inner_sums, _) = info_span!("zerocheck").in_scope(|| {
+            sumcheck::prove::<_, _, _, _, A>(
                 settings.univariate_skips,
-                columns_up_and_down(&preprocessed_and_witness).as_ref(),
-                &self.constraints,
+                &columns_up_and_down(&preprocessed_and_witness),
+                &self.air,
+                self.constraint_degree,
                 &constraints_batching_scalars,
                 Some(&zerocheck_challenges),
                 true,
@@ -124,31 +112,30 @@ impl<F: PrimeField> AirTable<F> {
                 },
                 None,
             )
-        };
+        });
 
         let _span = span!(Level::INFO, "inner sumchecks").entered();
 
-        let inner_sums_up = &all_inner_sums[self.n_preprocessed_columns()..self.n_columns];
-        let inner_sums_down = &all_inner_sums[self.n_columns + self.n_preprocessed_columns()..];
-        let _span_evals = span!(Level::INFO, "column evalutations").entered();
-        let inner_sums = inner_sums_up
-            .into_iter()
-            .chain(inner_sums_down)
-            .map(|s| s.evaluate_in_large_field::<EF>(&[]))
-            .collect::<Vec<_>>();
-        cuda_sync();
-        std::mem::drop(_span_evals);
+        let (inner_sums_up, inner_sums_down) =
+            all_inner_sums.split_at(self.n_columns + self.n_preprocessed_columns());
+        let inner_sums = info_span!("column evaluations").in_scope(|| {
+            inner_sums_up
+                .iter()
+                .chain(inner_sums_down)
+                .map(|s| s.evaluate::<EF>(&MultilinearPoint(vec![])))
+                .collect::<Vec<_>>()
+        });
         fs_prover.add_scalars(&inner_sums);
 
-        let _span_pow = span!(Level::INFO, "pow grinding").entered();
-        self.secondary_sumchecks_batching_pow::<EF, _>(fs_prover, settings)
-            .unwrap();
-        std::mem::drop(_span_pow);
+        info_span!("pow grinding").in_scope(|| {
+            self.secondary_sumchecks_batching_pow(fs_prover, settings)
+                .unwrap();
+        });
         let secondary_sumcheck_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
 
         let mles_for_inner_sumcheck = {
             let _span_mles = span!(Level::INFO, "constructing MLEs").entered();
-            let mut nodes = Vec::<Multilinear<EF>>::new();
+            let mut nodes = Vec::new();
             let _span_linear_comb = span!(Level::INFO, "linear combination of columns").entered();
             let expanded_scalars = powers(
                 secondary_sumcheck_batching_scalar,
@@ -156,65 +143,56 @@ impl<F: PrimeField> AirTable<F> {
             );
             for i in 0..2 {
                 // up and down
-                let sum = witness
-                    .as_ref()
-                    .linear_comb_in_large_field(
+                let sum = add_dummy_starting_variables(
+                    &multilinears_linear_combination(
+                        &witness,
                         &expanded_scalars
                             [i * self.n_witness_columns()..(i + 1) * self.n_witness_columns()],
-                    )
-                    .add_dummy_starting_variables(settings.univariate_skips); // TODO this is not efficient
+                    ),
+                    settings.univariate_skips,
+                ); // TODO this is not efficient
                 nodes.push(sum);
             }
-            cuda_sync();
+
             std::mem::drop(_span_linear_comb);
             nodes.push(matrix_up_folded_with_univariate_skips(
                 &zerocheck_challenges,
-                cuda,
                 settings.univariate_skips,
             ));
             nodes.push(matrix_down_folded_with_univariate_skips(
                 &zerocheck_challenges,
-                cuda,
                 settings.univariate_skips,
             ));
 
             // TODO remove
-            let expanded_host = MultilinearHost::new(
+            let expanded = EvaluationsList::new(
                 self.univariate_selectors
                     .iter()
-                    .map(|s| s.eval(&zerocheck_challenges[0]))
+                    .map(|s| s.evaluate(zerocheck_challenges[0]))
                     .collect(),
             );
-            let expanded = if cuda {
-                Multilinear::Device(MultilinearDevice::new(memcpy_htod(&expanded_host.evals))) // maybe do this in cuda ?
-            } else {
-                Multilinear::Host(expanded_host)
-            }
-            .add_dummy_ending_variables(log_length);
+            let expanded = add_dummy_ending_variables(&expanded, log_length);
             nodes.push(expanded);
-            cuda_sync();
+
             nodes
         };
 
-        let inner_sumcheck_circuit = ArithmeticCircuit::<F, _>::Node(4)
-            * ((ArithmeticCircuit::Node(0) * ArithmeticCircuit::Node(2))
-                + (ArithmeticCircuit::Node(1) * ArithmeticCircuit::Node(3)));
+        let inner_sum = info_span!("dot product").in_scope(|| {
+            dot_product(
+                inner_sums.into_iter(),
+                powers(
+                    secondary_sumcheck_batching_scalar,
+                    self.n_witness_columns() * 2,
+                )
+                .into_iter(),
+            )
+        });
 
-        let _span_dot_product = span!(Level::INFO, "dot product").entered();
-        let inner_sum = dot_product(
-            &inner_sums,
-            &powers(
-                secondary_sumcheck_batching_scalar,
-                self.n_witness_columns() * 2,
-            ),
-        );
-        cuda_sync();
-        std::mem::drop(_span_dot_product);
-
-        let (inner_challenges, _, _) = sumcheck::prove(
+        let (inner_challenges, _, _) = sumcheck::prove::<F, _, _, _, _>(
             1,
             &mles_for_inner_sumcheck,
-            &[inner_sumcheck_circuit.fix_computation(false)],
+            &InnerSumcheckCircuit,
+            3,
             &[EF::ONE],
             None,
             false,
@@ -227,12 +205,12 @@ impl<F: PrimeField> AirTable<F> {
             None,
         );
 
-        let _span_evals = span!(Level::INFO, "evaluating witness").entered();
-        let values = witness
-            .as_ref()
-            .batch_evaluate_in_large_field(&inner_challenges[settings.univariate_skips..]);
-        cuda_sync();
-        std::mem::drop(_span_evals);
+        let values = info_span!("evaluating witness").in_scope(|| {
+            multilinear_batch_evaluate(
+                &witness,
+                &MultilinearPoint(inner_challenges[settings.univariate_skips..].to_vec()),
+            )
+        });
 
         fs_prover.add_scalars(&values);
 
@@ -243,26 +221,41 @@ impl<F: PrimeField> AirTable<F> {
         ]
         .concat();
 
-        let _span_final_point = span!(Level::INFO, "final point").entered();
-        let packed_value = MultilinearHost::new(
-            [
-                values,
-                vec![EF::ZERO; (1 << self.log_n_witness_columns()) - self.n_witness_columns()],
-            ]
-            .concat(),
-        )
-        .evaluate_in_large_field(&final_random_scalars);
-        let packed_eval = Evaluation {
-            point: final_point
-                .into_iter()
-                .map(small_to_big_extension::<F, EF, WhirF>)
-                .collect(),
-            value: small_to_big_extension::<F, EF, WhirF>(packed_value),
-        };
-        cuda_sync();
-        std::mem::drop(_span_final_point);
+        let packed_value = info_span!("final point").in_scope(|| {
+            EvaluationsList::new(
+                [
+                    values,
+                    EF::zero_vec((1 << self.log_n_witness_columns()) - self.n_witness_columns()),
+                ]
+                .concat(),
+            )
+            .evaluate(&MultilinearPoint(final_random_scalars))
+        });
+
         std::mem::drop(_span);
 
-        pcs.open(packed_pol_witness, &packed_eval, fs_prover);
+        //pcs.open(packed_pol_witness, vec![packed_eval], fs_prover);
+        let prover = Prover(&whir_params);
+
+        let dft_prover = Radix2DitParallel::default();
+
+        let mut statement = Statement::new(final_point.len());
+        statement.add_constraint(
+            Weights::evaluation(MultilinearPoint(final_point)),
+            packed_value,
+        );
+        prover
+            .prove(&dft_prover, &mut prover_state, statement, packed_witness)
+            .unwrap();
+
+        prover_state
+    }
+}
+
+pub struct InnerSumcheckCircuit;
+
+impl<F: Field, EF: ExtensionField<F>> SumcheckComputation<F, EF, EF> for InnerSumcheckCircuit {
+    fn eval(&self, point: &[EF], _: &[EF]) -> EF {
+        point[4] * ((point[0] * point[2]) + (point[1] * point[3]))
     }
 }

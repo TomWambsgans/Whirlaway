@@ -8,8 +8,8 @@ mod verify;
 use utils::log2_up;
 pub use verify::*;
 
-#[cfg(test)]
-mod test;
+mod sc_computation;
+pub use sc_computation::*;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum SumcheckGrinding {

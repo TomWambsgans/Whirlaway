@@ -5,8 +5,11 @@ use std::{
     time::Duration,
 };
 
-use cuda_bindings::cuda_pow_grinding;
-use rand::{SeedableRng, rngs::StdRng};
+use rand::{
+    Rng, SeedableRng,
+    distr::{Distribution, StandardUniform},
+    rngs::StdRng,
+};
 use rayon::prelude::*;
 
 use utils::{KeccakDigest, count_ending_zero_bits, deserialize_field, keccak256, serialize_field};
@@ -16,8 +19,8 @@ use p3_field::Field;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FsError;
 
+#[derive(Default)]
 pub struct FsProver {
-    cuda: bool,
     state: KeccakDigest,
     transcript: Vec<u8>,
 }
@@ -45,9 +48,8 @@ pub fn reset_total_grinding_time() {
 }
 
 impl FsProver {
-    pub fn new(cuda: bool) -> Self {
-        FsProver {
-            cuda,
+    pub fn new() -> Self {
+        Self {
             state: KeccakDigest::default(),
             transcript: Vec::new(),
         }
@@ -57,6 +59,7 @@ impl FsProver {
         self.state.to_string()
     }
 
+    #[allow(clippy::missing_const_for_fn)]
     pub fn transcript_len(&self) -> usize {
         self.transcript.len()
     }
@@ -68,11 +71,6 @@ impl FsProver {
     pub fn add_bytes(&mut self, bytes: &[u8]) {
         self.transcript.extend_from_slice(bytes);
         self.update_state(bytes);
-    }
-
-    pub fn add_variable_bytes(&mut self, bytes: &[u8]) {
-        self.add_bytes(&(bytes.len() as u32).to_be_bytes());
-        self.add_bytes(bytes);
     }
 
     pub fn challenge_bytes(&mut self, len: usize) -> Vec<u8> {
@@ -102,30 +100,27 @@ impl FsProver {
         }
     }
 
-    pub fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F> {
+    pub fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F>
+    where
+        StandardUniform: Distribution<F>,
+    {
         let mut rng = StdRng::from_seed(self.challenge_bytes(32).try_into().unwrap());
-        (0..len).map(|_| F::random(&mut rng)).collect::<Vec<_>>()
+        (0..len).map(|_| rng.random()).collect::<Vec<_>>()
     }
 
     pub fn challenge_pow(&mut self, bits: usize) {
-        if bits >= 30 {
-            panic!("too much grinding: {} bits", bits);
-        }
+        assert!(bits < 30, "too much grinding: {bits} bits");
         if bits == 0 {
             return;
         }
         let time = std::time::Instant::now();
-        let nonce = if self.cuda && bits > 18 {
-            cuda_pow_grinding(&self.state, bits)
-        } else {
-            (0..u64::MAX)
-                .into_par_iter()
-                .find_any(|&nonce| {
-                    let hash = keccak256(&[&self.state.0[..], &nonce.to_be_bytes()].concat());
-                    count_ending_zero_bits(&hash.0) >= bits
-                })
-                .expect("Failed to find a nonce")
-        };
+        let nonce = (0..u64::MAX)
+            .into_par_iter()
+            .find_any(|&nonce| {
+                let hash = keccak256(&[&self.state.0[..], &nonce.to_be_bytes()].concat());
+                count_ending_zero_bits(&hash.0) >= bits
+            })
+            .expect("Failed to find a nonce");
         let grinding_time = time.elapsed();
         if grinding_time > Duration::from_millis(10) {
             tracing::warn!("long PoW grinding: {} ms", grinding_time.as_millis());
@@ -146,7 +141,7 @@ impl FsProver {
 
 impl FsVerifier {
     pub fn new(transcript: Vec<u8>) -> Self {
-        FsVerifier {
+        Self {
             state: KeccakDigest::default(),
             transcript,
             cursor: 0,
@@ -215,9 +210,12 @@ impl FsVerifier {
         Ok(res)
     }
 
-    pub fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F> {
+    pub fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F>
+    where
+        StandardUniform: Distribution<F>,
+    {
         let mut rng = StdRng::from_seed(self.challenge_bytes(32).try_into().unwrap());
-        (0..len).map(|_| F::random(&mut rng)).collect::<Vec<_>>()
+        (0..len).map(|_| rng.random()).collect::<Vec<_>>()
     }
 
     pub fn challenge_pow(&mut self, bits: usize) -> Result<(), FsError> {
@@ -238,37 +236,36 @@ impl FsVerifier {
 }
 
 pub trait FsParticipant {
-    fn challenge_bytes(&mut self, len: usize) -> Vec<u8>;
-    fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F>;
+    fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F>
+    where
+        StandardUniform: Distribution<F>;
     fn challenge_pow(&mut self, bits: usize) -> Result<(), FsError>;
 }
 
 impl FsParticipant for FsProver {
-    fn challenge_bytes(&mut self, len: usize) -> Vec<u8> {
-        FsProver::challenge_bytes(self, len)
-    }
-
-    fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F> {
-        FsProver::challenge_scalars(self, len)
+    fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F>
+    where
+        StandardUniform: Distribution<F>,
+    {
+        Self::challenge_scalars(self, len)
     }
 
     fn challenge_pow(&mut self, bits: usize) -> Result<(), FsError> {
-        FsProver::challenge_pow(self, bits);
+        Self::challenge_pow(self, bits);
         Ok(())
     }
 }
 
 impl FsParticipant for FsVerifier {
-    fn challenge_bytes(&mut self, len: usize) -> Vec<u8> {
-        FsVerifier::challenge_bytes(self, len)
-    }
-
-    fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F> {
-        FsVerifier::challenge_scalars(self, len)
+    fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F>
+    where
+        StandardUniform: Distribution<F>,
+    {
+        Self::challenge_scalars(self, len)
     }
 
     fn challenge_pow(&mut self, bits: usize) -> Result<(), FsError> {
-        FsVerifier::challenge_pow(self, bits)
+        Self::challenge_pow(self, bits)
     }
 }
 
@@ -296,7 +293,7 @@ mod tests {
 
     #[test]
     fn benchmark_pow() {
-        let mut prover = FsProver::new(false);
+        let mut prover = FsProver::new();
         let time = std::time::Instant::now();
         prover.challenge_pow(12);
         println!("Time: {:?}", time.elapsed());

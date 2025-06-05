@@ -1,14 +1,12 @@
-use algebra::pols::{MultilinearDevice, MultilinearHost, MultilinearsSlice, MultilinearsVec};
-use arithmetic_circuit::{ArithmeticCircuit, TransparentPolynomial};
-use cuda_bindings::{cuda_air_columns_down, cuda_air_columns_up};
 use fiat_shamir::{FsError, FsParticipant};
-use p3_field::{Field, PrimeField};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use rayon::prelude::*;
-use utils::log2_up;
+use utils::{eq_extension, log2_up};
+use whir_p3::poly::evals::EvaluationsList;
 
 use crate::{AirSettings, table::AirTable};
 
-pub(crate) fn matrix_up_lde<F: Field>(log_length: usize) -> TransparentPolynomial<F> {
+pub(crate) fn matrix_up_lde<F: Field>(point: &[F]) -> F {
     /*
         Matrix UP:
 
@@ -27,13 +25,14 @@ pub(crate) fn matrix_up_lde<F: Field>(log_length: usize) -> TransparentPolynomia
        - self.n_columns last variables -> encoding the column index
     */
 
-    TransparentPolynomial::eq_extension_2n_vars(log_length)
-        + TransparentPolynomial::eq_extension_n_scalars(&vec![F::ONE; log_length * 2 - 1])
-            * (ArithmeticCircuit::Scalar(F::ONE)
-                - ArithmeticCircuit::Node(log_length * 2 - 1) * F::TWO)
+    assert_eq!(point.len() % 2, 0);
+    let n = point.len() / 2;
+    eq_extension(&point[..n], &point[n..])
+        + point[..point.len() - 1].iter().copied().product::<F>()
+            * (F::ONE - point[point.len() - 1] * F::TWO)
 }
 
-pub(crate) fn matrix_down_lde<F: Field>(log_length: usize) -> TransparentPolynomial<F> {
+pub(crate) fn matrix_down_lde<F: Field>(point: &[F]) -> F {
     /*
         Matrix DOWN:
 
@@ -57,54 +56,57 @@ pub(crate) fn matrix_down_lde<F: Field>(log_length: usize) -> TransparentPolynom
        (However it is not representable as a polynomial in this case, but as a fraction instead)
 
     */
+    next_mle(point) + point.iter().copied().product::<F>()
 
-    TransparentPolynomial::next(log_length)
-        + TransparentPolynomial::eq_extension_n_scalars(&vec![F::ONE; log_length * 2])
     // bottom right corner
 }
 
-pub(crate) fn columns_up_and_down<F: Field>(columns: &MultilinearsSlice<F>) -> MultilinearsVec<F> {
-    match columns {
-        MultilinearsSlice::Host(columns) => {
-            MultilinearsVec::Host(columns_up_and_down_host(columns))
+fn next_mle<F: Field>(point: &[F]) -> F {
+    // returns a polynomial P in 2n vars, where P(x, y) = 1 iif y = x + 1 in big indian (both numbers are n bits)
+    assert!(point.len() % 2 == 0);
+    let n = point.len() / 2;
+    let factor = |l, r| point[l] * (F::ONE - point[r]);
+    let g = |k| {
+        let mut factors = vec![];
+        for i in (n - k)..n {
+            factors.push(factor(i, i + n));
         }
-        MultilinearsSlice::Device(columns) => {
-            MultilinearsVec::Device(columns_up_and_down_device(columns))
+        factors.push(factor(2 * n - 1 - k, n - 1 - k));
+        if k < n - 1 {
+            factors.push(eq_extension(
+                &(0..n - k - 1).map(|i| point[i]).collect::<Vec<_>>(),
+                &(0..n - k - 1).map(|i| point[i + n]).collect::<Vec<_>>(),
+            ));
         }
-    }
-}
-pub(crate) fn columns_up_and_down_device<F: Field>(
-    columns: &[&MultilinearDevice<F>],
-) -> Vec<MultilinearDevice<F>> {
-    let mut res = Vec::new();
-    res.extend(cuda_air_columns_up(columns));
-    res.extend(cuda_air_columns_down(columns));
-    res.into_iter().map(MultilinearDevice::new).collect()
+        factors.into_iter().product()
+    };
+    (0..n).map(g).sum()
 }
 
-pub(crate) fn columns_up_and_down_host<F: Field>(
-    columns: &[&MultilinearHost<F>],
-) -> Vec<MultilinearHost<F>> {
-    let mut res = Vec::with_capacity(columns.len() * 2);
-    res.par_extend(columns.par_iter().map(|c| column_up_host(c)));
-    res.par_extend(columns.par_iter().map(|c| column_down_host(c)));
-    res
+pub(crate) fn columns_up_and_down<F: Field>(
+    columns: &[&EvaluationsList<F>],
+) -> Vec<EvaluationsList<F>> {
+    columns
+        .par_iter()
+        .map(|c| column_up(c))
+        .chain(columns.par_iter().map(|c| column_down(c)))
+        .collect()
 }
 
-pub(crate) fn column_up_host<F: Field>(column: &MultilinearHost<F>) -> MultilinearHost<F> {
+pub(crate) fn column_up<F: Field>(column: &EvaluationsList<F>) -> EvaluationsList<F> {
     let mut up = column.clone();
-    up.evals[column.n_coefs() - 1] = up.evals[column.n_coefs() - 2];
+    up.evals_mut()[column.num_evals() - 1] = up.evals()[column.num_evals() - 2];
     up
 }
 
-pub(crate) fn column_down_host<F: Field>(column: &MultilinearHost<F>) -> MultilinearHost<F> {
-    let mut down = column.evals[1..].to_vec();
+pub(crate) fn column_down<F: Field>(column: &EvaluationsList<F>) -> EvaluationsList<F> {
+    let mut down = column.evals()[1..].to_vec();
     down.push(*down.last().unwrap());
-    MultilinearHost::new(down)
+    EvaluationsList::new(down)
 }
 
-impl<F: PrimeField> AirTable<F> {
-    pub(crate) fn constraints_batching_pow<EF: Field, FS: FsParticipant>(
+impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A> {
+    pub(crate) fn constraints_batching_pow<FS: FsParticipant>(
         &self,
         fs: &mut FS,
         settings: &AirSettings,
@@ -112,11 +114,11 @@ impl<F: PrimeField> AirTable<F> {
         fs.challenge_pow(
             settings
                 .security_bits
-                .saturating_sub(EF::bits().saturating_sub(log2_up(self.constraints.len()))),
+                .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_constraints))),
         )
     }
 
-    pub(crate) fn zerocheck_pow<EF: Field, FS: FsParticipant>(
+    pub(crate) fn zerocheck_pow<FS: FsParticipant>(
         &self,
         fs: &mut FS,
         settings: &AirSettings,
@@ -128,7 +130,7 @@ impl<F: PrimeField> AirTable<F> {
         )
     }
 
-    pub(crate) fn secondary_sumchecks_batching_pow<EF: Field, FS: FsParticipant>(
+    pub(crate) fn secondary_sumchecks_batching_pow<FS: FsParticipant>(
         &self,
         fs: &mut FS,
         settings: &AirSettings,
@@ -138,48 +140,5 @@ impl<F: PrimeField> AirTable<F> {
                 .security_bits
                 .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_witness_columns() * 2))),
         )
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use cuda_engine::{CudaFunctionInfo, cuda_init, cuda_load_function, cuda_sync, memcpy_htod};
-    use p3_koala_bear::KoalaBear;
-    use rand::{SeedableRng, rngs::StdRng};
-
-    use super::*;
-
-    type F = KoalaBear;
-
-    #[test]
-    fn test_cuda_air_columns_up_down() {
-        cuda_init();
-        cuda_load_function(CudaFunctionInfo::one_field::<F>(
-            "multilinear.cu",
-            "multilinears_up",
-        ));
-        cuda_load_function(CudaFunctionInfo::one_field::<F>(
-            "multilinear.cu",
-            "multilinears_down",
-        ));
-        let n_columns = 200;
-        let n_vars = 15;
-        let rng = &mut StdRng::seed_from_u64(0);
-        let columns_host = (0..n_columns)
-            .map(|_| MultilinearHost::<F>::random(rng, n_vars))
-            .collect::<Vec<_>>();
-        let columns_dev = columns_host
-            .iter()
-            .map(|w| MultilinearDevice::new(memcpy_htod(&w.evals)))
-            .collect::<Vec<_>>();
-        cuda_sync();
-        let up_and_down_host = columns_up_and_down_host(&columns_host.iter().collect::<Vec<_>>());
-        let up_and_down_dev = columns_up_and_down_device(&columns_dev.iter().collect::<Vec<_>>());
-        let up_and_down_dev_back = up_and_down_dev
-            .iter()
-            .map(|w| w.transfer_to_host())
-            .collect::<Vec<_>>();
-        cuda_sync();
-        assert_eq!(up_and_down_host, up_and_down_dev_back);
     }
 }

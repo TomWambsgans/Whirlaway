@@ -3,19 +3,24 @@ name = "air"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
-algebra.workspace = true
 p3-field.workspace = true
 tracing.workspace = true
 fiat-shamir.workspace = true
-pcs.workspace = true
 sumcheck.workspace = true
 utils.workspace = true
-whir.workspace = true
+whir-p3.workspace = true
+rand.workspace = true
 rayon.workspace = true
-cuda-bindings.workspace = true
-cuda-engine.workspace = true
-arithmetic-circuit.workspace = true
+p3-blake3.workspace = true
+p3-symmetric.workspace = true
+p3-air.workspace = true
+p3-uni-stark.workspace = true
+p3-dft.workspace = true
+p3-keccak.workspace = true
 
 [dev-dependencies]
 p3-koala-bear.workspace = true

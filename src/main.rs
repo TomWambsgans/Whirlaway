@@ -3,28 +3,25 @@
 mod examples;
 
 use air::AirSettings;
-use examples::poseidon2::prove_poseidon2_with;
-use utils::SupportedField;
-use whir::parameters::{FoldingFactor, SoundnessType};
+use examples::poseidon2::{SupportedField, prove_poseidon2_with};
+use whir_p3::parameters::{FoldingFactor, errors::SecurityAssumption};
 
-const USE_CUDA: bool = true;
-const SECURITY_BITS: usize = 128;
+const SECURITY_BITS: usize = 100; // (temporary)
 
 fn main() {
-    for (log_n_rows, log_inv_rate) in [(17, 3)] {
-        let benchmark = prove_poseidon2_with(
-            SupportedField::KoalaBear,
-            log_n_rows,
-            AirSettings::new(
-                SECURITY_BITS,
-                SoundnessType::ProvableList,
-                FoldingFactor::Constant(4),
-                log_inv_rate,
-                4,
-            ),
-            USE_CUDA,
-            true,
-        );
-        println!("\n{}", benchmark.to_string());
-    }
+    let (log_n_rows, log_inv_rate) = (16, 1);
+    let benchmark = prove_poseidon2_with(
+        SupportedField::KoalaBear,
+        log_n_rows,
+        AirSettings::new(
+            SECURITY_BITS,
+            SecurityAssumption::CapacityBound,
+            FoldingFactor::ConstantFromSecondRound(6, 4),
+            log_inv_rate,
+            2,
+            3,
+        ),
+        true,
+    );
+    println!("\n{benchmark}");
 }

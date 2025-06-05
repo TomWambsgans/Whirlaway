@@ -3,15 +3,19 @@ name = "sumcheck"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 fiat-shamir.workspace = true
-algebra.workspace = true
 p3-field.workspace = true
 tracing.workspace = true
-arithmetic-circuit.workspace = true
+rand.workspace = true
 utils.workspace = true
-cuda-engine.workspace = true
 rayon.workspace = true
+p3-air.workspace = true
+p3-matrix.workspace = true
+whir-p3.workspace = true
 
 [dev-dependencies]
 p3-koala-bear.workspace = true
