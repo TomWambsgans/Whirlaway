@@ -112,7 +112,7 @@ fn prove_poseidon2_koala_bear(
     display_logs: bool,
 ) -> Poseidon2Benchmark {
     type F = KoalaBear;
-    type EF = BinomialExtensionField<F, 4>;
+    type EF = BinomialExtensionField<F, 8>;
     type LinearLayers = GenericPoseidon2LinearLayersKoalaBear;
 
     const WIDTH: usize = 16;

@@ -6,10 +6,10 @@ use air::AirSettings;
 use examples::poseidon2::{SupportedField, prove_poseidon2_with};
 use whir_p3::parameters::{FoldingFactor, errors::SecurityAssumption};
 
-const SECURITY_BITS: usize = 100; // (temporary)
+const SECURITY_BITS: usize = 128;
 
 fn main() {
-    let (log_n_rows, log_inv_rate) = (16, 1);
+    let (log_n_rows, log_inv_rate) = (18, 1);
     let benchmark = prove_poseidon2_with(
         SupportedField::KoalaBear,
         log_n_rows,
@@ -18,8 +18,8 @@ fn main() {
             SecurityAssumption::CapacityBound,
             FoldingFactor::ConstantFromSecondRound(6, 4),
             log_inv_rate,
-            2,
             3,
+            4,
         ),
         true,
     );
