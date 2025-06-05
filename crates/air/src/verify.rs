@@ -139,10 +139,9 @@ impl<
         let zerocheck_selector_evals = self
             .univariate_selectors
             .iter()
-            .map(|s| s.evaluate(zerocheck_challenges[0]))
-            .collect::<Vec<_>>();
+            .map(|s| s.evaluate(zerocheck_challenges[0]));
         if dot_product::<EF, _, _>(
-            zerocheck_selector_evals.into_iter(),
+            zerocheck_selector_evals,
             outer_selector_evals.iter().copied(),
         ) * eq_extension(
             &zerocheck_challenges[1..],

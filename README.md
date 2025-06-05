@@ -15,11 +15,11 @@ Key techniques:
 
 ## Poseidon2 Benchmark
 
-`RUSTFLAGS='-C target-cpu=native' cargo run --release`
+`RUSTFLAGS='-C target-cpu=native' cargo run --profile perf`
 
 CPU optimization still WIP.
 
-1M poseidon2 / s on a RTX 4090 -> switch to branch "gpu"
+1M poseidon2 / s on a RTX 4090 -> switch to branch [gpu](https://github.com/TomWambsgans/Whirlaway/tree/gpu)
 
 ## Credits
 

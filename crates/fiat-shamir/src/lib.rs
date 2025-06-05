@@ -131,7 +131,7 @@ impl FsProver {
             .unwrap();
         *total_time += grinding_time;
 
-        self.add_bytes(&nonce.to_be_bytes())
+        self.add_bytes(&nonce.to_be_bytes());
     }
 
     pub fn transcript(self) -> Vec<u8> {
