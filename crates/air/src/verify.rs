@@ -1,6 +1,7 @@
 use fiat_shamir::{FsError, FsVerifier};
 use p3_air::Air;
 use p3_field::{ExtensionField, PrimeField64, TwoAdicField, dot_product};
+use p3_keccak::Keccak256Hash;
 use rand::distr::{Distribution, StandardUniform};
 use sumcheck::{SumcheckComputation, SumcheckError, SumcheckGrinding};
 use tracing::instrument;
@@ -16,7 +17,7 @@ use whir_p3::{
 };
 
 use crate::{
-    AirSettings, MY_PERM_WIDTH, MyPerm, MySponge, MyU,
+    AirSettings, MyChallenger,
     utils::{column_down, column_up, matrix_down_lde, matrix_up_lde},
 };
 
@@ -57,7 +58,7 @@ impl<
         settings: &AirSettings,
         fs_verifier: &mut FsVerifier,
         log_length: usize,
-        prover_state: ProverState<EF, F, MyPerm, MySponge, MyU, MY_PERM_WIDTH>,
+        prover_state: ProverState<EF, F, MyChallenger, u8>,
     ) -> Result<(), AirVerifError>
     where
         StandardUniform: Distribution<EF> + Distribution<F>,
@@ -66,10 +67,13 @@ impl<
 
         let commitment_reader = CommitmentReader::new(&whir_params);
         let whir_verifier = Verifier::new(&whir_params);
-        let mut domainsep = DomainSeparator::new("🐎", MyPerm {});
+        let mut domainsep = DomainSeparator::new("🐎");
         domainsep.commit_statement(&whir_params);
         domainsep.add_whir_proof(&whir_params);
-        let mut verifier_state = domainsep.to_verifier_state::<_, 32>(prover_state.narg_string());
+        let mut verifier_state = domainsep.to_verifier_state(
+            prover_state.narg_string(),
+            MyChallenger::new(vec![], Keccak256Hash),
+        );
         let parsed_commitment = commitment_reader
             .parse_commitment::<32>(&mut verifier_state)
             .map_err(|_| AirVerifError::InvalidPcsCommitment)?;
