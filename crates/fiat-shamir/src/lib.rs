@@ -62,21 +62,6 @@ impl FsProver {
         }
     }
 
-    pub fn add_scalar_matrix<F: Field>(&mut self, scalars: &[Vec<F>], fixed_dims: bool) {
-        let n = scalars.len();
-        let m = scalars[0].len();
-        assert!(scalars.iter().all(|v| v.len() == m));
-        if !fixed_dims {
-            self.add_bytes(&(n as u32).to_be_bytes());
-            self.add_bytes(&(m as u32).to_be_bytes());
-        }
-        for row in scalars {
-            for scalar in row {
-                self.add_bytes(&serialize_field(scalar));
-            }
-        }
-    }
-
     pub fn challenge_scalars<F: Field>(&mut self, len: usize) -> Vec<F>
     where
         StandardUniform: Distribution<F>,
@@ -134,11 +119,6 @@ impl FsVerifier {
         Ok(bytes)
     }
 
-    pub fn next_variable_bytes(&mut self) -> Result<Vec<u8>, FsError> {
-        let len = u32::from_be_bytes(self.next_bytes(4)?.try_into().unwrap()) as usize;
-        self.next_bytes(len)
-    }
-
     pub fn challenge_bytes(&mut self, len: usize) -> Vec<u8> {
         let challenge = generate_pseudo_random(&self.state, len);
         self.update_state(len.to_be_bytes().as_ref());
@@ -150,30 +130,6 @@ impl FsVerifier {
         for _ in 0..len {
             let bytes = self.next_bytes(std::mem::size_of::<F>())?;
             res.push(deserialize_field(&bytes).ok_or(FsError {})?);
-        }
-        Ok(res)
-    }
-
-    pub fn next_scalar_matrix<F: Field>(
-        &mut self,
-        dims: Option<(usize, usize)>,
-    ) -> Result<Vec<Vec<F>>, FsError> {
-        let (n, m) = match dims {
-            Some((n, m)) => (n, m),
-            None => {
-                let n = u32::from_be_bytes(self.next_bytes(4)?.try_into().unwrap()) as usize;
-                let m = u32::from_be_bytes(self.next_bytes(4)?.try_into().unwrap()) as usize;
-                (n, m)
-            }
-        };
-        let mut res = Vec::new();
-        for _ in 0..n {
-            let mut row = Vec::new();
-            for _ in 0..m {
-                let bytes = self.next_bytes(std::mem::size_of::<F>())?;
-                row.push(deserialize_field(&bytes).ok_or(FsError {})?);
-            }
-            res.push(row);
         }
         Ok(res)
     }
