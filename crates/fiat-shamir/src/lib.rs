@@ -55,10 +55,6 @@ impl FsProver {
         }
     }
 
-    pub fn state_hex(&self) -> String {
-        self.state.to_string()
-    }
-
     #[allow(clippy::missing_const_for_fn)]
     pub fn transcript_len(&self) -> usize {
         self.transcript.len()
@@ -149,10 +145,6 @@ impl FsVerifier {
     }
     fn update_state(&mut self, data: &[u8]) {
         self.state = keccak256(&[&self.state.0, data].concat());
-    }
-
-    pub fn state_hex(&self) -> String {
-        self.state.to_string()
     }
 
     pub fn next_bytes(&mut self, len: usize) -> Result<Vec<u8>, FsError> {
