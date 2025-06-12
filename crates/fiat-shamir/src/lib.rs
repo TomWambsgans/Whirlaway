@@ -1,9 +1,6 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-use std::{
-    sync::{Mutex, OnceLock},
-    time::Duration,
-};
+use std::time::Duration;
 
 use rand::{
     Rng, SeedableRng,
@@ -29,22 +26,6 @@ pub struct FsVerifier {
     state: KeccakDigest,
     transcript: Vec<u8>,
     cursor: usize,
-}
-
-static TOTAL_GRINDING_TIME: OnceLock<Mutex<Duration>> = OnceLock::new();
-
-pub fn get_total_grinding_time() -> Duration {
-    *TOTAL_GRINDING_TIME
-        .get_or_init(|| Mutex::new(Duration::default()))
-        .lock()
-        .unwrap()
-}
-
-pub fn reset_total_grinding_time() {
-    *TOTAL_GRINDING_TIME
-        .get_or_init(|| Mutex::new(Duration::default()))
-        .lock()
-        .unwrap() = Duration::default();
 }
 
 impl FsProver {
@@ -125,11 +106,6 @@ impl FsProver {
         if grinding_time > Duration::from_millis(10) {
             tracing::warn!("long PoW grinding: {} ms", grinding_time.as_millis());
         }
-        let mut total_time = TOTAL_GRINDING_TIME
-            .get_or_init(Default::default)
-            .lock()
-            .unwrap();
-        *total_time += grinding_time;
 
         self.add_bytes(&nonce.to_be_bytes());
     }
