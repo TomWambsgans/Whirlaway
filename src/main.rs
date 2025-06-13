@@ -9,16 +9,16 @@ use whir_p3::parameters::{FoldingFactor, errors::SecurityAssumption};
 const SECURITY_BITS: usize = 100; // (temporary)
 
 fn main() {
-    let (log_n_rows, log_inv_rate) = (16, 1);
+    let (log_n_rows, log_inv_rate) = (17, 1);
     let benchmark = SupportedField::KoalaBear.prove_poseidon2_with(
         log_n_rows,
         AirSettings::new(
             SECURITY_BITS,
             SecurityAssumption::CapacityBound,
-            FoldingFactor::ConstantFromSecondRound(6, 4),
+            FoldingFactor::ConstantFromSecondRound(7, 4),
             log_inv_rate,
             2,
-            3,
+            4,
         ),
         true,
     );
