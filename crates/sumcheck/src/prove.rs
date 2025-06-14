@@ -177,7 +177,7 @@ where
     *n_vars -= skips;
 
     let pow_bits = grinding
-        .pow_bits::<EF>((comp_degree + (eq_factor.is_some() as usize)) * ((1 << skips) - 1));
+        .pow_bits::<EF>((comp_degree + usize::from(eq_factor.is_some())) * ((1 << skips) - 1));
     fs_prover.challenge_pow(pow_bits);
 
     let folding_scalars = selectors

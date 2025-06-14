@@ -34,7 +34,7 @@ impl HypercubePoint {
     pub fn par_iter(n_vars: usize) -> impl ParallelIterator<Item = Self> {
         (0..(1 << n_vars))
             .into_par_iter()
-            .map(move |val| Self { val, n_vars })
+            .map(move |val| Self { n_vars, val })
     }
 
     pub const fn new(n_vars: usize, val: usize) -> Self {

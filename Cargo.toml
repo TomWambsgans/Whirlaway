@@ -128,6 +128,7 @@ p3-uni-stark = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "
 p3-poseidon2-air = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigger_fields" }
 p3-goldilocks = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigger_fields" }
 p3-keccak = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigger_fields" }
+p3-challenger = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigger_fields" }
 
 whir-p3 = { git = "https://github.com/TomWambsgans/whir-p3", branch = "koala_bear_8" }
 

@@ -1,4 +1,4 @@
-use p3_air::{Air, BaseAir};
+use p3_air::Air;
 use p3_field::{ExtensionField, Field};
 use p3_matrix::dense::RowMajorMatrixView;
 use utils::ConstraintFolder;
@@ -23,7 +23,7 @@ where
         let point: &'a [NF] = unsafe { std::mem::transmute::<&[NF], &'a [NF]>(point) };
         let alpha_powers: &'a [EF] =
             unsafe { std::mem::transmute::<&[EF], &'a [EF]>(alpha_powers) };
-        assert_eq!(<A as BaseAir<F>>::width(self) * 2, point.len());
+        assert_eq!(A::width(self) * 2, point.len());
         let mut folder = ConstraintFolder {
             main: RowMajorMatrixView::new(point, point.len() / 2),
             alpha_powers,

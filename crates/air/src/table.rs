@@ -10,10 +10,7 @@ use whir_p3::{
     whir::parameters::WhirConfig,
 };
 
-use crate::{
-    AirSettings, ByteHash, FieldHash, MY_PERM_WIDTH, MyCompress, MyPerm, MySponge, MyU,
-    WHIR_POW_BITS,
-};
+use crate::{AirSettings, ByteHash, FieldHash, MyChallenger, MyCompress, WHIR_POW_BITS};
 
 pub struct AirTable<F: Field, EF, A> {
     pub log_length: usize,
@@ -74,8 +71,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A
     pub fn build_whir_params(
         &self,
         settings: &AirSettings,
-    ) -> WhirConfig<EF, F, FieldHash, MyCompress, Blake3PoW, MyPerm, MySponge, MyU, MY_PERM_WIDTH>
-    {
+    ) -> WhirConfig<EF, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, u8> {
         let num_variables = self.log_length + self.log_n_witness_columns();
         let mv_params = MultivariateParameters::new(num_variables);
 

@@ -3,22 +3,21 @@
 mod examples;
 
 use air::AirSettings;
-use examples::poseidon2::{SupportedField, prove_poseidon2_with};
+use examples::poseidon2::SupportedField;
 use whir_p3::parameters::{FoldingFactor, errors::SecurityAssumption};
 
 const SECURITY_BITS: usize = 128;
 
 fn main() {
-    let (log_n_rows, log_inv_rate) = (18, 1);
-    let benchmark = prove_poseidon2_with(
-        SupportedField::KoalaBear,
+    let (log_n_rows, log_inv_rate) = (17, 1);
+    let benchmark = SupportedField::KoalaBear.prove_poseidon2_with(
         log_n_rows,
         AirSettings::new(
             SECURITY_BITS,
             SecurityAssumption::CapacityBound,
-            FoldingFactor::ConstantFromSecondRound(6, 4),
+            FoldingFactor::ConstantFromSecondRound(7, 4),
             log_inv_rate,
-            3,
+            2,
             4,
         ),
         true,

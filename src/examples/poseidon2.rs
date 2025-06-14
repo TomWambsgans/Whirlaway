@@ -1,11 +1,8 @@
 use ::air::AirSettings;
 use air::table::AirTable;
-use fiat_shamir::{FsProver, FsVerifier, get_total_grinding_time, reset_total_grinding_time};
+use fiat_shamir::{FsProver, FsVerifier};
 use p3_baby_bear::{BabyBear, GenericPoseidon2LinearLayersBabyBear};
-use p3_field::{
-    ExtensionField, PrimeCharacteristicRing, PrimeField64, TwoAdicField,
-    extension::BinomialExtensionField,
-};
+use p3_field::{ExtensionField, PrimeField64, TwoAdicField, extension::BinomialExtensionField};
 use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear};
 use p3_matrix::Matrix;
 use p3_poseidon2::GenericPoseidon2LinearLayers;
@@ -40,8 +37,8 @@ mod tests {
             3,
             1,
         );
-        prove_poseidon2_with(SupportedField::KoalaBear, 7, settings.clone(), false);
-        prove_poseidon2_with(SupportedField::BabyBear, 7, settings.clone(), false);
+        SupportedField::KoalaBear.prove_poseidon2_with(7, settings.clone(), false);
+        SupportedField::BabyBear.prove_poseidon2_with(7, settings.clone(), false);
     }
 }
 
@@ -52,7 +49,6 @@ pub struct Poseidon2Benchmark {
     pub prover_time: Duration,
     pub verifier_time: Duration,
     pub proof_size: usize,
-    pub total_grinding_time: Duration,
 }
 
 impl fmt::Display for Poseidon2Benchmark {
@@ -78,12 +74,7 @@ impl fmt::Display for Poseidon2Benchmark {
             (n_rows as f64 / self.prover_time.as_secs_f64()).round() as usize
         )?;
         writeln!(f, "Proof size: {:.1} KiB", self.proof_size as f64 / 1024.0)?;
-        writeln!(f, "Verification: {} ms", self.verifier_time.as_millis())?;
-        writeln!(
-            f,
-            "\nTotal grinding time: {:.3} s",
-            self.total_grinding_time.as_millis() as f64 / 1000.0
-        )
+        writeln!(f, "Verification: {} ms", self.verifier_time.as_millis())
     }
 }
 
@@ -94,15 +85,21 @@ pub enum SupportedField {
     BabyBear,
 }
 
-pub fn prove_poseidon2_with(
-    field: SupportedField,
-    log_n_rows: usize,
-    settings: AirSettings,
-    display_logs: bool,
-) -> Poseidon2Benchmark {
-    match field {
-        SupportedField::KoalaBear => prove_poseidon2_koala_bear(log_n_rows, settings, display_logs),
-        SupportedField::BabyBear => prove_poseidon2_baby_bear(log_n_rows, settings, display_logs),
+impl SupportedField {
+    pub fn prove_poseidon2_with(
+        &self,
+        log_n_rows: usize,
+        settings: AirSettings,
+        display_logs: bool,
+    ) -> Poseidon2Benchmark {
+        match self {
+            SupportedField::KoalaBear => {
+                prove_poseidon2_koala_bear(log_n_rows, settings, display_logs)
+            }
+            SupportedField::BabyBear => {
+                prove_poseidon2_baby_bear(log_n_rows, settings, display_logs)
+            }
+        }
     }
 }
 
@@ -206,12 +203,8 @@ fn prove_poseidon2<
 ) -> Poseidon2Benchmark
 where
     StandardUniform: Distribution<F>,
-    EF: ExtensionField<<EF as PrimeCharacteristicRing>::PrimeSubfield>
-        + ExtensionField<F>
-        + TwoAdicField
-        + Ord,
-    F: ExtensionField<<F as PrimeCharacteristicRing>::PrimeSubfield> + TwoAdicField + PrimeField64,
-    <F as PrimeCharacteristicRing>::PrimeSubfield: TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField,
+    F: TwoAdicField + PrimeField64,
     StandardUniform: Distribution<EF>,
     LinearLayers: GenericPoseidon2LinearLayers<F, WIDTH>
         + GenericPoseidon2LinearLayers<EF, WIDTH>
@@ -227,7 +220,6 @@ where
             .with(ForestLayer::default())
             .init();
     }
-    reset_total_grinding_time();
 
     let n_rows = 1 << log_n_rows;
 
@@ -243,15 +235,9 @@ where
         PARTIAL_ROUNDS,
     >::new(constants.clone());
 
-    let inputs = (0..n_rows)
-        .map(|_| {
-            (0..WIDTH)
-                .map(|_| rng.random())
-                .collect::<Vec<_>>()
-                .try_into()
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
+    let inputs: Vec<[F; WIDTH]> = (0..n_rows)
+        .map(|_| std::array::from_fn(|_| rng.random()))
+        .collect();
 
     let witness_matrix = generate_trace_rows::<
         F,
@@ -267,7 +253,7 @@ where
     let witness = witness_matrix
         .rows()
         .map(|col| EvaluationsList::new(col.collect()))
-        .collect::<Vec<_>>();
+        .collect();
 
     let table = AirTable::<F, EF, _>::new(
         poseidon_air,
@@ -298,6 +284,5 @@ where
         prover_time,
         verifier_time,
         proof_size,
-        total_grinding_time: get_total_grinding_time(),
     }
 }
