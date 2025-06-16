@@ -19,12 +19,12 @@ dependencies = [
  "p3-air",
  "p3-blake3",
  "p3-challenger",
- "p3-dft",
  "p3-field",
  "p3-keccak",
  "p3-koala-bear",
  "p3-symmetric",
  "p3-uni-stark",
+ "p3-util",
  "rand",
  "rayon",
  "sumcheck",
@@ -157,9 +157,9 @@ checksum = "5c76a5792e44e4abe34d3abf15636779261d45a7450612059293d1d2cfc63422"
 
 [[package]]
 name = "cc"
-version = "1.2.26"
+version = "1.2.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "956a5e21988b87f372569b66183b78babf23ebc2e744b733e4350a752c4dafac"
+checksum = "d487aa071b5f64da6f19a3e848e3578944b726ee5a4854b82172f02aa876bfdc"
 dependencies = [
  "shlex",
 ]
@@ -311,9 +311,9 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "libc"
-version = "0.2.172"
+version = "0.2.173"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d750af042f7ef4f724306de029d18836c26c1765a54a6a3f094cbd23a7267ffa"
+checksum = "d8cfeafaffdbc32176b64fb251369d52ea9f0a8fbc6f8759edffef7b525d64bb"
 
 [[package]]
 name = "log"
@@ -1083,7 +1083,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/tcoratger/whir-p3#0b84711c694e741bf31e924a96adb7e510020f2a"
+source = "git+https://github.com/tcoratger/whir-p3#aa46689ad16b24ff8d4aac6c0b60b5fef077aeb8"
 dependencies = [
  "bincode",
  "blake3",

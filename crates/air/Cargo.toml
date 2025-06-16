@@ -19,9 +19,9 @@ p3-blake3.workspace = true
 p3-symmetric.workspace = true
 p3-air.workspace = true
 p3-uni-stark.workspace = true
-p3-dft.workspace = true
 p3-keccak.workspace = true
 p3-challenger.workspace = true
+p3-util.workspace = true
 
 [dev-dependencies]
 p3-koala-bear.workspace = true
