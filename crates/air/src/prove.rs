@@ -1,8 +1,8 @@
 use fiat_shamir::FsProver;
 use p3_air::Air;
-use p3_dft::Radix2DitParallel;
-use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField, dot_product};
+use p3_field::{BasedVectorSpace, ExtensionField, Field, PrimeField64, TwoAdicField, dot_product};
 use p3_keccak::Keccak256Hash;
+use p3_util::log2_strict_usize;
 use rand::distr::{Distribution, StandardUniform};
 use sumcheck::{SumcheckComputation, SumcheckGrinding};
 use tracing::{Level, info_span, instrument, span};
@@ -11,6 +11,7 @@ use utils::{
     multilinear_batch_evaluate, multilinears_linear_combination, packed_multilinear, powers,
 };
 use whir_p3::{
+    dft::EvalsDft,
     fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
@@ -73,10 +74,15 @@ where
 
         let committer = CommitmentWriter::new(&whir_params);
 
-        let dft_committer = Radix2DitParallel::default();
+        let ext_dim = <EF as BasedVectorSpace<F>>::DIMENSION;
+        assert!(ext_dim.is_power_of_two());
+        let dft = EvalsDft::new(
+            1 << (self.log_n_witness_columns() + self.log_length + settings.whir_log_inv_rate
+                - log2_strict_usize(ext_dim)),
+        );
 
         let packed_witness = committer
-            .commit(&dft_committer, &mut prover_state, packed_pol)
+            .commit(&dft, &mut prover_state, packed_pol)
             .unwrap();
 
         self.constraints_batching_pow(fs_prover, settings).unwrap();
@@ -237,15 +243,13 @@ where
         //pcs.open(packed_pol_witness, vec![packed_eval], fs_prover);
         let prover = Prover(&whir_params);
 
-        let dft_prover = Radix2DitParallel::default();
-
         let mut statement = Statement::new(final_point.len());
         statement.add_constraint(
             Weights::evaluation(MultilinearPoint(final_point)),
             packed_value,
         );
         prover
-            .prove(&dft_prover, &mut prover_state, statement, packed_witness)
+            .prove(&dft, &mut prover_state, statement, packed_witness)
             .unwrap();
 
         prover_state

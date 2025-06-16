@@ -19,12 +19,12 @@ dependencies = [
  "p3-air",
  "p3-blake3",
  "p3-challenger",
- "p3-dft",
  "p3-field",
  "p3-keccak",
  "p3-koala-bear",
  "p3-symmetric",
  "p3-uni-stark",
+ "p3-util",
  "rand",
  "rayon",
  "sumcheck",
@@ -1083,7 +1083,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/whir-p3?branch=koala_bear_8#f5a838e9c0cb7140adca7bbcc9fca85a1440ef33"
+source = "git+https://github.com/TomWambsgans/whir-p3?branch=koala_bear_8#b4699ac10faa6be96a3f774d49cb63b75c116de6"
 dependencies = [
  "bincode",
  "blake3",
