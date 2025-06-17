@@ -3,7 +3,7 @@ use p3_field::{ExtensionField, PrimeField64, TwoAdicField, dot_product};
 use rand::distr::{Distribution, StandardUniform};
 use sumcheck::{SumcheckComputation, SumcheckError, SumcheckGrinding};
 use tracing::instrument;
-use utils::{ConstraintFolder, eq_extension, fold_multilinear_in_large_field, log2_up, powers};
+use utils::{ConstraintFolder, fold_multilinear_in_large_field, log2_up, powers};
 use whir_p3::{
     fiat_shamir::{errors::ProofError, pow::blake3::Blake3PoW, verifier::VerifierState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -152,9 +152,8 @@ impl<
         if dot_product::<EF, _, _>(
             zerocheck_selector_evals,
             outer_selector_evals.iter().copied(),
-        ) * eq_extension(
-            &zerocheck_challenges[1..],
-            &outer_sumcheck_challenge.point[1..],
+        ) * MultilinearPoint(zerocheck_challenges[1..].to_vec()).eq_poly_outside(
+            &MultilinearPoint(outer_sumcheck_challenge.point[1..].to_vec()),
         ) * global_constraint_eval
             != outer_sumcheck_challenge.value
         {
