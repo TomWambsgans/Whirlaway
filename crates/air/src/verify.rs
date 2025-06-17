@@ -64,18 +64,9 @@ impl<
 
         let commitment_reader = CommitmentReader::new(&whir_params);
         let whir_verifier = Verifier::new(&whir_params);
-        // let mut domainsep = DomainSeparator::new("🐎");
-        // domainsep.commit_statement(&whir_params);
-        // domainsep.add_whir_proof(&whir_params);
-        // let mut verifier_state = domainsep.to_verifier_state(
-        //     prover_state.narg_string(),
-        //     MyChallenger::new(vec![], Keccak256Hash),
-        // );
         let parsed_commitment = commitment_reader
             .parse_commitment::<32>(verifier_state)
             .map_err(|_| AirVerifError::InvalidPcsCommitment)?;
-
-        // self.constraints_batching_pow(&mut verifier_state, settings)?;
 
         verifier_state
             .challenge_pow::<Blake3PoW>(
@@ -87,8 +78,6 @@ impl<
             .unwrap();
 
         let constraints_batching_scalar = verifier_state.challenge_scalars::<1>().unwrap()[0];
-
-        // self.zerocheck_pow(&mut verifier_state, settings).unwrap();
 
         verifier_state
             .challenge_pow::<Blake3PoW>(
@@ -171,8 +160,6 @@ impl<
         {
             return Err(AirVerifError::SumMismatch);
         }
-
-        // self.secondary_sumchecks_batching_pow(fs_verifier, settings)?;
 
         verifier_state
             .challenge_pow::<Blake3PoW>(
