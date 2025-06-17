@@ -100,7 +100,6 @@ too_long_first_doc_paragraph = "allow"
 
 [workspace.dependencies]
 # Local
-fiat-shamir = { path = "crates/fiat-shamir" }
 air = { path = "crates/air" }
 sumcheck = { path = "crates/sumcheck" }
 utils = { path = "crates/utils" }
@@ -130,10 +129,9 @@ p3-challenger = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741
 p3-keccak = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
 p3-util = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
 
-whir-p3 = { git = "https://github.com/tcoratger/whir-p3" }
+whir-p3 = { git = "https://github.com/tcoratger/whir-p3", rev = "b42cd3c" }
 
 [dependencies]
-fiat-shamir.workspace = true
 air.workspace = true
 p3-field.workspace = true
 tracing.workspace = true
@@ -143,6 +141,8 @@ p3-poseidon2.workspace = true
 rand.workspace = true
 p3-poseidon2-air.workspace = true
 p3-matrix.workspace = true
+p3-challenger.workspace = true
+p3-keccak.workspace = true
 tracing-forest.workspace = true
 tracing-subscriber.workspace = true
 whir-p3.workspace = true

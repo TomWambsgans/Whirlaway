@@ -1,7 +1,8 @@
 use std::borrow::Borrow;
 
-use fiat_shamir::FsProver;
-use p3_field::{ExtensionField, Field};
+use p3_challenger::HashChallenger;
+use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_keccak::Keccak256Hash;
 use rand::distr::{Distribution, StandardUniform};
 use rayon::prelude::*;
 use tracing::instrument;
@@ -9,7 +10,10 @@ use utils::{
     HypercubePoint, batch_fold_multilinear_in_large_field, batch_fold_multilinear_in_small_field,
     univariate_selectors,
 };
-use whir_p3::poly::{dense::WhirDensePolynomial, evals::EvaluationsList};
+use whir_p3::{
+    fiat_shamir::{pow::blake3::Blake3PoW, prover::ProverState},
+    poly::{dense::WhirDensePolynomial, evals::EvaluationsList},
+};
 
 use crate::{SumcheckComputation, SumcheckGrinding};
 
@@ -17,9 +21,9 @@ pub const MIN_VARS_FOR_GPU: usize = 0; // When there are a small number of varia
 
 #[allow(clippy::too_many_arguments)]
 pub fn prove<
-    F: Field,
+    F: Field + TwoAdicField + PrimeField64,
     NF: ExtensionField<F>,
-    EF: ExtensionField<NF> + ExtensionField<F>,
+    EF: ExtensionField<NF> + ExtensionField<F> + TwoAdicField,
     M: Borrow<EvaluationsList<NF>>,
     SC: SumcheckComputation<F, NF, EF> + SumcheckComputation<F, EF, EF>,
 >(
@@ -30,7 +34,7 @@ pub fn prove<
     batching_scalars: &[EF],
     eq_factor: Option<&[EF]>,
     is_zerofier: bool,
-    fs_prover: &mut FsProver,
+    fs_prover: &mut ProverState<EF, F, HashChallenger<u8, Keccak256Hash, 32>, u8>,
     mut sum: EF,
     n_rounds: Option<usize>,
     grinding: SumcheckGrinding,
@@ -92,9 +96,9 @@ where
 #[instrument(name = "sumcheck_round", skip_all, fields(round))]
 #[allow(clippy::too_many_arguments)]
 pub fn sc_round<
-    F: Field,
+    F: Field + TwoAdicField + PrimeField64,
     NF: ExtensionField<F>,
-    EF: ExtensionField<NF> + ExtensionField<F>,
+    EF: ExtensionField<NF> + ExtensionField<F> + TwoAdicField,
     SC: SumcheckComputation<F, NF, EF>,
 >(
     skips: usize, // the first round will fold 2^skips (instead of 2 in the basic sumcheck)
@@ -104,7 +108,7 @@ pub fn sc_round<
     eq_factor: Option<&[EF]>,
     batching_scalars: &[EF],
     is_zerofier: bool,
-    fs_prover: &mut FsProver,
+    fs_prover: &mut ProverState<EF, F, HashChallenger<u8, Keccak256Hash, 32>, u8>,
     comp_degree: usize,
     sum: &mut EF,
     grinding: SumcheckGrinding,
@@ -170,15 +174,17 @@ where
         .unwrap();
     }
 
-    fs_prover.add_scalars(&p.coeffs);
-    let challenge = fs_prover.challenge_scalars::<EF>(1)[0];
+    fs_prover.add_scalars(&p.coeffs).unwrap();
+    let challenge = fs_prover.challenge_scalars::<1>().unwrap()[0];
     challenges.push(challenge);
     *sum = p.evaluate(challenge);
     *n_vars -= skips;
 
     let pow_bits = grinding
         .pow_bits::<EF>((comp_degree + usize::from(eq_factor.is_some())) * ((1 << skips) - 1));
-    fs_prover.challenge_pow(pow_bits);
+    fs_prover
+        .challenge_pow::<Blake3PoW>(pow_bits as f64)
+        .unwrap();
 
     let folding_scalars = selectors
         .iter()

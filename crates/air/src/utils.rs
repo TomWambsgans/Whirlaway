@@ -1,10 +1,12 @@
-use fiat_shamir::{FsError, FsParticipant};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use rayon::prelude::*;
 use utils::{eq_extension, log2_up};
-use whir_p3::poly::evals::EvaluationsList;
+use whir_p3::{
+    fiat_shamir::{errors::ProofError, pow::blake3::Blake3PoW, prover::ProverState},
+    poly::evals::EvaluationsList,
+};
 
-use crate::{AirSettings, table::AirTable};
+use crate::{AirSettings, MyChallenger, table::AirTable};
 
 pub(crate) fn matrix_up_lde<F: Field>(point: &[F]) -> F {
     /*
@@ -105,40 +107,42 @@ pub(crate) fn column_down<F: Field>(column: &EvaluationsList<F>) -> EvaluationsL
     EvaluationsList::new(down)
 }
 
-impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A> {
-    pub(crate) fn constraints_batching_pow<FS: FsParticipant>(
+impl<F: TwoAdicField + PrimeField64, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A> {
+    pub(crate) fn constraints_batching_pow(
         &self,
-        fs: &mut FS,
+        fs: &mut ProverState<EF, F, MyChallenger, u8>,
         settings: &AirSettings,
-    ) -> Result<(), FsError> {
-        fs.challenge_pow(
+    ) -> Result<(), ProofError> {
+        fs.challenge_pow::<Blake3PoW>(
             settings
                 .security_bits
-                .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_constraints))),
+                .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_constraints)))
+                as f64,
         )
     }
 
-    pub(crate) fn zerocheck_pow<FS: FsParticipant>(
+    pub(crate) fn zerocheck_pow(
         &self,
-        fs: &mut FS,
+        fs: &mut ProverState<EF, F, MyChallenger, u8>,
         settings: &AirSettings,
-    ) -> Result<(), FsError> {
-        fs.challenge_pow(
+    ) -> Result<(), ProofError> {
+        fs.challenge_pow::<Blake3PoW>(
             settings
                 .security_bits
-                .saturating_sub(EF::bits().saturating_sub(self.log_length)),
+                .saturating_sub(EF::bits().saturating_sub(self.log_length)) as f64,
         )
     }
 
-    pub(crate) fn secondary_sumchecks_batching_pow<FS: FsParticipant>(
+    pub(crate) fn secondary_sumchecks_batching_pow(
         &self,
-        fs: &mut FS,
+        fs: &mut ProverState<EF, F, MyChallenger, u8>,
         settings: &AirSettings,
-    ) -> Result<(), FsError> {
-        fs.challenge_pow(
+    ) -> Result<(), ProofError> {
+        fs.challenge_pow::<Blake3PoW>(
             settings
                 .security_bits
-                .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_witness_columns() * 2))),
+                .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_witness_columns() * 2)))
+                as f64,
         )
     }
 }

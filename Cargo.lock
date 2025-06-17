@@ -15,7 +15,6 @@ dependencies = [
 name = "air"
 version = "0.1.0"
 dependencies = [
- "fiat-shamir",
  "p3-air",
  "p3-blake3",
  "p3-challenger",
@@ -258,17 +257,6 @@ name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
-
-[[package]]
-name = "fiat-shamir"
-version = "0.1.0"
-dependencies = [
- "p3-field",
- "rand",
- "rayon",
- "tracing",
- "utils",
-]
 
 [[package]]
 name = "getrandom"
@@ -861,9 +849,10 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 name = "sumcheck"
 version = "0.1.0"
 dependencies = [
- "fiat-shamir",
  "p3-air",
+ "p3-challenger",
  "p3-field",
+ "p3-keccak",
  "p3-koala-bear",
  "p3-matrix",
  "rand",
@@ -1083,7 +1072,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/tcoratger/whir-p3#aa46689ad16b24ff8d4aac6c0b60b5fef077aeb8"
+source = "git+https://github.com/tcoratger/whir-p3?rev=b42cd3c#b42cd3c82d262da36516bec26e4701ec836f7716"
 dependencies = [
  "bincode",
  "blake3",
@@ -1122,9 +1111,10 @@ name = "whirlaway"
 version = "0.1.0"
 dependencies = [
  "air",
- "fiat-shamir",
  "p3-baby-bear",
+ "p3-challenger",
  "p3-field",
+ "p3-keccak",
  "p3-koala-bear",
  "p3-matrix",
  "p3-poseidon2",

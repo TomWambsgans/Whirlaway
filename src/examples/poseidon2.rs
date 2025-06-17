@@ -1,8 +1,9 @@
 use ::air::AirSettings;
 use air::table::AirTable;
-use fiat_shamir::{FsProver, FsVerifier};
 use p3_baby_bear::{BabyBear, GenericPoseidon2LinearLayersBabyBear};
+use p3_challenger::HashChallenger;
 use p3_field::{ExtensionField, PrimeField64, TwoAdicField, extension::BinomialExtensionField};
+use p3_keccak::Keccak256Hash;
 use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear};
 use p3_matrix::Matrix;
 use p3_poseidon2::GenericPoseidon2LinearLayers;
@@ -18,7 +19,12 @@ use std::time::{Duration, Instant};
 use tracing::level_filters::LevelFilter;
 use tracing_forest::ForestLayer;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
-use whir_p3::{parameters::FoldingFactor, poly::evals::EvaluationsList};
+use whir_p3::{
+    fiat_shamir::domain_separator::DomainSeparator, parameters::FoldingFactor,
+    poly::evals::EvaluationsList,
+};
+
+type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
 
 #[cfg(test)]
 mod tests {
@@ -266,15 +272,29 @@ where
     // table.check_validity(&witness);
 
     let t = Instant::now();
-    let mut fs_prover = FsProver::new();
-    let whir_proof = table.prove(&settings, &mut fs_prover, witness);
-    let proof_size = fs_prover.transcript_len() + whir_proof.narg_string().len();
+
+    let whir_params = table.build_whir_params(&settings);
+    let mut domainsep: DomainSeparator<EF, F, u8> = DomainSeparator::new("🐎");
+    domainsep.commit_statement(&whir_params);
+    domainsep.add_whir_proof(&whir_params);
+    let mut prover_state = domainsep.to_prover_state(MyChallenger::new(vec![], Keccak256Hash));
+
+    table.prove(&settings, &mut prover_state, witness);
+    let proof_size = prover_state.narg_string().len();
 
     let prover_time = t.elapsed();
     let time = Instant::now();
-    let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
+
+    let mut domainsep = DomainSeparator::new("🐎");
+    domainsep.commit_statement(&whir_params);
+    domainsep.add_whir_proof(&whir_params);
+    let mut verifier_state = domainsep.to_verifier_state(
+        prover_state.narg_string(),
+        MyChallenger::new(vec![], Keccak256Hash),
+    );
+
     table
-        .verify(&settings, &mut fs_verifier, log_n_rows, whir_proof)
+        .verify(&settings, &mut verifier_state, log_n_rows)
         .unwrap();
     let verifier_time = time.elapsed();
 
