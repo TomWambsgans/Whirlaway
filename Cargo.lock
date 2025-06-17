@@ -1037,7 +1037,6 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 name = "utils"
 version = "0.1.0"
 dependencies = [
- "bincode",
  "p3-air",
  "p3-field",
  "p3-koala-bear",
@@ -1070,7 +1069,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/tcoratger/whir-p3#ce720f2a98ce0f157ba4ca3b5d3cfb7af55b4a64"
+source = "git+https://github.com/tcoratger/whir-p3#d3abbc301331743e881a118c5fca186e03c0780e"
 dependencies = [
  "bincode",
  "blake3",

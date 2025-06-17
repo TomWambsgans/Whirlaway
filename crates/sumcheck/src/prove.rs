@@ -20,13 +20,7 @@ use crate::{SumcheckComputation, SumcheckGrinding};
 pub const MIN_VARS_FOR_GPU: usize = 0; // When there are a small number of variables, it's not worth using GPU
 
 #[allow(clippy::too_many_arguments)]
-pub fn prove<
-    F: Field + TwoAdicField + PrimeField64,
-    NF: ExtensionField<F>,
-    EF: ExtensionField<NF> + ExtensionField<F> + TwoAdicField,
-    M: Borrow<EvaluationsList<NF>>,
-    SC: SumcheckComputation<F, NF, EF> + SumcheckComputation<F, EF, EF>,
->(
+pub fn prove<F, NF, EF, M, SC>(
     skips: usize, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
     multilinears: &[M],
     computation: &SC,
@@ -41,6 +35,11 @@ pub fn prove<
     mut missing_mul_factor: Option<EF>,
 ) -> (Vec<EF>, Vec<EvaluationsList<EF>>, EF)
 where
+    F: Field + TwoAdicField + PrimeField64,
+    NF: ExtensionField<F>,
+    EF: ExtensionField<NF> + ExtensionField<F> + TwoAdicField,
+    M: Borrow<EvaluationsList<NF>>,
+    SC: SumcheckComputation<F, NF, EF> + SumcheckComputation<F, EF, EF>,
     StandardUniform: Distribution<EF>,
 {
     let multilinears = multilinears.iter().map(|m| m.borrow()).collect::<Vec<_>>();
