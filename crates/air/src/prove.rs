@@ -1,7 +1,5 @@
-use fiat_shamir::FsProver;
 use p3_air::Air;
 use p3_field::{BasedVectorSpace, ExtensionField, Field, PrimeField64, TwoAdicField, dot_product};
-use p3_keccak::Keccak256Hash;
 use p3_util::log2_strict_usize;
 use rand::distr::{Distribution, StandardUniform};
 use sumcheck::{SumcheckComputation, SumcheckGrinding};
@@ -12,7 +10,7 @@ use utils::{
 };
 use whir_p3::{
     dft::EvalsDft,
-    fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
+    fiat_shamir::prover::ProverState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::writer::CommitmentWriter,
@@ -47,10 +45,9 @@ where
     pub fn prove(
         &self,
         settings: &AirSettings,
-        fs_prover: &mut FsProver,
+        prover_state: &mut ProverState<EF, F, MyChallenger, u8>,
         witness: Vec<EvaluationsList<F>>,
-    ) -> ProverState<EF, F, MyChallenger, u8>
-    where
+    ) where
         StandardUniform: Distribution<EF> + Distribution<F>,
     {
         assert!(
@@ -61,10 +58,6 @@ where
         assert!(witness.iter().all(|w| w.num_variables() == log_length));
 
         let whir_params = self.build_whir_params(settings);
-        let mut domainsep: DomainSeparator<EF, F, u8> = DomainSeparator::new("🐎");
-        domainsep.commit_statement(&whir_params);
-        domainsep.add_whir_proof(&whir_params);
-        let mut prover_state = domainsep.to_prover_state(MyChallenger::new(vec![], Keccak256Hash));
 
         // 1) Commit to the witness columns
 
@@ -81,20 +74,20 @@ where
                 - log2_strict_usize(ext_dim)),
         );
 
-        let packed_witness = committer
-            .commit(&dft, &mut prover_state, packed_pol)
+        let packed_witness = committer.commit(&dft, prover_state, packed_pol).unwrap();
+
+        self.constraints_batching_pow(prover_state, settings)
             .unwrap();
 
-        self.constraints_batching_pow(fs_prover, settings).unwrap();
-
-        let constraints_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
+        let constraints_batching_scalar = prover_state.challenge_scalars::<1>().unwrap()[0];
 
         let constraints_batching_scalars = powers(constraints_batching_scalar, self.n_constraints);
 
-        self.zerocheck_pow(fs_prover, settings).unwrap();
+        self.zerocheck_pow(prover_state, settings).unwrap();
 
-        let zerocheck_challenges =
-            fs_prover.challenge_scalars::<EF>(log_length + 1 - settings.univariate_skips);
+        let zerocheck_challenges = prover_state
+            .challenge_scalars_vec(log_length + 1 - settings.univariate_skips)
+            .unwrap();
 
         let preprocessed_and_witness = self
             .preprocessed_columns
@@ -110,7 +103,7 @@ where
                 &constraints_batching_scalars,
                 Some(&zerocheck_challenges),
                 true,
-                fs_prover,
+                prover_state,
                 EF::ZERO,
                 None,
                 SumcheckGrinding::Auto {
@@ -131,13 +124,13 @@ where
                 .map(|s| s.evaluate::<EF>(&MultilinearPoint(vec![])))
                 .collect::<Vec<_>>()
         });
-        fs_prover.add_scalars(&inner_sums);
+        prover_state.add_scalars(&inner_sums).unwrap();
 
         info_span!("pow grinding").in_scope(|| {
-            self.secondary_sumchecks_batching_pow(fs_prover, settings)
+            self.secondary_sumchecks_batching_pow(prover_state, settings)
                 .unwrap();
         });
-        let secondary_sumcheck_batching_scalar = fs_prover.challenge_scalars::<EF>(1)[0];
+        let secondary_sumcheck_batching_scalar = prover_state.challenge_scalars::<1>().unwrap()[0];
 
         let mles_for_inner_sumcheck = {
             let _span_mles = span!(Level::INFO, "constructing MLEs").entered();
@@ -202,7 +195,7 @@ where
             &[EF::ONE],
             None,
             false,
-            fs_prover,
+            prover_state,
             inner_sum,
             None,
             SumcheckGrinding::Auto {
@@ -218,9 +211,11 @@ where
             )
         });
 
-        fs_prover.add_scalars(&values);
+        prover_state.add_scalars(&values).unwrap();
 
-        let final_random_scalars = fs_prover.challenge_scalars::<EF>(self.log_n_witness_columns()); // PoW grinding required ?
+        let final_random_scalars = prover_state
+            .challenge_scalars_vec(self.log_n_witness_columns())
+            .unwrap(); // PoW grinding required ?
         let final_point = [
             final_random_scalars.clone(),
             inner_challenges[settings.univariate_skips..].to_vec(),
@@ -249,10 +244,8 @@ where
             packed_value,
         );
         prover
-            .prove(&dft, &mut prover_state, statement, packed_witness)
+            .prove(&dft, prover_state, statement, packed_witness)
             .unwrap();
-
-        prover_state
     }
 }
 
