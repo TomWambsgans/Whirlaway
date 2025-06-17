@@ -1,9 +1,9 @@
 use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use rayon::prelude::*;
-use utils::{eq_extension, log2_up};
+use utils::log2_up;
 use whir_p3::{
     fiat_shamir::{errors::ProofError, pow::blake3::Blake3PoW, prover::ProverState},
-    poly::evals::EvaluationsList,
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
 };
 
 use crate::{AirSettings, MyChallenger, table::AirTable};
@@ -29,7 +29,8 @@ pub(crate) fn matrix_up_lde<F: Field>(point: &[F]) -> F {
 
     assert_eq!(point.len() % 2, 0);
     let n = point.len() / 2;
-    eq_extension(&point[..n], &point[n..])
+    let (s1, s2) = point.split_at(n);
+    MultilinearPoint(s1.to_vec()).eq_poly_outside(&MultilinearPoint(s2.to_vec()))
         + point[..point.len() - 1].iter().copied().product::<F>()
             * (F::ONE - point[point.len() - 1] * F::TWO)
 }
@@ -75,10 +76,9 @@ fn next_mle<F: Field>(point: &[F]) -> F {
         }
         factors.push(factor(2 * n - 1 - k, n - 1 - k));
         if k < n - 1 {
-            factors.push(eq_extension(
-                &(0..n - k - 1).map(|i| point[i]).collect::<Vec<_>>(),
-                &(0..n - k - 1).map(|i| point[i + n]).collect::<Vec<_>>(),
-            ));
+            let p1 = MultilinearPoint((0..n - k - 1).map(|i| point[i]).collect());
+            let p2 = MultilinearPoint((0..n - k - 1).map(|i| point[i + n]).collect());
+            factors.push(p1.eq_poly_outside(&p2));
         }
         factors.into_iter().product()
     };
