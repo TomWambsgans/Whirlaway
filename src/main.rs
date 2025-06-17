@@ -20,6 +20,7 @@ fn main() {
             2,
             4,
         ),
+        0,
         true,
     );
     println!("\n{benchmark}");

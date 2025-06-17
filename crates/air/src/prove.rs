@@ -115,15 +115,13 @@ where
 
         let _span = span!(Level::INFO, "inner sumchecks").entered();
 
-        let (inner_sums_up, inner_sums_down) =
-            all_inner_sums.split_at(self.n_columns + self.n_preprocessed_columns());
-        let inner_sums = info_span!("column evaluations").in_scope(|| {
-            inner_sums_up
-                .iter()
-                .chain(inner_sums_down)
-                .map(|s| s.evaluate::<EF>(&MultilinearPoint(vec![])))
-                .collect::<Vec<_>>()
-        });
+        let inner_sums = all_inner_sums[self.n_preprocessed_columns()..self.n_columns]
+            .iter()
+            .chain(
+                &all_inner_sums[self.n_columns + self.n_preprocessed_columns()..2 * self.n_columns],
+            )
+            .map(|s| s.evaluate::<EF>(&MultilinearPoint(vec![])))
+            .collect::<Vec<_>>();
         prover_state.add_scalars(&inner_sums).unwrap();
 
         info_span!("pow grinding").in_scope(|| {
@@ -227,7 +225,7 @@ where
             EvaluationsList::new(
                 [
                     values,
-                    EF::zero_vec((1 << self.log_n_witness_columns()) - self.n_witness_columns()),
+                    EF::zero_vec(witness.len().next_power_of_two() - witness.len()),
                 ]
                 .concat(),
             )

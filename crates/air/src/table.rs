@@ -29,7 +29,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A
         air: A,
         log_length: usize,
         univariate_skips: usize,
-        preprocessed_columns: Vec<Vec<F>>,
+        preprocessed_columns: Vec<EvaluationsList<F>>,
         constraint_degree: usize,
     ) -> Self
     where
@@ -40,12 +40,9 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A
 
         Self {
             log_length,
-            n_columns: air.width() + preprocessed_columns.len(),
+            n_columns: air.width(),
             air,
-            preprocessed_columns: preprocessed_columns
-                .into_iter()
-                .map(EvaluationsList::new)
-                .collect(),
+            preprocessed_columns,
             n_constraints,
             constraint_degree,
             univariate_selectors: univariate_selectors(univariate_skips),

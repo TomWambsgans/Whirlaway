@@ -6,9 +6,6 @@ mod uni_skip_utils;
 mod utils;
 mod verify;
 
-#[cfg(test)]
-mod test;
-
 type ByteHash = Blake3;
 type FieldHash = SerializingHasher<ByteHash>;
 type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
