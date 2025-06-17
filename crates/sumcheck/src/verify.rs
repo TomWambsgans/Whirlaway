@@ -101,7 +101,7 @@ where
         } else if target != computed_sum {
             return Err(SumcheckError::InvalidRound);
         }
-        let challenge = verifier_state.challenge_scalars::<1>().unwrap()[0];
+        let challenge = verifier_state.challenge_scalars_array::<1>().unwrap()[0];
 
         let pow_bits = grinding.pow_bits::<EF>(deg);
         verifier_state.challenge_pow::<Blake3PoW>(pow_bits as f64)?;

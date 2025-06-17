@@ -175,7 +175,7 @@ where
     }
 
     fs_prover.add_scalars(&p.coeffs).unwrap();
-    let challenge = fs_prover.challenge_scalars::<1>().unwrap()[0];
+    let challenge = fs_prover.challenge_scalars_array::<1>().unwrap()[0];
     challenges.push(challenge);
     *sum = p.evaluate(challenge);
     *n_vars -= skips;

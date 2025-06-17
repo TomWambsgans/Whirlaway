@@ -79,7 +79,7 @@ where
         self.constraints_batching_pow(prover_state, settings)
             .unwrap();
 
-        let constraints_batching_scalar = prover_state.challenge_scalars::<1>().unwrap()[0];
+        let constraints_batching_scalar = prover_state.challenge_scalars_array::<1>().unwrap()[0];
 
         let constraints_batching_scalars = powers(constraints_batching_scalar, self.n_constraints);
 
@@ -130,7 +130,8 @@ where
             self.secondary_sumchecks_batching_pow(prover_state, settings)
                 .unwrap();
         });
-        let secondary_sumcheck_batching_scalar = prover_state.challenge_scalars::<1>().unwrap()[0];
+        let secondary_sumcheck_batching_scalar =
+            prover_state.challenge_scalars_array::<1>().unwrap()[0];
 
         let mles_for_inner_sumcheck = {
             let _span_mles = span!(Level::INFO, "constructing MLEs").entered();

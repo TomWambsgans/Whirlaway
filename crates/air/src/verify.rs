@@ -77,7 +77,7 @@ impl<
             )
             .unwrap();
 
-        let constraints_batching_scalar = verifier_state.challenge_scalars::<1>().unwrap()[0];
+        let constraints_batching_scalar = verifier_state.challenge_scalars_array::<1>().unwrap()[0];
 
         verifier_state
             .challenge_pow::<Blake3PoW>(
@@ -170,7 +170,7 @@ impl<
             .unwrap();
 
         let secondary_sumcheck_batching_scalar =
-            verifier_state.challenge_scalars::<1>().unwrap()[0];
+            verifier_state.challenge_scalars_array::<1>().unwrap()[0];
 
         let (batched_inner_sum, inner_sumcheck_challenge) = sumcheck::verify::<EF, F>(
             verifier_state,

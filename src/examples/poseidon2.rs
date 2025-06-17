@@ -274,7 +274,7 @@ where
     let t = Instant::now();
 
     let whir_params = table.build_whir_params(&settings);
-    let mut domainsep: DomainSeparator<EF, F, u8> = DomainSeparator::new("🐎");
+    let mut domainsep: DomainSeparator<EF, F, u8> = DomainSeparator::new("🐎", false);
     domainsep.commit_statement(&whir_params);
     domainsep.add_whir_proof(&whir_params);
     let mut prover_state = domainsep.to_prover_state(MyChallenger::new(vec![], Keccak256Hash));
@@ -285,7 +285,7 @@ where
     let prover_time = t.elapsed();
     let time = Instant::now();
 
-    let mut domainsep = DomainSeparator::new("🐎");
+    let mut domainsep = DomainSeparator::new("🐎", false);
     domainsep.commit_statement(&whir_params);
     domainsep.add_whir_proof(&whir_params);
     let mut verifier_state = domainsep.to_verifier_state(
