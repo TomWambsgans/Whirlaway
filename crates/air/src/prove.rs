@@ -95,7 +95,7 @@ where
             .chain(&witness)
             .collect::<Vec<_>>();
         let (zerocheck_challenges, all_inner_sums, _) = info_span!("zerocheck").in_scope(|| {
-            sumcheck::prove::<_, _, _, _, A>(
+            sumcheck::prove(
                 settings.univariate_skips,
                 &columns_up_and_down(&preprocessed_and_witness),
                 &self.air,
@@ -188,7 +188,7 @@ where
             )
         });
 
-        let (inner_challenges, _, _) = sumcheck::prove::<F, _, _, _, _>(
+        let (inner_challenges, _, _) = sumcheck::prove(
             1,
             &mles_for_inner_sumcheck,
             &InnerSumcheckCircuit,
