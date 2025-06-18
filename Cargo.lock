@@ -1070,7 +1070,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/whir-p3?branch=koala_bear_8#b4699ac10faa6be96a3f774d49cb63b75c116de6"
+source = "git+https://github.com/TomWambsgans/whir-p3?branch=koala_bear_8#28241ecbd04884ac813598930a8179d370d9ddfc"
 dependencies = [
  "bincode",
  "blake3",
