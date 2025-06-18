@@ -1042,6 +1042,7 @@ dependencies = [
  "p3-koala-bear",
  "p3-matrix",
  "rayon",
+ "tracing",
  "whir-p3",
 ]
 

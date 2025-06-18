@@ -17,7 +17,7 @@ fn main() {
             SecurityAssumption::CapacityBound,
             FoldingFactor::ConstantFromSecondRound(7, 4),
             log_inv_rate,
-            2,
+            3,
             4,
         ),
         0,

@@ -1,8 +1,9 @@
 use std::borrow::Borrow;
 
-use p3_field::{ExtensionField, Field};
+use p3_field::{ExtensionField, Field, dot_product};
 use rayon::prelude::*;
-use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
+use tracing::instrument;
+use whir_p3::poly::evals::EvaluationsList;
 
 pub fn fold_multilinear_in_small_field<F: Field, EF: ExtensionField<F>>(
     m: &EvaluationsList<EF>,
@@ -44,56 +45,28 @@ pub fn fold_multilinear_in_large_field<F: Field, EF: ExtensionField<F>>(
     )
 }
 
+#[instrument(name = "multilinears_linear_combination", skip_all)]
 pub fn multilinears_linear_combination<
     F: Field,
     EF: ExtensionField<F>,
-    P: Borrow<EvaluationsList<F>>,
+    P: Borrow<EvaluationsList<F>> + Send + Sync,
 >(
     pols: &[P],
     scalars: &[EF],
 ) -> EvaluationsList<EF> {
     assert_eq!(pols.len(), scalars.len());
-    let mut sum = EvaluationsList::new(EF::zero_vec(pols[0].borrow().num_evals()));
-    for i in 0..scalars.len() {
-        add_assign(&mut sum, &pols[i].borrow().scale(scalars[i]));
-    }
-    sum
-}
-
-pub fn add_dummy_starting_variables<F: Field>(
-    m: &EvaluationsList<F>,
-    n: usize,
-) -> EvaluationsList<F> {
-    // TODO remove
-    EvaluationsList::new(m.evals().repeat(1 << n))
-}
-
-pub fn add_dummy_ending_variables<F: Field>(
-    m: &EvaluationsList<F>,
-    n: usize,
-) -> EvaluationsList<F> {
-    // TODO remove
-    let evals = m
-        .evals()
-        .iter()
-        .flat_map(|item| std::iter::repeat_n(*item, 1 << n))
-        .collect();
+    let n_vars = pols[0].borrow().num_variables();
+    assert!(pols.iter().all(|p| p.borrow().num_variables() == n_vars));
+    let evals = (0..1 << n_vars)
+        .into_par_iter()
+        .map(|i| {
+            dot_product(
+                scalars.iter().copied(),
+                pols.iter().map(|p| p.borrow().evals()[i]),
+            )
+        })
+        .collect::<Vec<_>>();
     EvaluationsList::new(evals)
-}
-
-fn add_assign<F: Field>(m: &mut EvaluationsList<F>, other: &EvaluationsList<F>) {
-    assert_eq!(m.num_variables(), other.num_variables());
-    m.evals_mut()
-        .par_iter_mut()
-        .zip(other.evals().par_iter())
-        .for_each(|(a, b)| *a += *b);
-}
-
-pub fn multilinear_batch_evaluate<F: Field, EF: ExtensionField<F>>(
-    pols: &[EvaluationsList<F>],
-    point: &MultilinearPoint<EF>,
-) -> Vec<EF> {
-    pols.par_iter().map(|pol| pol.evaluate(point)).collect()
 }
 
 pub fn batch_fold_multilinear_in_large_field<F: Field, EF: ExtensionField<F>>(
@@ -127,5 +100,18 @@ pub fn packed_multilinear<F: Field>(pols: &[EvaluationsList<F>]) -> EvaluationsL
         dst[offset..offset + pol.num_evals()].copy_from_slice(pol.evals());
         offset += pol.num_evals();
     }
+    EvaluationsList::new(dst)
+}
+
+#[instrument(name = "add_multilinears", skip_all)]
+pub fn add_multilinears<F: Field>(
+    pol1: &EvaluationsList<F>,
+    pol2: &EvaluationsList<F>,
+) -> EvaluationsList<F> {
+    assert_eq!(pol1.num_variables(), pol2.num_variables());
+    let mut dst = pol1.evals().to_vec();
+    dst.par_iter_mut()
+        .zip(pol2.evals().par_iter())
+        .for_each(|(a, b)| *a += *b);
     EvaluationsList::new(dst)
 }

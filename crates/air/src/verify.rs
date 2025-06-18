@@ -150,7 +150,7 @@ impl<
             .iter()
             .map(|s| s.evaluate(zerocheck_challenges[0]));
         if dot_product::<EF, _, _>(
-            zerocheck_selector_evals,
+            zerocheck_selector_evals.clone(),
             outer_selector_evals.iter().copied(),
         ) * MultilinearPoint(zerocheck_challenges[1..].to_vec()).eq_poly_outside(
             &MultilinearPoint(outer_sumcheck_challenge.point[1..].to_vec()),
@@ -162,89 +162,76 @@ impl<
 
         verifier_state
             .challenge_pow::<Blake3PoW>(
-                settings.security_bits.saturating_sub(
-                    EF::bits().saturating_sub(log2_up(self.n_witness_columns() * 2)),
-                ) as f64,
+                settings
+                    .security_bits
+                    .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_witness_columns())))
+                    as f64,
             )
             .unwrap();
 
-        let secondary_sumcheck_batching_scalar =
-            verifier_state.challenge_scalars_array::<1>().unwrap()[0];
+        let columns_batching_scalars =
+            verifier_state.challenge_scalars_vec(self.log_n_witness_columns())?;
 
-        let (batched_inner_sum, inner_sumcheck_challenge) = sumcheck::verify::<EF, F>(
-            verifier_state,
-            log_length + settings.univariate_skips,
-            3,
-            SumcheckGrinding::Auto {
-                security_bits: settings.security_bits,
-            },
-        )?; // TODO degree 3 -> in fact it's degree 2 on some variables (sumcheck is sparse)
+        let [alpha] = verifier_state.challenge_scalars_array()?;
 
-        if batched_inner_sum
-            != dot_product(
-                witness_shifted_evals.into_iter(),
-                powers(
-                    secondary_sumcheck_batching_scalar,
-                    self.n_witness_columns() * 2,
-                )
-                .into_iter(),
-            )
+        let sub_evals = verifier_state.next_scalars_vec(1 << settings.univariate_skips)?;
+
+        if dot_product::<EF, _, _>(
+            sub_evals.iter().copied(),
+            outer_selector_evals.iter().copied(),
+        ) != dot_product::<EF, _, _>(
+            witness_up.to_vec().into_iter(),
+            EvaluationsList::eval_eq(&columns_batching_scalars).evals()[..self.n_witness_columns()]
+                .iter()
+                .copied(),
+        ) + dot_product::<EF, _, _>(
+            witness_down.to_vec().into_iter(),
+            EvaluationsList::eval_eq(&columns_batching_scalars).evals()[..self.n_witness_columns()]
+                .iter()
+                .copied(),
+        ) * alpha
         {
             return Err(AirVerifError::SumMismatch);
         }
 
-        let mut batched_inner_value = EF::ZERO;
+        let epsilons = verifier_state.challenge_scalars_vec(settings.univariate_skips)?;
+
+        let (batched_inner_sum, inner_sumcheck_challenge) = sumcheck::verify::<EF, F>(
+            verifier_state,
+            log_length,
+            2,
+            SumcheckGrinding::Auto {
+                security_bits: settings.security_bits,
+            },
+        )?;
+
+        if batched_inner_sum
+            != EvaluationsList::new(sub_evals.clone()).evaluate(&MultilinearPoint(epsilons.clone()))
+        {
+            return Err(AirVerifError::SumMismatch);
+        }
+
         let matrix_lde_point = [
-            inner_sumcheck_challenge.point[..settings.univariate_skips].to_vec(),
+            epsilons.clone(),
             outer_sumcheck_challenge.point[1..].to_vec(),
-            inner_sumcheck_challenge.point[settings.univariate_skips..].to_vec(),
+            inner_sumcheck_challenge.point.clone(),
         ]
         .concat();
         let up = matrix_up_lde(&matrix_lde_point);
         let down = matrix_down_lde(&matrix_lde_point);
 
-        let final_inner_claims = verifier_state.next_scalars_vec(self.n_witness_columns())?;
+        let expected_final_value = inner_sumcheck_challenge.value / (up + alpha * down);
 
-        for (u, final_inner_claim) in final_inner_claims
-            .iter()
-            .enumerate()
-            .take(self.n_witness_columns())
-        {
-            batched_inner_value += *final_inner_claim
-                * (secondary_sumcheck_batching_scalar.exp_u64(u as u64) * up
-                    + secondary_sumcheck_batching_scalar
-                        .exp_u64((u + self.n_witness_columns()) as u64)
-                        * down);
-        }
-        batched_inner_value *= EvaluationsList::new(outer_selector_evals).evaluate(
-            &MultilinearPoint(inner_sumcheck_challenge.point[..settings.univariate_skips].to_vec()),
-        );
-
-        if batched_inner_value != inner_sumcheck_challenge.value {
-            return Err(AirVerifError::SumMismatch);
-        }
-
-        let final_random_scalars =
-            verifier_state.challenge_scalars_vec(self.log_n_witness_columns())?;
         let final_point = [
-            final_random_scalars.clone(),
-            inner_sumcheck_challenge.point[settings.univariate_skips..].to_vec(),
+            columns_batching_scalars.clone(),
+            inner_sumcheck_challenge.point.clone(),
         ]
         .concat();
-
-        let packed_value = EvaluationsList::new(
-            [
-                final_inner_claims,
-                vec![EF::ZERO; (1 << self.log_n_witness_columns()) - self.n_witness_columns()],
-            ]
-            .concat(),
-        )
-        .evaluate(&MultilinearPoint(final_random_scalars));
 
         let mut statement = Statement::<EF>::new(final_point.len());
         statement.add_constraint(
             Weights::evaluation(MultilinearPoint(final_point)),
-            packed_value,
+            expected_final_value,
         );
         whir_verifier
             .verify(verifier_state, &parsed_commitment, &statement)

@@ -141,7 +141,7 @@ impl<F: TwoAdicField + PrimeField64, EF: ExtensionField<F> + TwoAdicField, A> Ai
         fs.challenge_pow::<Blake3PoW>(
             settings
                 .security_bits
-                .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_witness_columns() * 2)))
+                .saturating_sub(EF::bits().saturating_sub(self.log_n_witness_columns()))
                 as f64,
         )
     }

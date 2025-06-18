@@ -55,8 +55,8 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A
         self.n_columns - self.preprocessed_columns.len()
     }
 
+    /// rounded up
     pub fn log_n_witness_columns(&self) -> usize {
-        // rounded up
         log2_up(self.n_witness_columns())
     }
 
