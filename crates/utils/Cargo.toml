@@ -11,10 +11,8 @@ p3-field.workspace = true
 rayon.workspace = true
 p3-air.workspace = true
 p3-matrix.workspace = true
-bincode.workspace = true
-p3-keccak.workspace = true
-p3-symmetric.workspace = true
 whir-p3.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 p3-koala-bear.workspace = true

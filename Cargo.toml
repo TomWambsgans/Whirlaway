@@ -100,7 +100,6 @@ too_long_first_doc_paragraph = "allow"
 
 [workspace.dependencies]
 # Local
-fiat-shamir = { path = "crates/fiat-shamir" }
 air = { path = "crates/air" }
 sumcheck = { path = "crates/sumcheck" }
 utils = { path = "crates/utils" }
@@ -109,7 +108,6 @@ utils = { path = "crates/utils" }
 rand = "0.9.1"
 sha3 = "0.10.8"
 rayon = "1.5.1"
-bincode = { version = "2.0.1", features = ["serde"] }
 serde = { version = "1.0.219", features = ["derive"] }
 derive_more = { version = "2.0.1", features = ["full"] }
 tracing = "0.1.26"
@@ -133,7 +131,6 @@ p3-util = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigge
 whir-p3 = { git = "https://github.com/TomWambsgans/whir-p3", branch = "koala_bear_8" }
 
 [dependencies]
-fiat-shamir.workspace = true
 air.workspace = true
 p3-field.workspace = true
 tracing.workspace = true
@@ -143,6 +140,8 @@ p3-poseidon2.workspace = true
 rand.workspace = true
 p3-poseidon2-air.workspace = true
 p3-matrix.workspace = true
+p3-challenger.workspace = true
+p3-keccak.workspace = true
 tracing-forest.workspace = true
 tracing-subscriber.workspace = true
 whir-p3.workspace = true

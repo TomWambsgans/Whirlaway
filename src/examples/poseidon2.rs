@@ -1,8 +1,9 @@
 use ::air::AirSettings;
 use air::table::AirTable;
-use fiat_shamir::{FsProver, FsVerifier};
 use p3_baby_bear::{BabyBear, GenericPoseidon2LinearLayersBabyBear};
+use p3_challenger::HashChallenger;
 use p3_field::{ExtensionField, PrimeField64, TwoAdicField, extension::BinomialExtensionField};
+use p3_keccak::Keccak256Hash;
 use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear};
 use p3_matrix::Matrix;
 use p3_poseidon2::GenericPoseidon2LinearLayers;
@@ -18,7 +19,12 @@ use std::time::{Duration, Instant};
 use tracing::level_filters::LevelFilter;
 use tracing_forest::ForestLayer;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
-use whir_p3::{parameters::FoldingFactor, poly::evals::EvaluationsList};
+use whir_p3::{
+    fiat_shamir::domain_separator::DomainSeparator, parameters::FoldingFactor,
+    poly::evals::EvaluationsList,
+};
+
+type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
 
 #[cfg(test)]
 mod tests {
@@ -37,8 +43,8 @@ mod tests {
             3,
             1,
         );
-        SupportedField::KoalaBear.prove_poseidon2_with(7, settings.clone(), false);
-        SupportedField::BabyBear.prove_poseidon2_with(7, settings.clone(), false);
+        SupportedField::KoalaBear.prove_poseidon2_with(7, settings.clone(), 3, false);
+        SupportedField::BabyBear.prove_poseidon2_with(7, settings.clone(), 8, false);
     }
 }
 
@@ -90,15 +96,22 @@ impl SupportedField {
         &self,
         log_n_rows: usize,
         settings: AirSettings,
+        n_preprocessed_columns: usize,
         display_logs: bool,
     ) -> Poseidon2Benchmark {
         match self {
-            SupportedField::KoalaBear => {
-                prove_poseidon2_koala_bear(log_n_rows, settings, display_logs)
-            }
-            SupportedField::BabyBear => {
-                prove_poseidon2_baby_bear(log_n_rows, settings, display_logs)
-            }
+            SupportedField::KoalaBear => prove_poseidon2_koala_bear(
+                log_n_rows,
+                settings,
+                n_preprocessed_columns,
+                display_logs,
+            ),
+            SupportedField::BabyBear => prove_poseidon2_baby_bear(
+                log_n_rows,
+                settings,
+                n_preprocessed_columns,
+                display_logs,
+            ),
         }
     }
 }
@@ -106,6 +119,7 @@ impl SupportedField {
 fn prove_poseidon2_koala_bear(
     log_n_rows: usize,
     settings: AirSettings,
+    n_preprocessed_columns: usize,
     display_logs: bool,
 ) -> Poseidon2Benchmark {
     type F = KoalaBear;
@@ -130,12 +144,13 @@ fn prove_poseidon2_koala_bear(
         HALF_FULL_ROUNDS,
         PARTIAL_ROUNDS,
         COLS,
-    >(log_n_rows, settings, display_logs)
+    >(log_n_rows, settings, n_preprocessed_columns, display_logs)
 }
 
 fn prove_poseidon2_baby_bear(
     log_n_rows: usize,
     settings: AirSettings,
+    n_preprocessed_columns: usize,
     display_logs: bool,
 ) -> Poseidon2Benchmark {
     type F = BabyBear;
@@ -160,31 +175,8 @@ fn prove_poseidon2_baby_bear(
         HALF_FULL_ROUNDS,
         PARTIAL_ROUNDS,
         COLS,
-    >(log_n_rows, settings, display_logs)
+    >(log_n_rows, settings, n_preprocessed_columns, display_logs)
 }
-
-// pub struct GenericPoseidon2LinearLayersGoldilcoks;
-
-// impl<A: Algebra<Goldilocks>> GenericPoseidon2LinearLayers<A, 8>
-//     for GenericPoseidon2LinearLayersGoldilcoks
-// {
-//     fn internal_linear_layer(state: &mut [A; 8]) {
-//         Poseidon2InternalLayerGoldilocks::new_from_constants(
-//             new_goldilocks_array(HL_GOLDILOCKS_8_INTERNAL_ROUND_CONSTANTS).to_vec(),
-//         )
-//         .permute_state(state);
-//     }
-// }
-
-// const fn new_goldilocks_array<const N: usize>(input: [u64; N]) -> [Goldilocks; N] {
-//     let mut output = [Goldilocks::ZERO; N];
-//     let mut i = 0;
-//     while i < N {
-//         output[i] = unsafe { std::mem::transmute::<u64, Goldilocks>(input[i]) };
-//         i += 1;
-//     }
-//     output
-// }
 
 fn prove_poseidon2<
     F,
@@ -199,6 +191,7 @@ fn prove_poseidon2<
 >(
     log_n_rows: usize,
     settings: AirSettings,
+    n_preprocessed_columns: usize,
     display_logs: bool,
 ) -> Poseidon2Benchmark
 where
@@ -250,31 +243,43 @@ where
     >(inputs, &constants, 0)
     .transpose();
 
-    let witness = witness_matrix
+    let mut witness = witness_matrix
         .rows()
         .map(|col| EvaluationsList::new(col.collect()))
-        .collect();
+        .collect::<Vec<_>>();
+    let preprocessed_columns = witness.drain(..n_preprocessed_columns).collect::<Vec<_>>();
 
     let table = AirTable::<F, EF, _>::new(
         poseidon_air,
         log_n_rows,
         settings.univariate_skips,
-        vec![],
+        preprocessed_columns,
         3,
     );
     // println!("Constraints degree: {}", table.constraint_degree());
     // table.check_validity(&witness);
 
     let t = Instant::now();
-    let mut fs_prover = FsProver::new();
-    let whir_proof = table.prove(&settings, &mut fs_prover, witness);
-    let proof_size = fs_prover.transcript_len() + whir_proof.narg_string().len();
+
+    let whir_params = table.build_whir_params(&settings);
+    let mut domainsep: DomainSeparator<EF, F, u8> = DomainSeparator::new("🐎", false);
+    domainsep.commit_statement(&whir_params);
+    domainsep.add_whir_proof(&whir_params);
+    let mut prover_state = domainsep.to_prover_state(MyChallenger::new(vec![], Keccak256Hash));
+
+    table.prove(&settings, &mut prover_state, witness);
+    let proof_size = prover_state.narg_string().len();
 
     let prover_time = t.elapsed();
     let time = Instant::now();
-    let mut fs_verifier = FsVerifier::new(fs_prover.transcript());
+
+    let mut verifier_state = domainsep.to_verifier_state(
+        prover_state.narg_string(),
+        MyChallenger::new(vec![], Keccak256Hash),
+    );
+
     table
-        .verify(&settings, &mut fs_verifier, log_n_rows, whir_proof)
+        .verify(&settings, &mut verifier_state, log_n_rows)
         .unwrap();
     let verifier_time = time.elapsed();
 

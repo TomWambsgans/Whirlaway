@@ -9,7 +9,6 @@ workspace = true
 [dependencies]
 p3-field.workspace = true
 tracing.workspace = true
-fiat-shamir.workspace = true
 sumcheck.workspace = true
 utils.workspace = true
 whir-p3.workspace = true

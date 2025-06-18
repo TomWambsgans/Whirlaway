@@ -1,13 +1,11 @@
-use fiat_shamir::{FsError, FsVerifier};
 use p3_air::Air;
 use p3_field::{ExtensionField, PrimeField64, TwoAdicField, dot_product};
-use p3_keccak::Keccak256Hash;
 use rand::distr::{Distribution, StandardUniform};
 use sumcheck::{SumcheckComputation, SumcheckError, SumcheckGrinding};
 use tracing::instrument;
-use utils::{ConstraintFolder, eq_extension, fold_multilinear_in_large_field, powers};
+use utils::{ConstraintFolder, fold_multilinear_in_large_field, log2_up, powers};
 use whir_p3::{
-    fiat_shamir::{domain_separator::DomainSeparator, prover::ProverState},
+    fiat_shamir::{errors::ProofError, pow::blake3::Blake3PoW, verifier::VerifierState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::reader::CommitmentReader,
@@ -23,18 +21,18 @@ use crate::{
 
 use super::table::AirTable;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum AirVerifError {
     InvalidPcsCommitment,
     InvalidPcsOpening,
-    Fs(FsError),
+    Fs(ProofError),
     Sumcheck(SumcheckError),
     InvalidBoundaryCondition,
     SumMismatch,
 }
 
-impl From<FsError> for AirVerifError {
-    fn from(e: FsError) -> Self {
+impl From<ProofError> for AirVerifError {
+    fn from(e: ProofError) -> Self {
         Self::Fs(e)
     }
 }
@@ -56,9 +54,8 @@ impl<
     pub fn verify(
         &self,
         settings: &AirSettings,
-        fs_verifier: &mut FsVerifier,
+        verifier_state: &mut VerifierState<'_, EF, F, MyChallenger, u8>,
         log_length: usize,
-        prover_state: ProverState<EF, F, MyChallenger, u8>,
     ) -> Result<(), AirVerifError>
     where
         StandardUniform: Distribution<EF> + Distribution<F>,
@@ -67,28 +64,35 @@ impl<
 
         let commitment_reader = CommitmentReader::new(&whir_params);
         let whir_verifier = Verifier::new(&whir_params);
-        let mut domainsep = DomainSeparator::new("🐎");
-        domainsep.commit_statement(&whir_params);
-        domainsep.add_whir_proof(&whir_params);
-        let mut verifier_state = domainsep.to_verifier_state(
-            prover_state.narg_string(),
-            MyChallenger::new(vec![], Keccak256Hash),
-        );
         let parsed_commitment = commitment_reader
-            .parse_commitment::<32>(&mut verifier_state)
+            .parse_commitment::<32>(verifier_state)
             .map_err(|_| AirVerifError::InvalidPcsCommitment)?;
 
-        self.constraints_batching_pow(fs_verifier, settings)?;
+        verifier_state
+            .challenge_pow::<Blake3PoW>(
+                settings
+                    .security_bits
+                    .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_constraints)))
+                    as f64,
+            )
+            .unwrap();
 
-        let constraints_batching_scalar = fs_verifier.challenge_scalars::<EF>(1)[0];
+        let constraints_batching_scalar = verifier_state.challenge_scalars_array::<1>().unwrap()[0];
 
-        self.zerocheck_pow(fs_verifier, settings).unwrap();
+        verifier_state
+            .challenge_pow::<Blake3PoW>(
+                settings
+                    .security_bits
+                    .saturating_sub(EF::bits().saturating_sub(self.log_length))
+                    as f64,
+            )
+            .unwrap();
 
         let zerocheck_challenges =
-            fs_verifier.challenge_scalars::<EF>(log_length - settings.univariate_skips + 1);
+            verifier_state.challenge_scalars_vec(log_length - settings.univariate_skips + 1)?;
 
-        let (sc_sum, outer_sumcheck_challenge) = sumcheck::verify_with_univariate_skip::<EF>(
-            fs_verifier,
+        let (sc_sum, outer_sumcheck_challenge) = sumcheck::verify_with_univariate_skip::<EF, F>(
+            verifier_state,
             self.constraint_degree + 1,
             log_length,
             settings.univariate_skips,
@@ -100,7 +104,8 @@ impl<
             return Err(AirVerifError::SumMismatch);
         }
 
-        let witness_shifted_evals = fs_verifier.next_scalars::<EF>(2 * self.n_witness_columns())?;
+        let witness_shifted_evals =
+            verifier_state.next_scalars_vec(2 * self.n_witness_columns())?;
         let (witness_up, witness_down) = witness_shifted_evals.split_at(self.n_witness_columns());
         let outer_selector_evals = self
             .univariate_selectors
@@ -145,97 +150,91 @@ impl<
             .iter()
             .map(|s| s.evaluate(zerocheck_challenges[0]));
         if dot_product::<EF, _, _>(
-            zerocheck_selector_evals,
+            zerocheck_selector_evals.clone(),
             outer_selector_evals.iter().copied(),
-        ) * eq_extension(
-            &zerocheck_challenges[1..],
-            &outer_sumcheck_challenge.point[1..],
+        ) * MultilinearPoint(zerocheck_challenges[1..].to_vec()).eq_poly_outside(
+            &MultilinearPoint(outer_sumcheck_challenge.point[1..].to_vec()),
         ) * global_constraint_eval
             != outer_sumcheck_challenge.value
         {
             return Err(AirVerifError::SumMismatch);
         }
 
-        self.secondary_sumchecks_batching_pow(fs_verifier, settings)?;
-        let secondary_sumcheck_batching_scalar = fs_verifier.challenge_scalars::<EF>(1)[0];
-
-        let (batched_inner_sum, inner_sumcheck_challenge) = sumcheck::verify::<EF>(
-            fs_verifier,
-            log_length + settings.univariate_skips,
-            3,
-            SumcheckGrinding::Auto {
-                security_bits: settings.security_bits,
-            },
-        )?; // TODO degree 3 -> in fact it's degree 2 on some variables (sumcheck is sparse)
-
-        if batched_inner_sum
-            != dot_product(
-                witness_shifted_evals.into_iter(),
-                powers(
-                    secondary_sumcheck_batching_scalar,
-                    self.n_witness_columns() * 2,
-                )
-                .into_iter(),
+        verifier_state
+            .challenge_pow::<Blake3PoW>(
+                settings
+                    .security_bits
+                    .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_witness_columns())))
+                    as f64,
             )
+            .unwrap();
+
+        let columns_batching_scalars =
+            verifier_state.challenge_scalars_vec(self.log_n_witness_columns())?;
+
+        let [alpha] = verifier_state.challenge_scalars_array()?;
+
+        let sub_evals = verifier_state.next_scalars_vec(1 << settings.univariate_skips)?;
+
+        if dot_product::<EF, _, _>(
+            sub_evals.iter().copied(),
+            outer_selector_evals.iter().copied(),
+        ) != dot_product::<EF, _, _>(
+            witness_up.to_vec().into_iter(),
+            EvaluationsList::eval_eq(&columns_batching_scalars).evals()[..self.n_witness_columns()]
+                .iter()
+                .copied(),
+        ) + dot_product::<EF, _, _>(
+            witness_down.to_vec().into_iter(),
+            EvaluationsList::eval_eq(&columns_batching_scalars).evals()[..self.n_witness_columns()]
+                .iter()
+                .copied(),
+        ) * alpha
         {
             return Err(AirVerifError::SumMismatch);
         }
 
-        let mut batched_inner_value = EF::ZERO;
+        let epsilons = verifier_state.challenge_scalars_vec(settings.univariate_skips)?;
+
+        let (batched_inner_sum, inner_sumcheck_challenge) = sumcheck::verify::<EF, F>(
+            verifier_state,
+            log_length,
+            2,
+            SumcheckGrinding::Auto {
+                security_bits: settings.security_bits,
+            },
+        )?;
+
+        if batched_inner_sum
+            != EvaluationsList::new(sub_evals.clone()).evaluate(&MultilinearPoint(epsilons.clone()))
+        {
+            return Err(AirVerifError::SumMismatch);
+        }
+
         let matrix_lde_point = [
-            inner_sumcheck_challenge.point[..settings.univariate_skips].to_vec(),
+            epsilons.clone(),
             outer_sumcheck_challenge.point[1..].to_vec(),
-            inner_sumcheck_challenge.point[settings.univariate_skips..].to_vec(),
+            inner_sumcheck_challenge.point.clone(),
         ]
         .concat();
         let up = matrix_up_lde(&matrix_lde_point);
         let down = matrix_down_lde(&matrix_lde_point);
 
-        let final_inner_claims = fs_verifier.next_scalars::<EF>(self.n_witness_columns())?;
+        let expected_final_value = inner_sumcheck_challenge.value / (up + alpha * down);
 
-        for (u, final_inner_claim) in final_inner_claims
-            .iter()
-            .enumerate()
-            .take(self.n_witness_columns())
-        {
-            batched_inner_value += *final_inner_claim
-                * (secondary_sumcheck_batching_scalar.exp_u64(u as u64) * up
-                    + secondary_sumcheck_batching_scalar
-                        .exp_u64((u + self.n_witness_columns()) as u64)
-                        * down);
-        }
-        batched_inner_value *= EvaluationsList::new(outer_selector_evals).evaluate(
-            &MultilinearPoint(inner_sumcheck_challenge.point[..settings.univariate_skips].to_vec()),
-        );
-
-        if batched_inner_value != inner_sumcheck_challenge.value {
-            return Err(AirVerifError::SumMismatch);
-        }
-
-        let final_random_scalars =
-            fs_verifier.challenge_scalars::<EF>(self.log_n_witness_columns());
         let final_point = [
-            final_random_scalars.clone(),
-            inner_sumcheck_challenge.point[settings.univariate_skips..].to_vec(),
+            columns_batching_scalars.clone(),
+            inner_sumcheck_challenge.point.clone(),
         ]
         .concat();
-
-        let packed_value = EvaluationsList::new(
-            [
-                final_inner_claims,
-                vec![EF::ZERO; (1 << self.log_n_witness_columns()) - self.n_witness_columns()],
-            ]
-            .concat(),
-        )
-        .evaluate(&MultilinearPoint(final_random_scalars));
 
         let mut statement = Statement::<EF>::new(final_point.len());
         statement.add_constraint(
             Weights::evaluation(MultilinearPoint(final_point)),
-            packed_value,
+            expected_final_value,
         );
         whir_verifier
-            .verify(&mut verifier_state, &parsed_commitment, &statement)
+            .verify(verifier_state, &parsed_commitment, &statement)
             .map_err(|_| AirVerifError::InvalidPcsOpening)?;
 
         Ok(())

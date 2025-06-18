@@ -1,10 +1,12 @@
-use fiat_shamir::{FsError, FsParticipant};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
 use rayon::prelude::*;
-use utils::{eq_extension, log2_up};
-use whir_p3::poly::evals::EvaluationsList;
+use utils::log2_up;
+use whir_p3::{
+    fiat_shamir::{errors::ProofError, pow::blake3::Blake3PoW, prover::ProverState},
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+};
 
-use crate::{AirSettings, table::AirTable};
+use crate::{AirSettings, MyChallenger, table::AirTable};
 
 pub(crate) fn matrix_up_lde<F: Field>(point: &[F]) -> F {
     /*
@@ -27,7 +29,8 @@ pub(crate) fn matrix_up_lde<F: Field>(point: &[F]) -> F {
 
     assert_eq!(point.len() % 2, 0);
     let n = point.len() / 2;
-    eq_extension(&point[..n], &point[n..])
+    let (s1, s2) = point.split_at(n);
+    MultilinearPoint(s1.to_vec()).eq_poly_outside(&MultilinearPoint(s2.to_vec()))
         + point[..point.len() - 1].iter().copied().product::<F>()
             * (F::ONE - point[point.len() - 1] * F::TWO)
 }
@@ -73,10 +76,9 @@ fn next_mle<F: Field>(point: &[F]) -> F {
         }
         factors.push(factor(2 * n - 1 - k, n - 1 - k));
         if k < n - 1 {
-            factors.push(eq_extension(
-                &(0..n - k - 1).map(|i| point[i]).collect::<Vec<_>>(),
-                &(0..n - k - 1).map(|i| point[i + n]).collect::<Vec<_>>(),
-            ));
+            let p1 = MultilinearPoint((0..n - k - 1).map(|i| point[i]).collect());
+            let p2 = MultilinearPoint((0..n - k - 1).map(|i| point[i + n]).collect());
+            factors.push(p1.eq_poly_outside(&p2));
         }
         factors.into_iter().product()
     };
@@ -105,40 +107,42 @@ pub(crate) fn column_down<F: Field>(column: &EvaluationsList<F>) -> EvaluationsL
     EvaluationsList::new(down)
 }
 
-impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A> {
-    pub(crate) fn constraints_batching_pow<FS: FsParticipant>(
+impl<F: TwoAdicField + PrimeField64, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A> {
+    pub(crate) fn constraints_batching_pow(
         &self,
-        fs: &mut FS,
+        fs: &mut ProverState<EF, F, MyChallenger, u8>,
         settings: &AirSettings,
-    ) -> Result<(), FsError> {
-        fs.challenge_pow(
+    ) -> Result<(), ProofError> {
+        fs.challenge_pow::<Blake3PoW>(
             settings
                 .security_bits
-                .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_constraints))),
+                .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_constraints)))
+                as f64,
         )
     }
 
-    pub(crate) fn zerocheck_pow<FS: FsParticipant>(
+    pub(crate) fn zerocheck_pow(
         &self,
-        fs: &mut FS,
+        fs: &mut ProverState<EF, F, MyChallenger, u8>,
         settings: &AirSettings,
-    ) -> Result<(), FsError> {
-        fs.challenge_pow(
+    ) -> Result<(), ProofError> {
+        fs.challenge_pow::<Blake3PoW>(
             settings
                 .security_bits
-                .saturating_sub(EF::bits().saturating_sub(self.log_length)),
+                .saturating_sub(EF::bits().saturating_sub(self.log_length)) as f64,
         )
     }
 
-    pub(crate) fn secondary_sumchecks_batching_pow<FS: FsParticipant>(
+    pub(crate) fn secondary_sumchecks_batching_pow(
         &self,
-        fs: &mut FS,
+        fs: &mut ProverState<EF, F, MyChallenger, u8>,
         settings: &AirSettings,
-    ) -> Result<(), FsError> {
-        fs.challenge_pow(
+    ) -> Result<(), ProofError> {
+        fs.challenge_pow::<Blake3PoW>(
             settings
                 .security_bits
-                .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_witness_columns() * 2))),
+                .saturating_sub(EF::bits().saturating_sub(self.log_n_witness_columns()))
+                as f64,
         )
     }
 }
