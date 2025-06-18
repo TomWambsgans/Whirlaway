@@ -52,8 +52,7 @@ where
         assert_eq!(eq_factor.len(), n_vars - skips + 1);
     }
 
-    let mut folded_multilinears;
-    folded_multilinears = sc_round(
+    let mut folded_multilinears = sc_round(
         skips,
         &multilinears,
         &mut n_vars,
@@ -94,12 +93,7 @@ where
 
 #[instrument(name = "sumcheck_round", skip_all, fields(round))]
 #[allow(clippy::too_many_arguments)]
-pub fn sc_round<
-    F: Field + TwoAdicField + PrimeField64,
-    NF: ExtensionField<F>,
-    EF: ExtensionField<NF> + ExtensionField<F> + TwoAdicField,
-    SC: SumcheckComputation<F, NF, EF>,
->(
+pub fn sc_round<F, NF, EF, SC>(
     skips: usize, // the first round will fold 2^skips (instead of 2 in the basic sumcheck)
     multilinears: &[&EvaluationsList<NF>],
     n_vars: &mut usize,
@@ -116,6 +110,10 @@ pub fn sc_round<
     missing_mul_factor: &mut Option<EF>,
 ) -> Vec<EvaluationsList<EF>>
 where
+    F: Field + TwoAdicField + PrimeField64,
+    NF: ExtensionField<F>,
+    EF: ExtensionField<NF> + ExtensionField<F> + TwoAdicField,
+    SC: SumcheckComputation<F, NF, EF>,
     StandardUniform: Distribution<EF>,
 {
     let eq_mle = eq_factor.map(|eq_factor| EvaluationsList::eval_eq(&eq_factor[1 + round..]));
