@@ -1,11 +1,14 @@
 use p3_air::Air;
-use p3_field::{BasedVectorSpace, ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_field::{
+    BasedVectorSpace, ExtensionField, Field, PrimeField64, TwoAdicField,
+    cyclic_subgroup_known_order,
+};
 use p3_util::log2_strict_usize;
 use rand::distr::{Distribution, StandardUniform};
 use sumcheck::{SumcheckComputation, SumcheckGrinding};
 use tracing::{Level, info_span, instrument, span};
 use utils::{
-    ConstraintFolder, add_multilinears, multilinears_linear_combination, packed_multilinear, powers,
+    ConstraintFolder, add_multilinears, multilinears_linear_combination, packed_multilinear,
 };
 use whir_p3::{
     dft::EvalsDft,
@@ -78,7 +81,9 @@ where
 
         let constraints_batching_scalar = prover_state.challenge_scalars_array::<1>().unwrap()[0];
 
-        let constraints_batching_scalars = powers(constraints_batching_scalar, self.n_constraints);
+        let constraints_batching_scalars =
+            cyclic_subgroup_known_order(constraints_batching_scalar, self.n_constraints)
+                .collect::<Vec<_>>();
 
         self.zerocheck_pow(prover_state, settings).unwrap();
 

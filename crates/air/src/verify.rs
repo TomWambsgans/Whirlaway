@@ -1,9 +1,11 @@
 use p3_air::Air;
-use p3_field::{ExtensionField, PrimeField64, TwoAdicField, dot_product};
+use p3_field::{
+    ExtensionField, PrimeField64, TwoAdicField, cyclic_subgroup_known_order, dot_product,
+};
 use rand::distr::{Distribution, StandardUniform};
 use sumcheck::{SumcheckComputation, SumcheckError, SumcheckGrinding};
 use tracing::instrument;
-use utils::{ConstraintFolder, fold_multilinear_in_large_field, log2_up, powers};
+use utils::{ConstraintFolder, fold_multilinear_in_large_field, log2_up};
 use whir_p3::{
     fiat_shamir::{errors::ProofError, pow::blake3::Blake3PoW, verifier::VerifierState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -142,7 +144,8 @@ impl<
         let global_constraint_eval = SumcheckComputation::eval(
             &self.air,
             &global_point,
-            &powers(constraints_batching_scalar, self.n_constraints),
+            &cyclic_subgroup_known_order(constraints_batching_scalar, self.n_constraints)
+                .collect::<Vec<_>>(),
         );
 
         let zerocheck_selector_evals = self
