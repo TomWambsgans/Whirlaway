@@ -1,10 +1,12 @@
 use p3_air::Air;
+use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{
-    BasedVectorSpace, ExtensionField, Field, PrimeField64, TwoAdicField,
-    cyclic_subgroup_known_order,
+    BasedVectorSpace, ExtensionField, Field, Packable, TwoAdicField, cyclic_subgroup_known_order,
 };
+use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use p3_util::log2_strict_usize;
 use rand::distr::{Distribution, StandardUniform};
+use serde::{Deserialize, Serialize};
 use sumcheck::{SumcheckComputation, SumcheckGrinding};
 use tracing::{Level, info_span, instrument, span};
 use utils::{
@@ -22,7 +24,7 @@ use whir_p3::{
 };
 
 use crate::{
-    AirSettings, MyChallenger,
+    AirSettings,
     uni_skip_utils::{matrix_down_folded, matrix_up_folded},
     utils::{column_down, column_up, columns_up_and_down},
 };
@@ -37,18 +39,25 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 
 impl<'a, F, EF, A> AirTable<F, EF, A>
 where
-    F: TwoAdicField + PrimeField64,
+    F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     A: Air<ConstraintFolder<'a, F, F, EF>> + Air<ConstraintFolder<'a, F, EF, EF>>,
 {
     #[instrument(name = "air: prove", skip_all)]
-    pub fn prove(
+    pub fn prove<H, C, Challenger, const DIGEST_ELEMS: usize>(
         &self,
         settings: &AirSettings,
-        prover_state: &mut ProverState<EF, F, MyChallenger, u8>,
+        merkle_hash: H,
+        merkle_compress: C,
+        prover_state: &mut ProverState<EF, F, Challenger, DIGEST_ELEMS>,
         witness: Vec<EvaluationsList<F>>,
     ) where
         StandardUniform: Distribution<EF> + Distribution<F>,
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
+        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
+        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        F: Eq + Packable,
     {
         assert!(
             settings.univariate_skips < self.log_length,
@@ -57,7 +66,7 @@ where
         let log_length = self.log_length;
         assert!(witness.iter().all(|w| w.num_variables() == log_length));
 
-        let whir_params = self.build_whir_params(settings);
+        let whir_params = self.build_whir_params(settings, merkle_hash, merkle_compress);
 
         // 1) Commit to the witness columns
 
@@ -79,7 +88,7 @@ where
         self.constraints_batching_pow(prover_state, settings)
             .unwrap();
 
-        let constraints_batching_scalar = prover_state.challenge_scalars_array::<1>().unwrap()[0];
+        let constraints_batching_scalar = prover_state.challenger.sample_algebra_element();
 
         let constraints_batching_scalars =
             cyclic_subgroup_known_order(constraints_batching_scalar, self.n_constraints)
@@ -87,9 +96,10 @@ where
 
         self.zerocheck_pow(prover_state, settings).unwrap();
 
-        let zerocheck_challenges = prover_state
-            .challenge_scalars_vec(log_length + 1 - settings.univariate_skips)
-            .unwrap();
+        let mut zerocheck_challenges = vec![EF::ZERO; log_length + 1 - settings.univariate_skips];
+        for challenge in &mut zerocheck_challenges {
+            *challenge = prover_state.challenger.sample_algebra_element();
+        }
 
         let preprocessed_and_witness = self
             .preprocessed_columns
@@ -125,23 +135,35 @@ where
             .iter()
             .map(|s| s.evaluate::<EF>(&MultilinearPoint(vec![])))
             .collect::<Vec<_>>();
+
+        for inner_sum in &inner_sums_up {
+            prover_state.challenger.observe_algebra_element(*inner_sum);
+        }
+        for inner_sum in &inner_sums_down {
+            prover_state.challenger.observe_algebra_element(*inner_sum);
+        }
+
         prover_state
-            .add_scalars(&[inner_sums_up.clone(), inner_sums_down.clone()].concat())
-            .unwrap();
+            .proof_data
+            .piop
+            .push([inner_sums_up, inner_sums_down].concat());
 
         info_span!("pow grinding").in_scope(|| {
             self.secondary_sumchecks_batching_pow(prover_state, settings)
                 .unwrap();
         });
-        let columns_batching_scalars = prover_state
-            .challenge_scalars_vec(self.log_n_witness_columns())
-            .unwrap();
+
+        let mut columns_batching_scalars = vec![EF::ZERO; self.log_n_witness_columns()];
+        for challenge in &mut columns_batching_scalars {
+            *challenge = prover_state.challenger.sample_algebra_element();
+        }
+
         let batched_column = multilinears_linear_combination(
             &witness,
             &EvaluationsList::eval_eq(&columns_batching_scalars).evals()[..witness.len()],
         );
 
-        let [alpha] = prover_state.challenge_scalars_array().unwrap();
+        let alpha = prover_state.challenger.sample_algebra_element();
 
         let batched_column_mixed = add_multilinears(
             &column_up(&batched_column),
@@ -152,11 +174,18 @@ where
         let sub_evals =
             &batched_column_mixed.fold(&MultilinearPoint(zerocheck_challenges[1..].to_vec()));
 
-        prover_state.add_scalars(&sub_evals).unwrap();
+        for sub_eval in sub_evals.evals() {
+            prover_state.challenger.observe_algebra_element(*sub_eval);
+        }
+        prover_state
+            .proof_data
+            .piop
+            .push(sub_evals.evals().to_vec());
 
-        let epsilons = prover_state
-            .challenge_scalars_vec(settings.univariate_skips)
-            .unwrap();
+        let mut epsilons = vec![EF::ZERO; settings.univariate_skips];
+        for challenge in &mut epsilons {
+            *challenge = prover_state.challenger.sample_algebra_element();
+        }
 
         let point = [epsilons.clone(), zerocheck_challenges[1..].to_vec()].concat();
         let mles_for_inner_sumcheck = vec![
@@ -164,7 +193,7 @@ where
                 &matrix_up_folded(&point),
                 &matrix_down_folded(&point).scale(alpha),
             ),
-            batched_column.clone(),
+            batched_column,
         ];
 
         // TODO do not recompute
@@ -188,7 +217,7 @@ where
             None,
         );
 
-        let final_point = [columns_batching_scalars.clone(), inner_challenges.clone()].concat();
+        let final_point = [columns_batching_scalars.clone(), inner_challenges].concat();
 
         let packed_value = inner_evals[1].evaluate(&MultilinearPoint(vec![]));
 

@@ -125,10 +125,9 @@ p3-uni-stark = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741"
 p3-poseidon2-air = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
 p3-goldilocks = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
 p3-challenger = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
-p3-keccak = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
 p3-util = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
 
-whir-p3 = { git = "https://github.com/tcoratger/whir-p3" }
+whir-p3 = { git = "https://github.com/tcoratger/whir-p3", rev = "94090f4" }
 
 [dependencies]
 air.workspace = true
@@ -141,9 +140,8 @@ rand.workspace = true
 p3-poseidon2-air.workspace = true
 p3-matrix.workspace = true
 p3-challenger.workspace = true
-p3-keccak.workspace = true
+p3-symmetric.workspace = true
 tracing-forest.workspace = true
 tracing-subscriber.workspace = true
 whir-p3.workspace = true
 p3-uni-stark.workspace = true
-# p3-goldilocks.workspace = true

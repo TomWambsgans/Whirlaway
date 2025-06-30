@@ -16,16 +16,15 @@ name = "air"
 version = "0.1.0"
 dependencies = [
  "p3-air",
- "p3-blake3",
  "p3-challenger",
  "p3-field",
- "p3-keccak",
  "p3-koala-bear",
  "p3-symmetric",
  "p3-uni-stark",
  "p3-util",
  "rand",
  "rayon",
+ "serde",
  "sumcheck",
  "tracing",
  "utils",
@@ -92,76 +91,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "arrayref"
-version = "0.3.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76a2e8124351fda1ef8aaaa3bbd7ebbcb486bbcd4225aca0aa0d84bb2db8fecb"
-
-[[package]]
-name = "arrayvec"
-version = "0.7.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
-
-[[package]]
 name = "autocfg"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
-name = "bincode"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36eaf5d7b090263e8150820482d5d93cd964a81e4019913c972f4edcc6edb740"
-dependencies = [
- "bincode_derive",
- "serde",
- "unty",
-]
-
-[[package]]
-name = "bincode_derive"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf95709a440f45e986983918d0e8a1f30a9b1df04918fc828670606804ac3c09"
-dependencies = [
- "virtue",
-]
-
-[[package]]
 name = "bitflags"
 version = "2.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b8e56985ec62d17e9c1001dc89c88ecd7dc08e47eba5ec7c29c7b5eeecde967"
-
-[[package]]
-name = "blake3"
-version = "1.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3888aaa89e4b2a40fca9848e400f6a658a5a3978de7be858e209cafa8be9a4a0"
-dependencies = [
- "arrayref",
- "arrayvec",
- "cc",
- "cfg-if",
- "constant_time_eq",
-]
-
-[[package]]
-name = "bytemuck"
-version = "1.23.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c76a5792e44e4abe34d3abf15636779261d45a7450612059293d1d2cfc63422"
-
-[[package]]
-name = "cc"
-version = "1.2.27"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d487aa071b5f64da6f19a3e848e3578944b726ee5a4854b82172f02aa876bfdc"
-dependencies = [
- "shlex",
-]
 
 [[package]]
 name = "cfg-if"
@@ -216,12 +155,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
-name = "constant_time_eq"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c74b8349d32d297c9134b8c88677813a227df8f779daa29bfc29c183fe3dca6"
-
-[[package]]
 name = "crossbeam-deque"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -245,12 +178,6 @@ name = "crossbeam-utils"
 version = "0.8.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
-
-[[package]]
-name = "crunchy"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43da5946c66ffcc7745f48db692ffbb10a83bfe0afd96235c5c2a4fb23994929"
 
 [[package]]
 name = "either"
@@ -403,16 +330,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "p3-blake3"
-version = "0.1.0"
-source = "git+https://github.com/Plonky3/Plonky3.git?rev=b869741#b869741ac1f133df3a554fcf24418cf53aefe4d8"
-dependencies = [
- "blake3",
- "p3-symmetric",
- "p3-util",
-]
-
-[[package]]
 name = "p3-challenger"
 version = "0.1.0"
 source = "git+https://github.com/Plonky3/Plonky3.git?rev=b869741#b869741ac1f133df3a554fcf24418cf53aefe4d8"
@@ -492,17 +409,6 @@ dependencies = [
  "p3-matrix",
  "p3-maybe-rayon",
  "p3-util",
-]
-
-[[package]]
-name = "p3-keccak"
-version = "0.1.0"
-source = "git+https://github.com/Plonky3/Plonky3.git?rev=b869741#b869741ac1f133df3a554fcf24418cf53aefe4d8"
-dependencies = [
- "p3-field",
- "p3-symmetric",
- "p3-util",
- "tiny-keccak",
 ]
 
 [[package]]
@@ -822,12 +728,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shlex"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
-
-[[package]]
 name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -852,7 +752,6 @@ dependencies = [
  "p3-air",
  "p3-challenger",
  "p3-field",
- "p3-keccak",
  "p3-koala-bear",
  "p3-matrix",
  "rand",
@@ -920,15 +819,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f60246a4944f24f6e018aa17cdeffb7818b76356965d03b07d6a9886e8962185"
 dependencies = [
  "cfg-if",
-]
-
-[[package]]
-name = "tiny-keccak"
-version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c9d3793400a45f954c52e73d068316d76b6f4e36977e3fcebb13a2721e80237"
-dependencies = [
- "crunchy",
 ]
 
 [[package]]
@@ -1022,12 +912,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a5f39404a5da50712a4c1eecf25e90dd62b613502b7e925fd4e4d19b5c96512"
 
 [[package]]
-name = "unty"
-version = "0.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
-
-[[package]]
 name = "utf8parse"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1053,12 +937,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
-name = "virtue"
-version = "0.0.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "051eb1abcf10076295e815102942cc58f9d5e3b4560e46e53c21e8ff6f3af7b1"
-
-[[package]]
 name = "wasi"
 version = "0.14.2+wasi-0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1070,28 +948,21 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/tcoratger/whir-p3#d3abbc301331743e881a118c5fca186e03c0780e"
+source = "git+https://github.com/tcoratger/whir-p3?rev=94090f4#94090f4647fa9a2fca5b8b4d81ff1c083706e176"
 dependencies = [
- "bincode",
- "blake3",
- "bytemuck",
  "clap",
  "itertools",
- "num-bigint",
  "p3-baby-bear",
- "p3-blake3",
  "p3-challenger",
  "p3-commit",
  "p3-dft",
  "p3-field",
  "p3-goldilocks",
  "p3-interpolation",
- "p3-keccak",
  "p3-koala-bear",
  "p3-matrix",
  "p3-maybe-rayon",
  "p3-merkle-tree",
- "p3-monty-31",
  "p3-symmetric",
  "p3-util",
  "rand",
@@ -1101,7 +972,6 @@ dependencies = [
  "tracing",
  "tracing-forest",
  "tracing-subscriber",
- "zeroize",
 ]
 
 [[package]]
@@ -1112,11 +982,11 @@ dependencies = [
  "p3-baby-bear",
  "p3-challenger",
  "p3-field",
- "p3-keccak",
  "p3-koala-bear",
  "p3-matrix",
  "p3-poseidon2",
  "p3-poseidon2-air",
+ "p3-symmetric",
  "p3-uni-stark",
  "rand",
  "tracing",
@@ -1248,9 +1118,3 @@ dependencies = [
  "quote",
  "syn",
 ]
-
-[[package]]
-name = "zeroize"
-version = "1.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ced3678a2879b30306d323f4542626697a464a97c0a07c9aebf7ebca65cd4dde"
