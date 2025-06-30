@@ -1,5 +1,5 @@
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, TwoAdicField};
 use rand::distr::{Distribution, StandardUniform};
 use utils::Evaluation;
 use whir_p3::{
@@ -28,8 +28,8 @@ pub fn verify<EF, F, Challenger, const DIGEST_ELEMS: usize>(
     grinding: SumcheckGrinding,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
-    F: Field + TwoAdicField,
-    EF: Field + ExtensionField<F> + TwoAdicField,
+    F: TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField,
     StandardUniform: Distribution<EF>,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
@@ -51,8 +51,8 @@ pub fn verify_with_univariate_skip<EF, F, Challenger, const DIGEST_ELEMS: usize>
     grinding: SumcheckGrinding,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
-    F: Field + TwoAdicField,
-    EF: Field + ExtensionField<F> + TwoAdicField,
+    F: TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField,
     StandardUniform: Distribution<EF>,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
