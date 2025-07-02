@@ -1,7 +1,10 @@
 WHITESPACE = _{ " " | "\t" | "\n" | "\r" }
 
 // Program structure
-program = { SOI ~ function+ ~ EOI }
+program = { SOI ~ constant_declaration* ~ function+ ~ EOI }
+
+// Constants
+constant_declaration = { "const" ~ identifier ~ "=" ~ number ~ ";" }
 
 // Functions
 function = { "fn" ~ identifier ~ "(" ~ parameter_list? ~ ")" ~ return_count? ~ "{" ~ statement* ~ "}" }
@@ -11,7 +14,6 @@ return_count = { "->" ~ number }
 // Statements
 statement = {
     single_assignment |
-    constant_assignment |
     raw_memory_access |
     if_statement |
     for_statement |
@@ -26,8 +28,6 @@ return_statement = { "return" ~ (tuple_expression)? ~ ";" }
 tuple_expression = { "(" ~ var_or_constant ~ ("," ~ var_or_constant)* ~ ")" }
 
 single_assignment = { identifier ~ "=" ~ expression ~ ";" }
-
-constant_assignment = { identifier ~ "=" ~ constant_value ~ ";" }
 
 raw_memory_access = { identifier ~ "=" ~ "memory" ~ "[" ~ var_or_constant ~ "]" ~ ";" }
 
