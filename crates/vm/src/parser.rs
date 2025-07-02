@@ -5,12 +5,10 @@ use std::collections::HashMap;
 
 use crate::bytecode::Operation;
 use crate::lang::*;
-// The parser struct with the grammar file
 #[derive(Parser)]
 #[grammar = "grammar.pest"]
 pub struct LangParser;
 
-// Error type for parsing
 #[derive(Debug)]
 pub enum ParseError {
     PestError(pest::error::Error<Rule>),
@@ -34,7 +32,6 @@ impl std::fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-// Context for constant resolution
 #[derive(Debug, Clone)]
 struct ParseContext {
     constants: HashMap<String, usize>,
@@ -56,7 +53,6 @@ impl ParseContext {
     }
 }
 
-// Main parsing function
 pub fn parse_program(input: &str) -> Result<Program, ParseError> {
     let input = remove_comments(input);
     let mut pairs = LangParser::parse(Rule::program, &input)?;
@@ -126,10 +122,8 @@ fn parse_constant_declaration(
 fn parse_function(pair: Pair<Rule>, context: &ParseContext) -> Result<Function, ParseError> {
     let mut inner = pair.into_inner();
 
-    // Parse function name
     let name = inner.next().unwrap().as_str().to_string();
 
-    // Parse parameters
     let mut arguments = Vec::new();
     let mut n_returned_vars = 0;
     let mut instructions = Vec::new();
@@ -173,7 +167,6 @@ fn parse_return_count(pair: Pair<Rule>, context: &ParseContext) -> Result<usize,
     let inner = pair.into_inner().next().unwrap();
     let count_str = inner.as_str();
 
-    // Try to resolve as constant first, then as literal number
     if let Some(value) = context.resolve_constant(count_str) {
         Ok(value)
     } else {
@@ -251,14 +244,14 @@ fn parse_constant_assignment(pair: Pair<Rule>, context: &ParseContext) -> Result
         var,
         operation: Operation::Add,
         arg0: VarOrConstant::Constant(constant_value),
-        arg1: VarOrConstant::Constant(ConstantValue::Scalar(0)), // dummy value
+        arg1: VarOrConstant::Constant(ConstantValue::Scalar(0)),
     })
 }
 
 fn parse_raw_memory_access(pair: Pair<Rule>, context: &ParseContext) -> Result<Line, ParseError> {
     let mut inner = pair.into_inner();
     let var_name = inner.next().unwrap().as_str().to_string();
-    let index = inner.next().unwrap(); // This should be var_or_constant
+    let index = inner.next().unwrap();
 
     let var = Var { name: var_name };
     let index_value = parse_var_or_constant(index, context)?;
@@ -347,7 +340,7 @@ fn parse_return_statement(pair: Pair<Rule>, context: &ParseContext) -> Result<Li
 }
 
 fn parse_function_call(pair: Pair<Rule>, context: &ParseContext) -> Result<Line, ParseError> {
-    let  inner = pair.into_inner();
+    let inner = pair.into_inner();
     let mut return_data = Vec::new();
     let mut function_name = String::new();
     let mut args = Vec::new();
@@ -371,30 +364,38 @@ fn parse_function_call(pair: Pair<Rule>, context: &ParseContext) -> Result<Line,
         }
     }
 
-    // Handle special function names
     match function_name.as_str() {
         "poseidon16" => {
             assert_eq!(args.len(), 2, "poseidon16 requires  2 arguments");
             assert_eq!(return_data.len(), 2, "poseidon16 requires 2 return values");
             Ok(Line::Poseidon16 {
-                    arg0: args[0].clone(),
-                    arg1: args[1].clone(),
-                    res0: return_data[0].clone(),
-                    res1: return_data[1].clone(),
-                })
+                arg0: args[0].clone(),
+                arg1: args[1].clone(),
+                res0: return_data[0].clone(),
+                res1: return_data[1].clone(),
+            })
         }
         "poseidon24" => {
             assert_eq!(args.len(), 3, "poseidon24 requires 3 arguments");
             assert_eq!(return_data.len(), 3, "poseidon24 requires 3 return values");
             Ok(Line::Poseidon24 {
-                    arg0: args[0].clone(),
-                    arg1: args[1].clone(),
-                    arg2: args[2].clone(),
-                    res0: return_data[0].clone(),
-                    res1: return_data[1].clone(),
-                    res2: return_data[2].clone(),
-                })
+                arg0: args[0].clone(),
+                arg1: args[1].clone(),
+                arg2: args[2].clone(),
+                res0: return_data[0].clone(),
+                res1: return_data[1].clone(),
+                res2: return_data[2].clone(),
+            })
         }
+        "malloc" => {
+            assert_eq!(args.len(), 1, "malloc requires 1 argument");
+            assert_eq!(return_data.len(), 1, "malloc requires 1 return value");
+            Ok(Line::MAlloc {
+                var: return_data[0].as_var().unwrap(),
+                size: args[0].as_constant().unwrap(),
+            })
+        }
+
         _ => Ok(Line::FunctionCall {
             function_name,
             args,
@@ -487,7 +488,6 @@ fn parse_var_or_constant(
     match inner.as_rule() {
         Rule::identifier => {
             let name = inner.as_str();
-            // Check if this identifier is a declared constant
             if let Some(value) = context.resolve_constant(name) {
                 Ok(VarOrConstant::Constant(ConstantValue::Scalar(value)))
             } else {
@@ -519,14 +519,14 @@ fn parse_constant_value(
     }
 }
 
-fn parse_var_list(pair: Pair<Rule>, _context: &ParseContext) -> Result<Vec<Var>, ParseError> {
+fn parse_var_list(
+    pair: Pair<Rule>,
+    _context: &ParseContext,
+) -> Result<Vec<VarOrConstant>, ParseError> {
     let mut vars = Vec::new();
     for item in pair.into_inner() {
-        if item.as_rule() == Rule::identifier {
-            vars.push(Var {
-                name: item.as_str().to_string(),
-            });
-        }
+        assert_eq!(item.as_rule(), Rule::var_or_constant);
+        vars.push(parse_var_or_constant(item, _context)?);
     }
     Ok(vars)
 }
@@ -567,8 +567,8 @@ fn main() {
     gh = memory[7];
     hh = memory[gh];
 
-    (xx, yy) = poseidon16(x, y);
-    (xxx, yyy, zzz) = poseidon24(x, y, b);
+    xx, yy = poseidon16(x, y);
+    xxx, yyy, zzz = poseidon24(7, y, b);
 
     assert_eq_ext(a, b);
 
@@ -578,19 +578,19 @@ fn main() {
         assert i != d;
     }
 
-    (i, j, k) = my_function1(b, b, a);
+    i, j, k = my_function1(b, b, a);
 }
 
 fn my_function1(a, b, c) -> 2 {
     d = a + b;
     e = b + c;
     if e == e {
-        return (0, 0);
+        return 0, 0;
     }
     if d != e {
-        return (d, e);
+        return d, e;
     } else {
-        return (e, d);
+        return e, d;
     }
 }
     "#;

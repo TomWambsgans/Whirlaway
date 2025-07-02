@@ -25,7 +25,7 @@ statement = {
 }
 
 return_statement = { "return" ~ (tuple_expression)? ~ ";" }
-tuple_expression = { "(" ~ var_or_constant ~ ("," ~ var_or_constant)* ~ ")" }
+tuple_expression = { var_or_constant ~ ("," ~ var_or_constant)* }
 
 single_assignment = { identifier ~ "=" ~ expression ~ ";" }
 
@@ -42,8 +42,8 @@ else_clause = { "else" ~ "{" ~ statement* ~ "}" }
 for_statement = { "for" ~ identifier ~ "in" ~ identifier ~ ".." ~ identifier ~ "{" ~ statement* ~ "}" }
 
 function_call = { function_res? ~ identifier ~ "(" ~ var_list? ~ ")" ~ ";" }
-function_res = { "(" ~ var_list ~ ")" ~ "=" }
-var_list = { identifier ~ ("," ~ identifier)* }
+function_res = { var_list ~ "=" }
+var_list = { var_or_constant ~ ("," ~ var_or_constant)* }
 
 assert_eq_statement = { "assert" ~ var_or_constant ~ "==" ~ var_or_constant ~ ";" }
 assert_not_eq_statement = { "assert" ~ var_or_constant ~ "!=" ~ var_or_constant ~ ";" }

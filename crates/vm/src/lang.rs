@@ -27,6 +27,22 @@ pub enum VarOrConstant {
     Constant(ConstantValue),
 }
 
+impl VarOrConstant {
+    pub fn as_var(&self) -> Option<Var> {
+        match self {
+            Self::Var(var) => Some(var.clone()),
+            Self::Constant(_) => None,
+        }
+    }
+
+    pub fn as_constant(&self) -> Option<ConstantValue> {
+        match self {
+            Self::Var(_) => None,
+            Self::Constant(constant) => Some(constant.clone()),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Boolean {
     Equal {
@@ -71,26 +87,26 @@ pub enum Line {
     },
     FunctionCall {
         function_name: String,
-        args: Vec<Var>,
-        return_data: Vec<Var>,
+        args: Vec<VarOrConstant>,
+        return_data: Vec<VarOrConstant>,
     },
     FunctionRet {
         return_data: Vec<Var>,
     },
     Poseidon16 {
-        arg0: Var,
-        arg1: Var,
-        res0: Var,
-        res1: Var,
+        arg0: VarOrConstant,
+        arg1: VarOrConstant,
+        res0: VarOrConstant,
+        res1: VarOrConstant,
         // 4 pointers in the memory of chunks of 8 field elements
     },
     Poseidon24 {
-        arg0: Var,
-        arg1: Var,
-        arg2: Var,
-        res0: Var,
-        res1: Var,
-        res2: Var,
+        arg0: VarOrConstant,
+        arg1: VarOrConstant,
+        arg2: VarOrConstant,
+        res0: VarOrConstant,
+        res1: VarOrConstant,
+        res2: VarOrConstant,
         // 6 pointers in the memory of chunks of 8 field elements
     },
     AssertEqExt {
@@ -98,5 +114,8 @@ pub enum Line {
         right: VarOrConstant,
         // 2 pointers in the memory of chunks of 8 field elements
     },
-    // 3 pointers in the memory of chunks of 8 field elements
+    MAlloc {
+        var: Var,
+        size: ConstantValue,
+    },
 }

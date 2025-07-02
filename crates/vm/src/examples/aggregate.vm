@@ -1,0 +1,108 @@
+// Public input: 
+// - pub keys (n × Fp^8)
+// - bitfield (n × Fp)
+// - msg ({0, 1, . . . , 7} x 64)
+
+// Private input: signatures (n × Fp^8)
+
+// memory: bytecode - public input - private input - runtime data
+
+const N = 1000; // total number of signers
+const PUB_KEY_SIZE = 8;
+const SIGNATURE_SIZE = 1024; // TODO
+const WOTS_SIGNATURE_SIZE = 512;
+const MERKLE_HEIGHT = 10; // merkle height (each xmss can sign 2^H messages)
+const N_CHAINS = 64; // number of hash chains
+const MAX_CHAIN_LENGTH = 8;
+const PRIVATE_INPUT_START = 7777; // TODO
+const POINTER_TO_8_ZEROS = 888; // TODO
+
+fn main() {
+    zero = 0;
+    n = N;
+    for signature_index in zero..n {
+        bit_index_shift = N * PUB_KEY_SIZE; // TODO compile time evaluation
+        bit_index = public_input_start + bit_index_shift;
+        if bit_index == 1 {
+            verify_signature(signature_index);
+        }
+    }
+}
+
+fn verify_signature(index) -> 0 {
+    pointer_to_pub_key_shift = PUB_KEY_SIZE * index;
+    pointer_to_pub_key = public_input_start + pointer_to_pub_key_shift;
+    pointer_to_wots_pubkey = malloc(N_CHAINS);
+    zero = 0;
+    n_chains = N_CHAINS;
+    for i in zero..n_chains {
+        chain_index = 77777 + i; // TODO: (instead of 77777) known at compile time = public_input_start + PUB_KEY_SIZE * N + N
+        chain_length = memory[chain_index];
+        thing_to_hash_shift_1 = index * SIGNATURE_SIZE;
+        thing_to_hash_shift_2 = i * 8;
+        thing_to_hash_shift = thing_to_hash_shift_1 + thing_to_hash_shift_2;
+        thing_to_hash = PRIVATE_INPUT_START + thing_to_hash_shift;
+        target_shift = i * 8;
+        target = pointer_to_wots_pubkey + target_shift;
+        chain_head = hash_chain(thing_to_hash);
+        chain_head_stored = memory[target];
+        assert chain_head == chain_head_stored;
+        wots_pubkey_hash = hash_merkle_leaf(pointer_to_wots_pubkey, N_CHAINS, POINTER_TO_8_ZEROS);
+        signature_ptr_shift = index * SIGNATURE_SIZE;
+        signature_ptr = PRIVATE_INPUT_START + signature_ptr_shift;
+        merkle_root = compute_merkle_root(signature_ptr, 0, wots_pubkey_hash);
+
+        xmss_public_key_index_1 = public_input_start / 8;
+        xmss_public_key_index = xmss_public_key_index_1 + i;
+        assert_ext merkle_root == xmss_public_key_index;
+    }
+}
+
+fn compute_merkle_root(signature_ptr, height, current_hash) -> 1 {
+    if height == MERKLE_HEIGHT {
+        return current_hash;
+    }
+
+    signature_ptr_shift_1 = signature_ptr + WOTS_SIGNATURE_SIZE;
+    signature_ptr_shift_2 = height * 9;
+    signature_ptr_shift = signature_ptr_shift_1 + signature_ptr_shift_2;
+    neighbout_is_at_left = memory[signature_ptr_shift];
+    neighbour_index = signature_ptr_shift + 1;
+    neighbout = memory[neighbour_index];
+    if neighbout_is_at_left == 0 {
+        next_hash, b = poseidon16(current_hash, neighbout);
+    } else {
+        assert neighbout_is_at_left == 1; // not really necessary
+        next_hash, b = poseidon16(neighbout, current_hash);
+    }
+    next_height = height + 1;
+    res = compute_merkle_root(signature_ptr, next_height, next_hash);
+    return res;
+}
+
+fn hash_chain(ptr, n) -> 1 {
+    if n == 0 {
+        return ptr;
+    } else {
+        a, b = poseidon16(ptr, POINTER_TO_8_ZEROS);
+        n_minus_1 = n-1;
+        res = hash_chain(a, n_minus_1);
+        return res;
+    }
+}
+
+fn hash_merkle_leaf(ptr, n, state) -> 1 {
+    if n == 0 {
+        return ptr;
+    }
+
+    a = memory[ptr];
+    next_ptr = ptr + 1;
+    b = memory[next_ptr];
+    res0, res1, res2 = poseidon24(a, b, state);
+    next_n = n - 2;
+    next_ptr = ptr + 2;
+    res = hash_merkle_leaf(next_ptr, next_n, res0);
+    return res;
+}
+
