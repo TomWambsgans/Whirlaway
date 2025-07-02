@@ -1,0 +1,12 @@
+[package]
+name = "vm"
+version.workspace = true
+edition.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+pest.workspace = true
+pest_derive.workspace = true
+# p3-koala-bear.workspace = true

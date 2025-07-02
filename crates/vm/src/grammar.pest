@@ -1,0 +1,63 @@
+WHITESPACE = _{ " " | "\t" | "\n" | "\r" }
+
+// Program structure
+program = { SOI ~ function+ ~ EOI }
+
+// Functions
+function = { "fn" ~ identifier ~ "(" ~ parameter_list? ~ ")" ~ return_count? ~ "{" ~ statement* ~ "}" }
+parameter_list = { identifier ~ ("," ~ identifier)* }
+return_count = { "->" ~ number }
+
+// Statements
+statement = {
+    single_assignment |
+    constant_assignment |
+    raw_memory_access |
+    if_statement |
+    for_statement |
+    return_statement |
+    function_call |
+    assert_eq_statement |
+    assert_not_eq_statement |
+    assert_eq_ext_statement 
+}
+
+return_statement = { "return" ~ (tuple_expression)? ~ ";" }
+tuple_expression = { "(" ~ var_or_constant ~ ("," ~ var_or_constant)* ~ ")" }
+
+single_assignment = { identifier ~ "=" ~ expression ~ ";" }
+
+constant_assignment = { identifier ~ "=" ~ constant_value ~ ";" }
+
+raw_memory_access = { identifier ~ "=" ~ "memory" ~ "[" ~ var_or_constant ~ "]" ~ ";" }
+
+if_statement = { "if" ~ condition ~ "{" ~ statement* ~ "}" ~ else_clause? }
+
+condition = {condition_eq | condition_diff}
+condition_eq = { var_or_constant ~ "==" ~ var_or_constant }
+condition_diff = { var_or_constant ~ "!=" ~ var_or_constant }
+
+else_clause = { "else" ~ "{" ~ statement* ~ "}" }
+
+for_statement = { "for" ~ identifier ~ "in" ~ identifier ~ ".." ~ identifier ~ "{" ~ statement* ~ "}" }
+
+function_call = { function_res? ~ identifier ~ "(" ~ var_list? ~ ")" ~ ";" }
+function_res = { "(" ~ var_list ~ ")" ~ "=" }
+var_list = { identifier ~ ("," ~ identifier)* }
+
+assert_eq_statement = { "assert" ~ var_or_constant ~ "==" ~ var_or_constant ~ ";" }
+assert_not_eq_statement = { "assert" ~ var_or_constant ~ "!=" ~ var_or_constant ~ ";" }
+assert_eq_ext_statement = { "assert_ext" ~ var_or_constant ~ "==" ~ var_or_constant ~ ";" }
+
+// Expressions
+expression = { binary_expression | var_or_constant }
+binary_expression = { var_or_constant ~ binary_operator ~ var_or_constant }
+binary_operator = { "+" | "*" | "-" | "/" }
+
+// Basic elements
+var_or_constant = {  constant_value | identifier }
+constant_value = { number | "public_input_start" }
+
+// Lexical elements
+identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+number = @{ ASCII_DIGIT+ }

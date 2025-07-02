@@ -103,6 +103,7 @@ too_long_first_doc_paragraph = "allow"
 air = { path = "crates/air" }
 sumcheck = { path = "crates/sumcheck" }
 utils = { path = "crates/utils" }
+vm = { path = "crates/vm" }
 
 # External
 rand = "0.9.1"
@@ -110,6 +111,8 @@ sha3 = "0.10.8"
 rayon = "1.5.1"
 serde = { version = "1.0.219", features = ["derive"] }
 derive_more = { version = "2.0.1", features = ["full"] }
+pest = "2.7"
+pest_derive = "2.7"
 tracing = "0.1.26"
 tracing-subscriber = { version = "0.3.19", features = ["std", "env-filter"] }
 tracing-forest = { version = "0.1.6", features = ["ansi", "smallvec"] }
