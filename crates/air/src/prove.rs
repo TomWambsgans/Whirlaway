@@ -54,8 +54,12 @@ where
     ) where
         StandardUniform: Distribution<EF> + Distribution<F>,
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
+        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
+            + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
+            + Sync,
+        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[F::Packing; DIGEST_ELEMS], 2>
+            + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         F: Eq + Packable,
     {

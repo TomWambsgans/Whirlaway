@@ -1,6 +1,7 @@
 use ::air::AirSettings;
 use air::table::AirTable;
 use p3_challenger::DuplexChallenger;
+use p3_field::PrimeField64;
 use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear, Poseidon2KoalaBear};
 use p3_matrix::Matrix;
@@ -51,7 +52,7 @@ pub struct Poseidon2Benchmark {
     pub settings: AirSettings,
     pub prover_time: Duration,
     pub verifier_time: Duration,
-    pub proof_size: usize,
+    pub proof_size: f64, // in bytes
 }
 
 impl fmt::Display for Poseidon2Benchmark {
@@ -187,11 +188,13 @@ pub fn prove_poseidon2(
         .unwrap();
     let verifier_time = time.elapsed();
 
+    let proof_size = prover_state.proof_data().len() as f64 * (F::ORDER_U64 as f64).log2() / 8.0;
+
     Poseidon2Benchmark {
         log_n_rows,
         settings,
         prover_time,
         verifier_time,
-        proof_size: 0,
+        proof_size,
     }
 }
