@@ -21,8 +21,8 @@ impl From<ProofError> for SumcheckError {
     }
 }
 
-pub fn verify<EF, F, Challenger, const DIGEST_ELEMS: usize>(
-    verifier_state: &mut VerifierState<EF, F, Challenger, DIGEST_ELEMS>,
+pub fn verify<F, EF, Challenger>(
+    verifier_state: &mut VerifierState<F, EF, Challenger>,
     n_vars: usize,
     degree: usize,
     grinding: SumcheckGrinding,
@@ -43,8 +43,8 @@ where
     )
 }
 
-pub fn verify_with_univariate_skip<EF, F, Challenger, const DIGEST_ELEMS: usize>(
-    verifier_state: &mut VerifierState<EF, F, Challenger, DIGEST_ELEMS>,
+pub fn verify_with_univariate_skip<F, EF, Challenger>(
+    verifier_state: &mut VerifierState<F, EF, Challenger>,
     degree: usize,
     n_vars: usize,
     skips: usize,
@@ -75,8 +75,8 @@ where
     )
 }
 
-fn verify_core<EF, F, Challenger, const DIGEST_ELEMS: usize>(
-    verifier_state: &mut VerifierState<EF, F, Challenger, DIGEST_ELEMS>,
+fn verify_core<EF, F, Challenger>(
+    verifier_state: &mut VerifierState<F, EF, Challenger>,
     max_degree_per_vars: &[usize],
     sumation_sets: Vec<Vec<EF>>,
     grinding: SumcheckGrinding,
@@ -93,7 +93,7 @@ where
     let (mut sum, mut target) = (EF::ZERO, EF::ZERO);
 
     for (&deg, sumation_set) in max_degree_per_vars.iter().zip(sumation_sets) {
-        let coeffs = verifier_state.proof_data.piop.remove(0);
+        let coeffs = verifier_state.next_extension_scalars_vec(deg + 1)?;
         let pol = WhirDensePolynomial::from_coefficients_vec(coeffs);
 
         let computed_sum = sumation_set.iter().map(|&s| pol.evaluate(s)).sum();
@@ -103,16 +103,10 @@ where
         } else if target != computed_sum {
             return Err(SumcheckError::InvalidRound);
         }
-        let challenge = verifier_state.challenger.sample_algebra_element();
+        let challenge = verifier_state.sample();
 
         let pow_bits = grinding.pow_bits::<EF>(deg);
-        let pow_witness = verifier_state.proof_data.pow_witnesses.remove(0);
-        assert!(
-            verifier_state
-                .challenger
-                .check_witness(pow_bits, pow_witness),
-            "Witness does not satisfy the PoW condition"
-        );
+        verifier_state.check_pow_grinding(pow_bits)?;
 
         target = pol.evaluate(challenge);
         challenges.push(challenge);

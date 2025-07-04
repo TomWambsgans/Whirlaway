@@ -49,7 +49,7 @@ where
         settings: &AirSettings,
         merkle_hash: H,
         merkle_compress: C,
-        prover_state: &mut ProverState<EF, F, Challenger, DIGEST_ELEMS>,
+        prover_state: &mut ProverState<F, EF, Challenger>,
         witness: Vec<EvaluationsList<F>>,
     ) where
         StandardUniform: Distribution<EF> + Distribution<F>,
@@ -88,7 +88,7 @@ where
         self.constraints_batching_pow(prover_state, settings)
             .unwrap();
 
-        let constraints_batching_scalar = prover_state.challenger.sample_algebra_element();
+        let constraints_batching_scalar = prover_state.sample();
 
         let constraints_batching_scalars =
             cyclic_subgroup_known_order(constraints_batching_scalar, self.n_constraints)
@@ -98,7 +98,7 @@ where
 
         let mut zerocheck_challenges = vec![EF::ZERO; log_length + 1 - settings.univariate_skips];
         for challenge in &mut zerocheck_challenges {
-            *challenge = prover_state.challenger.sample_algebra_element();
+            *challenge = prover_state.sample();
         }
 
         let preprocessed_and_witness = self
@@ -136,17 +136,8 @@ where
             .map(|s| s.evaluate::<EF>(&MultilinearPoint(vec![])))
             .collect::<Vec<_>>();
 
-        for inner_sum in &inner_sums_up {
-            prover_state.challenger.observe_algebra_element(*inner_sum);
-        }
-        for inner_sum in &inner_sums_down {
-            prover_state.challenger.observe_algebra_element(*inner_sum);
-        }
-
-        prover_state
-            .proof_data
-            .piop
-            .push([inner_sums_up, inner_sums_down].concat());
+        prover_state.add_extension_scalars(&inner_sums_up);
+        prover_state.add_extension_scalars(&inner_sums_down);
 
         info_span!("pow grinding").in_scope(|| {
             self.secondary_sumchecks_batching_pow(prover_state, settings)
@@ -155,7 +146,7 @@ where
 
         let mut columns_batching_scalars = vec![EF::ZERO; self.log_n_witness_columns()];
         for challenge in &mut columns_batching_scalars {
-            *challenge = prover_state.challenger.sample_algebra_element();
+            *challenge = prover_state.sample();
         }
 
         let batched_column = multilinears_linear_combination(
@@ -163,7 +154,7 @@ where
             &EvaluationsList::eval_eq(&columns_batching_scalars).evals()[..witness.len()],
         );
 
-        let alpha = prover_state.challenger.sample_algebra_element();
+        let alpha = prover_state.sample();
 
         let batched_column_mixed = add_multilinears(
             &column_up(&batched_column),
@@ -174,17 +165,11 @@ where
         let sub_evals =
             &batched_column_mixed.fold(&MultilinearPoint(zerocheck_challenges[1..].to_vec()));
 
-        for sub_eval in sub_evals.evals() {
-            prover_state.challenger.observe_algebra_element(*sub_eval);
-        }
-        prover_state
-            .proof_data
-            .piop
-            .push(sub_evals.evals().to_vec());
+        prover_state.add_extension_scalars(&sub_evals);
 
         let mut epsilons = vec![EF::ZERO; settings.univariate_skips];
         for challenge in &mut epsilons {
-            *challenge = prover_state.challenger.sample_algebra_element();
+            *challenge = prover_state.sample();
         }
 
         let point = [epsilons.clone(), zerocheck_challenges[1..].to_vec()].concat();

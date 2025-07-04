@@ -127,7 +127,7 @@ p3-goldilocks = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741
 p3-challenger = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
 p3-util = { git = "https://github.com/Plonky3/Plonky3.git", rev = "b869741" }
 
-whir-p3 = { git = "https://github.com/tcoratger/whir-p3", rev = "94090f4" }
+whir-p3 = { git = "https://github.com/tcoratger/whir-p3" }
 
 [dependencies]
 air.workspace = true

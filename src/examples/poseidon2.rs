@@ -6,10 +6,7 @@ use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear, Poseidon2K
 use p3_matrix::Matrix;
 use p3_poseidon2_air::{Poseidon2Air, RoundConstants, generate_trace_rows};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
-use rand::{
-    Rng, SeedableRng,
-    rngs::{SmallRng, StdRng},
-};
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::fmt;
 use std::time::{Duration, Instant};
 use tracing::level_filters::LevelFilter;
@@ -21,13 +18,12 @@ use whir_p3::{
 };
 
 // Koalabear
-type Perm = Poseidon2KoalaBear<16>;
-// BabyBear
-// type PermBabyBear = Poseidon2BabyBear<16>;
+type Poseidon16 = Poseidon2KoalaBear<16>;
+type Poseidon24 = Poseidon2KoalaBear<24>;
 
-type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
-type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
-type MyChallenger<F> = DuplexChallenger<F, Perm, 16, 8>;
+type MerkleHash = PaddingFreeSponge<Poseidon24, 24, 16, 8>; // leaf hashing
+type MerkleCompress = TruncatedPermutation<Poseidon16, 2, 8, 16>; // 2-to-1 compression
+type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
 
 // Koalabear
 type F = KoalaBear;
@@ -104,8 +100,9 @@ pub fn prove_poseidon2(
 
     let n_rows = 1 << log_n_rows;
 
-    let rng = &mut StdRng::seed_from_u64(0);
-    let constants = RoundConstants::<F, WIDTH, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>::from_rng(rng);
+    let mut rng = StdRng::seed_from_u64(0);
+    let constants =
+        RoundConstants::<F, WIDTH, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>::from_rng(&mut rng);
 
     let poseidon_air = Poseidon2Air::<
         F,
@@ -147,20 +144,20 @@ pub fn prove_poseidon2(
         3,
     );
 
-    let perm = Perm::new_from_rng_128(rng);
-    let merkle_hash = MyHash::new(perm.clone());
-    let merkle_compress = MyCompress::new(perm);
+    let poseidon16 = Poseidon16::new_from_rng_128(&mut rng);
+    let poseidon24 = Poseidon24::new_from_rng_128(&mut rng);
+    let merkle_hash = MerkleHash::new(poseidon24);
+    let merkle_compress = MerkleCompress::new(poseidon16.clone());
 
     let t = Instant::now();
 
-    let whir_params: WhirConfig<_, _, _, _, MyChallenger<F>> =
+    let whir_params: WhirConfig<_, _, _, _, MyChallenger> =
         table.build_whir_params(&settings, merkle_hash.clone(), merkle_compress.clone());
     let mut domainsep: DomainSeparator<EF, F> = DomainSeparator::new(vec![]);
     domainsep.commit_statement::<_, _, _, 8>(&whir_params);
     domainsep.add_whir_proof::<_, _, _, 8>(&whir_params);
 
-    let mut rng = SmallRng::seed_from_u64(1);
-    let challenger = MyChallenger::new(Perm::new_from_rng_128(&mut rng));
+    let challenger = MyChallenger::new(poseidon16);
 
     let mut prover_state = domainsep.to_prover_state(challenger.clone());
 
@@ -177,7 +174,7 @@ pub fn prove_poseidon2(
     let time = Instant::now();
 
     let mut verifier_state =
-        domainsep.to_verifier_state(prover_state.proof_data.clone(), challenger);
+        domainsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
     table
         .verify(

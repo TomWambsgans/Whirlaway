@@ -109,56 +109,53 @@ pub(crate) fn column_down<F: Field>(column: &EvaluationsList<F>) -> EvaluationsL
 }
 
 impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A> {
-    pub(crate) fn constraints_batching_pow<Challenger, const DIGEST_ELEMS: usize>(
+    pub(crate) fn constraints_batching_pow<Challenger>(
         &self,
-        prover_state: &mut ProverState<EF, F, Challenger, DIGEST_ELEMS>,
+        prover_state: &mut ProverState<F, EF, Challenger>,
         settings: &AirSettings,
     ) -> Result<(), ProofError>
     where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
-        let grinding_witness = prover_state.challenger.grind(
+        prover_state.pow_grinding(
             settings
                 .security_bits
                 .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_constraints))),
         );
-        prover_state.proof_data.pow_witnesses.push(grinding_witness);
 
         Ok(())
     }
 
-    pub(crate) fn zerocheck_pow<Challenger, const DIGEST_ELEMS: usize>(
+    pub(crate) fn zerocheck_pow<Challenger>(
         &self,
-        prover_state: &mut ProverState<EF, F, Challenger, DIGEST_ELEMS>,
+        prover_state: &mut ProverState<F, EF, Challenger>,
         settings: &AirSettings,
     ) -> Result<(), ProofError>
     where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
-        let grinding_witness = prover_state.challenger.grind(
+        prover_state.pow_grinding(
             settings
                 .security_bits
                 .saturating_sub(EF::bits().saturating_sub(self.log_length)),
         );
-        prover_state.proof_data.pow_witnesses.push(grinding_witness);
 
         Ok(())
     }
 
-    pub(crate) fn secondary_sumchecks_batching_pow<Challenger, const DIGEST_ELEMS: usize>(
+    pub(crate) fn secondary_sumchecks_batching_pow<Challenger>(
         &self,
-        prover_state: &mut ProverState<EF, F, Challenger, DIGEST_ELEMS>,
+        prover_state: &mut ProverState<F, EF, Challenger>,
         settings: &AirSettings,
     ) -> Result<(), ProofError>
     where
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
     {
-        let grinding_witness = prover_state.challenger.grind(
+        prover_state.pow_grinding(
             settings
                 .security_bits
                 .saturating_sub(EF::bits().saturating_sub(self.log_n_witness_columns())),
         );
-        prover_state.proof_data.pow_witnesses.push(grinding_witness);
 
         Ok(())
     }

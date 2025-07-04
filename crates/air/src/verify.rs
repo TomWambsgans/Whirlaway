@@ -59,7 +59,7 @@ impl<
         settings: &AirSettings,
         merkle_hash: H,
         merkle_compress: C,
-        verifier_state: &mut VerifierState<EF, F, Challenger, DIGEST_ELEMS>,
+        verifier_state: &mut VerifierState<F, EF, Challenger>,
         log_length: usize,
     ) -> Result<(), AirVerifError>
     where
@@ -78,37 +78,27 @@ impl<
             .parse_commitment::<DIGEST_ELEMS>(verifier_state)
             .map_err(|_| AirVerifError::InvalidPcsCommitment)?;
 
-        let pow_witness = verifier_state.proof_data.pow_witnesses.remove(0);
-        assert!(
-            verifier_state.challenger.check_witness(
-                settings
-                    .security_bits
-                    .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_constraints))),
-                pow_witness
-            ),
-            "Witness does not satisfy the PoW condition"
-        );
+        verifier_state.check_pow_grinding(
+            settings
+                .security_bits
+                .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_constraints))),
+        )?;
 
-        let constraints_batching_scalar = verifier_state.challenger.sample_algebra_element();
+        let constraints_batching_scalar = verifier_state.sample();
 
-        let pow_witness = verifier_state.proof_data.pow_witnesses.remove(0);
-        assert!(
-            verifier_state.challenger.check_witness(
-                settings
-                    .security_bits
-                    .saturating_sub(EF::bits().saturating_sub(self.log_length)),
-                pow_witness
-            ),
-            "Witness does not satisfy the PoW condition"
-        );
+        verifier_state.check_pow_grinding(
+            settings
+                .security_bits
+                .saturating_sub(EF::bits().saturating_sub(self.log_length)),
+        )?;
 
         let mut zerocheck_challenges = vec![EF::ZERO; log_length - settings.univariate_skips + 1];
         for challenge in &mut zerocheck_challenges {
-            *challenge = verifier_state.challenger.sample_algebra_element();
+            *challenge = verifier_state.sample();
         }
 
         let (sc_sum, outer_sumcheck_challenge) =
-            sumcheck::verify_with_univariate_skip::<EF, F, Challenger, DIGEST_ELEMS>(
+            sumcheck::verify_with_univariate_skip::<F, EF, Challenger>(
                 verifier_state,
                 self.constraint_degree + 1,
                 log_length,
@@ -121,15 +111,9 @@ impl<
             return Err(AirVerifError::SumMismatch);
         }
 
-        let witness_shifted_evals = verifier_state.proof_data.piop.remove(0);
+        let witness_up = verifier_state.next_extension_scalars_vec(self.n_witness_columns())?;
+        let witness_down = verifier_state.next_extension_scalars_vec(self.n_witness_columns())?;
 
-        for witness_shifted_eval in &witness_shifted_evals {
-            verifier_state
-                .challenger
-                .observe_algebra_element(*witness_shifted_eval);
-        }
-
-        let (witness_up, witness_down) = witness_shifted_evals.split_at(self.n_witness_columns());
         let outer_selector_evals = self
             .univariate_selectors
             .iter()
@@ -184,28 +168,21 @@ impl<
             return Err(AirVerifError::SumMismatch);
         }
 
-        let pow_witness = verifier_state.proof_data.pow_witnesses.remove(0);
-        assert!(
-            verifier_state.challenger.check_witness(
-                settings
-                    .security_bits
-                    .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_witness_columns()))),
-                pow_witness
-            ),
-            "Witness does not satisfy the PoW condition"
-        );
+        verifier_state.check_pow_grinding(
+            settings
+                .security_bits
+                .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_witness_columns()))),
+        )?;
 
         let mut columns_batching_scalars = vec![EF::ZERO; self.log_n_witness_columns()];
         for challenge in &mut columns_batching_scalars {
-            *challenge = verifier_state.challenger.sample_algebra_element();
+            *challenge = verifier_state.sample();
         }
 
-        let alpha: EF = verifier_state.challenger.sample_algebra_element();
+        let alpha: EF = verifier_state.sample();
 
-        let sub_evals = verifier_state.proof_data.piop.remove(0);
-        for sub_eval in &sub_evals {
-            verifier_state.challenger.observe_algebra_element(*sub_eval);
-        }
+        let sub_evals =
+            verifier_state.next_extension_scalars_vec(1 << settings.univariate_skips)?;
 
         if dot_product::<EF, _, _>(
             sub_evals.iter().copied(),
@@ -227,18 +204,17 @@ impl<
 
         let mut epsilons = vec![EF::ZERO; settings.univariate_skips];
         for challenge in &mut epsilons {
-            *challenge = verifier_state.challenger.sample_algebra_element();
+            *challenge = verifier_state.sample();
         }
 
-        let (batched_inner_sum, inner_sumcheck_challenge) =
-            sumcheck::verify::<EF, F, Challenger, DIGEST_ELEMS>(
-                verifier_state,
-                log_length,
-                2,
-                SumcheckGrinding::Auto {
-                    security_bits: settings.security_bits,
-                },
-            )?;
+        let (batched_inner_sum, inner_sumcheck_challenge) = sumcheck::verify::<F, EF, Challenger>(
+            verifier_state,
+            log_length,
+            2,
+            SumcheckGrinding::Auto {
+                security_bits: settings.security_bits,
+            },
+        )?;
 
         if batched_inner_sum
             != EvaluationsList::new(sub_evals).evaluate(&MultilinearPoint(epsilons.clone()))

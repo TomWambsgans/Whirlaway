@@ -19,7 +19,7 @@ use crate::{SumcheckComputation, SumcheckGrinding};
 pub const MIN_VARS_FOR_GPU: usize = 0; // When there are a small number of variables, it's not worth using GPU
 
 #[allow(clippy::too_many_arguments)]
-pub fn prove<F, NF, EF, M, SC, Challenger, const DIGEST_ELEMS: usize>(
+pub fn prove<F, NF, EF, M, SC, Challenger>(
     skips: usize, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
     multilinears: &[M],
     computation: &SC,
@@ -27,7 +27,7 @@ pub fn prove<F, NF, EF, M, SC, Challenger, const DIGEST_ELEMS: usize>(
     batching_scalars: &[EF],
     eq_factor: Option<&[EF]>,
     is_zerofier: bool,
-    fs_prover: &mut ProverState<EF, F, Challenger, DIGEST_ELEMS>,
+    fs_prover: &mut ProverState<F, EF, Challenger>,
     mut sum: EF,
     n_rounds: Option<usize>,
     grinding: SumcheckGrinding,
@@ -93,7 +93,7 @@ where
 
 #[instrument(name = "sumcheck_round", skip_all, fields(round))]
 #[allow(clippy::too_many_arguments)]
-pub fn sc_round<F, NF, EF, SC, Challenger, const DIGEST_ELEMS: usize>(
+pub fn sc_round<F, NF, EF, SC, Challenger>(
     skips: usize, // the first round will fold 2^skips (instead of 2 in the basic sumcheck)
     multilinears: &[&EvaluationsList<NF>],
     n_vars: &mut usize,
@@ -101,7 +101,7 @@ pub fn sc_round<F, NF, EF, SC, Challenger, const DIGEST_ELEMS: usize>(
     eq_factor: Option<&[EF]>,
     batching_scalars: &[EF],
     is_zerofier: bool,
-    fs_prover: &mut ProverState<EF, F, Challenger, DIGEST_ELEMS>,
+    fs_prover: &mut ProverState<F, EF, Challenger>,
     comp_degree: usize,
     sum: &mut EF,
     grinding: SumcheckGrinding,
@@ -172,20 +172,16 @@ where
         .unwrap();
     }
 
-    for p_coeff in &p.coeffs {
-        fs_prover.challenger.observe_algebra_element(*p_coeff);
-    }
-    fs_prover.proof_data.piop.push(p.coeffs.clone());
+    fs_prover.add_extension_scalars(&p.coeffs);
 
-    let challenge = fs_prover.challenger.sample_algebra_element();
+    let challenge = fs_prover.sample();
     challenges.push(challenge);
     *sum = p.evaluate(challenge);
     *n_vars -= skips;
 
     let pow_bits = grinding
         .pow_bits::<EF>((comp_degree + usize::from(eq_factor.is_some())) * ((1 << skips) - 1));
-    let grinding_witness = fs_prover.challenger.grind(pow_bits);
-    fs_prover.proof_data.pow_witnesses.push(grinding_witness);
+    fs_prover.pow_grinding(pow_bits);
 
     let folding_scalars = selectors
         .iter()
