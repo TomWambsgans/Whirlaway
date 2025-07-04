@@ -1,12 +1,13 @@
-use p3_field::{ExtensionField, Field, PrimeField64, TwoAdicField};
+use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 use rayon::prelude::*;
 use utils::log2_up;
 use whir_p3::{
-    fiat_shamir::{errors::ProofError, pow::blake3::Blake3PoW, prover::ProverState},
+    fiat_shamir::{errors::ProofError, prover::ProverState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
 };
 
-use crate::{AirSettings, MyChallenger, table::AirTable};
+use crate::{AirSettings, table::AirTable};
 
 pub(crate) fn matrix_up_lde<F: Field>(point: &[F]) -> F {
     /*
@@ -107,42 +108,58 @@ pub(crate) fn column_down<F: Field>(column: &EvaluationsList<F>) -> EvaluationsL
     EvaluationsList::new(down)
 }
 
-impl<F: TwoAdicField + PrimeField64, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A> {
-    pub(crate) fn constraints_batching_pow(
+impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A> {
+    pub(crate) fn constraints_batching_pow<Challenger, const DIGEST_ELEMS: usize>(
         &self,
-        fs: &mut ProverState<EF, F, MyChallenger, u8>,
+        prover_state: &mut ProverState<EF, F, Challenger, DIGEST_ELEMS>,
         settings: &AirSettings,
-    ) -> Result<(), ProofError> {
-        fs.challenge_pow::<Blake3PoW>(
+    ) -> Result<(), ProofError>
+    where
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    {
+        let grinding_witness = prover_state.challenger.grind(
             settings
                 .security_bits
-                .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_constraints)))
-                as f64,
-        )
+                .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_constraints))),
+        );
+        prover_state.proof_data.pow_witnesses.push(grinding_witness);
+
+        Ok(())
     }
 
-    pub(crate) fn zerocheck_pow(
+    pub(crate) fn zerocheck_pow<Challenger, const DIGEST_ELEMS: usize>(
         &self,
-        fs: &mut ProverState<EF, F, MyChallenger, u8>,
+        prover_state: &mut ProverState<EF, F, Challenger, DIGEST_ELEMS>,
         settings: &AirSettings,
-    ) -> Result<(), ProofError> {
-        fs.challenge_pow::<Blake3PoW>(
+    ) -> Result<(), ProofError>
+    where
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    {
+        let grinding_witness = prover_state.challenger.grind(
             settings
                 .security_bits
-                .saturating_sub(EF::bits().saturating_sub(self.log_length)) as f64,
-        )
+                .saturating_sub(EF::bits().saturating_sub(self.log_length)),
+        );
+        prover_state.proof_data.pow_witnesses.push(grinding_witness);
+
+        Ok(())
     }
 
-    pub(crate) fn secondary_sumchecks_batching_pow(
+    pub(crate) fn secondary_sumchecks_batching_pow<Challenger, const DIGEST_ELEMS: usize>(
         &self,
-        fs: &mut ProverState<EF, F, MyChallenger, u8>,
+        prover_state: &mut ProverState<EF, F, Challenger, DIGEST_ELEMS>,
         settings: &AirSettings,
-    ) -> Result<(), ProofError> {
-        fs.challenge_pow::<Blake3PoW>(
+    ) -> Result<(), ProofError>
+    where
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    {
+        let grinding_witness = prover_state.challenger.grind(
             settings
                 .security_bits
-                .saturating_sub(EF::bits().saturating_sub(self.log_n_witness_columns()))
-                as f64,
-        )
+                .saturating_sub(EF::bits().saturating_sub(self.log_n_witness_columns())),
+        );
+        prover_state.proof_data.pow_witnesses.push(grinding_witness);
+
+        Ok(())
     }
 }
