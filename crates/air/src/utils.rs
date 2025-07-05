@@ -65,25 +65,76 @@ pub(crate) fn matrix_down_lde<F: Field>(point: &[F]) -> F {
     // bottom right corner
 }
 
+/// Returns a multilinear polynomial in 2n variables that evaluates to 1
+/// if and only if the second n-bit vector is equal to the first vector plus one (viewed as big-endian integers).
+///
+/// # Arguments
+/// - `point`: A slice of 2n field elements representing two n-bit vectors concatenated.
+///   The first n elements are `x` (original vector), the last n are `y` (candidate successor).
+///
+/// # Behavior
+/// Constructs a polynomial P(x, y) such that:
+/// \begin{equation}
+///     P(x, y) = 1 \quad \text{if and only if} \quad y = x + 1.
+/// \end{equation}
+///
+/// The polynomial sums contributions for each possible carry position `k`,
+/// ensuring that:
+/// 1. Bits to the left of `k` (more significant) match.
+/// 2. Bit at position `k` transitions from 0 (in x) to 1 (in y).
+/// 3. Bits to the right of `k` are 1 in x and 0 in y (simulating the carry propagation).
+///
+/// # Panics
+/// Panics if `point.len()` is not even.
+///
+/// # Returns
+/// Field element: 1 if y = x + 1, 0 otherwise.
 fn next_mle<F: Field>(point: &[F]) -> F {
-    // returns a polynomial P in 2n vars, where P(x, y) = 1 iif y = x + 1 in big indian (both numbers are n bits)
-    assert!(point.len() % 2 == 0);
+    // Check that the point length is even: we split into x and y of equal length.
+    assert_eq!(
+        point.len() % 2,
+        0,
+        "Input point must have an even number of variables."
+    );
     let n = point.len() / 2;
-    let factor = |l, r| point[l] * (F::ONE - point[r]);
-    let g = |k| {
-        let mut factors = vec![];
-        for i in (n - k)..n {
-            factors.push(factor(i, i + n));
-        }
-        factors.push(factor(2 * n - 1 - k, n - 1 - k));
-        if k < n - 1 {
-            let p1 = MultilinearPoint((0..n - k - 1).map(|i| point[i]).collect());
-            let p2 = MultilinearPoint((0..n - k - 1).map(|i| point[i + n]).collect());
-            factors.push(p1.eq_poly_outside(&p2));
-        }
-        factors.into_iter().product()
-    };
-    (0..n).map(g).sum()
+
+    // Split point into x (first n) and y (last n).
+    let (x, y) = point.split_at(n);
+
+    // Sum contributions for each possible carry position k = 0..n-1.
+    (0..n)
+        .map(|k| {
+            // Term 1: bits to the left of k match
+            //
+            // For i > k, enforce x_i == y_i.
+            // Using equality polynomial: x_i * y_i + (1 - x_i)*(1 - y_i).
+            //
+            // Indices are reversed because bits are big-endian.
+            let eq_high_bits = (k + 1..n)
+                .map(|i| {
+                    x[n - 1 - i] * y[n - 1 - i] + (F::ONE - x[n - 1 - i]) * (F::ONE - y[n - 1 - i])
+                })
+                .product::<F>();
+
+            // Term 2: carry bit at position k
+            //
+            // Enforce x_k = 0 and y_k = 1.
+            // Condition: (1 - x_k) * y_k.
+            let carry_bit = (F::ONE - x[n - 1 - k]) * y[n - 1 - k];
+
+            // Term 3: bits to the right of k are 1 in x and 0 in y
+            //
+            // For i < k, enforce x_i = 1 and y_i = 0.
+            // Condition: x_i * (1 - y_i).
+            let low_bits_are_one_zero = (0..k)
+                .map(|i| x[n - 1 - i] * (F::ONE - y[n - 1 - i]))
+                .product::<F>();
+
+            // Multiply the three terms for this k, representing one "carry pattern".
+            eq_high_bits * carry_bit * low_bits_are_one_zero
+        })
+        // Sum over all carry positions: any valid "k" gives contribution 1.
+        .sum()
 }
 
 pub(crate) fn columns_up_and_down<F: Field>(
@@ -160,3 +211,61 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A
         Ok(())
     }
 }
+
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use p3_koala_bear::KoalaBear;
+//     use rand::Rng;
+//     use std::time::Instant;
+
+//     type F = KoalaBear;
+
+//     #[test]
+//     fn benchmark_next_mle() {
+//         const N_BITS: usize = 12; // Number of bits for x and y, so point length is 24
+//         const ITERATIONS: usize = 10_000;
+
+//         let mut rng = rand::thread_rng();
+//         let points: Vec<Vec<F>> = (0..ITERATIONS)
+//             .map(|_| (0..2 * N_BITS).map(|_| rng.random()).collect())
+//             .collect();
+
+//         // --- Benchmark original `next_mle` ---
+//         let start_original = Instant::now();
+//         let mut original_results = Vec::with_capacity(ITERATIONS);
+//         for point in &points {
+//             original_results.push(next_mle(point));
+//         }
+//         let duration_original = start_original.elapsed();
+//         println!("Original `next_mle` took: {:?}", duration_original);
+
+//         // --- Benchmark optimized `next_mle1` ---
+//         let start_optimized = Instant::now();
+//         let mut optimized_results = Vec::with_capacity(ITERATIONS);
+//         for point in &points {
+//             optimized_results.push(next_mle1(point));
+//         }
+//         let duration_optimized = start_optimized.elapsed();
+//         println!("Optimized `next_mle1` took: {:?}", duration_optimized);
+
+//         // --- Verify correctness ---
+//         for i in 0..ITERATIONS {
+//             assert_eq!(
+//                 original_results[i], optimized_results[i],
+//                 "Mismatch found at iteration {}",
+//                 i
+//             );
+//         }
+//         println!(
+//             "\nCorrectness check passed for all {} iterations.",
+//             ITERATIONS
+//         );
+
+//         if duration_optimized < duration_original {
+//             println!("Optimized version is faster.");
+//         } else {
+//             println!("Original version is faster or times are equal.");
+//         }
+//     }
+// }
