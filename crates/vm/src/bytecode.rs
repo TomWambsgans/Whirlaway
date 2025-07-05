@@ -34,9 +34,6 @@ pub enum Instruction {
     FpAssign {
         value: Value,
     },
-    Jump {
-        dest: Value,
-    },
     JumpIfNotZero {
         condition: Value,
         dest: Value,
@@ -52,8 +49,8 @@ pub enum Instruction {
     }, // same as above, but with 24 field elements
     ExtComputation {
         operation: Operation,
-        arg_a: Value,
-        arg_b: Value,
-        sum: Value,
+        arg_a: Value, // pointer (to the memory of chunks of 8 field elements)
+        arg_b: Value, // same
+        res: Value,   // same
     },
 }

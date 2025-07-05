@@ -118,4 +118,5 @@ pub enum Line {
         var: Var,
         size: ConstantValue,
     },
+    Panic,
 }
