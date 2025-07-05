@@ -169,7 +169,7 @@ where
         let sub_evals =
             &batched_column_mixed.fold(&MultilinearPoint(zerocheck_challenges[1..].to_vec()));
 
-        prover_state.add_extension_scalars(&sub_evals);
+        prover_state.add_extension_scalars(sub_evals);
 
         let mut epsilons = vec![EF::ZERO; settings.univariate_skips];
         for challenge in &mut epsilons {

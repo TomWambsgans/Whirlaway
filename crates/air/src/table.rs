@@ -39,7 +39,7 @@ where
     where
         A: Air<SymbolicAirBuilder<F>>,
     {
-        let symbolic_constraints = get_symbolic_constraints::<F, A>(&air, 0, 0);
+        let symbolic_constraints = get_symbolic_constraints(&air, 0, 0);
         let n_constraints = symbolic_constraints.len();
 
         Self {
