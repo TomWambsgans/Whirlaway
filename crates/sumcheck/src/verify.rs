@@ -58,13 +58,9 @@ where
 {
     let mut max_degree_per_vars = vec![degree * ((1 << skips) - 1)];
     max_degree_per_vars.extend(vec![degree; n_vars - skips]);
-    let mut sumation_sets = vec![
-        (0..1 << skips)
-            .map(|i| EF::from_usize(i))
-            .collect::<Vec<_>>(),
-    ];
+    let mut sumation_sets = vec![(0..1 << skips).map(EF::from_usize).collect::<Vec<_>>()];
     sumation_sets.extend(vec![
-        (0..2).map(|i| EF::from_usize(i)).collect::<Vec<_>>();
+        (0..2).map(EF::from_usize).collect::<Vec<_>>();
         n_vars - skips
     ]);
     verify_core(

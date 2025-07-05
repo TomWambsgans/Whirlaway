@@ -140,9 +140,9 @@ impl<
 
         let global_point = [
             preprocessed_up,
-            witness_up.to_vec(),
+            witness_up.clone(),
             preprocessed_down,
-            witness_down.to_vec(),
+            witness_down.clone(),
         ]
         .concat();
 

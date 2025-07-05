@@ -77,7 +77,7 @@ impl fmt::Display for Poseidon2Benchmark {
             self.prover_time.as_millis() as f64 / 1000.0,
             (n_rows as f64 / self.prover_time.as_secs_f64()).round() as usize
         )?;
-        writeln!(f, "Proof size: {:.1} KiB", self.proof_size as f64 / 1024.0)?;
+        writeln!(f, "Proof size: {:.1} KiB", self.proof_size / 1024.0)?;
         writeln!(f, "Verification: {} ms", self.verifier_time.as_millis())
     }
 }
