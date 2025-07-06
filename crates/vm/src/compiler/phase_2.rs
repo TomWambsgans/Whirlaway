@@ -66,29 +66,6 @@ fn compile_program(
     todo!()
 }
 
-fn handle_assert_not_eq(program: &mut Program) {
-    // replace all assert_not_eq with if condition eq then panic
-    for function in
-        std::iter::once(&mut program.main_function).chain(program.functions.values_mut())
-    {
-        for line in &mut function.instructions {
-            if let Line::Assert(condition) = line {
-                if let Boolean::Different { left, right } = condition {
-                    let eq_condition = Boolean::Equal {
-                        left: left.clone(),
-                        right: right.clone(),
-                    };
-                    *line = Line::IfCondition {
-                        condition: eq_condition,
-                        then_branch: vec![Line::Panic],
-                        else_branch: vec![],
-                    };
-                }
-            }
-        }
-    }
-}
-
 fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruction>, String> {
     let mut res = Vec::new();
     for (i, line) in lines.iter().enumerate() {

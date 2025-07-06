@@ -18,9 +18,7 @@ const PRIVATE_INPUT_START = 7777; // TODO
 const POINTER_TO_8_ZEROS = 888; // TODO
 
 fn main() {
-    zero = 0;
-    n = N;
-    for signature_index in zero..n {
+    for signature_index in 0..N {
         bit_index_shift = N * PUB_KEY_SIZE; // TODO compile time evaluation
         bit_index = public_input_start + bit_index_shift;
         if bit_index == 1 {
@@ -33,9 +31,7 @@ fn verify_signature(index) -> 0 {
     pointer_to_pub_key_shift = PUB_KEY_SIZE * index;
     pointer_to_pub_key = public_input_start + pointer_to_pub_key_shift;
     pointer_to_wots_pubkey = malloc(N_CHAINS);
-    zero = 0;
-    n_chains = N_CHAINS;
-    for i in zero..n_chains {
+    for i in 0..N_CHAINS {
         chain_index = 77777 + i; // TODO: (instead of 77777) known at compile time = public_input_start + PUB_KEY_SIZE * N + N
         chain_length = memory[chain_index];
         thing_to_hash_shift_1 = index * SIGNATURE_SIZE;
@@ -56,6 +52,7 @@ fn verify_signature(index) -> 0 {
         xmss_public_key_index = xmss_public_key_index_1 + i;
         assert_ext merkle_root == xmss_public_key_index;
     }
+    return;
 }
 
 fn compute_merkle_root(signature_ptr, height, current_hash) -> 1 {

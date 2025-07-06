@@ -60,7 +60,6 @@ pub fn parse_program(input: &str) -> Result<Program, ParseError> {
 
     let mut context = ParseContext::new();
     let mut functions = HashMap::new();
-    let mut main_function = None;
 
     for pair in program_pair.into_inner() {
         match pair.as_rule() {
@@ -69,9 +68,6 @@ pub fn parse_program(input: &str) -> Result<Program, ParseError> {
             }
             Rule::function => {
                 let function = parse_function(pair, &context)?;
-                if function.name == "main" {
-                    main_function = Some(function.clone());
-                }
                 functions.insert(function.name.clone(), function);
             }
             Rule::EOI => break,
@@ -79,13 +75,17 @@ pub fn parse_program(input: &str) -> Result<Program, ParseError> {
         }
     }
 
-    let main_function = main_function
-        .ok_or_else(|| ParseError::SemanticError("No main function found".to_string()))?;
+    let main_function = functions.get("main").expect("Main function not found");
+    assert!(
+        main_function.n_returned_vars == 0,
+        "Main function should not return any values"
+    );
+    assert!(
+        main_function.arguments.is_empty(),
+        "Main function should not have any arguments"
+    );
 
-    Ok(Program {
-        main_function,
-        functions,
-    })
+    Ok(Program { functions })
 }
 
 fn remove_comments(input: &str) -> String {
@@ -301,8 +301,8 @@ fn parse_if_statement(pair: Pair<Rule>, context: &ParseContext) -> Result<Line, 
 fn parse_for_statement(pair: Pair<Rule>, context: &ParseContext) -> Result<Line, ParseError> {
     let mut inner = pair.into_inner();
     let iterator_name = inner.next().unwrap().as_str().to_string();
-    let start_name = inner.next().unwrap().as_str().to_string();
-    let end_name = inner.next().unwrap().as_str().to_string();
+    let start = parse_var_or_constant(inner.next().unwrap(), context)?;
+    let end = parse_var_or_constant(inner.next().unwrap(), context)?;
 
     let mut body = Vec::new();
     for item in inner {
@@ -315,8 +315,8 @@ fn parse_for_statement(pair: Pair<Rule>, context: &ParseContext) -> Result<Line,
         iterator: Var {
             name: iterator_name,
         },
-        start: Var { name: start_name },
-        end: Var { name: end_name },
+        start,
+        end,
         body,
     })
 }

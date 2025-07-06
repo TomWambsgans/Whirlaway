@@ -39,7 +39,7 @@ condition_diff = { var_or_constant ~ "!=" ~ var_or_constant }
 
 else_clause = { "else" ~ "{" ~ statement* ~ "}" }
 
-for_statement = { "for" ~ identifier ~ "in" ~ identifier ~ ".." ~ identifier ~ "{" ~ statement* ~ "}" }
+for_statement = { "for" ~ identifier ~ "in" ~ var_or_constant ~ ".." ~ var_or_constant ~ "{" ~ statement* ~ "}" }
 
 function_call = { function_res? ~ identifier ~ "(" ~ var_list? ~ ")" ~ ";" }
 function_res = { var_list ~ "=" }

@@ -4,7 +4,6 @@ use crate::bytecode::Operation;
 
 #[derive(Debug, Clone)]
 pub struct Program {
-    pub main_function: Function,
     pub functions: HashMap<String, Function>,
 }
 
@@ -25,6 +24,18 @@ pub struct Var {
 pub enum VarOrConstant {
     Var(Var),
     Constant(ConstantValue),
+}
+
+impl From<ConstantValue> for VarOrConstant {
+    fn from(constant: ConstantValue) -> Self {
+        Self::Constant(constant)
+    }
+}
+
+impl From<Var> for VarOrConstant {
+    fn from(var: Var) -> Self {
+        Self::Var(var)
+    }
 }
 
 impl VarOrConstant {
@@ -81,8 +92,8 @@ pub enum Line {
     },
     ForLoop {
         iterator: Var,
-        start: Var,
-        end: Var,
+        start: VarOrConstant,
+        end: VarOrConstant,
         body: Vec<Line>,
     },
     FunctionCall {
