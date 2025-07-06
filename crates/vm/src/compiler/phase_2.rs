@@ -62,7 +62,7 @@ impl Compiler {
     }
 }
 
-pub fn compile_program(mut program: Program) -> Result<HashMap<Label, Vec<Instruction>>, String> {
+pub fn first_compile_pass(mut program: Program) -> Result<CompiledProgram, String> {
     replace_assert_not_eq(&mut program);
     replace_loops_with_recursion(&mut program);
     replace_if_eq(&mut program);
@@ -71,9 +71,9 @@ pub fn compile_program(mut program: Program) -> Result<HashMap<Label, Vec<Instru
         let instructions = compile_function(function, &mut compiler)?;
         compiler
             .bytecode
-            .insert(format!("_____function_____{}", function.name), instructions);
+            .insert(format!("@function_{}", function.name), instructions);
     }
-    Ok(compiler.bytecode)
+    Ok(CompiledProgram(compiler.bytecode))
 }
 
 fn compile_function(
@@ -112,7 +112,6 @@ fn compile_function(
     compiler.vars_in_scope = vars_in_scope;
     compiler.current_stack_size = current_stack_size;
     compiler.args_count = function.arguments.len();
-
 
     compile_lines(&function.instructions, compiler)
 }
@@ -173,9 +172,9 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
                     };
                     compiler.current_stack_size += 1; // reserve space for the result of the comparison
 
-                    let label_after = format!("_____if_else_end_____{}", compiler.if_else_counter);
-                    let label_if = format!("_____if_____{}", compiler.if_else_counter);
-                    let label_else = format!("_____else_____{}", compiler.if_else_counter);
+                    let label_after = format!("@if_else_end_{}", compiler.if_else_counter);
+                    let label_if = format!("@if_{}", compiler.if_else_counter);
+                    let label_else = format!("@else_{}", compiler.if_else_counter);
 
                     let current_stack_size = compiler.current_stack_size;
                     let mut instructions_if = compile_lines(then_branch, compiler)?;
@@ -233,10 +232,7 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
                 // Memory layout in the calling function: Pointer to new FP
                 // Memory layout in the called function: PC, FP, args, return_data
 
-                let return_label = format!(
-                    "_____return_from_call_____{}",
-                    compiler.function_call_counter
-                );
+                let return_label = format!("@return_from_call_{}", compiler.function_call_counter);
                 compiler.function_call_counter += 1;
 
                 res.push(Instruction::RequestMemory {
@@ -249,11 +245,11 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
                 compiler.current_stack_size += 1;
 
                 res.push(Instruction::Eq {
-                    left: Value::Label(return_label.clone()),
-                    right: Value::ShiftedMemoryPointer {
+                    left: Value::ShiftedMemoryPointer {
                         shift_0: shift_of_new_fp,
                         shift_1: 0,
                     },
+                    right: Value::Label(return_label.clone()),
                 });
                 res.push(Instruction::Eq {
                     left: Value::Fp,
@@ -282,7 +278,7 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
                     });
                 }
 
-                let dest = Value::Label(format!("_____function_____{}", function_name));
+                let dest = Value::Label(format!("@function_{}", function_name));
                 res.push(Instruction::FpAssign {
                     value: Value::MemoryAfterFp {
                         shift: shift_of_new_fp,
@@ -384,9 +380,15 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
                 compiler.current_stack_size += 6;
             }
             Line::MAlloc { var, size } => {
+                let size = match size {
+                    ConstantValue::Scalar(scalar) => *scalar,
+                    ConstantValue::PublicInputStart => {
+                        return Err("Cannot allocate memory with public input start".to_string());
+                    }
+                };
                 res.push(Instruction::RequestMemory {
                     shift: compiler.get_shift(var),
-                    size: MetaValue::Constant(size.clone()),
+                    size: MetaValue::Constant(size),
                 });
             }
             Line::AssertEqExt { left, right } => {
@@ -408,7 +410,7 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
                 }
                 res.push(Instruction::Jump {
                     dest: Value::MemoryAfterFp { shift: 0 },
-                    updated_fp: Some(Value::MemoryPointer { shift: 1 }),
+                    updated_fp: Some(Value::MemoryAfterFp { shift: 1 }),
                 });
             }
             Line::Panic => {
