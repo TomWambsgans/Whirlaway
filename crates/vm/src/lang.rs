@@ -102,7 +102,7 @@ pub enum Line {
         return_data: Vec<Var>,
     },
     FunctionRet {
-        return_data: Vec<Var>,
+        return_data: Vec<VarOrConstant>,
     },
     Poseidon16 {
         arg0: VarOrConstant,

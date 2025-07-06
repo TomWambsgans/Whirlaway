@@ -1,3 +1,5 @@
+use crate::lang::ConstantValue;
+
 pub type Label = String;
 
 #[derive(Debug, Clone)]
@@ -5,6 +7,7 @@ pub enum Value {
     Label(Label),
     Constant(usize),
     PublicInputStart,
+    PointerToZeroVector, // in the memory of chunks of 8 field elements
     Fp,
     MemoryAfterFp { shift: usize }, // m[fp + shift]
     MemoryPointer { shift: usize }, // m[m[fp + shift]]
@@ -37,6 +40,7 @@ pub enum Instruction {
     },
     Jump {
         dest: Value,
+        updated_fp: Option<Value>
     },
     JumpIfNotZero {
         condition: Value,
@@ -66,6 +70,6 @@ pub enum Instruction {
 
 #[derive(Debug, Clone)]
 pub enum MetaValue {
-    Constant(usize),
+    Constant(ConstantValue),
     FunctionSize { function_name: Label },
 }

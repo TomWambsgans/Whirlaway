@@ -21,12 +21,23 @@ pub fn replace_assert_not_eq(program: &mut Program) {
     }
 }
 
-
 /// Replace "if Eq then A else B" by "if NotEq then B else A"
 pub fn replace_if_eq(program: &mut Program) {
     for function in program.functions.values_mut() {
-        for line in &mut function.instructions {
-            if let Line::IfCondition { condition, then_branch, else_branch } = line {
+        replace_if_eq_helper(&mut function.instructions);
+    }
+}
+
+pub fn replace_if_eq_helper(lines: &mut Vec<Line>) {
+    for line in lines {
+        match line {
+            Line::IfCondition {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                replace_if_eq_helper(then_branch);
+                replace_if_eq_helper(else_branch);
                 if let Boolean::Equal { left, right } = condition {
                     let not_eq_condition = Boolean::Different {
                         left: left.clone(),
@@ -39,6 +50,10 @@ pub fn replace_if_eq(program: &mut Program) {
                     };
                 }
             }
+            Line::ForLoop { body, .. } => {
+                replace_if_eq_helper(body);
+            }
+            _ => {}
         }
     }
 }

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::{
     bytecode::*,
@@ -10,20 +10,27 @@ use crate::{
 };
 
 struct Compiler {
-    vars_in_scope: HashMap<Var, usize>, // var = m[fp + index] (relative to the current function)
-    current_stack_size: usize,
     bytecode: HashMap<Label, Vec<Instruction>>,
     if_else_counter: usize,
     function_call_counter: usize,
+
+    // relative to current Function's
+    vars_in_scope: HashMap<Var, usize>, // var = m[fp + index]
+    args_count: usize,                  // number of arguments in the current function
+    current_stack_size: usize,
 }
 
 impl Value {
     fn from_var_or_constant(var_or_const: &VarOrConstant, compiler: &Compiler) -> Self {
         match var_or_const {
-            VarOrConstant::Var(var) => Value::MemoryAfterFp {
-                shift: compiler.vars_in_scope.get(var).cloned().unwrap(),
-            },
+            VarOrConstant::Var(var) => Value::from_var(var, compiler),
             VarOrConstant::Constant(constant) => Value::from_constant(constant),
+        }
+    }
+
+    fn from_var(var: &Var, compiler: &Compiler) -> Self {
+        Value::MemoryAfterFp {
+            shift: compiler.get_shift(var),
         }
     }
 
@@ -41,24 +48,32 @@ impl Compiler {
             vars_in_scope: HashMap::new(),
             current_stack_size: 0,
             bytecode: HashMap::new(),
+            args_count: 0,
             if_else_counter: 0,
             function_call_counter: 0,
         }
     }
 
     pub fn get_shift(&self, var: &Var) -> usize {
-        self.vars_in_scope.get(var).cloned().unwrap()
+        self.vars_in_scope
+            .get(var)
+            .cloned()
+            .expect(&format!("Variable {} not found in current scope", var.name))
     }
 }
 
-fn compile_program(
-    mut program: Program,
-    compiler: &mut Compiler,
-) -> Result<Vec<Instruction>, String> {
+pub fn compile_program(mut program: Program) -> Result<HashMap<Label, Vec<Instruction>>, String> {
     replace_assert_not_eq(&mut program);
-    replace_if_eq(&mut program);
     replace_loops_with_recursion(&mut program);
-    todo!()
+    replace_if_eq(&mut program);
+    let mut compiler = Compiler::new();
+    for function in program.functions.values() {
+        let instructions = compile_function(function, &mut compiler)?;
+        compiler
+            .bytecode
+            .insert(format!("_____function_____{}", function.name), instructions);
+    }
+    Ok(compiler.bytecode)
 }
 
 fn compile_function(
@@ -67,6 +82,7 @@ fn compile_function(
 ) -> Result<Vec<Instruction>, String> {
     let (internal_vars, external_vars) =
         get_internal_and_external_variables(&function.instructions);
+
     for external_var in &external_vars {
         if !function.arguments.contains(external_var) {
             return Err(format!(
@@ -76,7 +92,7 @@ fn compile_function(
         }
     }
 
-    let mut current_stack_size = 2; // for fp, and pc (when returning)
+    let mut current_stack_size = 1; // for pc (when returning)
 
     // associate to each variable a shift (in memory, relative to fp)
     let mut vars_in_scope = HashMap::new();
@@ -95,6 +111,8 @@ fn compile_function(
 
     compiler.vars_in_scope = vars_in_scope;
     compiler.current_stack_size = current_stack_size;
+    compiler.args_count = function.arguments.len();
+
 
     compile_lines(&function.instructions, compiler)
 }
@@ -115,17 +133,13 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
                     operation: *operation,
                     arg_a: value_a,
                     arg_b: value_b,
-                    res: Value::MemoryAfterFp {
-                        shift: compiler.get_shift(var),
-                    },
+                    res: Value::from_var(var, compiler),
                 };
                 res.push(instruction);
             }
             Line::RawAccess { var, index } => {
                 let instruction = Instruction::Eq {
-                    left: Value::MemoryAfterFp {
-                        shift: compiler.get_shift(var),
-                    },
+                    left: Value::from_var(var, compiler),
                     right: Value::from_var_or_constant(index, compiler),
                 };
                 res.push(instruction);
@@ -174,9 +188,11 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
 
                     instructions_if.push(Instruction::Jump {
                         dest: Value::Label(label_after.clone()),
+                        updated_fp: None,
                     });
                     instructions_else.push(Instruction::Jump {
                         dest: Value::Label(label_after.clone()),
+                        updated_fp: None,
                     });
 
                     res.push(Instruction::Computation {
@@ -191,6 +207,7 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
                     });
                     res.push(Instruction::Jump {
                         dest: Value::Label(label_else.clone()),
+                        updated_fp: None,
                     });
 
                     compiler.bytecode.insert(label_if, instructions_if);
@@ -204,21 +221,17 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
                     return Ok(res);
                 }
             },
-            Line::ForLoop {
-                iterator,
-                start,
-                end,
-                body,
-            } => unreachable!("For loops should have been replaced with recursion earlier"),
+            Line::ForLoop { .. } => {
+                unreachable!("For loops should have been replaced with recursion earlier")
+            }
 
             Line::FunctionCall {
                 function_name,
                 args,
                 return_data,
             } => {
-                // Could be optimized a lot (avoid assert_eq in most)
-
-                // Memory layout: PC, FP, args, return_data
+                // Memory layout in the calling function: Pointer to new FP
+                // Memory layout in the called function: PC, FP, args, return_data
 
                 let return_label = format!(
                     "_____return_from_call_____{}",
@@ -233,6 +246,7 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
                     },
                 });
                 let shift_of_new_fp = compiler.current_stack_size;
+                compiler.current_stack_size += 1;
 
                 res.push(Instruction::Eq {
                     left: Value::Label(return_label.clone()),
@@ -248,6 +262,7 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
                         shift_1: 1,
                     },
                 });
+
                 for (arg_index, arg) in args.iter().enumerate() {
                     res.push(Instruction::Eq {
                         left: Value::ShiftedMemoryPointer {
@@ -263,13 +278,9 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
                             shift_0: shift_of_new_fp,
                             shift_1: 2 + args.len() + ret_index,
                         },
-                        right: Value::MemoryAfterFp {
-                            shift: compiler.get_shift(ret_var),
-                        },
+                        right: Value::from_var(ret_var, compiler),
                     });
                 }
-
-                compiler.current_stack_size += 3 + args.len() + return_data.len();
 
                 let dest = Value::Label(format!("_____function_____{}", function_name));
                 res.push(Instruction::FpAssign {
@@ -277,7 +288,10 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
                         shift: shift_of_new_fp,
                     },
                 });
-                res.push(Instruction::Jump { dest });
+                res.push(Instruction::Jump {
+                    dest,
+                    updated_fp: None,
+                });
 
                 let instructions_after_function_call = compile_lines(&lines[i + 1..], compiler)?;
                 compiler
@@ -292,8 +306,117 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
                 arg1,
                 res0,
                 res1,
-            } => {}
-            _ => todo!(),
+            } => {
+                res.push(Instruction::Eq {
+                    left: Value::MemoryAfterFp {
+                        shift: compiler.current_stack_size,
+                    },
+                    right: Value::from_var_or_constant(arg0, compiler),
+                });
+                res.push(Instruction::Eq {
+                    left: Value::MemoryAfterFp {
+                        shift: compiler.current_stack_size + 1,
+                    },
+                    right: Value::from_var_or_constant(arg1, compiler),
+                });
+                res.push(Instruction::Eq {
+                    left: Value::MemoryAfterFp {
+                        shift: compiler.current_stack_size + 2,
+                    },
+                    right: Value::from_var(res0, compiler),
+                });
+                res.push(Instruction::Eq {
+                    left: Value::MemoryAfterFp { shift: 3 },
+                    right: Value::from_var(res1, compiler),
+                });
+                res.push(Instruction::Poseidon2_16 {
+                    shift: compiler.current_stack_size,
+                });
+                compiler.current_stack_size += 4;
+            }
+            Line::Poseidon24 {
+                arg0,
+                arg1,
+                arg2,
+                res0,
+                res1,
+                res2,
+            } => {
+                res.push(Instruction::Eq {
+                    left: Value::MemoryAfterFp {
+                        shift: compiler.current_stack_size,
+                    },
+                    right: Value::from_var_or_constant(arg0, compiler),
+                });
+                res.push(Instruction::Eq {
+                    left: Value::MemoryAfterFp {
+                        shift: compiler.current_stack_size + 1,
+                    },
+                    right: Value::from_var_or_constant(arg1, compiler),
+                });
+                res.push(Instruction::Eq {
+                    left: Value::MemoryAfterFp {
+                        shift: compiler.current_stack_size + 2,
+                    },
+                    right: Value::from_var_or_constant(arg2, compiler),
+                });
+                res.push(Instruction::Eq {
+                    left: Value::MemoryAfterFp {
+                        shift: compiler.current_stack_size + 3,
+                    },
+                    right: Value::from_var(res0, compiler),
+                });
+                res.push(Instruction::Eq {
+                    left: Value::MemoryAfterFp {
+                        shift: compiler.current_stack_size + 4,
+                    },
+                    right: Value::from_var(res1, compiler),
+                });
+                res.push(Instruction::Eq {
+                    left: Value::MemoryAfterFp {
+                        shift: compiler.current_stack_size + 5,
+                    },
+                    right: Value::from_var(res2, compiler),
+                });
+                res.push(Instruction::Poseidon2_24 {
+                    shift: compiler.current_stack_size,
+                });
+                compiler.current_stack_size += 6;
+            }
+            Line::MAlloc { var, size } => {
+                res.push(Instruction::RequestMemory {
+                    shift: compiler.get_shift(var),
+                    size: MetaValue::Constant(size.clone()),
+                });
+            }
+            Line::AssertEqExt { left, right } => {
+                res.push(Instruction::ExtComputation {
+                    operation: Operation::Add,
+                    arg_a: Value::from_var_or_constant(left, compiler),
+                    arg_b: Value::PointerToZeroVector,
+                    res: Value::from_var_or_constant(right, compiler),
+                });
+            }
+            Line::FunctionRet { return_data } => {
+                for (ret_index, return_var) in return_data.iter().enumerate() {
+                    res.push(Instruction::Eq {
+                        left: Value::MemoryAfterFp {
+                            shift: 2 + compiler.args_count + ret_index,
+                        },
+                        right: Value::from_var_or_constant(return_var, compiler),
+                    });
+                }
+                res.push(Instruction::Jump {
+                    dest: Value::MemoryAfterFp { shift: 0 },
+                    updated_fp: Some(Value::MemoryPointer { shift: 1 }),
+                });
+            }
+            Line::Panic => {
+                res.push(Instruction::Eq {
+                    left: Value::Constant(0),
+                    right: Value::Constant(1),
+                });
+            }
         }
     }
     Ok(res)

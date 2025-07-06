@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::lang::*;
+use crate::{bytecode::Operation, lang::*};
 
 /// Replace all loops with recursive function
 pub fn replace_loops_with_recursion(program: &mut Program) {
@@ -37,7 +37,9 @@ fn replace_loops_with_recursion_helper(
                 let function_name = format!("____loop____{}", loop_counter);
                 *loop_counter += 1;
 
-                let (_, external_vars) = get_internal_and_external_variables(&body);
+                let (_, mut external_vars) = get_internal_and_external_variables(&body);
+                // Remove the iterator from external variables
+                external_vars.remove(iterator);
                 let external_vars = external_vars.into_iter().collect::<Vec<_>>();
 
                 let mut function_arguments = vec![iterator.clone()];
@@ -46,11 +48,22 @@ fn replace_loops_with_recursion_helper(
                 let mut first_call_arguments: Vec<VarOrConstant> = vec![start.clone().into()];
                 first_call_arguments.extend(external_vars.iter().map(|var| var.clone().into()));
 
+                let mut then_branch = std::mem::take(body);
+
+                let incremented_iterator = Var { 
+                    name: format!("____{}____incremented", iterator.name),
+                };
+                then_branch.push(Line::Assignment {
+                    var: incremented_iterator.clone(),
+                    operation: Operation::Add,
+                    arg0: iterator.clone().into(),
+                    arg1: VarOrConstant::Constant(ConstantValue::Scalar(1)),
+                });
+
                 let mut recursive_call_arguments: Vec<VarOrConstant> =
-                    vec![iterator.clone().into()];
+                    vec![incremented_iterator.into()];
                 recursive_call_arguments.extend(external_vars.iter().map(|var| var.clone().into()));
 
-                let mut then_branch = std::mem::take(body);
                 then_branch.push(Line::FunctionCall {
                     function_name: function_name.clone(),
                     args: recursive_call_arguments,
@@ -159,11 +172,14 @@ pub fn get_internal_and_external_variables(lines: &[Line]) -> (HashSet<Var>, Has
                 let (internal_else_branch, external_else_branch) =
                     get_internal_and_external_variables(else_branch);
                 let new_internal_vars: HashSet<Var> = internal_then_branch
-                    .intersection(&internal_else_branch)
+                    .union(&internal_else_branch)
                     .cloned()
                     .collect();
                 let new_external_vars: HashSet<Var> = external_then_branch
                     .union(&external_else_branch)
+                    .filter(|var| {
+                        !internal_vars.contains(var)
+                    })
                     .cloned()
                     .collect();
                 internal_vars.extend(new_internal_vars);
@@ -247,9 +263,11 @@ pub fn get_internal_and_external_variables(lines: &[Line]) -> (HashSet<Var>, Has
                 }
             }
             Line::FunctionRet { return_data } => {
-                for var in return_data {
-                    if !internal_vars.contains(&var) {
-                        external_vars.insert(var.clone());
+                for ret in return_data {
+                    if let VarOrConstant::Var(var) = ret {
+                        if !internal_vars.contains(&var) {
+                            external_vars.insert(var.clone());
+                        }
                     }
                 }
             }

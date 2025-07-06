@@ -232,22 +232,6 @@ fn parse_single_assignment(pair: Pair<Rule>, context: &ParseContext) -> Result<L
     }
 }
 
-fn parse_constant_assignment(pair: Pair<Rule>, context: &ParseContext) -> Result<Line, ParseError> {
-    let mut inner = pair.into_inner();
-    let var_name = inner.next().unwrap().as_str().to_string();
-    let constant = inner.next().unwrap();
-
-    let var = Var { name: var_name };
-    let constant_value = parse_constant_value(constant, context)?;
-
-    Ok(Line::Assignment {
-        var,
-        operation: Operation::Add,
-        arg0: VarOrConstant::Constant(constant_value),
-        arg1: VarOrConstant::Constant(ConstantValue::Scalar(0)),
-    })
-}
-
 fn parse_raw_memory_access(pair: Pair<Rule>, context: &ParseContext) -> Result<Line, ParseError> {
     let mut inner = pair.into_inner();
     let var_name = inner.next().unwrap().as_str().to_string();
@@ -328,9 +312,7 @@ fn parse_return_statement(pair: Pair<Rule>, context: &ParseContext) -> Result<Li
         if item.as_rule() == Rule::tuple_expression {
             for tuple_item in item.into_inner() {
                 if tuple_item.as_rule() == Rule::var_or_constant {
-                    if let VarOrConstant::Var(var) = parse_var_or_constant(tuple_item, context)? {
-                        return_data.push(var);
-                    }
+                    return_data.push(parse_var_or_constant(tuple_item, context)?);
                 }
             }
         }
@@ -350,13 +332,16 @@ fn parse_function_call(pair: Pair<Rule>, context: &ParseContext) -> Result<Line,
             Rule::function_res => {
                 for res_item in item.into_inner() {
                     if res_item.as_rule() == Rule::var_list {
-                        return_data = parse_var_list(res_item, context)?.into_iter().map(|var| {
-                            if let VarOrConstant::Var(var) = var {
-                                var
-                            } else {
-                                panic!("Expected variable in function return data");
-                            }
-                        }).collect();
+                        return_data = parse_var_list(res_item, context)?
+                            .into_iter()
+                            .map(|var| {
+                                if let VarOrConstant::Var(var) = var {
+                                    var
+                                } else {
+                                    panic!("Expected variable in function return data");
+                                }
+                            })
+                            .collect();
                     }
                 }
             }
