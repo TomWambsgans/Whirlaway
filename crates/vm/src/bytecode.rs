@@ -8,6 +8,7 @@ pub enum Value {
     Fp,
     MemoryAfterFp { shift: usize }, // m[fp + shift]
     MemoryPointer { shift: usize }, // m[m[fp + shift]]
+    ShiftedMemoryPointer { shift_0: usize, shift_1: usize }, // m[m[fp + shift_0] + shift_1]
     DirectMemory { shift: usize },  // m[shift]
 }
 
@@ -34,6 +35,9 @@ pub enum Instruction {
     FpAssign {
         value: Value,
     },
+    Jump {
+        dest: Value,
+    },
     JumpIfNotZero {
         condition: Value,
         dest: Value,
@@ -53,4 +57,15 @@ pub enum Instruction {
         arg_b: Value, // same
         res: Value,   // same
     },
+    // Meta instructions (provides useful hints to run the program, but does not appears in the final bytecode)
+    RequestMemory {
+        shift: usize, // m[fp + shift] where the hint will be stored
+        size: MetaValue, // the hint
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum MetaValue {
+    Constant(usize),
+    FunctionSize { function_name: Label },
 }

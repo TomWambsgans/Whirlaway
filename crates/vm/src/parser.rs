@@ -350,7 +350,13 @@ fn parse_function_call(pair: Pair<Rule>, context: &ParseContext) -> Result<Line,
             Rule::function_res => {
                 for res_item in item.into_inner() {
                     if res_item.as_rule() == Rule::var_list {
-                        return_data = parse_var_list(res_item, context)?;
+                        return_data = parse_var_list(res_item, context)?.into_iter().map(|var| {
+                            if let VarOrConstant::Var(var) = var {
+                                var
+                            } else {
+                                panic!("Expected variable in function return data");
+                            }
+                        }).collect();
                     }
                 }
             }
@@ -391,7 +397,7 @@ fn parse_function_call(pair: Pair<Rule>, context: &ParseContext) -> Result<Line,
             assert_eq!(args.len(), 1, "malloc requires 1 argument");
             assert_eq!(return_data.len(), 1, "malloc requires 1 return value");
             Ok(Line::MAlloc {
-                var: return_data[0].as_var().unwrap(),
+                var: return_data[0].clone(),
                 size: args[0].as_constant().unwrap(),
             })
         }

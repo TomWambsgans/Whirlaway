@@ -99,7 +99,7 @@ pub enum Line {
     FunctionCall {
         function_name: String,
         args: Vec<VarOrConstant>,
-        return_data: Vec<VarOrConstant>,
+        return_data: Vec<Var>,
     },
     FunctionRet {
         return_data: Vec<Var>,
@@ -107,17 +107,17 @@ pub enum Line {
     Poseidon16 {
         arg0: VarOrConstant,
         arg1: VarOrConstant,
-        res0: VarOrConstant,
-        res1: VarOrConstant,
+        res0: Var,
+        res1: Var,
         // 4 pointers in the memory of chunks of 8 field elements
     },
     Poseidon24 {
         arg0: VarOrConstant,
         arg1: VarOrConstant,
         arg2: VarOrConstant,
-        res0: VarOrConstant,
-        res1: VarOrConstant,
-        res2: VarOrConstant,
+        res0: Var,
+        res1: Var,
+        res2: Var,
         // 6 pointers in the memory of chunks of 8 field elements
     },
     AssertEqExt {

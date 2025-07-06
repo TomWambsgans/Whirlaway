@@ -2,10 +2,7 @@ use std::collections::HashSet;
 
 use crate::lang::*;
 
-/*
-Replace all loops with recursive function
-*/
-
+/// Replace all loops with recursive function
 pub fn replace_loops_with_recursion(program: &mut Program) {
     let mut loop_counter = 0;
     let mut new_functions = Vec::new();
@@ -114,7 +111,7 @@ fn replace_loops_with_recursion_helper(
     }
 }
 
-fn get_internal_and_external_variables(lines: &[Line]) -> (HashSet<Var>, HashSet<Var>) {
+pub fn get_internal_and_external_variables(lines: &[Line]) -> (HashSet<Var>, HashSet<Var>) {
     let mut external_vars = HashSet::new();
     let mut internal_vars = HashSet::new();
     for line in lines {
@@ -198,9 +195,7 @@ fn get_internal_and_external_variables(lines: &[Line]) -> (HashSet<Var>, HashSet
                     }
                 }
                 for var in return_data {
-                    if let VarOrConstant::Var(var) = var {
-                        internal_vars.insert(var.clone());
-                    }
+                    internal_vars.insert(var.clone());
                 }
             }
             Line::Assert(condition) => match condition {
@@ -278,16 +273,8 @@ fn get_internal_and_external_variables(lines: &[Line]) -> (HashSet<Var>, HashSet
                         external_vars.insert(arg.clone());
                     }
                 }
-                if let VarOrConstant::Var(res) = res0 {
-                    if !internal_vars.contains(&res) {
-                        external_vars.insert(res.clone());
-                    }
-                }
-                if let VarOrConstant::Var(res) = res1 {
-                    if !internal_vars.contains(&res) {
-                        external_vars.insert(res.clone());
-                    }
-                }
+                internal_vars.insert(res0.clone());
+                internal_vars.insert(res1.clone());
             }
             Line::Poseidon24 {
                 arg0,
@@ -312,21 +299,9 @@ fn get_internal_and_external_variables(lines: &[Line]) -> (HashSet<Var>, HashSet
                         external_vars.insert(arg.clone());
                     }
                 }
-                if let VarOrConstant::Var(res) = res0 {
-                    if !internal_vars.contains(&res) {
-                        external_vars.insert(res.clone());
-                    }
-                }
-                if let VarOrConstant::Var(res) = res1 {
-                    if !internal_vars.contains(&res) {
-                        external_vars.insert(res.clone());
-                    }
-                }
-                if let VarOrConstant::Var(res) = res2 {
-                    if !internal_vars.contains(&res) {
-                        external_vars.insert(res.clone());
-                    }
-                }
+                internal_vars.insert(res0.clone());
+                internal_vars.insert(res1.clone());
+                internal_vars.insert(res2.clone());
             }
         }
     }
