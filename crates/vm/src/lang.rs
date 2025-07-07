@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::bytecode::Operation;
+use crate::bytecode::high_level::HighLevelOperation;
 
 #[derive(Debug, Clone)]
 pub struct Program {
@@ -76,7 +76,7 @@ pub enum ConstantValue {
 pub enum Line {
     Assignment {
         var: Var,
-        operation: Operation,
+        operation: HighLevelOperation,
         arg0: VarOrConstant,
         arg1: VarOrConstant,
     },

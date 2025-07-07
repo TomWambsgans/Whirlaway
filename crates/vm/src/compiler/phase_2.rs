@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    bytecode::*,
+    bytecode::high_level::*,
     compiler::{
         phase_0::{replace_assert_not_eq, replace_if_eq},
         phase_1::{get_internal_and_external_variables, replace_loops_with_recursion},
@@ -10,7 +10,7 @@ use crate::{
 };
 
 struct Compiler {
-    bytecode: HashMap<Label, Vec<Instruction>>,
+    bytecode: HashMap<Label, Vec<HighLevelInstruction>>,
     if_else_counter: usize,
     function_call_counter: usize,
 
@@ -20,16 +20,16 @@ struct Compiler {
     current_stack_size: usize,
 }
 
-impl Value {
+impl HighLevelValue {
     fn from_var_or_constant(var_or_const: &VarOrConstant, compiler: &Compiler) -> Self {
         match var_or_const {
-            VarOrConstant::Var(var) => Value::from_var(var, compiler),
-            VarOrConstant::Constant(constant) => Value::from_constant(constant),
+            VarOrConstant::Var(var) => HighLevelValue::from_var(var, compiler),
+            VarOrConstant::Constant(constant) => HighLevelValue::from_constant(constant),
         }
     }
 
     fn from_var(var: &Var, compiler: &Compiler) -> Self {
-        Value::MemoryAfterFp {
+        HighLevelValue::MemoryAfterFp {
             shift: compiler.get_shift(var),
         }
     }
@@ -62,24 +62,29 @@ impl Compiler {
     }
 }
 
-pub fn first_compile_pass(mut program: Program) -> Result<CompiledProgram, String> {
+pub fn compile_to_hight_level_bytecode(mut program: Program) -> Result<HighLevelBytecode, String> {
     replace_assert_not_eq(&mut program);
     replace_loops_with_recursion(&mut program);
     replace_if_eq(&mut program);
     let mut compiler = Compiler::new();
+    let mut memory_size_per_function = HashMap::new();
     for function in program.functions.values() {
         let instructions = compile_function(function, &mut compiler)?;
         compiler
             .bytecode
             .insert(format!("@function_{}", function.name), instructions);
+        memory_size_per_function.insert(function.name.clone(), compiler.current_stack_size);
     }
-    Ok(CompiledProgram(compiler.bytecode))
+    Ok(HighLevelBytecode {
+        bytecode: compiler.bytecode,
+        memory_size_per_function,
+    })
 }
 
 fn compile_function(
     function: &Function,
     compiler: &mut Compiler,
-) -> Result<Vec<Instruction>, String> {
+) -> Result<Vec<HighLevelInstruction>, String> {
     let (internal_vars, external_vars) =
         get_internal_and_external_variables(&function.instructions);
 
@@ -116,7 +121,10 @@ fn compile_function(
     compile_lines(&function.instructions, compiler)
 }
 
-fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruction>, String> {
+fn compile_lines(
+    lines: &[Line],
+    compiler: &mut Compiler,
+) -> Result<Vec<HighLevelInstruction>, String> {
     let mut res = Vec::new();
     for (i, line) in lines.iter().enumerate() {
         match line {
@@ -126,20 +134,20 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
                 arg0,
                 arg1,
             } => {
-                let value_a = Value::from_var_or_constant(arg0, compiler);
-                let value_b = Value::from_var_or_constant(arg1, compiler);
-                let instruction = Instruction::Computation {
+                let value_a = HighLevelValue::from_var_or_constant(arg0, compiler);
+                let value_b = HighLevelValue::from_var_or_constant(arg1, compiler);
+                let instruction = HighLevelInstruction::Computation {
                     operation: *operation,
                     arg_a: value_a,
                     arg_b: value_b,
-                    res: Value::from_var(var, compiler),
+                    res: HighLevelValue::from_var(var, compiler),
                 };
                 res.push(instruction);
             }
             Line::RawAccess { var, index } => {
-                let instruction = Instruction::Eq {
-                    left: Value::from_var(var, compiler),
-                    right: Value::from_var_or_constant(index, compiler),
+                let instruction = HighLevelInstruction::Eq {
+                    left: HighLevelValue::from_var(var, compiler),
+                    right: HighLevelValue::from_var_or_constant(index, compiler),
                 };
                 res.push(instruction);
             }
@@ -148,9 +156,9 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
                     unreachable!("Assert not equal should have been handled earlier")
                 }
                 Boolean::Equal { left, right } => {
-                    let left_value = Value::from_var_or_constant(left, compiler);
-                    let right_value = Value::from_var_or_constant(right, compiler);
-                    res.push(Instruction::Eq {
+                    let left_value = HighLevelValue::from_var_or_constant(left, compiler);
+                    let right_value = HighLevelValue::from_var_or_constant(right, compiler);
+                    res.push(HighLevelInstruction::Eq {
                         left: left_value,
                         right: right_value,
                     });
@@ -165,9 +173,9 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
                     unreachable!("If condition with equality should have been handled earlier")
                 }
                 Boolean::Different { left, right } => {
-                    let left_value = Value::from_var_or_constant(left, compiler);
-                    let right_value = Value::from_var_or_constant(right, compiler);
-                    let difference = Value::MemoryAfterFp {
+                    let left_value = HighLevelValue::from_var_or_constant(left, compiler);
+                    let right_value = HighLevelValue::from_var_or_constant(right, compiler);
+                    let difference = HighLevelValue::MemoryAfterFp {
                         shift: compiler.current_stack_size,
                     };
                     compiler.current_stack_size += 1; // reserve space for the result of the comparison
@@ -185,27 +193,27 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
 
                     compiler.current_stack_size = else_stack_size.max(if_stack_size);
 
-                    instructions_if.push(Instruction::Jump {
-                        dest: Value::Label(label_after.clone()),
+                    instructions_if.push(HighLevelInstruction::Jump {
+                        dest: HighLevelValue::Label(label_after.clone()),
                         updated_fp: None,
                     });
-                    instructions_else.push(Instruction::Jump {
-                        dest: Value::Label(label_after.clone()),
+                    instructions_else.push(HighLevelInstruction::Jump {
+                        dest: HighLevelValue::Label(label_after.clone()),
                         updated_fp: None,
                     });
 
-                    res.push(Instruction::Computation {
-                        operation: Operation::Sub,
+                    res.push(HighLevelInstruction::Computation {
+                        operation: HighLevelOperation::Sub,
                         arg_a: left_value,
                         arg_b: right_value,
                         res: difference.clone(),
                     });
-                    res.push(Instruction::JumpIfNotZero {
+                    res.push(HighLevelInstruction::JumpIfNotZero {
                         condition: difference,
-                        dest: Value::Label(label_if.clone()),
+                        dest: HighLevelValue::Label(label_if.clone()),
                     });
-                    res.push(Instruction::Jump {
-                        dest: Value::Label(label_else.clone()),
+                    res.push(HighLevelInstruction::Jump {
+                        dest: HighLevelValue::Label(label_else.clone()),
                         updated_fp: None,
                     });
 
@@ -235,56 +243,56 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
                 let return_label = format!("@return_from_call_{}", compiler.function_call_counter);
                 compiler.function_call_counter += 1;
 
-                res.push(Instruction::RequestMemory {
+                res.push(HighLevelInstruction::RequestMemory {
                     shift: compiler.current_stack_size,
-                    size: MetaValue::FunctionSize {
+                    size: HighLevelMetaValue::FunctionSize {
                         function_name: function_name.clone(),
                     },
                 });
                 let shift_of_new_fp = compiler.current_stack_size;
                 compiler.current_stack_size += 1;
 
-                res.push(Instruction::Eq {
-                    left: Value::ShiftedMemoryPointer {
+                res.push(HighLevelInstruction::Eq {
+                    left: HighLevelValue::ShiftedMemoryPointer {
                         shift_0: shift_of_new_fp,
                         shift_1: 0,
                     },
-                    right: Value::Label(return_label.clone()),
+                    right: HighLevelValue::Label(return_label.clone()),
                 });
-                res.push(Instruction::Eq {
-                    left: Value::Fp,
-                    right: Value::ShiftedMemoryPointer {
+                res.push(HighLevelInstruction::Eq {
+                    left: HighLevelValue::Fp,
+                    right: HighLevelValue::ShiftedMemoryPointer {
                         shift_0: shift_of_new_fp,
                         shift_1: 1,
                     },
                 });
 
                 for (arg_index, arg) in args.iter().enumerate() {
-                    res.push(Instruction::Eq {
-                        left: Value::ShiftedMemoryPointer {
+                    res.push(HighLevelInstruction::Eq {
+                        left: HighLevelValue::ShiftedMemoryPointer {
                             shift_0: shift_of_new_fp,
                             shift_1: 2 + arg_index,
                         },
-                        right: Value::from_var_or_constant(arg, compiler),
+                        right: HighLevelValue::from_var_or_constant(arg, compiler),
                     });
                 }
                 for (ret_index, ret_var) in return_data.iter().enumerate() {
-                    res.push(Instruction::Eq {
-                        left: Value::ShiftedMemoryPointer {
+                    res.push(HighLevelInstruction::Eq {
+                        left: HighLevelValue::ShiftedMemoryPointer {
                             shift_0: shift_of_new_fp,
                             shift_1: 2 + args.len() + ret_index,
                         },
-                        right: Value::from_var(ret_var, compiler),
+                        right: HighLevelValue::from_var(ret_var, compiler),
                     });
                 }
 
-                let dest = Value::Label(format!("@function_{}", function_name));
-                res.push(Instruction::FpAssign {
-                    value: Value::MemoryAfterFp {
+                let dest = HighLevelValue::Label(format!("@function_{}", function_name));
+                res.push(HighLevelInstruction::FpAssign {
+                    value: HighLevelValue::MemoryAfterFp {
                         shift: shift_of_new_fp,
                     },
                 });
-                res.push(Instruction::Jump {
+                res.push(HighLevelInstruction::Jump {
                     dest,
                     updated_fp: None,
                 });
@@ -303,29 +311,29 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
                 res0,
                 res1,
             } => {
-                res.push(Instruction::Eq {
-                    left: Value::MemoryAfterFp {
+                res.push(HighLevelInstruction::Eq {
+                    left: HighLevelValue::MemoryAfterFp {
                         shift: compiler.current_stack_size,
                     },
-                    right: Value::from_var_or_constant(arg0, compiler),
+                    right: HighLevelValue::from_var_or_constant(arg0, compiler),
                 });
-                res.push(Instruction::Eq {
-                    left: Value::MemoryAfterFp {
+                res.push(HighLevelInstruction::Eq {
+                    left: HighLevelValue::MemoryAfterFp {
                         shift: compiler.current_stack_size + 1,
                     },
-                    right: Value::from_var_or_constant(arg1, compiler),
+                    right: HighLevelValue::from_var_or_constant(arg1, compiler),
                 });
-                res.push(Instruction::Eq {
-                    left: Value::MemoryAfterFp {
+                res.push(HighLevelInstruction::Eq {
+                    left: HighLevelValue::MemoryAfterFp {
                         shift: compiler.current_stack_size + 2,
                     },
-                    right: Value::from_var(res0, compiler),
+                    right: HighLevelValue::from_var(res0, compiler),
                 });
-                res.push(Instruction::Eq {
-                    left: Value::MemoryAfterFp { shift: 3 },
-                    right: Value::from_var(res1, compiler),
+                res.push(HighLevelInstruction::Eq {
+                    left: HighLevelValue::MemoryAfterFp { shift: 3 },
+                    right: HighLevelValue::from_var(res1, compiler),
                 });
-                res.push(Instruction::Poseidon2_16 {
+                res.push(HighLevelInstruction::Poseidon2_16 {
                     shift: compiler.current_stack_size,
                 });
                 compiler.current_stack_size += 4;
@@ -338,43 +346,43 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
                 res1,
                 res2,
             } => {
-                res.push(Instruction::Eq {
-                    left: Value::MemoryAfterFp {
+                res.push(HighLevelInstruction::Eq {
+                    left: HighLevelValue::MemoryAfterFp {
                         shift: compiler.current_stack_size,
                     },
-                    right: Value::from_var_or_constant(arg0, compiler),
+                    right: HighLevelValue::from_var_or_constant(arg0, compiler),
                 });
-                res.push(Instruction::Eq {
-                    left: Value::MemoryAfterFp {
+                res.push(HighLevelInstruction::Eq {
+                    left: HighLevelValue::MemoryAfterFp {
                         shift: compiler.current_stack_size + 1,
                     },
-                    right: Value::from_var_or_constant(arg1, compiler),
+                    right: HighLevelValue::from_var_or_constant(arg1, compiler),
                 });
-                res.push(Instruction::Eq {
-                    left: Value::MemoryAfterFp {
+                res.push(HighLevelInstruction::Eq {
+                    left: HighLevelValue::MemoryAfterFp {
                         shift: compiler.current_stack_size + 2,
                     },
-                    right: Value::from_var_or_constant(arg2, compiler),
+                    right: HighLevelValue::from_var_or_constant(arg2, compiler),
                 });
-                res.push(Instruction::Eq {
-                    left: Value::MemoryAfterFp {
+                res.push(HighLevelInstruction::Eq {
+                    left: HighLevelValue::MemoryAfterFp {
                         shift: compiler.current_stack_size + 3,
                     },
-                    right: Value::from_var(res0, compiler),
+                    right: HighLevelValue::from_var(res0, compiler),
                 });
-                res.push(Instruction::Eq {
-                    left: Value::MemoryAfterFp {
+                res.push(HighLevelInstruction::Eq {
+                    left: HighLevelValue::MemoryAfterFp {
                         shift: compiler.current_stack_size + 4,
                     },
-                    right: Value::from_var(res1, compiler),
+                    right: HighLevelValue::from_var(res1, compiler),
                 });
-                res.push(Instruction::Eq {
-                    left: Value::MemoryAfterFp {
+                res.push(HighLevelInstruction::Eq {
+                    left: HighLevelValue::MemoryAfterFp {
                         shift: compiler.current_stack_size + 5,
                     },
-                    right: Value::from_var(res2, compiler),
+                    right: HighLevelValue::from_var(res2, compiler),
                 });
-                res.push(Instruction::Poseidon2_24 {
+                res.push(HighLevelInstruction::Poseidon2_24 {
                     shift: compiler.current_stack_size,
                 });
                 compiler.current_stack_size += 6;
@@ -386,37 +394,37 @@ fn compile_lines(lines: &[Line], compiler: &mut Compiler) -> Result<Vec<Instruct
                         return Err("Cannot allocate memory with public input start".to_string());
                     }
                 };
-                res.push(Instruction::RequestMemory {
+                res.push(HighLevelInstruction::RequestMemory {
                     shift: compiler.get_shift(var),
-                    size: MetaValue::Constant(size),
+                    size: HighLevelMetaValue::Constant(size),
                 });
             }
             Line::AssertEqExt { left, right } => {
-                res.push(Instruction::ExtComputation {
-                    operation: Operation::Add,
-                    arg_a: Value::from_var_or_constant(left, compiler),
-                    arg_b: Value::PointerToZeroVector,
-                    res: Value::from_var_or_constant(right, compiler),
+                res.push(HighLevelInstruction::ExtComputation {
+                    operation: HighLevelOperation::Add,
+                    arg_a: HighLevelValue::from_var_or_constant(left, compiler),
+                    arg_b: HighLevelValue::PointerToZeroVector,
+                    res: HighLevelValue::from_var_or_constant(right, compiler),
                 });
             }
             Line::FunctionRet { return_data } => {
                 for (ret_index, return_var) in return_data.iter().enumerate() {
-                    res.push(Instruction::Eq {
-                        left: Value::MemoryAfterFp {
+                    res.push(HighLevelInstruction::Eq {
+                        left: HighLevelValue::MemoryAfterFp {
                             shift: 2 + compiler.args_count + ret_index,
                         },
-                        right: Value::from_var_or_constant(return_var, compiler),
+                        right: HighLevelValue::from_var_or_constant(return_var, compiler),
                     });
                 }
-                res.push(Instruction::Jump {
-                    dest: Value::MemoryAfterFp { shift: 0 },
-                    updated_fp: Some(Value::MemoryAfterFp { shift: 1 }),
+                res.push(HighLevelInstruction::Jump {
+                    dest: HighLevelValue::MemoryAfterFp { shift: 0 },
+                    updated_fp: Some(HighLevelValue::MemoryAfterFp { shift: 1 }),
                 });
             }
             Line::Panic => {
-                res.push(Instruction::Eq {
-                    left: Value::Constant(0),
-                    right: Value::Constant(1),
+                res.push(HighLevelInstruction::Eq {
+                    left: HighLevelValue::Constant(0),
+                    right: HighLevelValue::Constant(1),
                 });
             }
         }

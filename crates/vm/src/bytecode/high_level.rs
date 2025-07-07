@@ -5,10 +5,13 @@ use crate::lang::ConstantValue;
 pub type Label = String;
 
 #[derive(Debug, Clone)]
-pub struct CompiledProgram(pub HashMap<Label, Vec<Instruction>>);
+pub struct HighLevelBytecode {
+    pub bytecode: HashMap<Label, Vec<HighLevelInstruction>>,
+    pub memory_size_per_function: HashMap<String, usize>,
+}
 
 #[derive(Debug, Clone)]
-pub enum Value {
+pub enum HighLevelValue {
     Label(Label),
     Constant(usize),
     PublicInputStart,
@@ -21,7 +24,7 @@ pub enum Value {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Operation {
+pub enum HighLevelOperation {
     Add,
     Mul,
     Sub,
@@ -29,27 +32,27 @@ pub enum Operation {
 }
 
 #[derive(Debug, Clone)]
-pub enum Instruction {
+pub enum HighLevelInstruction {
     Computation {
-        operation: Operation,
-        arg_a: Value,
-        arg_b: Value,
-        res: Value,
+        operation: HighLevelOperation,
+        arg_a: HighLevelValue,
+        arg_b: HighLevelValue,
+        res: HighLevelValue,
     },
     Eq {
-        left: Value,
-        right: Value,
+        left: HighLevelValue,
+        right: HighLevelValue,
     },
     FpAssign {
-        value: Value,
+        value: HighLevelValue,
     },
     Jump {
-        dest: Value,
-        updated_fp: Option<Value>,
+        dest: HighLevelValue,
+        updated_fp: Option<HighLevelValue>,
     },
     JumpIfNotZero {
-        condition: Value,
-        dest: Value,
+        condition: HighLevelValue,
+        dest: HighLevelValue,
     },
     Poseidon2_16 {
         shift: usize,
@@ -61,20 +64,22 @@ pub enum Instruction {
         shift: usize,
     }, // same as above, but with 24 field elements
     ExtComputation {
-        operation: Operation,
-        arg_a: Value, // pointer (to the memory of chunks of 8 field elements)
-        arg_b: Value, // same
-        res: Value,   // same
+        operation: HighLevelOperation,
+        arg_a: HighLevelValue, // pointer (to the memory of chunks of 8 field elements)
+        arg_b: HighLevelValue, // same
+        res: HighLevelValue,   // same
     },
-    // Meta instructions (provides useful hints to run the program, but does not appears in the final bytecode)
+
+    // META INSTRUCTIONS (provides useful hints to run the program, but does not appears in the final bytecode)
+
     RequestMemory {
         shift: usize,    // m[fp + shift] where the hint will be stored
-        size: MetaValue, // the hint
+        size: HighLevelMetaValue, // the hint
     },
 }
 
 #[derive(Debug, Clone)]
-pub enum MetaValue {
+pub enum HighLevelMetaValue {
     Constant(usize),
     FunctionSize { function_name: Label },
 }
@@ -88,50 +93,50 @@ impl ToString for ConstantValue {
     }
 }
 
-impl ToString for MetaValue {
+impl ToString for HighLevelMetaValue {
     fn to_string(&self) -> String {
         match self {
-            MetaValue::Constant(value) => value.to_string(),
-            MetaValue::FunctionSize { function_name } => {
+            HighLevelMetaValue::Constant(value) => value.to_string(),
+            HighLevelMetaValue::FunctionSize { function_name } => {
                 format!("function_size({})", function_name)
             }
         }
     }
 }
 
-impl ToString for Operation {
+impl ToString for HighLevelOperation {
     fn to_string(&self) -> String {
         match self {
-            Operation::Add => "+".to_string(),
-            Operation::Mul => "*".to_string(),
-            Operation::Sub => "-".to_string(),
-            Operation::Div => "/".to_string(),
+            HighLevelOperation::Add => "+".to_string(),
+            HighLevelOperation::Mul => "*".to_string(),
+            HighLevelOperation::Sub => "-".to_string(),
+            HighLevelOperation::Div => "/".to_string(),
         }
     }
 }
 
-impl ToString for Value {
+impl ToString for HighLevelValue {
     fn to_string(&self) -> String {
         match self {
-            Value::Label(label) => label.clone(),
-            Value::Constant(value) => value.to_string(),
-            Value::PublicInputStart => "public_input_start".to_string(),
-            Value::PointerToZeroVector => "null_pointer_EF".to_string(),
-            Value::Fp => "fp".to_string(),
-            Value::MemoryAfterFp { shift } => format!("m[fp + {}]", shift),
-            Value::MemoryPointer { shift } => format!("m[m[fp + {}]]", shift),
-            Value::ShiftedMemoryPointer { shift_0, shift_1 } => {
+            HighLevelValue::Label(label) => label.clone(),
+            HighLevelValue::Constant(value) => value.to_string(),
+            HighLevelValue::PublicInputStart => "public_input_start".to_string(),
+            HighLevelValue::PointerToZeroVector => "null_pointer_EF".to_string(),
+            HighLevelValue::Fp => "fp".to_string(),
+            HighLevelValue::MemoryAfterFp { shift } => format!("m[fp + {}]", shift),
+            HighLevelValue::MemoryPointer { shift } => format!("m[m[fp + {}]]", shift),
+            HighLevelValue::ShiftedMemoryPointer { shift_0, shift_1 } => {
                 format!("m[m[fp + {}] + {}]", shift_0, shift_1)
             }
-            Value::DirectMemory { shift } => format!("m[{}]", shift),
+            HighLevelValue::DirectMemory { shift } => format!("m[{}]", shift),
         }
     }
 }
 
-impl ToString for Instruction {
+impl ToString for HighLevelInstruction {
     fn to_string(&self) -> String {
         match self {
-            Instruction::Computation {
+            HighLevelInstruction::Computation {
                 operation,
                 arg_a,
                 arg_b,
@@ -145,29 +150,29 @@ impl ToString for Instruction {
                     arg_b.to_string()
                 )
             }
-            Instruction::Eq { left, right } => {
+            HighLevelInstruction::Eq { left, right } => {
                 format!("{} == {}", left.to_string(), right.to_string())
             }
-            Instruction::FpAssign { value } => format!("fp = {}", value.to_string()),
-            Instruction::Jump { dest, updated_fp } => {
+            HighLevelInstruction::FpAssign { value } => format!("fp = {}", value.to_string()),
+            HighLevelInstruction::Jump { dest, updated_fp } => {
                 if let Some(fp) = updated_fp {
                     format!("jump to {} with fp = {}", dest.to_string(), fp.to_string())
                 } else {
                     format!("jump to {}", dest.to_string())
                 }
             }
-            Instruction::JumpIfNotZero { condition, dest } => format!(
+            HighLevelInstruction::JumpIfNotZero { condition, dest } => format!(
                 "if {} != 0 jump to {}",
                 condition.to_string(),
                 dest.to_string()
             ),
-            Instruction::Poseidon2_16 { shift } => {
+            HighLevelInstruction::Poseidon2_16 { shift } => {
                 format!("poseidon2_16 m[8 * m[fp + {}]] .. ]", shift)
             }
-            Instruction::Poseidon2_24 { shift } => {
+            HighLevelInstruction::Poseidon2_24 { shift } => {
                 format!("poseidon2_24 m[8 * m[fp + {}]] .. ]", shift)
             }
-            Instruction::ExtComputation {
+            HighLevelInstruction::ExtComputation {
                 operation,
                 arg_a,
                 arg_b,
@@ -181,12 +186,12 @@ impl ToString for Instruction {
                     arg_b.to_string()
                 )
             }
-            Instruction::RequestMemory { shift, size } => format!(
+            HighLevelInstruction::RequestMemory { shift, size } => format!(
                 "# hint: m[fp + {}] = malloc({})",
                 shift,
                 match size {
-                    MetaValue::Constant(len) => len.to_string(),
-                    MetaValue::FunctionSize { function_name } => {
+                    HighLevelMetaValue::Constant(len) => len.to_string(),
+                    HighLevelMetaValue::FunctionSize { function_name } => {
                         format!("function_size({})", function_name)
                     }
                 },
@@ -195,11 +200,11 @@ impl ToString for Instruction {
     }
 }
 
-impl ToString for CompiledProgram {
+impl ToString for HighLevelBytecode {
     fn to_string(&self) -> String {
         let mut result = String::new();
         let main = self
-            .0
+            .bytecode
             .get("@function_main")
             .unwrap_or_else(|| panic!("No main function found in the compiled program"));
         result.push_str("@function_main:\n");
@@ -207,7 +212,7 @@ impl ToString for CompiledProgram {
             result.push_str(&instruction.to_string());
             result.push('\n');
         }
-        for (label, instructions) in &self.0 {
+        for (label, instructions) in &self.bytecode {
             if label == "@function_main" {
                 continue;
             }

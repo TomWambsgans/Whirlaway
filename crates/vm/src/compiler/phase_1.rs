@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::{bytecode::Operation, lang::*};
+use crate::{bytecode::high_level::*, lang::*};
 
 /// Replace all loops with recursive function
 pub fn replace_loops_with_recursion(program: &mut Program) {
@@ -55,7 +55,7 @@ fn replace_loops_with_recursion_helper(
                 };
                 then_branch.push(Line::Assignment {
                     var: incremented_iterator.clone(),
-                    operation: Operation::Add,
+                    operation: HighLevelOperation::Add,
                     arg0: iterator.clone().into(),
                     arg1: VarOrConstant::Constant(ConstantValue::Scalar(1)),
                 });

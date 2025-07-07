@@ -3,7 +3,7 @@ use pest::iterators::Pair;
 use pest_derive::Parser;
 use std::collections::HashMap;
 
-use crate::bytecode::Operation;
+use crate::bytecode::high_level::*;
 use crate::lang::*;
 #[derive(Parser)]
 #[grammar = "grammar.pest"]
@@ -220,7 +220,7 @@ fn parse_single_assignment(pair: Pair<Rule>, context: &ParseContext) -> Result<L
                     let value = parse_var_or_constant(expr_inner, context)?;
                     Ok(Line::Assignment {
                         var,
-                        operation: Operation::Add,
+                        operation: HighLevelOperation::Add,
                         arg0: value,
                         arg1: VarOrConstant::Constant(ConstantValue::Scalar(0)),
                     })
@@ -448,17 +448,17 @@ fn parse_condition(pair: Pair<Rule>, context: &ParseContext) -> Result<Boolean, 
 fn parse_binary_expression(
     pair: Pair<Rule>,
     context: &ParseContext,
-) -> Result<(Operation, VarOrConstant, VarOrConstant), ParseError> {
+) -> Result<(HighLevelOperation, VarOrConstant, VarOrConstant), ParseError> {
     let mut inner = pair.into_inner();
     let left = parse_var_or_constant(inner.next().unwrap(), context)?;
     let operator = inner.next().unwrap().as_str();
     let right = parse_var_or_constant(inner.next().unwrap(), context)?;
 
     let operation = match operator {
-        "+" => Operation::Add,
-        "-" => Operation::Sub,
-        "*" => Operation::Mul,
-        "/" => Operation::Div,
+        "+" => HighLevelOperation::Add,
+        "-" => HighLevelOperation::Sub,
+        "*" => HighLevelOperation::Mul,
+        "/" => HighLevelOperation::Div,
         _ => {
             return Err(ParseError::SemanticError(format!(
                 "Unknown binary operator: {}",
