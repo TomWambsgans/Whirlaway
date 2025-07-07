@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 use crate::{bytecode::high_level::*, lang::*};
 
@@ -124,9 +124,9 @@ fn replace_loops_with_recursion_helper(
     }
 }
 
-pub fn get_internal_and_external_variables(lines: &[Line]) -> (HashSet<Var>, HashSet<Var>) {
-    let mut external_vars = HashSet::new();
-    let mut internal_vars = HashSet::new();
+pub fn get_internal_and_external_variables(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
+    let mut external_vars = BTreeSet::new();
+    let mut internal_vars = BTreeSet::new();
     for line in lines {
         match line {
             Line::Assignment {
@@ -171,11 +171,11 @@ pub fn get_internal_and_external_variables(lines: &[Line]) -> (HashSet<Var>, Has
                     get_internal_and_external_variables(then_branch);
                 let (internal_else_branch, external_else_branch) =
                     get_internal_and_external_variables(else_branch);
-                let new_internal_vars: HashSet<Var> = internal_then_branch
+                let new_internal_vars: BTreeSet<Var> = internal_then_branch
                     .union(&internal_else_branch)
                     .cloned()
                     .collect();
-                let new_external_vars: HashSet<Var> = external_then_branch
+                let new_external_vars: BTreeSet<Var> = external_then_branch
                     .union(&external_else_branch)
                     .filter(|var| {
                         !internal_vars.contains(var)

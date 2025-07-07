@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::lang::ConstantValue;
 
@@ -6,8 +6,8 @@ pub type Label = String;
 
 #[derive(Debug, Clone)]
 pub struct HighLevelBytecode {
-    pub bytecode: HashMap<Label, Vec<HighLevelInstruction>>,
-    pub memory_size_per_function: HashMap<String, usize>,
+    pub bytecode: BTreeMap<Label, Vec<HighLevelInstruction>>,
+    pub memory_size_per_function: BTreeMap<String, usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -23,7 +23,7 @@ pub enum HighLevelValue {
     DirectMemory { shift: usize },  // m[shift]
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum HighLevelOperation {
     Add,
     Mul,
@@ -71,9 +71,8 @@ pub enum HighLevelInstruction {
     },
 
     // META INSTRUCTIONS (provides useful hints to run the program, but does not appears in the final bytecode)
-
     RequestMemory {
-        shift: usize,    // m[fp + shift] where the hint will be stored
+        shift: usize,             // m[fp + shift] where the hint will be stored
         size: HighLevelMetaValue, // the hint
     },
 }

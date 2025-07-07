@@ -1,10 +1,10 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::bytecode::high_level::HighLevelOperation;
 
 #[derive(Debug, Clone)]
 pub struct Program {
-    pub functions: HashMap<String, Function>,
+    pub functions: BTreeMap<String, Function>,
 }
 
 #[derive(Debug, Clone)]
@@ -15,12 +15,12 @@ pub struct Function {
     pub instructions: Vec<Line>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Var {
     pub name: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum VarOrConstant {
     Var(Var),
     Constant(ConstantValue),
@@ -54,7 +54,7 @@ impl VarOrConstant {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Boolean {
     Equal {
         left: VarOrConstant,
@@ -66,13 +66,13 @@ pub enum Boolean {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ConstantValue {
     Scalar(usize),
     PublicInputStart,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Line {
     Assignment {
         var: Var,

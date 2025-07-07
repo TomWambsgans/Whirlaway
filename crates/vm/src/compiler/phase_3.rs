@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::{
     bytecode::{
@@ -28,7 +28,7 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
     }
     let public_input_start = pointer_to_zero_vector + PROGRAM_ENDING_ZEROS;
 
-    let mut label_to_pc = HashMap::new();
+    let mut label_to_pc = BTreeMap::new();
     label_to_pc.insert("@function_main".to_string(), 0);
     let entrypoint = high_level_bytecode
         .bytecode

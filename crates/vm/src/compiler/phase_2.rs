@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::{
     bytecode::high_level::*,
@@ -10,12 +10,12 @@ use crate::{
 };
 
 struct Compiler {
-    bytecode: HashMap<Label, Vec<HighLevelInstruction>>,
+    bytecode: BTreeMap<Label, Vec<HighLevelInstruction>>,
     if_else_counter: usize,
     function_call_counter: usize,
 
     // relative to current Function's
-    vars_in_scope: HashMap<Var, usize>, // var = m[fp + index]
+    vars_in_scope: BTreeMap<Var, usize>, // var = m[fp + index]
     args_count: usize,                  // number of arguments in the current function
     current_stack_size: usize,
 }
@@ -45,9 +45,9 @@ impl HighLevelValue {
 impl Compiler {
     fn new() -> Self {
         Compiler {
-            vars_in_scope: HashMap::new(),
+            vars_in_scope: BTreeMap::new(),
             current_stack_size: 0,
-            bytecode: HashMap::new(),
+            bytecode: BTreeMap::new(),
             args_count: 0,
             if_else_counter: 0,
             function_call_counter: 0,
@@ -67,7 +67,7 @@ pub fn compile_to_hight_level_bytecode(mut program: Program) -> Result<HighLevel
     replace_loops_with_recursion(&mut program);
     replace_if_eq(&mut program);
     let mut compiler = Compiler::new();
-    let mut memory_size_per_function = HashMap::new();
+    let mut memory_size_per_function = BTreeMap::new();
     for function in program.functions.values() {
         let instructions = compile_function(function, &mut compiler)?;
         compiler
@@ -100,7 +100,7 @@ fn compile_function(
     let mut current_stack_size = 1; // for pc (when returning)
 
     // associate to each variable a shift (in memory, relative to fp)
-    let mut vars_in_scope = HashMap::new();
+    let mut vars_in_scope = BTreeMap::new();
     for (i, var) in function.arguments.iter().enumerate() {
         vars_in_scope.insert(var.clone(), i + current_stack_size);
     }

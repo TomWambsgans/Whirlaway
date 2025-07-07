@@ -1,7 +1,7 @@
 use pest::Parser;
 use pest::iterators::Pair;
 use pest_derive::Parser;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::bytecode::high_level::*;
 use crate::lang::*;
@@ -34,13 +34,13 @@ impl std::error::Error for ParseError {}
 
 #[derive(Debug, Clone)]
 struct ParseContext {
-    constants: HashMap<String, usize>,
+    constants: BTreeMap<String, usize>,
 }
 
 impl ParseContext {
     fn new() -> Self {
         Self {
-            constants: HashMap::new(),
+            constants: BTreeMap::new(),
         }
     }
 
@@ -59,7 +59,7 @@ pub fn parse_program(input: &str) -> Result<Program, ParseError> {
     let program_pair = pairs.next().unwrap();
 
     let mut context = ParseContext::new();
-    let mut functions = HashMap::new();
+    let mut functions = BTreeMap::new();
 
     for pair in program_pair.into_inner() {
         match pair.as_rule() {
