@@ -68,6 +68,7 @@ pub fn compile_to_hight_level_bytecode(mut program: Program) -> Result<HighLevel
     replace_assert_not_eq(&mut program);
     replace_loops_with_recursion(&mut program);
     replace_if_eq(&mut program);
+    // println!("Program after phase 1: \n{}", program.to_string());
     let mut compiler = Compiler::new();
     let mut memory_size_per_function = BTreeMap::new();
     for function in program.functions.values() {
@@ -99,13 +100,14 @@ fn compile_function(
         }
     }
 
-    let mut current_stack_size = 1; // for pc (when returning)
+    let mut current_stack_size = 2; // for pc and fp (when returning)
 
     // associate to each variable a shift (in memory, relative to fp)
     let mut vars_in_scope = BTreeMap::new();
     for (i, var) in function.arguments.iter().enumerate() {
         vars_in_scope.insert(var.clone(), i + current_stack_size);
     }
+
     current_stack_size += function.arguments.len();
 
     current_stack_size += function.n_returned_vars; // reserve space for returned vars
@@ -178,6 +180,7 @@ fn compile_lines(
                 Boolean::Different { left, right } => {
                     let left_value = HighLevelValue::from_var_or_constant(left, compiler);
                     let right_value = HighLevelValue::from_var_or_constant(right, compiler);
+
                     let difference = HighLevelValue::MemoryAfterFp {
                         shift: compiler.current_stack_size,
                     };
@@ -186,6 +189,7 @@ fn compile_lines(
                     let label_after = format!("@if_else_end_{}", compiler.if_else_counter);
                     let label_if = format!("@if_{}", compiler.if_else_counter);
                     let label_else = format!("@else_{}", compiler.if_else_counter);
+                    compiler.if_else_counter += 1;
 
                     let current_stack_size = compiler.current_stack_size;
                     let mut instructions_if = compile_lines(then_branch, compiler)?;

@@ -34,7 +34,9 @@ fn replace_loops_with_recursion_helper(
                 end,
                 body,
             } => {
-                let function_name = format!("____loop____{}", loop_counter);
+                replace_loops_with_recursion_helper(body, loop_counter, new_functions);
+
+                let function_name = format!("@loop{}", loop_counter);
                 *loop_counter += 1;
 
                 let (_, mut external_vars) = get_internal_and_external_variables(&body);
@@ -51,7 +53,7 @@ fn replace_loops_with_recursion_helper(
                 let mut then_branch = std::mem::take(body);
 
                 let incremented_iterator = Var {
-                    name: format!("____{}____incremented", iterator.name),
+                    name: format!("@incremented_{}", iterator.name),
                 };
                 then_branch.push(Line::Assignment {
                     var: incremented_iterator.clone(),
@@ -197,11 +199,6 @@ pub fn get_internal_and_external_variables(lines: &[Line]) -> (BTreeSet<Var>, BT
                 args,
                 return_data,
             } => {
-                for arg in args {
-                    if let VarOrConstant::Var(arg_var) = arg {
-                        internal_vars.insert(arg_var.clone());
-                    }
-                }
                 for arg in args {
                     if let VarOrConstant::Var(arg_var) = arg {
                         if !internal_vars.contains(&arg_var) {

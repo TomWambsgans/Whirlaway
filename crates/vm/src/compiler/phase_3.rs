@@ -23,8 +23,6 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
     let mut high_level_bytecode = compile_to_hight_level_bytecode(program)?;
     clean(&mut high_level_bytecode);
 
-    dbg!(&high_level_bytecode);
-
     high_level_bytecode.bytecode.insert(
         "@end_program".to_string(),
         vec![HighLevelInstruction::Jump {

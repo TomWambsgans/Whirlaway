@@ -125,14 +125,6 @@ pub fn execute_bytecode(
     let mut fp = bytecode.public_input_start + public_input.len();
     let mut ap = bytecode.public_input_start + public_input.len() + bytecode.starting_frame_memory;
 
-    let constant_value = |value: Value, fp: usize| -> Option<F> {
-        match value {
-            Value::Constant(c) => Some(F::from_usize(c)),
-            Value::Fp => Some(F::from_usize(fp)),
-            Value::MemoryAfterFp { .. } | Value::DirectMemory { .. } => None,
-        }
-    };
-
     while pc != bytecode.ending_pc {
         if pc >= bytecode.instructions.len() {
             panic!(
@@ -142,7 +134,7 @@ pub fn execute_bytecode(
             );
         }
 
-        dbg!(pc, fp, ap);
+    // dbg!(pc);
 
         for hint in bytecode.hints.get(&pc).unwrap_or(&vec![]) {
             match hint {
@@ -152,12 +144,13 @@ pub fn execute_bytecode(
                     // does not increase PC
                 }
                 Hint::Print { line_info, content } => {
-                    let values: Vec<F> = content
+                    let values = content
                         .iter()
-                        .map(|value| memory.read_value(*value, fp))
-                        .collect();
+                        .map(|value| memory.read_value(*value, fp).to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ");
                     let line_info = line_info.replace(";", "");
-                    println!("\"{}\" -> {:?}", line_info, values);
+                    println!("\"{}\" -> {}", line_info, values);
                     // does not increase PC
                 }
             }
@@ -203,12 +196,13 @@ pub fn execute_bytecode(
                 shift_1,
                 res,
             } => {
-                if let Some(memory_address_res) = res.memory_address(fp) {
+                if memory.is_value_unknown(*res, fp) {
+                    let memory_address_res = res.memory_address(fp).unwrap();
                     let ptr = memory.get(fp + shift_0);
                     let value = memory.get(ptr.as_canonical_u64() as usize + shift_1);
                     memory.set(memory_address_res, value);
                 } else {
-                    let value = constant_value(*res, fp).unwrap();
+                    let value = memory.read_value(*res, fp);
                     let ptr = memory.get(fp + shift_0);
                     memory.set(ptr.as_canonical_u64() as usize + shift_1, value);
                 }
