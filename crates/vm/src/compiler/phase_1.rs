@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::{bytecode::high_level::*, lang::*};
+use crate::{bytecode::intermediate_bytecode::*, lang::*};
 
 /// Replace all loops with recursive function
 pub fn replace_loops_with_recursion(program: &mut Program) {

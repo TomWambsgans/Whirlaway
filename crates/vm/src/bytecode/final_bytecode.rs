@@ -1,13 +1,19 @@
+use crate::F;
+
 pub type Label = String;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Bytecode(pub Vec<Instruction>);
+pub struct Bytecode {
+    pub instructions: Vec<Instruction>,
+    pub public_input_start: usize,
+    pub starting_frame_memory: usize,
+    pub ending_pc: usize,
+}
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Value {
     Constant(usize),
     Fp,
-    NextFp,
     MemoryAfterFp { shift: usize }, // m[fp + shift]
     DirectMemory { shift: usize },  // m[shift]
 }
@@ -16,6 +22,22 @@ pub enum Value {
 pub enum Operation {
     Add,
     Mul,
+}
+
+impl Operation {
+    pub fn compute(&self, a: F, b: F) -> F {
+        match self {
+            Operation::Add => a + b,
+            Operation::Mul => a * b,
+        }
+    }
+
+    pub fn inverse_compute(&self, a: F, b: F) -> F {
+        match self {
+            Operation::Add => a - b,
+            Operation::Mul => a / b,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -53,7 +75,6 @@ pub enum Instruction {
     },
 
     // META INSTRUCTIONS (provides useful hints to run the program, but does not appears in the final bytecode)
-    
     RequestMemory {
         shift: usize, // m[fp + shift] where the hint will be stored
         size: usize,  // the hint
@@ -62,7 +83,9 @@ pub enum Instruction {
 
 impl ToString for Bytecode {
     fn to_string(&self) -> String {
-        self.0.iter().enumerate()
+        self.instructions
+            .iter()
+            .enumerate()
             .map(|(i, instruction)| format!("{}: {}", i, instruction.to_string()))
             .collect::<Vec<String>>()
             .join("\n")
@@ -74,7 +97,6 @@ impl ToString for Value {
         match self {
             Value::Constant(c) => format!("{}", c),
             Value::Fp => "fp".to_string(),
-            Value::NextFp => "next(fp)".to_string(),
             Value::MemoryAfterFp { shift } => format!("m[fp + {}]", shift),
             Value::DirectMemory { shift } => format!("m[{}]", shift),
         }
@@ -93,14 +115,38 @@ impl ToString for Operation {
 impl ToString for Instruction {
     fn to_string(&self) -> String {
         match self {
-            Instruction::Computation { operation, arg_a, arg_b, res } => {
-                format!("{} = {} {} {}", res.to_string(), arg_a.to_string(), operation.to_string(), arg_b.to_string())
+            Instruction::Computation {
+                operation,
+                arg_a,
+                arg_b,
+                res,
+            } => {
+                format!(
+                    "{} = {} {} {}",
+                    res.to_string(),
+                    arg_a.to_string(),
+                    operation.to_string(),
+                    arg_b.to_string()
+                )
             }
-            Instruction::MemoryPointerEq { shift_0, shift_1, res } => {
+            Instruction::MemoryPointerEq {
+                shift_0,
+                shift_1,
+                res,
+            } => {
                 format!("{} = m[m[fp + {}] + {}]", res.to_string(), shift_0, shift_1)
             }
-            Instruction::JumpIfNotZero { condition, dest, updated_fp } => {
-                format!("if {} != 0 jump to {} with next(fp) = {}", condition.to_string(), dest.to_string(), updated_fp.to_string())
+            Instruction::JumpIfNotZero {
+                condition,
+                dest,
+                updated_fp,
+            } => {
+                format!(
+                    "if {} != 0 jump to {} with next(fp) = {}",
+                    condition.to_string(),
+                    dest.to_string(),
+                    updated_fp.to_string()
+                )
             }
             Instruction::Poseidon2_16 { shift } => {
                 format!("Poseidon2_16(m[{}..+4])", shift)
@@ -108,9 +154,19 @@ impl ToString for Instruction {
             Instruction::Poseidon2_24 { shift } => {
                 format!("Poseidon2_24(m[{}..+6])", shift)
             }
-            Instruction::ExtComputation { operation, arg_a, arg_b, res } => {
-                format!("m[{}..+8] = m[{}..+8] {} m[{}..+8] # Extension Field", 
-                        res.to_string(), arg_a.to_string(), operation.to_string(), arg_b.to_string())
+            Instruction::ExtComputation {
+                operation,
+                arg_a,
+                arg_b,
+                res,
+            } => {
+                format!(
+                    "m[{}..+8] = m[{}..+8] {} m[{}..+8] # Extension Field",
+                    res.to_string(),
+                    arg_a.to_string(),
+                    operation.to_string(),
+                    arg_b.to_string()
+                )
             }
             Instruction::RequestMemory { shift, size } => {
                 format!("# hint: m[fp + {}] = malloc({})", shift, size)

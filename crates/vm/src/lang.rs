@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::bytecode::high_level::HighLevelOperation;
+use crate::bytecode::intermediate_bytecode::HighLevelOperation;
 
 #[derive(Debug, Clone)]
 pub struct Program {

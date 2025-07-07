@@ -1,20 +1,26 @@
 use std::collections::BTreeMap;
 
 use crate::{
+    AIR_COLUMNS_PER_OPCODE, PROGRAM_ENDING_ZEROS,
     bytecode::{
-        high_level::*,
-        low_level::{Bytecode, Instruction, Operation, Value},
+        final_bytecode::{Bytecode, Instruction, Operation, Value},
+        intermediate_bytecode::*,
     },
     compiler::phase_2::compile_to_hight_level_bytecode,
     lang::*,
 };
 
-const AIR_COLUMNS_PER_OPCODE: usize = 10; // TODO
-const PROGRAM_ENDING_ZEROS: usize = 8; // Every program ends with at least 8 zeros, useful for creating an "empty" pointer
-
 pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, String> {
     let mut high_level_bytecode = compile_to_hight_level_bytecode(program)?;
     clean(&mut high_level_bytecode);
+
+    high_level_bytecode.bytecode.insert(
+        "@end_program".to_string(),
+        vec![HighLevelInstruction::Jump {
+            dest: HighLevelValue::Label("@end_program".to_string()),
+            updated_fp: None,
+        }],
+    );
 
     let bytecode_size = high_level_bytecode
         .bytecode
@@ -34,6 +40,7 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
         .bytecode
         .remove("@function_main")
         .ok_or("No main function found in the compiled program")?;
+
     let mut pc = entrypoint.len();
     let mut code_chunks = vec![entrypoint.clone()];
     for (label, instructions) in &high_level_bytecode.bytecode {
@@ -41,6 +48,8 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
         code_chunks.push(instructions.clone());
         pc += instructions.len();
     }
+
+    let ending_pc = label_to_pc.get("@end_program").cloned().unwrap();
 
     let mut low_level_bytecode = Vec::new();
 
@@ -75,8 +84,12 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
                 } => {
                     low_level_bytecode.push(Instruction::Computation {
                         operation: match operation {
-                            HighLevelOperation::Add => crate::bytecode::low_level::Operation::Add,
-                            HighLevelOperation::Mul => crate::bytecode::low_level::Operation::Mul,
+                            HighLevelOperation::Add => {
+                                crate::bytecode::final_bytecode::Operation::Add
+                            }
+                            HighLevelOperation::Mul => {
+                                crate::bytecode::final_bytecode::Operation::Mul
+                            }
                             _ => {
                                 unreachable!("Handled earlier in \"clean\"")
                             }
@@ -179,7 +192,17 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
         }
     }
 
-    return Ok(Bytecode(low_level_bytecode));
+    let starting_frame_memory = *high_level_bytecode
+        .memory_size_per_function
+        .get("main")
+        .unwrap();
+    
+    return Ok(Bytecode {
+        instructions: low_level_bytecode,
+        public_input_start,
+        starting_frame_memory,
+        ending_pc,
+    });
 }
 
 fn clean(bytecode: &mut HighLevelBytecode) {

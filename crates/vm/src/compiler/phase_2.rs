@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    bytecode::high_level::*,
+    bytecode::intermediate_bytecode::*,
     compiler::{
         phase_0::{replace_assert_not_eq, replace_if_eq},
         phase_1::{get_internal_and_external_variables, replace_loops_with_recursion},
@@ -15,8 +15,9 @@ struct Compiler {
     function_call_counter: usize,
 
     // relative to current Function's
+    func_name: String, // name of the current function being compiled
     vars_in_scope: BTreeMap<Var, usize>, // var = m[fp + index]
-    args_count: usize,                  // number of arguments in the current function
+    args_count: usize, // number of arguments in the current function
     current_stack_size: usize,
 }
 
@@ -48,6 +49,7 @@ impl Compiler {
             vars_in_scope: BTreeMap::new(),
             current_stack_size: 0,
             bytecode: BTreeMap::new(),
+            func_name: String::new(),
             args_count: 0,
             if_else_counter: 0,
             function_call_counter: 0,
@@ -114,6 +116,7 @@ fn compile_function(
 
     current_stack_size += internal_vars.len();
 
+    compiler.func_name = function.name.clone();
     compiler.vars_in_scope = vars_in_scope;
     compiler.current_stack_size = current_stack_size;
     compiler.args_count = function.arguments.len();
@@ -408,18 +411,25 @@ fn compile_lines(
                 });
             }
             Line::FunctionRet { return_data } => {
-                for (ret_index, return_var) in return_data.iter().enumerate() {
-                    res.push(HighLevelInstruction::Eq {
-                        left: HighLevelValue::MemoryAfterFp {
-                            shift: 2 + compiler.args_count + ret_index,
-                        },
-                        right: HighLevelValue::from_var_or_constant(return_var, compiler),
+                if compiler.func_name == "main" {
+                    res.push(HighLevelInstruction::Jump {
+                        dest: HighLevelValue::Label("@end_program".to_string()),
+                        updated_fp: None,
+                    });
+                } else {
+                    for (ret_index, return_var) in return_data.iter().enumerate() {
+                        res.push(HighLevelInstruction::Eq {
+                            left: HighLevelValue::MemoryAfterFp {
+                                shift: 2 + compiler.args_count + ret_index,
+                            },
+                            right: HighLevelValue::from_var_or_constant(return_var, compiler),
+                        });
+                    }
+                    res.push(HighLevelInstruction::Jump {
+                        dest: HighLevelValue::MemoryAfterFp { shift: 0 },
+                        updated_fp: Some(HighLevelValue::MemoryAfterFp { shift: 1 }),
                     });
                 }
-                res.push(HighLevelInstruction::Jump {
-                    dest: HighLevelValue::MemoryAfterFp { shift: 0 },
-                    updated_fp: Some(HighLevelValue::MemoryAfterFp { shift: 1 }),
-                });
             }
             Line::Panic => {
                 res.push(HighLevelInstruction::Eq {

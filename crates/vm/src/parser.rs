@@ -3,7 +3,7 @@ use pest::iterators::Pair;
 use pest_derive::Parser;
 use std::collections::BTreeMap;
 
-use crate::bytecode::high_level::*;
+use crate::bytecode::intermediate_bytecode::*;
 use crate::lang::*;
 #[derive(Parser)]
 #[grammar = "grammar.pest"]

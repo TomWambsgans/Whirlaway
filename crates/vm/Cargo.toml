@@ -9,4 +9,8 @@ workspace = true
 [dependencies]
 pest.workspace = true
 pest_derive.workspace = true
-# p3-koala-bear.workspace = true
+p3-field.workspace = true
+rand.workspace = true
+p3-poseidon2.workspace = true
+p3-koala-bear.workspace = true
+p3-symmetric.workspace = true

@@ -25,6 +25,7 @@ fn main() {
             verify_signature(signature_index);
         }
     }
+    return;
 }
 
 fn verify_signature(index) -> 0 {
