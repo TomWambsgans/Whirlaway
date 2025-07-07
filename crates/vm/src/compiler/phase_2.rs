@@ -214,6 +214,7 @@ fn compile_lines(
                     res.push(HighLevelInstruction::JumpIfNotZero {
                         condition: difference,
                         dest: HighLevelValue::Label(label_if.clone()),
+                        updated_fp: None
                     });
                     res.push(HighLevelInstruction::Jump {
                         dest: HighLevelValue::Label(label_else.clone()),
@@ -290,14 +291,9 @@ fn compile_lines(
                 }
 
                 let dest = HighLevelValue::Label(format!("@function_{}", function_name));
-                res.push(HighLevelInstruction::FpAssign {
-                    value: HighLevelValue::MemoryAfterFp {
-                        shift: shift_of_new_fp,
-                    },
-                });
                 res.push(HighLevelInstruction::Jump {
                     dest,
-                    updated_fp: None,
+                    updated_fp: Some(HighLevelValue::MemoryAfterFp { shift: shift_of_new_fp }),
                 });
 
                 let instructions_after_function_call = compile_lines(&lines[i + 1..], compiler)?;
@@ -435,6 +431,13 @@ fn compile_lines(
                 res.push(HighLevelInstruction::Eq {
                     left: HighLevelValue::Constant(0),
                     right: HighLevelValue::Constant(1),
+                });
+            }
+
+            Line::Print { line_info, content } => {
+                res.push(HighLevelInstruction::Print {
+                    line_info: line_info.clone(),
+                    content: content.into_iter().map(|c| HighLevelValue::from_var_or_constant(c, compiler)).collect(),
                 });
             }
         }

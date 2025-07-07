@@ -50,7 +50,7 @@ fn replace_loops_with_recursion_helper(
 
                 let mut then_branch = std::mem::take(body);
 
-                let incremented_iterator = Var { 
+                let incremented_iterator = Var {
                     name: format!("____{}____incremented", iterator.name),
                 };
                 then_branch.push(Line::Assignment {
@@ -119,7 +119,8 @@ fn replace_loops_with_recursion_helper(
             | Line::MAlloc { .. }
             | Line::Panic
             | Line::Assignment { .. }
-            | Line::RawAccess { .. } => {}
+            | Line::RawAccess { .. }
+            | Line::Print { .. } => {}
         }
     }
 }
@@ -177,9 +178,7 @@ pub fn get_internal_and_external_variables(lines: &[Line]) -> (BTreeSet<Var>, BT
                     .collect();
                 let new_external_vars: BTreeSet<Var> = external_then_branch
                     .union(&external_else_branch)
-                    .filter(|var| {
-                        !internal_vars.contains(var)
-                    })
+                    .filter(|var| !internal_vars.contains(var))
                     .cloned()
                     .collect();
                 internal_vars.extend(new_internal_vars);
@@ -320,6 +319,18 @@ pub fn get_internal_and_external_variables(lines: &[Line]) -> (BTreeSet<Var>, BT
                 internal_vars.insert(res0.clone());
                 internal_vars.insert(res1.clone());
                 internal_vars.insert(res2.clone());
+            }
+            Line::Print {
+                line_info: _,
+                content,
+            } => {
+                for var in content {
+                    if let VarOrConstant::Var(arg) = var {
+                        if !internal_vars.contains(&arg) {
+                            external_vars.insert(arg.clone());
+                        }
+                    }
+                }
             }
         }
     }

@@ -120,6 +120,10 @@ pub enum Line {
         res2: Var,
         // 6 pointers in the memory of chunks of 8 field elements
     },
+    Print {
+        line_info: String,
+        content: Vec<VarOrConstant>
+    },
     AssertEqExt {
         left: VarOrConstant,
         right: VarOrConstant,

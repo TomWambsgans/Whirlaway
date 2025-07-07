@@ -3,16 +3,27 @@ use std::collections::BTreeMap;
 use crate::{
     AIR_COLUMNS_PER_OPCODE, PROGRAM_ENDING_ZEROS,
     bytecode::{
-        final_bytecode::{Bytecode, Instruction, Operation, Value},
+        final_bytecode::{Bytecode, Hint, Instruction, Operation, Value},
         intermediate_bytecode::*,
     },
     compiler::phase_2::compile_to_hight_level_bytecode,
     lang::*,
 };
 
+impl HighLevelInstruction {
+    fn is_meta(&self) -> bool {
+        matches!(
+            self,
+            HighLevelInstruction::RequestMemory { .. } | HighLevelInstruction::Print { .. }
+        )
+    }
+}
+
 pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, String> {
     let mut high_level_bytecode = compile_to_hight_level_bytecode(program)?;
     clean(&mut high_level_bytecode);
+
+    dbg!(&high_level_bytecode);
 
     high_level_bytecode.bytecode.insert(
         "@end_program".to_string(),
@@ -41,17 +52,18 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
         .remove("@function_main")
         .ok_or("No main function found in the compiled program")?;
 
-    let mut pc = entrypoint.len();
-    let mut code_chunks = vec![entrypoint.clone()];
+    let mut code_chunks = vec![(0, entrypoint.clone())];
+    let mut pc = entrypoint.iter().filter(|i| !i.is_meta()).count();
     for (label, instructions) in &high_level_bytecode.bytecode {
         label_to_pc.insert(label.clone(), pc);
-        code_chunks.push(instructions.clone());
-        pc += instructions.len();
+        code_chunks.push((pc, instructions.clone()));
+        pc += instructions.iter().filter(|i| !i.is_meta()).count();
     }
 
     let ending_pc = label_to_pc.get("@end_program").cloned().unwrap();
 
     let mut low_level_bytecode = Vec::new();
+    let mut hints = BTreeMap::new();
 
     let convert_value = |value: HighLevelValue| match value {
         HighLevelValue::Constant(c) => Ok(Value::Constant(c)),
@@ -73,9 +85,10 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
         HighLevelValue::PublicInputStart => Ok(Value::Constant(public_input_start)),
     };
 
-    for chunk in code_chunks {
+    for (pc_start, chunk) in code_chunks {
+        let mut pc = pc_start;
         for instruction in chunk {
-            match instruction {
+            match instruction.clone() {
                 HighLevelInstruction::Computation {
                     operation,
                     arg_a,
@@ -125,11 +138,14 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
                         });
                     }
                 },
-                HighLevelInstruction::JumpIfNotZero { condition, dest } => {
+                HighLevelInstruction::JumpIfNotZero { condition, dest, updated_fp } => {
+                    let updated_fp = updated_fp
+                        .map(|fp| convert_value(fp).unwrap())
+                        .unwrap_or(Value::Fp);
                     low_level_bytecode.push(Instruction::JumpIfNotZero {
                         condition: convert_value(condition).unwrap(),
                         dest: convert_value(dest).unwrap(),
-                        updated_fp: Value::Fp,
+                        updated_fp,
                     });
                 }
                 HighLevelInstruction::Jump { dest, updated_fp } => {
@@ -139,14 +155,6 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
                         updated_fp: updated_fp
                             .map(|fp| convert_value(fp).unwrap())
                             .unwrap_or(Value::Fp),
-                    });
-                }
-                HighLevelInstruction::FpAssign { value } => {
-                    low_level_bytecode.push(Instruction::Computation {
-                        operation: Operation::Add,
-                        arg_a: convert_value(value).unwrap(),
-                        arg_b: Value::Constant(0),
-                        res: Value::Fp,
                     });
                 }
                 HighLevelInstruction::Poseidon2_16 { shift } => {
@@ -175,7 +183,7 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
                     });
                 }
                 HighLevelInstruction::RequestMemory { shift, size } => {
-                    low_level_bytecode.push(Instruction::RequestMemory {
+                    let hint = Hint::RequestMemory {
                         shift,
                         size: match size {
                             HighLevelMetaValue::Constant(len) => len,
@@ -186,8 +194,23 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
                                     .unwrap()
                             }
                         },
-                    });
+                    };
+                    hints.entry(pc).or_insert_with(Vec::new).push(hint);
                 }
+                HighLevelInstruction::Print { line_info, content } => {
+                    let hint = Hint::Print {
+                        line_info: line_info.clone(),
+                        content: content
+                            .into_iter()
+                            .map(|c| convert_value(c).unwrap())
+                            .collect(),
+                    };
+                    hints.entry(pc).or_insert_with(Vec::new).push(hint);
+                }
+            }
+
+            if !instruction.is_meta() {
+                pc += 1;
             }
         }
     }
@@ -196,9 +219,10 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
         .memory_size_per_function
         .get("main")
         .unwrap();
-    
+
     return Ok(Bytecode {
         instructions: low_level_bytecode,
+        hints,
         public_input_start,
         starting_frame_memory,
         ending_pc,

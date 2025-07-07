@@ -322,6 +322,8 @@ fn parse_return_statement(pair: Pair<Rule>, context: &ParseContext) -> Result<Li
 }
 
 fn parse_function_call(pair: Pair<Rule>, context: &ParseContext) -> Result<Line, ParseError> {
+    let line_str = pair.as_str();
+
     let inner = pair.into_inner();
     let mut return_data = Vec::new();
     let mut function_name = String::new();
@@ -384,6 +386,13 @@ fn parse_function_call(pair: Pair<Rule>, context: &ParseContext) -> Result<Line,
             Ok(Line::MAlloc {
                 var: return_data[0].clone(),
                 size: args[0].as_constant().unwrap(),
+            })
+        }
+        "print" => {
+            assert!(return_data.is_empty(), "print should not return values");
+            Ok(Line::Print {
+                line_info: format!("{}", line_str),
+                content: args,
             })
         }
 
@@ -557,6 +566,8 @@ fn main() {
 
     gh = memory[7];
     hh = memory[gh];
+
+    print(hh);
 
     xx, yy = poseidon16(x, y);
     xxx, yyy, zzz = poseidon24(7, y, b);

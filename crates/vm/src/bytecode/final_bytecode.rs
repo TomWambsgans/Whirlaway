@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::F;
 
 pub type Label = String;
@@ -5,6 +7,7 @@ pub type Label = String;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Bytecode {
     pub instructions: Vec<Instruction>,
+    pub hints: BTreeMap<usize, Vec<Hint>>, // pc -> hints
     pub public_input_start: usize,
     pub starting_frame_memory: usize,
     pub ending_pc: usize,
@@ -73,32 +76,43 @@ pub enum Instruction {
         arg_b: Value, // same
         res: Value,   // same
     },
+}
 
-    // META INSTRUCTIONS (provides useful hints to run the program, but does not appears in the final bytecode)
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Hint {
     RequestMemory {
         shift: usize, // m[fp + shift] where the hint will be stored
         size: usize,  // the hint
+    },
+
+    Print {
+        line_info: String,
+        content: Vec<Value>,
     },
 }
 
 impl ToString for Bytecode {
     fn to_string(&self) -> String {
-        self.instructions
-            .iter()
-            .enumerate()
-            .map(|(i, instruction)| format!("{}: {}", i, instruction.to_string()))
-            .collect::<Vec<String>>()
-            .join("\n")
+        let mut pc = 0;
+        let mut res = String::new();
+        for instruction in &self.instructions {
+            for hint in self.hints.get(&pc).unwrap_or(&Vec::new()) {
+                res.push_str(&format!("hint: {}\n", hint.to_string()));
+            }
+            res.push_str(&format!("{:>4}: {}\n", pc, instruction.to_string()));
+            pc += 1;
+        }
+        return res;
     }
 }
 
 impl ToString for Value {
     fn to_string(&self) -> String {
         match self {
-            Value::Constant(c) => format!("{}", c),
-            Value::Fp => "fp".to_string(),
-            Value::MemoryAfterFp { shift } => format!("m[fp + {}]", shift),
-            Value::DirectMemory { shift } => format!("m[{}]", shift),
+            Self::Constant(c) => format!("{}", c),
+            Self::Fp => "fp".to_string(),
+            Self::MemoryAfterFp { shift } => format!("m[fp + {}]", shift),
+            Self::DirectMemory { shift } => format!("m[{}]", shift),
         }
     }
 }
@@ -106,8 +120,8 @@ impl ToString for Value {
 impl ToString for Operation {
     fn to_string(&self) -> String {
         match self {
-            Operation::Add => "+".to_string(),
-            Operation::Mul => "x".to_string(),
+            Self::Add => "+".to_string(),
+            Self::Mul => "x".to_string(),
         }
     }
 }
@@ -115,7 +129,7 @@ impl ToString for Operation {
 impl ToString for Instruction {
     fn to_string(&self) -> String {
         match self {
-            Instruction::Computation {
+            Self::Computation {
                 operation,
                 arg_a,
                 arg_b,
@@ -129,14 +143,14 @@ impl ToString for Instruction {
                     arg_b.to_string()
                 )
             }
-            Instruction::MemoryPointerEq {
+            Self::MemoryPointerEq {
                 shift_0,
                 shift_1,
                 res,
             } => {
                 format!("{} = m[m[fp + {}] + {}]", res.to_string(), shift_0, shift_1)
             }
-            Instruction::JumpIfNotZero {
+            Self::JumpIfNotZero {
                 condition,
                 dest,
                 updated_fp,
@@ -148,13 +162,13 @@ impl ToString for Instruction {
                     updated_fp.to_string()
                 )
             }
-            Instruction::Poseidon2_16 { shift } => {
+            Self::Poseidon2_16 { shift } => {
                 format!("Poseidon2_16(m[{}..+4])", shift)
             }
-            Instruction::Poseidon2_24 { shift } => {
+            Self::Poseidon2_24 { shift } => {
                 format!("Poseidon2_24(m[{}..+6])", shift)
             }
-            Instruction::ExtComputation {
+            Self::ExtComputation {
                 operation,
                 arg_a,
                 arg_b,
@@ -168,8 +182,26 @@ impl ToString for Instruction {
                     arg_b.to_string()
                 )
             }
-            Instruction::RequestMemory { shift, size } => {
-                format!("# hint: m[fp + {}] = malloc({})", shift, size)
+        }
+    }
+}
+
+impl ToString for Hint {
+    fn to_string(&self) -> String {
+        match self {
+            Self::RequestMemory { shift, size } => {
+                format!("m[fp + {}] = malloc({})", shift, size)
+            }
+            Self::Print { line_info, content } => {
+                format!(
+                    "print({}) for \"{}\"",
+                    content
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", "),
+                    line_info,
+                )
             }
         }
     }

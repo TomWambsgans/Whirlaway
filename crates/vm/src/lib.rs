@@ -5,7 +5,7 @@ pub mod bytecode;
 pub mod compiler;
 pub mod lang;
 pub mod parser;
-mod runner;
+pub mod runner;
 
 #[cfg(test)]
 mod examples;
