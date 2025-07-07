@@ -134,8 +134,6 @@ pub fn execute_bytecode(
             );
         }
 
-    // dbg!(pc);
-
         for hint in bytecode.hints.get(&pc).unwrap_or(&vec![]) {
             match hint {
                 Hint::RequestMemory { shift, size } => {

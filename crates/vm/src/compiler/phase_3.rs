@@ -22,6 +22,7 @@ impl HighLevelInstruction {
 pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, String> {
     let mut high_level_bytecode = compile_to_hight_level_bytecode(program)?;
     clean(&mut high_level_bytecode);
+    // println!("\nHigh level bytecode:\n\n{}\n", high_level_bytecode.to_string());
 
     high_level_bytecode.bytecode.insert(
         "@end_program".to_string(),

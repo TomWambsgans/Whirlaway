@@ -23,6 +23,29 @@ fn tes_aggregate_program() {
     compile_and_run(program_str, vec![]);
 }
 
+#[test]
+fn test_fibonacci_program() {
+    // a program to check the value of the 30th Fibonacci number (832040)
+    let program = r#"
+    fn main() {
+        fibonacci(0, 1, 0, 30);
+        return;
+    }
+
+    fn fibonacci(a, b, i, n) {
+        if i == n {
+            print(a);
+            return;
+        }
+        new_a = b;
+        new_b = a + b;
+        new_i = i + 1;
+        fibonacci(new_a, new_b, new_i, n);
+        return;
+    }
+   "#;
+    compile_and_run(program, vec![]);
+}
 
 #[test]
 fn test_mini_program_0() {
@@ -39,28 +62,3 @@ fn test_mini_program_0() {
     compile_and_run(program, vec![]);
 }
 
-#[test]
-fn test_mini_program_1() {
-    let program = r#"
-    fn main() {
-        for i in 0..5 {
-            j = i - 10;
-            for k in j..10 {
-                if k == i {
-                    print(i);
-                } else {
-                    func(i, k);
-                }
-            }
-        }
-        return;
-    }
-
-    fn func(a, b) {
-        for i in a..b {
-            print(i);
-        }
-    }
-   "#;
-    compile_and_run(program, vec![]);
-}

@@ -27,22 +27,6 @@ pub enum Operation {
     Mul,
 }
 
-impl Operation {
-    pub fn compute(&self, a: F, b: F) -> F {
-        match self {
-            Operation::Add => a + b,
-            Operation::Mul => a * b,
-        }
-    }
-
-    pub fn inverse_compute(&self, a: F, b: F) -> F {
-        match self {
-            Operation::Add => a - b,
-            Operation::Mul => a / b,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Instruction {
     Computation {
@@ -76,6 +60,22 @@ pub enum Instruction {
         arg_b: Value, // same
         res: Value,   // same
     },
+}
+
+impl Operation {
+    pub fn compute(&self, a: F, b: F) -> F {
+        match self {
+            Operation::Add => a + b,
+            Operation::Mul => a * b,
+        }
+    }
+
+    pub fn inverse_compute(&self, a: F, b: F) -> F {
+        match self {
+            Operation::Add => a - b,
+            Operation::Mul => a / b,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

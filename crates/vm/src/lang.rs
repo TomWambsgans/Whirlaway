@@ -341,17 +341,6 @@ impl ToString for Line {
     }
 }
 
-impl ToString for HighLevelOperation {
-    fn to_string(&self) -> String {
-        match self {
-            HighLevelOperation::Add => "+".to_string(),
-            HighLevelOperation::Mul => "*".to_string(),
-            HighLevelOperation::Sub => "-".to_string(),
-            HighLevelOperation::Div => "/".to_string(),
-        }
-    }
-}
-
 impl ToString for Program {
     fn to_string(&self) -> String {
         let mut result = String::new();
