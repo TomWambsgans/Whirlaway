@@ -236,7 +236,8 @@ fn compile_lines(
                     compiler.bytecode.insert(label_if, instructions_if);
                     compiler.bytecode.insert(label_else, instructions_else);
 
-                    let instructions_after_if_else = compile_lines(&lines[i + 1..], compiler, final_jump)?;
+                    let instructions_after_if_else =
+                        compile_lines(&lines[i + 1..], compiler, final_jump)?;
                     compiler
                         .bytecode
                         .insert(label_after, instructions_after_if_else);
@@ -292,8 +293,10 @@ fn compile_lines(
                         right: HighLevelValue::from_var_or_constant(arg, compiler),
                     });
                 }
+
+                let mut instructions_after_function_call = vec![];
                 for (ret_index, ret_var) in return_data.iter().enumerate() {
-                    res.push(HighLevelInstruction::Eq {
+                    instructions_after_function_call.push(HighLevelInstruction::Eq {
                         left: HighLevelValue::ShiftedMemoryPointer {
                             shift_0: shift_of_new_fp,
                             shift_1: 2 + args.len() + ret_index,
@@ -310,7 +313,12 @@ fn compile_lines(
                     }),
                 });
 
-                let instructions_after_function_call = compile_lines(&lines[i + 1..], compiler, final_jump)?;
+                instructions_after_function_call.extend(compile_lines(
+                    &lines[i + 1..],
+                    compiler,
+                    final_jump,
+                )?);
+
                 compiler
                     .bytecode
                     .insert(return_label, instructions_after_function_call);

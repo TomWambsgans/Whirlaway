@@ -104,3 +104,31 @@ fn test_mini_program_1() {
    "#;
     compile_and_run(program, vec![]);
 }
+
+#[test]
+fn test_mini_program_2() {
+    let program = r#"
+    fn main() {
+        for i in 0..10 {
+            for j in i..10 {
+                for k in j..10 {
+                    sum, prod = compute_sum_and_product(i, j, k);
+                    if sum == 10 {
+                        print(i, j, k, prod);
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    fn compute_sum_and_product(a, b, c) -> 2 {
+        s1 = a + b;
+        sum = s1 + c;
+        p1 = a * b;
+        product = p1 * c;
+        return sum, product;
+    }
+   "#;
+    compile_and_run(program, vec![]);
+}
