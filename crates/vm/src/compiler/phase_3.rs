@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    AIR_COLUMNS_PER_OPCODE, PROGRAM_ENDING_ZEROS,
+    AIR_COLUMNS_PER_OPCODE,
     bytecode::{
         final_bytecode::{Bytecode, Hint, Instruction, Operation, Value},
         intermediate_bytecode::*,
@@ -45,7 +45,8 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
     if pointer_to_zero_vector % 8 != 0 {
         pointer_to_zero_vector += 8 - (pointer_to_zero_vector % 8);
     }
-    let public_input_start = pointer_to_zero_vector + PROGRAM_ENDING_ZEROS;
+    let public_input_start = pointer_to_zero_vector + 8;
+    pointer_to_zero_vector /= 8;
     // ADD the zeros into the bytecode?
 
     let mut label_to_pc = BTreeMap::new();
@@ -71,6 +72,7 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
     let convert_constant = |constant: ConstantValue| match constant {
         ConstantValue::Scalar(scalar) => scalar,
         ConstantValue::PublicInputStart => public_input_start,
+        ConstantValue::PointerToZeroVector => pointer_to_zero_vector,
     };
 
     let convert_value = |value: HighLevelValue| match value {
@@ -83,9 +85,7 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
         HighLevelValue::ShiftedMemoryPointer { .. } | HighLevelValue::MemoryPointer { .. } => {
             Err("Memory Pointer should only be used in AssertEq".to_string())
         }
-        HighLevelValue::PointerToZeroVector => Ok(Value::MemoryAfterFp {
-            shift: pointer_to_zero_vector / 8,
-        }),
+        HighLevelValue::PointerToZeroVector => Ok(Value::Constant(pointer_to_zero_vector)),
         HighLevelValue::Label(label) => Ok(Value::Constant(
             label_to_pc
                 .get(&label)

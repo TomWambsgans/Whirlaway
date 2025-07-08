@@ -176,7 +176,7 @@ impl ToString for Instruction {
                 res,
             } => {
                 format!(
-                    "m[{}..+8] = m[{}..+8] {} m[{}..+8] # Extension Field",
+                    "m[{}*8..+8] = m[{}*8..+8] {} m[{}*8..+8] # Extension Field",
                     res.to_string(),
                     arg_a.to_string(),
                     operation.to_string(),

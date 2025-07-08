@@ -29,7 +29,10 @@ impl Memory {
     }
 
     fn get(&self, index: usize) -> F {
-        self.data.get(index).and_then(|opt| *opt).unwrap()
+        self.data
+            .get(index)
+            .and_then(|opt| *opt)
+            .expect(&format!("Memory access error, index: {}", index))
     }
 
     fn read_value(&self, value: Value, fp: usize) -> F {
@@ -115,6 +118,10 @@ pub fn execute_bytecode(
     // For now we will it with zeros
     for _ in 0..bytecode.instructions.len() * AIR_COLUMNS_PER_OPCODE {
         memory.data.push(Some(F::ZERO));
+    }
+
+    for _ in bytecode.instructions.len() * AIR_COLUMNS_PER_OPCODE..bytecode.public_input_start {
+        memory.data.push(Some(F::ZERO)); // For "pointer_to_zero_vector"
     }
 
     for (i, value) in public_input.iter().enumerate() {
@@ -319,6 +326,8 @@ pub fn execute_bytecode(
                     res_address.as_canonical_u64() as usize,
                     res.as_basis_coefficients_slice().try_into().unwrap(),
                 );
+
+                pc += 1;
             }
         }
     }

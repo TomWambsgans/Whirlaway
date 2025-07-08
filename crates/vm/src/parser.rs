@@ -257,13 +257,18 @@ fn parse_array_access(pair: Pair<Rule>, context: &ParseContext) -> Result<Line, 
     let mut inner = pair.into_inner();
     let value = Var {
         name: inner.next().unwrap().as_str().to_string(),
-    }.into();
+    }
+    .into();
     let array = Var {
         name: inner.next().unwrap().as_str().to_string(),
     };
     let index = parse_var_or_constant(inner.next().unwrap(), context)?;
 
-    Ok(Line::ArrayAccess { value, array, index })
+    Ok(Line::ArrayAccess {
+        value,
+        array,
+        index,
+    })
 }
 
 fn parse_array_assign(pair: Pair<Rule>, context: &ParseContext) -> Result<Line, ParseError> {
@@ -274,7 +279,11 @@ fn parse_array_assign(pair: Pair<Rule>, context: &ParseContext) -> Result<Line, 
     let index = parse_var_or_constant(inner.next().unwrap(), context)?;
     let value = parse_var_or_constant(inner.next().unwrap(), context)?;
 
-    Ok(Line::ArrayAccess { value, array, index })
+    Ok(Line::ArrayAccess {
+        value,
+        array,
+        index,
+    })
 }
 
 fn parse_if_statement(pair: Pair<Rule>, context: &ParseContext) -> Result<Line, ParseError> {
@@ -543,6 +552,8 @@ fn parse_constant_value(
 ) -> Result<ConstantValue, ParseError> {
     if pair.as_str() == "public_input_start" {
         return Ok(ConstantValue::PublicInputStart);
+    } else if pair.as_str() == "pointer_to_zero_vector" {
+        return Ok(ConstantValue::PointerToZeroVector);
     } else if let Some(value) = context.resolve_constant(pair.as_str()) {
         return Ok(ConstantValue::Scalar(value));
     } else {

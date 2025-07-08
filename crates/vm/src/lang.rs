@@ -70,6 +70,7 @@ pub enum Boolean {
 pub enum ConstantValue {
     Scalar(usize),
     PublicInputStart,
+    PointerToZeroVector, // In the memory of chunks of 8 field elements
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -317,6 +318,7 @@ impl ToString for ConstantValue {
         match self {
             ConstantValue::Scalar(scalar) => scalar.to_string(),
             ConstantValue::PublicInputStart => "public_input_start".to_string(),
+            ConstantValue::PointerToZeroVector => "pointer_to_zero_vector".to_string(),
         }
     }
 }

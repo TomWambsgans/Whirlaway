@@ -39,6 +39,7 @@ impl HighLevelValue {
         match constant {
             ConstantValue::Scalar(scalar) => Self::Constant(*scalar),
             ConstantValue::PublicInputStart => Self::PublicInputStart,
+            ConstantValue::PointerToZeroVector => Self::PointerToZeroVector,
         }
     }
 }
@@ -183,6 +184,11 @@ fn compile_lines(
                         VarOrConstant::Constant(ConstantValue::PublicInputStart) => {
                             HighLevelValue::DirectMemory {
                                 shift: ConstantValue::PublicInputStart,
+                            }
+                        }
+                        VarOrConstant::Constant(ConstantValue::PointerToZeroVector) => {
+                            HighLevelValue::DirectMemory {
+                                shift: ConstantValue::PointerToZeroVector,
                             }
                         }
                         VarOrConstant::Var(index_var) => HighLevelValue::MemoryPointer {
@@ -512,6 +518,9 @@ fn compile_lines(
             Line::MAlloc { var, size } => {
                 let size = match size {
                     ConstantValue::Scalar(scalar) => *scalar,
+                    ConstantValue::PointerToZeroVector => {
+                        return Err("Cannot allocate memory with pointer to zero vector".to_string());
+                    }
                     ConstantValue::PublicInputStart => {
                         return Err("Cannot allocate memory with public input start".to_string());
                     }
