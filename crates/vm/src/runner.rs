@@ -134,13 +134,26 @@ pub fn execute_bytecode(
             );
         }
 
-        //  dbg!(pc, fp);
+        // dbg!(pc, fp);
 
         for hint in bytecode.hints.get(&pc).unwrap_or(&vec![]) {
             match hint {
-                Hint::RequestMemory { shift, size } => {
-                    memory.set(fp + shift, F::from_usize(ap));
-                    ap += size;
+                Hint::RequestMemory {
+                    shift,
+                    size,
+                    vectorized,
+                } => {
+                    // TODO avoid memory fragmentation (easy perf boost in perspective)
+                    if *vectorized {
+                        // find the next multiple of 8
+                        let ap_next_multiple_of_8 = (ap + 7) / 8 * 8;
+                        memory.set(fp + shift, F::from_usize(ap_next_multiple_of_8 / 8));
+                        ap = ap_next_multiple_of_8 + size * 8;
+                    } else {
+                        memory.set(fp + shift, F::from_usize(ap));
+                        ap += size;
+                    }
+
                     // does not increase PC
                 }
                 Hint::Print { line_info, content } => {

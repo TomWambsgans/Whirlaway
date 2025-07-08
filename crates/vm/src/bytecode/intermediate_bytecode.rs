@@ -66,16 +66,17 @@ pub enum HighLevelInstruction {
         res: HighLevelValue,   // same
     },
 
-    // META INSTRUCTIONS (provides useful hints to run the program, but does not appears in the final bytecode)
+    // HINTS (does not appears in the final bytecode)
     RequestMemory {
         shift: usize,             // m[fp + shift] where the hint will be stored
         size: HighLevelMetaValue, // the hint
+        vectorized: bool, // if true, will be 8-alligned, and the returned pointer will be "divied" by 8 (i.e. everything is in chunks of 8 field elements)
     },
 
     Print {
-        line_info: String, // information about the line where the print occurs
+        line_info: String,            // information about the line where the print occurs
         content: Vec<HighLevelValue>, // values to print
-    }
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -94,7 +95,9 @@ impl ToString for HighLevelValue {
             HighLevelValue::Fp => "fp".to_string(),
             HighLevelValue::MemoryAfterFp { shift } => format!("m[fp + {}]", shift),
             HighLevelValue::MemoryPointer { shift } => format!("m[m[fp + {}]]", shift),
-            HighLevelValue::ShiftedMemoryPointer { shift_0, shift_1 } => format!("m[m[fp + {}] + {}]", shift_0, shift_1),
+            HighLevelValue::ShiftedMemoryPointer { shift_0, shift_1 } => {
+                format!("m[m[fp + {}] + {}]", shift_0, shift_1)
+            }
             HighLevelValue::DirectMemory { shift } => format!("m[{}]", shift),
         }
     }
@@ -103,10 +106,23 @@ impl ToString for HighLevelValue {
 impl ToString for HighLevelInstruction {
     fn to_string(&self) -> String {
         match self {
-            HighLevelInstruction::Computation { operation, arg_a, arg_b, res } => {
-                format!("{} = {} {} {}", res.to_string(), arg_a.to_string(), operation.to_string(), arg_b.to_string())
+            HighLevelInstruction::Computation {
+                operation,
+                arg_a,
+                arg_b,
+                res,
+            } => {
+                format!(
+                    "{} = {} {} {}",
+                    res.to_string(),
+                    arg_a.to_string(),
+                    operation.to_string(),
+                    arg_b.to_string()
+                )
             }
-            HighLevelInstruction::Eq { left, right } => format!("{} == {}", left.to_string(), right.to_string()),
+            HighLevelInstruction::Eq { left, right } => {
+                format!("{} == {}", left.to_string(), right.to_string())
+            }
             HighLevelInstruction::Jump { dest, updated_fp } => {
                 if let Some(fp) = updated_fp {
                     format!("jump {} with fp = {}", dest.to_string(), fp.to_string())
@@ -114,20 +130,67 @@ impl ToString for HighLevelInstruction {
                     format!("jump {}", dest.to_string())
                 }
             }
-            HighLevelInstruction::JumpIfNotZero { condition, dest, updated_fp } => {
+            HighLevelInstruction::JumpIfNotZero {
+                condition,
+                dest,
+                updated_fp,
+            } => {
                 if let Some(fp) = updated_fp {
-                    format!("jump_if_not_zero {} to {} with fp = {}", condition.to_string(), dest.to_string(), fp.to_string())
+                    format!(
+                        "jump_if_not_zero {} to {} with fp = {}",
+                        condition.to_string(),
+                        dest.to_string(),
+                        fp.to_string()
+                    )
                 } else {
-                    format!("jump_if_not_zero {} to {}", condition.to_string(), dest.to_string())
+                    format!(
+                        "jump_if_not_zero {} to {}",
+                        condition.to_string(),
+                        dest.to_string()
+                    )
                 }
             }
-            HighLevelInstruction::Poseidon2_16 { shift } => format!("poseidon2_16 m[8 * m[fp + {}] .. 8 * (1 + m[fp + {}])] | m[8 * m[fp + {} + 1]] .. 8 * (1 + m[fp + {} + 1])]", shift, shift, shift, shift),
-            HighLevelInstruction::Poseidon2_24 { shift } => format!("poseidon2_24 m[8 * m[fp + {}] .. 8 * (1 + m[fp + {}])] | m[8 * m[fp + {} + 1]] .. 8 * (1 + m[fp + {} + 1])]", shift, shift, shift, shift),
-            HighLevelInstruction::ExtComputation { operation, arg_a, arg_b, res } => {
-                format!("{} = ext_computation({}, {}, {})", res.to_string(), arg_a.to_string(), arg_b.to_string(), operation.to_string())
+            HighLevelInstruction::Poseidon2_16 { shift } => format!(
+                "poseidon2_16 m[8 * m[fp + {}] .. 8 * (1 + m[fp + {}])] | m[8 * m[fp + {} + 1]] .. 8 * (1 + m[fp + {} + 1])]",
+                shift, shift, shift, shift
+            ),
+            HighLevelInstruction::Poseidon2_24 { shift } => format!(
+                "poseidon2_24 m[8 * m[fp + {}] .. 8 * (1 + m[fp + {}])] | m[8 * m[fp + {} + 1]] .. 8 * (1 + m[fp + {} + 1])]",
+                shift, shift, shift, shift
+            ),
+            HighLevelInstruction::ExtComputation {
+                operation,
+                arg_a,
+                arg_b,
+                res,
+            } => {
+                format!(
+                    "{} = ext_computation({}, {}, {})",
+                    res.to_string(),
+                    arg_a.to_string(),
+                    arg_b.to_string(),
+                    operation.to_string()
+                )
             }
-            HighLevelInstruction::RequestMemory { shift, size } => format!("request_memory m[fp + {}] = {}", shift, size.to_string()),
-            HighLevelInstruction::Print { line_info, content } => format!("print {}: {}", line_info, content.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(", ")),
+            HighLevelInstruction::RequestMemory {
+                shift,
+                size,
+                vectorized,
+            } => format!(
+                "request_memory m[fp + {}] = {} {}",
+                shift,
+                size.to_string(),
+                if *vectorized { "# vectorized" } else { "" }
+            ),
+            HighLevelInstruction::Print { line_info, content } => format!(
+                "print {}: {}",
+                line_info,
+                content
+                    .iter()
+                    .map(|c| c.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         }
     }
 }
@@ -147,7 +210,9 @@ impl ToString for HighLevelMetaValue {
     fn to_string(&self) -> String {
         match self {
             HighLevelMetaValue::Constant(value) => value.to_string(),
-            HighLevelMetaValue::FunctionSize { function_name } => format!("function_size({})", function_name),
+            HighLevelMetaValue::FunctionSize { function_name } => {
+                format!("function_size({})", function_name)
+            }
         }
     }
 }

@@ -83,6 +83,7 @@ pub enum Hint {
     RequestMemory {
         shift: usize, // m[fp + shift] where the hint will be stored
         size: usize,  // the hint
+        vectorized: bool,
     },
 
     Print {
@@ -189,8 +190,8 @@ impl ToString for Instruction {
 impl ToString for Hint {
     fn to_string(&self) -> String {
         match self {
-            Self::RequestMemory { shift, size } => {
-                format!("m[fp + {}] = malloc({})", shift, size)
+            Self::RequestMemory { shift, size, vectorized } => {
+                format!("m[fp + {}] = malloc({}) {}", shift, size, if *vectorized { "# vectorized" } else { "" })
             }
             Self::Print { line_info, content } => {
                 format!(

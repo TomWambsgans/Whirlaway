@@ -43,6 +43,7 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
         pointer_to_zero_vector += 8 - (pointer_to_zero_vector % 8);
     }
     let public_input_start = pointer_to_zero_vector + PROGRAM_ENDING_ZEROS;
+    // ADD the zeros into the bytecode?
 
     let mut label_to_pc = BTreeMap::new();
     label_to_pc.insert("@function_main".to_string(), 0);
@@ -181,9 +182,10 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
                         res: convert_value(res).unwrap(),
                     });
                 }
-                HighLevelInstruction::RequestMemory { shift, size } => {
+                HighLevelInstruction::RequestMemory { shift, size, vectorized } => {
                     let hint = Hint::RequestMemory {
                         shift,
+                        vectorized,
                         size: match size {
                             HighLevelMetaValue::Constant(len) => len,
                             HighLevelMetaValue::FunctionSize { function_name } => {
