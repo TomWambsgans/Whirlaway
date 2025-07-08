@@ -120,6 +120,7 @@ fn replace_loops_with_recursion_helper(
             | Line::Poseidon24 { .. }
             | Line::MAlloc { .. }
             | Line::Panic
+            | Line::ArrayAccess { .. }
             | Line::Assignment { .. }
             | Line::RawAccess { .. }
             | Line::Print { .. } => {}
@@ -224,27 +225,8 @@ pub fn get_internal_and_external_variables(lines: &[Line]) -> (BTreeSet<Var>, BT
                     }
                 }
             },
-            Line::ForLoop {
-                iterator,
-                start,
-                end,
-                body,
-            } => {
-                // Get the external variables used in the loop
-                let (_, mut new_external_vars) = get_internal_and_external_variables(&body);
-                new_external_vars.remove(iterator);
-                external_vars.extend(new_external_vars);
-
-                if let VarOrConstant::Var(var) = start {
-                    if !internal_vars.contains(&var) {
-                        external_vars.insert(var.clone());
-                    }
-                }
-                if let VarOrConstant::Var(var) = end {
-                    if !internal_vars.contains(&var) {
-                        external_vars.insert(var.clone());
-                    }
-                }
+            Line::ForLoop { .. } | Line::ArrayAccess { .. } => {
+                unreachable!("Should have been replaced earlier: {}", line.to_string());
             }
             Line::AssertEqExt { left, right } => {
                 if let VarOrConstant::Var(var) = left {

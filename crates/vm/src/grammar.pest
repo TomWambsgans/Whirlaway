@@ -15,6 +15,8 @@ return_count = { "->" ~ number }
 statement = {
     single_assignment |
     raw_memory_access |
+    array_access |
+    array_assign |
     if_statement |
     for_statement |
     return_statement |
@@ -30,6 +32,9 @@ tuple_expression = { var_or_constant ~ ("," ~ var_or_constant)* }
 single_assignment = { identifier ~ "=" ~ expression ~ ";" }
 
 raw_memory_access = { identifier ~ "=" ~ "memory" ~ "[" ~ var_or_constant ~ "]" ~ ";" }
+
+array_access = { identifier ~ "=" ~ identifier ~ "[" ~ var_or_constant ~ "]" ~ ";" }
+array_assign = { identifier ~ "[" ~ var_or_constant ~ "]" ~ "=" ~ var_or_constant ~ ";" }
 
 if_statement = { "if" ~ condition ~ "{" ~ statement* ~ "}" ~ else_clause? }
 

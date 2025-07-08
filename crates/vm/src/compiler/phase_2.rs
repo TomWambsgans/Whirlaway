@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use crate::{
     bytecode::intermediate_bytecode::*,
     compiler::{
-        phase_0::{replace_assert_not_eq, replace_if_eq},
+        phase_0::{replace_array_access, replace_assert_not_eq, replace_if_eq},
         phase_1::{get_internal_and_external_variables, replace_loops_with_recursion},
     },
     lang::*,
@@ -66,9 +66,10 @@ impl Compiler {
 
 pub fn compile_to_hight_level_bytecode(mut program: Program) -> Result<HighLevelBytecode, String> {
     replace_assert_not_eq(&mut program);
+    replace_array_access(&mut program);
     replace_loops_with_recursion(&mut program);
     replace_if_eq(&mut program);
-    // println!("Program after phase 1: \n{}", program.to_string());
+    println!("Program after phase 1: \n{}", program.to_string());
     let mut compiler = Compiler::new();
     let mut memory_size_per_function = BTreeMap::new();
     for function in program.functions.values() {
@@ -88,8 +89,11 @@ fn compile_function(
     function: &Function,
     compiler: &mut Compiler,
 ) -> Result<Vec<HighLevelInstruction>, String> {
-    let (internal_vars, external_vars) =
+    let (mut internal_vars, external_vars) =
         get_internal_and_external_variables(&function.instructions);
+
+    // In case we reassign a variable which  is already a function argument:
+    internal_vars.retain(|var| !function.arguments.contains(var));
 
     for external_var in &external_vars {
         if !function.arguments.contains(external_var) {
@@ -123,12 +127,13 @@ fn compile_function(
     compiler.current_stack_size = current_stack_size;
     compiler.args_count = function.arguments.len();
 
-    compile_lines(&function.instructions, compiler)
+    compile_lines(&function.instructions, compiler, None)
 }
 
 fn compile_lines(
     lines: &[Line],
     compiler: &mut Compiler,
+    final_jump: Option<Label>,
 ) -> Result<Vec<HighLevelInstruction>, String> {
     let mut res = Vec::new();
     for (i, line) in lines.iter().enumerate() {
@@ -152,7 +157,17 @@ fn compile_lines(
             Line::RawAccess { var, index } => {
                 let instruction = HighLevelInstruction::Eq {
                     left: HighLevelValue::from_var(var, compiler),
-                    right: HighLevelValue::from_var_or_constant(index, compiler),
+                    right: match index {
+                        VarOrConstant::Constant(ConstantValue::Scalar(shift)) => {
+                            HighLevelValue::DirectMemory { shift: *shift }
+                        }
+                        VarOrConstant::Constant(ConstantValue::PublicInputStart) => {
+                            todo!("Weird code?")
+                        }
+                        VarOrConstant::Var(index_var) => HighLevelValue::MemoryPointer {
+                            shift: compiler.get_shift(index_var),
+                        },
+                    },
                 };
                 res.push(instruction);
             }
@@ -192,22 +207,15 @@ fn compile_lines(
                     compiler.if_else_counter += 1;
 
                     let current_stack_size = compiler.current_stack_size;
-                    let mut instructions_if = compile_lines(then_branch, compiler)?;
+                    let instructions_if =
+                        compile_lines(then_branch, compiler, Some(label_after.clone()))?;
                     let if_stack_size = compiler.current_stack_size;
                     compiler.current_stack_size = current_stack_size;
-                    let mut instructions_else = compile_lines(else_branch, compiler)?;
+                    let instructions_else =
+                        compile_lines(else_branch, compiler, Some(label_after.clone()))?;
                     let else_stack_size = compiler.current_stack_size;
 
                     compiler.current_stack_size = else_stack_size.max(if_stack_size);
-
-                    instructions_if.push(HighLevelInstruction::Jump {
-                        dest: HighLevelValue::Label(label_after.clone()),
-                        updated_fp: None,
-                    });
-                    instructions_else.push(HighLevelInstruction::Jump {
-                        dest: HighLevelValue::Label(label_after.clone()),
-                        updated_fp: None,
-                    });
 
                     res.push(HighLevelInstruction::Computation {
                         operation: HighLevelOperation::Sub,
@@ -218,7 +226,7 @@ fn compile_lines(
                     res.push(HighLevelInstruction::JumpIfNotZero {
                         condition: difference,
                         dest: HighLevelValue::Label(label_if.clone()),
-                        updated_fp: None
+                        updated_fp: None,
                     });
                     res.push(HighLevelInstruction::Jump {
                         dest: HighLevelValue::Label(label_else.clone()),
@@ -228,7 +236,7 @@ fn compile_lines(
                     compiler.bytecode.insert(label_if, instructions_if);
                     compiler.bytecode.insert(label_else, instructions_else);
 
-                    let instructions_after_if_else = compile_lines(&lines[i + 1..], compiler)?;
+                    let instructions_after_if_else = compile_lines(&lines[i + 1..], compiler, final_jump)?;
                     compiler
                         .bytecode
                         .insert(label_after, instructions_after_if_else);
@@ -236,8 +244,8 @@ fn compile_lines(
                     return Ok(res);
                 }
             },
-            Line::ForLoop { .. } => {
-                unreachable!("For loops should have been replaced with recursion earlier")
+            Line::ForLoop { .. } | Line::ArrayAccess { .. } => {
+                unreachable!("Replaced earlier.")
             }
 
             Line::FunctionCall {
@@ -297,10 +305,12 @@ fn compile_lines(
                 let dest = HighLevelValue::Label(format!("@function_{}", function_name));
                 res.push(HighLevelInstruction::Jump {
                     dest,
-                    updated_fp: Some(HighLevelValue::MemoryAfterFp { shift: shift_of_new_fp }),
+                    updated_fp: Some(HighLevelValue::MemoryAfterFp {
+                        shift: shift_of_new_fp,
+                    }),
                 });
 
-                let instructions_after_function_call = compile_lines(&lines[i + 1..], compiler)?;
+                let instructions_after_function_call = compile_lines(&lines[i + 1..], compiler, final_jump)?;
                 compiler
                     .bytecode
                     .insert(return_label, instructions_after_function_call);
@@ -441,10 +451,19 @@ fn compile_lines(
             Line::Print { line_info, content } => {
                 res.push(HighLevelInstruction::Print {
                     line_info: line_info.clone(),
-                    content: content.into_iter().map(|c| HighLevelValue::from_var_or_constant(c, compiler)).collect(),
+                    content: content
+                        .into_iter()
+                        .map(|c| HighLevelValue::from_var_or_constant(c, compiler))
+                        .collect(),
                 });
             }
         }
+    }
+    if let Some(final_jump_label) = final_jump {
+        res.push(HighLevelInstruction::Jump {
+            dest: HighLevelValue::Label(final_jump_label),
+            updated_fp: None,
+        });
     }
     Ok(res)
 }

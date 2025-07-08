@@ -54,6 +54,11 @@ impl ParseContext {
 }
 
 pub fn parse_program(input: &str) -> Result<Program, ParseError> {
+    assert!(
+        !input.contains("@"),
+        "@ is a reserved character and should not be used in the program"
+    );
+
     let input = remove_comments(input);
     let mut pairs = LangParser::parse(Rule::program, &input)?;
     let program_pair = pairs.next().unwrap();
@@ -182,6 +187,8 @@ fn parse_statement(pair: Pair<Rule>, context: &ParseContext) -> Result<Line, Par
     match inner.as_rule() {
         Rule::single_assignment => parse_single_assignment(inner, context),
         Rule::raw_memory_access => parse_raw_memory_access(inner, context),
+        Rule::array_access => parse_array_access(inner, context),
+        Rule::array_assign => parse_array_assign(inner, context),
         Rule::if_statement => parse_if_statement(inner, context),
         Rule::for_statement => parse_for_statement(inner, context),
         Rule::return_statement => parse_return_statement(inner, context),
@@ -244,6 +251,30 @@ fn parse_raw_memory_access(pair: Pair<Rule>, context: &ParseContext) -> Result<L
         var,
         index: index_value,
     })
+}
+
+fn parse_array_access(pair: Pair<Rule>, context: &ParseContext) -> Result<Line, ParseError> {
+    let mut inner = pair.into_inner();
+    let value = Var {
+        name: inner.next().unwrap().as_str().to_string(),
+    }.into();
+    let array = Var {
+        name: inner.next().unwrap().as_str().to_string(),
+    };
+    let index = parse_var_or_constant(inner.next().unwrap(), context)?;
+
+    Ok(Line::ArrayAccess { value, array, index })
+}
+
+fn parse_array_assign(pair: Pair<Rule>, context: &ParseContext) -> Result<Line, ParseError> {
+    let mut inner = pair.into_inner();
+    let array = Var {
+        name: inner.next().unwrap().as_str().to_string(),
+    };
+    let index = parse_var_or_constant(inner.next().unwrap(), context)?;
+    let value = parse_var_or_constant(inner.next().unwrap(), context)?;
+
+    Ok(Line::ArrayAccess { value, array, index })
 }
 
 fn parse_if_statement(pair: Pair<Rule>, context: &ParseContext) -> Result<Line, ParseError> {
@@ -563,6 +594,8 @@ fn main() {
     assert_ext oo == f;
     x = 8;
     y = 9;
+    uuu = y[9];
+    vvv = y[uuu];
 
     gh = memory[7];
     hh = memory[gh];

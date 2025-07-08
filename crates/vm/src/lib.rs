@@ -14,5 +14,5 @@ const DIMENSION: usize = 8;
 type F = KoalaBear;
 type EF = BinomialExtensionField<F, DIMENSION>;
 
-const AIR_COLUMNS_PER_OPCODE: usize = 10; // TODO
+const AIR_COLUMNS_PER_OPCODE: usize = 1; // TODO
 const PROGRAM_ENDING_ZEROS: usize = 8; // Every program ends with at least 8 zeros, useful for creating an "empty" pointer

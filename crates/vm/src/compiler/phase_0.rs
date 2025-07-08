@@ -1,4 +1,4 @@
-use crate::lang::*;
+use crate::{bytecode::intermediate_bytecode::HighLevelOperation, lang::*};
 
 /// Replace all assert_not_eq with if condition eq then panic
 pub fn replace_assert_not_eq(program: &mut Program) {
@@ -17,6 +17,79 @@ pub fn replace_assert_not_eq(program: &mut Program) {
                     };
                 }
             }
+        }
+    }
+}
+
+pub fn replace_array_access(program: &mut Program) {
+    let mut index_var_counter = 0;
+    for function in program.functions.values_mut() {
+        replace_array_access_helper(&mut function.instructions, &mut index_var_counter);
+    }
+}
+
+fn replace_array_access_helper(lines: &mut Vec<Line>, aux_var_counter: &mut usize) {
+    for i in (0..lines.len()).rev() {
+        match &mut lines[i] {
+            Line::ArrayAccess {
+                value,
+                array,
+                index,
+            } => {
+                let (value, array, index) = (value.clone(), array.clone(), index.clone());
+                let ptr_var = Var {
+                    name: format!("@aux_var_{}", aux_var_counter),
+                };
+                *aux_var_counter += 1;
+                lines.insert(
+                    i,
+                    Line::Assignment {
+                        var: ptr_var.clone(),
+                        operation: HighLevelOperation::Add,
+                        arg0: array.into(),
+                        arg1: index,
+                    },
+                );
+                match value {
+                    VarOrConstant::Var(var) => {
+                        lines[i + 1] = Line::RawAccess {
+                            var,
+                            index: ptr_var.into(),
+                        };
+                    }
+                    VarOrConstant::Constant(cst) => {
+                        let constant_var = Var {
+                            name: format!("@aux_var_{}", aux_var_counter),
+                        };
+                        *aux_var_counter += 1;
+                        lines[i + 1] = Line::Assignment {
+                            var: constant_var.clone(),
+                            operation: HighLevelOperation::Add,
+                            arg0: cst.into(),
+                            arg1: ConstantValue::Scalar(0).into(),
+                        };
+                        lines.insert(
+                            i + 2,
+                            Line::RawAccess {
+                                var: constant_var,
+                                index: ptr_var.into(),
+                            },
+                        );
+                    }
+                }
+            }
+            Line::ForLoop { body, .. } => {
+                replace_array_access_helper(body, aux_var_counter);
+            }
+            Line::IfCondition {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                replace_array_access_helper(then_branch, aux_var_counter);
+                replace_array_access_helper(else_branch, aux_var_counter);
+            }
+            _ => {}
         }
     }
 }

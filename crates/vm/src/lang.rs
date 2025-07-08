@@ -80,6 +80,11 @@ pub enum Line {
         arg0: VarOrConstant,
         arg1: VarOrConstant,
     },
+    ArrayAccess {
+        value: VarOrConstant,
+        array: Var,
+        index: VarOrConstant,
+    },
     RawAccess {
         var: Var,
         index: VarOrConstant,
@@ -153,6 +158,9 @@ impl Line {
                     operation.to_string(),
                     arg1.to_string()
                 )
+            }
+            Line::ArrayAccess { value, array, index } => {
+                format!("{} = {}[{}]", value.to_string(), array.to_string(), index.to_string())
             }
             Line::RawAccess { var, index } => {
                 format!("{} = memory[{}]", var.to_string(), index.to_string())
