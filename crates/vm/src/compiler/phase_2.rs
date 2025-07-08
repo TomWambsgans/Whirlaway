@@ -176,10 +176,14 @@ fn compile_lines(
                     left: HighLevelValue::from_var(var, compiler),
                     right: match index {
                         VarOrConstant::Constant(ConstantValue::Scalar(shift)) => {
-                            HighLevelValue::DirectMemory { shift: *shift }
+                            HighLevelValue::DirectMemory {
+                                shift: ConstantValue::Scalar(*shift),
+                            }
                         }
                         VarOrConstant::Constant(ConstantValue::PublicInputStart) => {
-                            todo!("Weird code?")
+                            HighLevelValue::DirectMemory {
+                                shift: ConstantValue::PublicInputStart,
+                            }
                         }
                         VarOrConstant::Var(index_var) => HighLevelValue::MemoryPointer {
                             shift: compiler.get_shift(index_var),
@@ -435,7 +439,9 @@ fn compile_lines(
                     right: HighLevelValue::from_var(res0, compiler),
                 });
                 res.push(HighLevelInstruction::Eq {
-                    left: HighLevelValue::MemoryAfterFp { shift: compiler.current_stack_size + 3 },
+                    left: HighLevelValue::MemoryAfterFp {
+                        shift: compiler.current_stack_size + 3,
+                    },
                     right: HighLevelValue::from_var(res1, compiler),
                 });
                 res.push(HighLevelInstruction::Poseidon2_16 {
@@ -451,7 +457,7 @@ fn compile_lines(
                 res1,
                 res2,
             } => {
-                 for res_var in [res0, res1, res2] {
+                for res_var in [res0, res1, res2] {
                     if variables_already_declared.insert(res_var.clone()) {
                         // value is new, we need to allocate memory
                         res.push(HighLevelInstruction::RequestMemory {

@@ -204,3 +204,19 @@ fn test_mini_program_4() {
     poseidon_24.permute_mut(&mut public_input);
     dbg!(public_input);
 }
+
+#[test]
+fn test_mini_program_5() {
+    let program = r#"
+    fn main() {
+        a = memory[public_input_start];
+        print(a);
+        for i in 0..a {
+            print(i);
+        }
+        return;
+    }
+   "#;
+    let public_input = vec![F::new(10)];
+    compile_and_run(program, &public_input);
+}

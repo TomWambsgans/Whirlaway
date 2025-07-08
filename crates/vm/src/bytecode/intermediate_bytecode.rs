@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use crate::lang::ConstantValue;
+
 pub type Label = String;
 
 #[derive(Debug, Clone)]
@@ -18,7 +20,7 @@ pub enum HighLevelValue {
     MemoryAfterFp { shift: usize }, // m[fp + shift]
     MemoryPointer { shift: usize }, // m[m[fp + shift]]
     ShiftedMemoryPointer { shift_0: usize, shift_1: usize }, // m[m[fp + shift_0] + shift_1]
-    DirectMemory { shift: usize },  // m[shift]
+    DirectMemory { shift: ConstantValue },  // m[shift]
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -98,7 +100,7 @@ impl ToString for HighLevelValue {
             HighLevelValue::ShiftedMemoryPointer { shift_0, shift_1 } => {
                 format!("m[m[fp + {}] + {}]", shift_0, shift_1)
             }
-            HighLevelValue::DirectMemory { shift } => format!("m[{}]", shift),
+            HighLevelValue::DirectMemory { shift } => format!("m[{}]", shift.to_string()),
         }
     }
 }

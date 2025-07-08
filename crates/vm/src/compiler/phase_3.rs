@@ -22,7 +22,10 @@ impl HighLevelInstruction {
 pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, String> {
     let mut high_level_bytecode = compile_to_hight_level_bytecode(program)?;
     clean(&mut high_level_bytecode);
-    println!("\nHigh level bytecode:\n\n{}\n", high_level_bytecode.to_string());
+    println!(
+        "\nHigh level bytecode:\n\n{}\n",
+        high_level_bytecode.to_string()
+    );
 
     high_level_bytecode.bytecode.insert(
         "@end_program".to_string(),
@@ -65,11 +68,18 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
     let mut low_level_bytecode = Vec::new();
     let mut hints = BTreeMap::new();
 
+    let convert_constant = |constant: ConstantValue| match constant {
+        ConstantValue::Scalar(scalar) => scalar,
+        ConstantValue::PublicInputStart => public_input_start,
+    };
+
     let convert_value = |value: HighLevelValue| match value {
         HighLevelValue::Constant(c) => Ok(Value::Constant(c)),
         HighLevelValue::Fp => Ok(Value::Fp),
         HighLevelValue::MemoryAfterFp { shift } => Ok(Value::MemoryAfterFp { shift }),
-        HighLevelValue::DirectMemory { shift } => Ok(Value::DirectMemory { shift }),
+        HighLevelValue::DirectMemory { shift } => Ok(Value::DirectMemory {
+            shift: convert_constant(shift),
+        }),
         HighLevelValue::ShiftedMemoryPointer { .. } | HighLevelValue::MemoryPointer { .. } => {
             Err("Memory Pointer should only be used in AssertEq".to_string())
         }
@@ -138,7 +148,11 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
                         });
                     }
                 },
-                HighLevelInstruction::JumpIfNotZero { condition, dest, updated_fp } => {
+                HighLevelInstruction::JumpIfNotZero {
+                    condition,
+                    dest,
+                    updated_fp,
+                } => {
                     let updated_fp = updated_fp
                         .map(|fp| convert_value(fp).unwrap())
                         .unwrap_or(Value::Fp);
@@ -182,7 +196,11 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
                         res: convert_value(res).unwrap(),
                     });
                 }
-                HighLevelInstruction::RequestMemory { shift, size, vectorized } => {
+                HighLevelInstruction::RequestMemory {
+                    shift,
+                    size,
+                    vectorized,
+                } => {
                     let hint = Hint::RequestMemory {
                         shift,
                         vectorized,

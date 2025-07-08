@@ -40,6 +40,13 @@ fn replace_loops_with_recursion_helper(
                 *loop_counter += 1;
 
                 let (_, mut external_vars) = get_internal_and_external_variables(&body);
+                if let VarOrConstant::Var(var) = start {
+                    external_vars.insert(var.clone());
+                }
+                if let VarOrConstant::Var(var) = end {
+                    external_vars.insert(var.clone());
+                }   
+        
                 // Remove the iterator from external variables
                 external_vars.remove(iterator);
                 let external_vars = external_vars.into_iter().collect::<Vec<_>>();
