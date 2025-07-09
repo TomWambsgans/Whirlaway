@@ -14,3 +14,6 @@ pub use univariate::*;
 
 mod multilinear;
 pub use multilinear::*;
+
+mod poseidon_koala_bear;
+pub use poseidon_koala_bear::*;

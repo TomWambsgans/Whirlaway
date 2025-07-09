@@ -1,0 +1,12 @@
+[package]
+name = "xmss"
+version.workspace = true
+edition.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+p3-koala-bear.workspace = true
+rand.workspace = true
+utils.workspace = true

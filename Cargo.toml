@@ -104,6 +104,7 @@ air = { path = "crates/air" }
 sumcheck = { path = "crates/sumcheck" }
 utils = { path = "crates/utils" }
 vm = { path = "crates/vm" }
+xmss = { path = "crates/xmss" }
 
 # External
 rand = "0.9.1"

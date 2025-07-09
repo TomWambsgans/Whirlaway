@@ -10,7 +10,7 @@ use crate::{
 fn compile_and_run(program: &str, public_input: &[F], private_input: &[F]) {
     let parsed_program = parse_program(program).unwrap();
     let compiled = compile_to_low_level_bytecode(parsed_program).unwrap();
-    // println!("Compiled Program:\n\n{}", compiled.to_string());
+    println!("Compiled Program:\n\n{}", compiled.to_string());
 
     let poseidon_16 = Poseidon2KoalaBear::<16>::new_from_rng_128(&mut StdRng::seed_from_u64(0));
     let poseidon_24 = Poseidon2KoalaBear::<24>::new_from_rng_128(&mut StdRng::seed_from_u64(0));
@@ -321,6 +321,8 @@ fn test_verify_merkle_path() {
 
     dbg!(&merkle_root);
 }
+
+
 
 fn poseidon_compress(a: [F; 8], b: [F; 8]) -> [F; 8] {
     let poseidon_16 = Poseidon2KoalaBear::<16>::new_from_rng_128(&mut StdRng::seed_from_u64(0));
