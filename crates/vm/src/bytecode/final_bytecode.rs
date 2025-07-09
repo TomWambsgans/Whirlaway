@@ -54,12 +54,6 @@ pub enum Instruction {
     Poseidon2_24 {
         shift: usize,
     }, // same as above, but with 24 field elements
-    ExtComputation {
-        operation: Operation,
-        arg_a: Value, // pointer (to the memory of chunks of 8 field elements)
-        arg_b: Value, // same
-        res: Value,   // same
-    },
 }
 
 impl Operation {
@@ -168,20 +162,6 @@ impl ToString for Instruction {
             }
             Self::Poseidon2_24 { shift } => {
                 format!("Poseidon2_24(m[{}..+6])", shift)
-            }
-            Self::ExtComputation {
-                operation,
-                arg_a,
-                arg_b,
-                res,
-            } => {
-                format!(
-                    "m[{}*8..+8] = m[{}*8..+8] {} m[{}*8..+8] # Extension Field",
-                    res.to_string(),
-                    arg_a.to_string(),
-                    operation.to_string(),
-                    arg_b.to_string()
-                )
             }
         }
     }

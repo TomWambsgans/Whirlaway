@@ -25,12 +25,6 @@ fn compile_and_run(program: &str, public_input: &[F], private_input: &[F]) {
 }
 
 #[test]
-fn tes_aggregate_program() {
-    let program_str = include_str!("aggregate.vm");
-    compile_and_run(program_str, &[], &[]);
-}
-
-#[test]
 fn test_fibonacci_program() {
     // a program to check the value of the 30th Fibonacci number (832040)
     let program = r#"
@@ -252,7 +246,19 @@ fn test_verify_merkle_path() {
         proof = private_input_start / 8;
         merkle_root = merkle_step(0, HEIGHT, thing_to_hash, neighbours_are_left, proof);
         print_chunk_of_8(merkle_root);
-        assert_ext merkle_root == claimed_merkle_root;
+        assert_eq_ext(merkle_root, claimed_merkle_root);
+        return;
+    }
+
+    fn assert_eq_ext(a, b) {
+        // a and b both pointers in the memory of chunk of 8 field elements
+        a_shifted = a * 8;
+        b_shifted = b * 8;
+        for i in 0..8 {
+            a_i = a_shifted[i];
+            b_i = b_shifted[i];
+            assert a_i == b_i;
+        }
         return;
     }
 

@@ -177,25 +177,6 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
                 HighLevelInstruction::Poseidon2_24 { shift } => {
                     low_level_bytecode.push(Instruction::Poseidon2_24 { shift });
                 }
-                HighLevelInstruction::ExtComputation {
-                    operation,
-                    arg_a,
-                    arg_b,
-                    res,
-                } => {
-                    low_level_bytecode.push(Instruction::ExtComputation {
-                        operation: match operation {
-                            HighLevelOperation::Add => Operation::Add,
-                            HighLevelOperation::Mul => Operation::Mul,
-                            _ => {
-                                return Err("Only Add and Mul operations are supported".to_string());
-                            }
-                        },
-                        arg_a: convert_value(arg_a).unwrap(),
-                        arg_b: convert_value(arg_b).unwrap(),
-                        res: convert_value(res).unwrap(),
-                    });
-                }
                 HighLevelInstruction::RequestMemory {
                     shift,
                     size,

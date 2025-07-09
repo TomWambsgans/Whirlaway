@@ -8,7 +8,7 @@ pub mod parser;
 pub mod runner;
 
 #[cfg(test)]
-mod examples;
+mod test;
 
 const DIMENSION: usize = 8;
 type F = KoalaBear;

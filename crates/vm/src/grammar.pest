@@ -22,8 +22,7 @@ statement = {
     return_statement |
     function_call |
     assert_eq_statement |
-    assert_not_eq_statement |
-    assert_eq_ext_statement 
+    assert_not_eq_statement
 }
 
 return_statement = { "return" ~ (tuple_expression)? ~ ";" }
@@ -52,7 +51,6 @@ var_list = { var_or_constant ~ ("," ~ var_or_constant)* }
 
 assert_eq_statement = { "assert" ~ var_or_constant ~ "==" ~ var_or_constant ~ ";" }
 assert_not_eq_statement = { "assert" ~ var_or_constant ~ "!=" ~ var_or_constant ~ ";" }
-assert_eq_ext_statement = { "assert_ext" ~ var_or_constant ~ "==" ~ var_or_constant ~ ";" }
 
 // Expressions
 expression = { binary_expression | var_or_constant }

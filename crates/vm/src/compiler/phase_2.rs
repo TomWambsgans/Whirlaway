@@ -531,14 +531,6 @@ fn compile_lines(
                     vectorized: false,
                 });
             }
-            Line::AssertEqExt { left, right } => {
-                res.push(HighLevelInstruction::ExtComputation {
-                    operation: HighLevelOperation::Add,
-                    arg_a: HighLevelValue::from_var_or_constant(left, compiler),
-                    arg_b: HighLevelValue::PointerToZeroVector,
-                    res: HighLevelValue::from_var_or_constant(right, compiler),
-                });
-            }
             Line::FunctionRet { return_data } => {
                 if compiler.func_name == "main" {
                     res.push(HighLevelInstruction::Jump {

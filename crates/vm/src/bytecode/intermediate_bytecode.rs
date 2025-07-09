@@ -61,12 +61,6 @@ pub enum HighLevelInstruction {
     Poseidon2_24 {
         shift: usize,
     }, // same as above, but with 24 field elements
-    ExtComputation {
-        operation: HighLevelOperation,
-        arg_a: HighLevelValue, // pointer (to the memory of chunks of 8 field elements)
-        arg_b: HighLevelValue, // same
-        res: HighLevelValue,   // same
-    },
 
     // HINTS (does not appears in the final bytecode)
     RequestMemory {
@@ -160,20 +154,6 @@ impl ToString for HighLevelInstruction {
                 "poseidon2_24 m[8 * m[fp + {}] .. 8 * (1 + m[fp + {}])] | m[8 * m[fp + {} + 1]] .. 8 * (1 + m[fp + {} + 1])]",
                 shift, shift, shift, shift
             ),
-            HighLevelInstruction::ExtComputation {
-                operation,
-                arg_a,
-                arg_b,
-                res,
-            } => {
-                format!(
-                    "{} = ext_computation({}, {}, {})",
-                    res.to_string(),
-                    arg_a.to_string(),
-                    arg_b.to_string(),
-                    operation.to_string()
-                )
-            }
             HighLevelInstruction::RequestMemory {
                 shift,
                 size,

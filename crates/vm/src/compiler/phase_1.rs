@@ -120,7 +120,6 @@ fn replace_loops_with_recursion_helper(
             }
 
             Line::Assert(_)
-            | Line::AssertEqExt { .. }
             | Line::FunctionRet { .. }
             | Line::FunctionCall { .. }
             | Line::Poseidon16 { .. }
@@ -234,18 +233,6 @@ pub fn get_internal_and_external_variables(lines: &[Line]) -> (BTreeSet<Var>, BT
             },
             Line::ForLoop { .. } | Line::ArrayAccess { .. } => {
                 unreachable!("Should have been replaced earlier: {}", line.to_string());
-            }
-            Line::AssertEqExt { left, right } => {
-                if let VarOrConstant::Var(var) = left {
-                    if !internal_vars.contains(&var) {
-                        external_vars.insert(var.clone());
-                    }
-                }
-                if let VarOrConstant::Var(var) = right {
-                    if !internal_vars.contains(&var) {
-                        external_vars.insert(var.clone());
-                    }
-                }
             }
             Line::FunctionRet { return_data } => {
                 for ret in return_data {

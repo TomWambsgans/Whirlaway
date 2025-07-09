@@ -130,11 +130,6 @@ pub enum Line {
         line_info: String,
         content: Vec<VarOrConstant>,
     },
-    AssertEqExt {
-        left: VarOrConstant,
-        right: VarOrConstant,
-        // 2 pointers in the memory of chunks of 8 field elements
-    },
     MAlloc {
         var: Var,
         size: ConstantValue,
@@ -294,9 +289,6 @@ impl Line {
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("print({})", content_str)
-            }
-            Line::AssertEqExt { left, right } => {
-                format!("assert_eq_ext({}, {})", left.to_string(), right.to_string())
             }
             Line::MAlloc { var, size } => {
                 format!("{} = malloc({})", var.to_string(), size.to_string())

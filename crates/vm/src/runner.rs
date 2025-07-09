@@ -1,11 +1,9 @@
-use p3_field::BasedVectorSpace;
 use p3_field::PrimeCharacteristicRing;
 use p3_koala_bear::Poseidon2KoalaBear;
 
 use crate::AIR_COLUMNS_PER_OPCODE;
 use crate::bytecode::final_bytecode::Hint;
 use crate::bytecode::final_bytecode::Instruction;
-use crate::bytecode::final_bytecode::Operation;
 use crate::bytecode::final_bytecode::Value;
 use crate::{DIMENSION, EF, F, bytecode::final_bytecode::Bytecode};
 use p3_field::PrimeField64;
@@ -303,43 +301,6 @@ pub fn execute_bytecode(
                 memory.set_vector(ptr_res_0.as_canonical_u64() as usize, res0);
                 memory.set_vector(ptr_res_1.as_canonical_u64() as usize, res1);
                 memory.set_vector(ptr_res_2.as_canonical_u64() as usize, res2);
-
-                pc += 1;
-            }
-            Instruction::ExtComputation {
-                operation,
-                arg_a,
-                arg_b,
-                res,
-            } => {
-                // TODO if res and a (resp b) are known, but not b (resp a)
-
-                let a_address = memory.read_value(*arg_a, fp);
-                let b_address = memory.read_value(*arg_b, fp);
-                let res_address = memory.read_value(*res, fp);
-
-                let a = EF::from_basis_coefficients_slice(
-                    memory
-                        .get_vector(a_address.as_canonical_u64() as usize)
-                        .as_slice(),
-                )
-                .unwrap();
-                let b = EF::from_basis_coefficients_slice(
-                    memory
-                        .get_vector(b_address.as_canonical_u64() as usize)
-                        .as_slice(),
-                )
-                .unwrap();
-
-                let res = match operation {
-                    Operation::Add => a + b,
-                    Operation::Mul => a * b,
-                };
-
-                memory.set_vector(
-                    res_address.as_canonical_u64() as usize,
-                    res.as_basis_coefficients_slice().try_into().unwrap(),
-                );
 
                 pc += 1;
             }

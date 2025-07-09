@@ -195,7 +195,6 @@ fn parse_statement(pair: Pair<Rule>, context: &ParseContext) -> Result<Line, Par
         Rule::function_call => parse_function_call(inner, context),
         Rule::assert_eq_statement => parse_assert_eq_statement(inner, context),
         Rule::assert_not_eq_statement => parse_assert_not_eq_statement(inner, context),
-        Rule::assert_eq_ext_statement => parse_assert_eq_ext_statement(inner, context),
         _ => Err(ParseError::SemanticError(format!(
             "Unknown statement type: {:?}",
             inner.as_rule()
@@ -463,17 +462,6 @@ fn parse_assert_not_eq_statement(
     Ok(Line::Assert(Boolean::Different { left, right }))
 }
 
-fn parse_assert_eq_ext_statement(
-    pair: Pair<Rule>,
-    context: &ParseContext,
-) -> Result<Line, ParseError> {
-    let mut inner = pair.into_inner();
-    let left = parse_var_or_constant(inner.next().unwrap(), context)?;
-    let right = parse_var_or_constant(inner.next().unwrap(), context)?;
-
-    Ok(Line::AssertEqExt { left, right })
-}
-
 fn parse_condition(pair: Pair<Rule>, context: &ParseContext) -> Result<Boolean, ParseError> {
     let inner_pair = pair.into_inner().next().unwrap();
 
@@ -602,7 +590,6 @@ fn main() {
     }
     assert f != g;
     oo = memory[B];
-    assert_ext oo == f;
     x = 8;
     y = 9;
     uuu = y[9];
