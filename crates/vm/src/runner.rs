@@ -109,6 +109,7 @@ impl Value {
 pub fn execute_bytecode(
     bytecode: &Bytecode,
     public_input: &[F],
+    private_input: &[F],
     poseidon_16: Poseidon2KoalaBear<16>,
     poseidon_24: Poseidon2KoalaBear<24>,
 ) {
@@ -124,13 +125,26 @@ pub fn execute_bytecode(
         memory.data.push(Some(F::ZERO)); // For "pointer_to_zero_vector"
     }
 
+
     for (i, value) in public_input.iter().enumerate() {
         memory.set(bytecode.public_input_start + i, *value);
     }
+    
+    let mut fp = bytecode.public_input_start + public_input.len();
+    if fp % 8 != 0 {
+        fp += 8 - (fp % 8); // Align to 8 field elements
+    }
+
+    for (i, value) in private_input.iter().enumerate() {
+        memory.set(fp + i, *value);
+    }
+    fp += private_input.len();
+    if fp % 8 != 0 {
+        fp += 8 - (fp % 8); // Align to 8 field elements
+    }
 
     let mut pc = 0;
-    let mut fp = bytecode.public_input_start + public_input.len();
-    let mut ap = bytecode.public_input_start + public_input.len() + bytecode.starting_frame_memory;
+    let mut ap = fp + bytecode.starting_frame_memory;
 
     while pc != bytecode.ending_pc {
         if pc >= bytecode.instructions.len() {

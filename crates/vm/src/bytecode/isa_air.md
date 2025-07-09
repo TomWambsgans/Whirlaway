@@ -110,3 +110,9 @@ ShouldJump * (next(fp) - C)
 (A - ShouldJump) * (next(fp) - fp)
 
 TODO: Poseidon16, Poseidon24, ExtComputation
+
+## Memory layout:
+
+[Bytecode][Zero Buffer][Public Input][Private Input][Runtime Memory]
+convention: everything alligned by 8
+Zero Buffer = 8 field elements
