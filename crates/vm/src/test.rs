@@ -459,7 +459,7 @@ fn test_verify_xmss_signature() {
         wots_signature = private_input_start / 8;
         merkle_path = wots_signature + N_CHAINS;
         xmss_public_key_recovered = verify_xmss(message, wots_signature, merkle_path);
-        assert_eq_ext(xmss_public_key, xmss_public_key);
+        assert_eq_ext(xmss_public_key, xmss_public_key_recovered);
         print_chunk_of_8(xmss_public_key);
         return;
     }
@@ -588,5 +588,219 @@ fn test_verify_xmss_signature() {
 
     compile_and_run(program, &public_input, &private_input);
 
-    dbg!(xmss_secret_key.public_key().root); 
+    dbg!(xmss_secret_key.public_key().root);
+}
+
+#[test]
+fn test_aggregate_xmss_signatures() {
+    const N_PUBLIC_KEYS: usize = 10;
+
+    // Public input: message (N_CHAINS) | xmss public keys (N_PUBLIC_KEYS x 8) | bitfield (N_PUBLIC_KEYS)
+    // Private input: xmss_signatures, alligned by 8
+    // each xmss signature (N_CHAINS x 8 + XMSS_MERKLE_HEIGHT x 9) = wots signatue (N_CHAINS x 8) + merkle proof (neighbours: XMSS_MERKLE_HEIGHT x 8 + is_left: XMSS_MERKLE_HEIGHT)
+    let program = r#"
+
+    const N_PUBLIC_KEYS = 10;
+    const N_CHAINS = 64;
+    const CHAIN_LENGTH = 8;
+    const XMSS_MERKLE_HEIGHT = 5;
+    const XMSS_SIGNATURE_SIZE_ROUNDED_UP = 70; // number of chuncks of 8
+
+    const VERIF_SUCCESSFUL = 1;
+
+    fn main() {
+        private_input_start = public_input_start + 160;
+        message = public_input_start;
+        xmss_public_keys_temp = public_input_start + N_CHAINS;
+        xmss_public_keys = xmss_public_keys_temp / 8;
+        bitfield = public_input_start + 144; // message + N_PUBLIC_KEYS x 8
+
+        bitfield_counter = malloc(11); // N_PUBLIC_KEYS + 1
+        bitfield_counter[0] = 0;
+
+        for i in 0..N_PUBLIC_KEYS {
+            bitfield_counter_i = bitfield_counter[i];
+            bit = bitfield[i];
+            i_plus_one = i + 1;
+            if bit == 1 {
+                xmss_public_key = xmss_public_keys + i;
+                wots_signature_offset = private_input_start / 8;
+                wots_signature_shift = bitfield_counter_i * XMSS_SIGNATURE_SIZE_ROUNDED_UP;
+                wots_signature = wots_signature_offset + wots_signature_shift;
+                merkle_path = wots_signature + N_CHAINS;
+                xmss_public_key_recovered = verify_xmss(message, wots_signature, merkle_path);
+                assert_eq_ext(xmss_public_key, xmss_public_key_recovered);
+                print(VERIF_SUCCESSFUL);
+
+                bitfield_counter_i_plus_one = bitfield_counter_i + 1;
+                bitfield_counter[i_plus_one] = bitfield_counter_i_plus_one;
+            } else {
+                bitfield_counter[i_plus_one] = bitfield_counter_i;
+            }
+        }
+        return;
+    }
+
+    fn verify_xmss(message, wots_signature, merkle_path) -> 1 {
+        // merkle_path: vectorized pointer to neighbours: XMSS_MERKLE_HEIGHT x 8 followed by is_left: XMSS_MERKLE_HEIGHT
+        wots_public_key = recover_wots_public_key(message, wots_signature);
+        wots_public_key_hash = hash_wots_public_key(wots_public_key);
+        are_left_vec = merkle_path + XMSS_MERKLE_HEIGHT;
+        are_left = are_left_vec * 8;
+        merkle_root = merkle_step(0, XMSS_MERKLE_HEIGHT, wots_public_key_hash, are_left, merkle_path);
+        return merkle_root;
+    }
+
+    fn recover_wots_public_key(message, signature) -> 1 {
+        // message: pointer
+        // signature: vectorized pointer
+        // return a pointer of vectorized pointers
+
+        public_key = malloc(N_CHAINS);
+        for i in 0..N_CHAINS {
+            msg_i = message[i];
+            n_hash_iter = CHAIN_LENGTH - msg_i;
+            signature_i = signature + i;
+            pk_i = hash_chain(signature_i, n_hash_iter);
+            public_key[i] = pk_i;
+        }
+        return public_key;
+    }
+
+    fn hash_chain(thing_to_hash, n_iter) -> 1 {
+        if n_iter == 0 {
+            return thing_to_hash;
+        }
+        hashed, trash = poseidon16(thing_to_hash, pointer_to_zero_vector);
+        n_iter_minus_one = n_iter - 1;
+        res = hash_chain(hashed, n_iter_minus_one);
+        return res;
+    }
+
+    fn hash_wots_public_key(public_key) -> 1 {
+        hashes = malloc(33); // N_CHAINS / 2 + 1
+        hashes[0] = pointer_to_zero_vector;
+        for i in 0..32 {
+            two_i = 2 * i;
+            two_i_plus_one = two_i + 1;
+            a = public_key[two_i];
+            b = public_key[two_i_plus_one];
+            c = hashes[i];
+            next, trash1, trash2 = poseidon24(a, b, c);
+            i_plus_one = i + 1;
+            hashes[i_plus_one] = next;
+        }
+        res = hashes[32];
+        return res; 
+    }
+
+    fn merkle_step(step, height, thing_to_hash, are_left, neighbours) -> 1 {
+        if step == height {
+            return thing_to_hash;
+        }
+        is_left = are_left[0];
+
+        if is_left == 1 {
+            hashed, trash = poseidon16(thing_to_hash, neighbours);
+        } else {
+            hashed, trash = poseidon16(neighbours, thing_to_hash);
+        }
+
+        next_step = step + 1;
+        next_are_left = are_left + 1;
+        next_neighbours = neighbours + 1;
+        res = merkle_step(next_step, height, hashed, next_are_left, next_neighbours);
+        return res;
+    }
+
+    fn print_chunk_of_8(arr) {
+        reindexed_arr = arr * 8;
+        for i in 0..8 {
+            arr_i = reindexed_arr[i];
+            print(arr_i);
+        }
+        return;
+    }
+
+    fn assert_eq_ext(a, b) {
+        // a and b both pointers in the memory of chunk of 8 field elements
+        a_shifted = a * 8;
+        b_shifted = b * 8;
+        for i in 0..8 {
+            a_i = a_shifted[i];
+            b_i = b_shifted[i];
+            assert a_i == b_i;
+        }
+        return;
+    }
+   "#;
+
+    let mut rng = StdRng::seed_from_u64(0);
+    let mesage = random_message(&mut rng);
+
+    let bitfield = (0..N_PUBLIC_KEYS)
+        .map(|_| rng.random())
+        .collect::<Vec<bool>>();
+    assert!(bitfield.iter().filter(|&&x| x).count() >= 3, "change seed");
+
+    let xmss_secret_keys = (0..N_PUBLIC_KEYS)
+        .map(|_| XmssSecretKey::random(&mut rng))
+        .collect::<Vec<_>>();
+    let mut xmss_public_keys = vec![];
+    for xmss_secret_key in &xmss_secret_keys {
+        xmss_public_keys.push(xmss_secret_key.public_key().root.to_vec());
+    }
+
+    let signatures = bitfield
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &bit)| {
+            if bit {
+                let index = rng.random_range(0..1 << XMSS_MERKLE_HEIGHT);
+                Some(xmss_secret_keys[i].sign(&mesage, index))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let mut public_input = mesage.iter().map(|&x| F::new(x as u32)).collect::<Vec<F>>();
+    for pk in xmss_public_keys {
+        public_input.extend(pk);
+    }
+    for &bit in &bitfield {
+        if bit {
+            public_input.push(F::ONE);
+        } else {
+            public_input.push(F::ZERO);
+        }
+    }
+
+    let mut private_input = vec![];
+    for signature in &signatures {
+        private_input.extend(
+            signature
+                .wots_signature
+                .0
+                .iter()
+                .flat_map(|digest| digest.to_vec()),
+        );
+        private_input.extend(
+            signature
+                .merkle_proof
+                .iter()
+                .flat_map(|(_, neighbour)| *neighbour),
+        );
+        private_input.extend(
+            signature
+                .merkle_proof
+                .iter()
+                .map(|(is_left, _)| F::new(*is_left as u32)),
+        );
+        // add padding to align with 8
+        let padding = vec![F::ZERO; (8 - (private_input.len() % 8)) % 8];
+        private_input.extend(padding);
+    }
+
+    compile_and_run(program, &public_input, &private_input);
 }

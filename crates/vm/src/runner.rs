@@ -123,11 +123,10 @@ pub fn execute_bytecode(
         memory.data.push(Some(F::ZERO)); // For "pointer_to_zero_vector"
     }
 
-
     for (i, value) in public_input.iter().enumerate() {
         memory.set(bytecode.public_input_start + i, *value);
     }
-    
+
     let mut fp = bytecode.public_input_start + public_input.len();
     if fp % 8 != 0 {
         fp += 8 - (fp % 8); // Align to 8 field elements
@@ -144,6 +143,10 @@ pub fn execute_bytecode(
     let mut pc = 0;
     let mut ap = fp + bytecode.starting_frame_memory;
 
+    let mut poseidon16_calls = 0;
+    let mut poseidon24_calls = 0;
+    let mut instructions_run = 0;
+
     while pc != bytecode.ending_pc {
         if pc >= bytecode.instructions.len() {
             panic!(
@@ -154,6 +157,8 @@ pub fn execute_bytecode(
         }
 
         // dbg!(pc, fp);
+
+        instructions_run += 1;
 
         for hint in bytecode.hints.get(&pc).unwrap_or(&vec![]) {
             match hint {
@@ -253,6 +258,8 @@ pub fn execute_bytecode(
                 }
             }
             Instruction::Poseidon2_16 { shift } => {
+                poseidon16_calls += 1;
+
                 let ptr_arg_0 = memory.get(fp + shift);
                 let ptr_arg_1 = memory.get(fp + shift + 1);
                 let ptr_res_0 = memory.get(fp + shift + 2);
@@ -276,6 +283,8 @@ pub fn execute_bytecode(
                 pc += 1;
             }
             Instruction::Poseidon2_24 { shift } => {
+                poseidon24_calls += 1;
+
                 let ptr_arg_0 = memory.get(fp + shift);
                 let ptr_arg_1 = memory.get(fp + shift + 1);
                 let ptr_arg_2 = memory.get(fp + shift + 2);
@@ -307,5 +316,19 @@ pub fn execute_bytecode(
         }
     }
 
+    if poseidon16_calls + poseidon24_calls > 0 {
+        println!(
+            "\nExecuted {} instructions, Poseidon2_16 calls: {}, Poseidon2_24 calls: {} (1 poseidon per {} instructions)",
+            instructions_run,
+            poseidon16_calls,
+            poseidon24_calls,
+            instructions_run / (poseidon16_calls + poseidon24_calls)
+        );
+        println!(
+            "Final memory size: {} ({} cells per poseidon)",
+            memory.data.len(),
+            memory.data.len() / (poseidon16_calls + poseidon24_calls)
+        );
+    }
     // TODO fill the bytecode into memory
 }
