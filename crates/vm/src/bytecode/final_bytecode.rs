@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 
-use crate::F;
+use crate::{
+    F,
+    bytecode::intermediate_bytecode::{HighLevelOperation, HighLevelValue},
+};
 
 pub type Label = String;
 
@@ -14,11 +17,21 @@ pub struct Bytecode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Value {
+pub enum MemOrConstant {
     Constant(usize),
-    Fp,
     MemoryAfterFp { shift: usize }, // m[fp + shift]
-    DirectMemory { shift: usize },  // m[shift]
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum MemOrFpOrConstant {
+    MemoryAfterFp { shift: usize }, // m[fp + shift]
+    Fp,
+    Constant(usize),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum MemOrFp {
+    MemoryAfterFp { shift: usize }, // m[fp + shift]
+    Fp,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -31,19 +44,19 @@ pub enum Operation {
 pub enum Instruction {
     Computation {
         operation: Operation,
-        arg_a: Value,
-        arg_b: Value,
-        res: Value,
+        arg_a: MemOrConstant,
+        arg_b: MemOrFp,
+        res: MemOrConstant,
     },
     MemoryPointerEq {
         shift_0: usize,
         shift_1: usize,
-        res: Value,
+        res: MemOrFpOrConstant,
     }, // res = m[m[fp + shift_0] + shift_1]
     JumpIfNotZero {
-        condition: Value,
-        dest: Value,
-        updated_fp: Value,
+        condition: MemOrConstant,
+        dest: MemOrConstant,
+        updated_fp: MemOrFp,
     },
     Poseidon2_16 {
         shift: usize,
@@ -72,6 +85,30 @@ impl Operation {
     }
 }
 
+impl TryFrom<HighLevelOperation> for Operation {
+    type Error = String;
+
+    fn try_from(value: HighLevelOperation) -> Result<Self, Self::Error> {
+        match value {
+            HighLevelOperation::Add => Ok(Operation::Add),
+            HighLevelOperation::Mul => Ok(Operation::Mul),
+            _ => Err(format!("Cannot convert {:?} to +/x", value)),
+        }
+    }
+}
+
+impl TryFrom<HighLevelValue> for MemOrFp {
+    type Error = String;
+
+    fn try_from(value: HighLevelValue) -> Result<Self, Self::Error> {
+        match value {
+            HighLevelValue::MemoryAfterFp { shift } => Ok(MemOrFp::MemoryAfterFp { shift }),
+            HighLevelValue::Fp => Ok(MemOrFp::Fp),
+            _ => Err(format!("Cannot convert {:?} to MemOrFp", value)),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Hint {
     RequestMemory {
@@ -82,7 +119,7 @@ pub enum Hint {
 
     Print {
         line_info: String,
-        content: Vec<Value>,
+        content: Vec<MemOrConstant>,
     },
 }
 
@@ -101,13 +138,30 @@ impl ToString for Bytecode {
     }
 }
 
-impl ToString for Value {
+impl ToString for MemOrConstant {
     fn to_string(&self) -> String {
         match self {
             Self::Constant(c) => format!("{}", c),
-            Self::Fp => "fp".to_string(),
             Self::MemoryAfterFp { shift } => format!("m[fp + {}]", shift),
-            Self::DirectMemory { shift } => format!("m[{}]", shift),
+        }
+    }
+}
+
+impl ToString for MemOrFp {
+    fn to_string(&self) -> String {
+        match self {
+            Self::MemoryAfterFp { shift } => format!("m[fp + {}]", shift),
+            Self::Fp => "fp".to_string(),
+        }
+    }
+}
+
+impl ToString for MemOrFpOrConstant {
+    fn to_string(&self) -> String {
+        match self {
+            Self::MemoryAfterFp { shift } => format!("m[fp + {}]", shift),
+            Self::Fp => "fp".to_string(),
+            Self::Constant(c) => format!("{}", c),
         }
     }
 }
@@ -170,8 +224,17 @@ impl ToString for Instruction {
 impl ToString for Hint {
     fn to_string(&self) -> String {
         match self {
-            Self::RequestMemory { shift, size, vectorized } => {
-                format!("m[fp + {}] = malloc({}) {}", shift, size, if *vectorized { "# vectorized" } else { "" })
+            Self::RequestMemory {
+                shift,
+                size,
+                vectorized,
+            } => {
+                format!(
+                    "m[fp + {}] = malloc({}) {}",
+                    shift,
+                    size,
+                    if *vectorized { "# vectorized" } else { "" }
+                )
             }
             Self::Print { line_info, content } => {
                 format!(

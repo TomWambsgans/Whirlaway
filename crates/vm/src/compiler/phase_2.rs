@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::{
     bytecode::intermediate_bytecode::*,
     compiler::{
-        phase_0::{replace_array_access, replace_assert_not_eq, replace_if_eq},
+        phase_0::{remove_memory_raw_accesses_with_constants, replace_array_access, replace_assert_not_eq, replace_if_eq},
         phase_1::{get_internal_and_external_variables, replace_loops_with_recursion},
     },
     lang::*,
@@ -25,21 +25,13 @@ impl HighLevelValue {
     fn from_var_or_constant(var_or_const: &VarOrConstant, compiler: &Compiler) -> Self {
         match var_or_const {
             VarOrConstant::Var(var) => HighLevelValue::from_var(var, compiler),
-            VarOrConstant::Constant(constant) => HighLevelValue::from_constant(constant),
+            VarOrConstant::Constant(constant) => HighLevelValue::Constant(*constant),
         }
     }
 
     fn from_var(var: &Var, compiler: &Compiler) -> Self {
         HighLevelValue::MemoryAfterFp {
             shift: compiler.get_shift(var),
-        }
-    }
-
-    fn from_constant(constant: &ConstantValue) -> Self {
-        match constant {
-            ConstantValue::Scalar(scalar) => Self::Constant(*scalar),
-            ConstantValue::PublicInputStart => Self::PublicInputStart,
-            ConstantValue::PointerToZeroVector => Self::PointerToZeroVector,
         }
     }
 }
@@ -70,6 +62,7 @@ pub fn compile_to_hight_level_bytecode(mut program: Program) -> Result<HighLevel
     replace_array_access(&mut program);
     replace_loops_with_recursion(&mut program);
     replace_if_eq(&mut program);
+    remove_memory_raw_accesses_with_constants(&mut program);
     // println!("Program after phase 2: \n{}", program.to_string());
     let mut compiler = Compiler::new();
     let mut memory_size_per_function = BTreeMap::new();
@@ -172,37 +165,7 @@ fn compile_lines(
                 }
                 variables_already_declared.insert(var.clone());
             }
-            Line::RawAccess { var, index } => {
-                let instruction = HighLevelInstruction::Eq {
-                    left: HighLevelValue::from_var(var, compiler),
-                    right: match index {
-                        VarOrConstant::Constant(ConstantValue::Scalar(shift)) => {
-                            HighLevelValue::DirectMemory {
-                                shift: ConstantValue::Scalar(*shift),
-                            }
-                        }
-                        VarOrConstant::Constant(ConstantValue::PublicInputStart) => {
-                            HighLevelValue::DirectMemory {
-                                shift: ConstantValue::PublicInputStart,
-                            }
-                        }
-                        VarOrConstant::Constant(ConstantValue::PointerToZeroVector) => {
-                            HighLevelValue::DirectMemory {
-                                shift: ConstantValue::PointerToZeroVector,
-                            }
-                        }
-                        VarOrConstant::Var(index_var) => HighLevelValue::MemoryPointer {
-                            shift: compiler.get_shift(index_var),
-                        },
-                    },
-                };
-                res.push(instruction);
 
-                if let VarOrConstant::Var(var) = index {
-                    variables_already_declared.insert(var.clone());
-                }
-                variables_already_declared.insert(var.clone());
-            }
             Line::Assert(condition) => match condition {
                 Boolean::Different { .. } => {
                     unreachable!("Assert not equal should have been handled earlier")
@@ -318,8 +281,21 @@ fn compile_lines(
                     return Ok(res);
                 }
             },
+            Line::RawAccess { var, index } => {
+                let VarOrConstant::Var(index) = index else {
+                    unreachable!("handled earlier");
+                };
+                res.push(HighLevelInstruction::MemoryPointerEq {
+                    shift_0: compiler.get_shift(index),
+                    shift_1: 0,
+                    res: compiler.get_shift(var),
+                });
+
+                variables_already_declared.insert(index.clone());
+                variables_already_declared.insert(var.clone());
+            }
             Line::ForLoop { .. } | Line::ArrayAccess { .. } => {
-                unreachable!("Replaced earlier.")
+                unreachable!("{line:?} should have been replaced earlier.")
             }
 
             Line::FunctionCall {
@@ -348,11 +324,11 @@ fn compile_lines(
                 compiler.current_stack_size += 1;
 
                 res.push(HighLevelInstruction::Eq {
-                    left: HighLevelValue::ShiftedMemoryPointer {
+                    left: HighLevelValue::Label(return_label.clone()),
+                    right: HighLevelValue::ShiftedMemoryPointer {
                         shift_0: shift_of_new_fp,
                         shift_1: 0,
                     },
-                    right: HighLevelValue::Label(return_label.clone()),
                 });
                 res.push(HighLevelInstruction::Eq {
                     left: HighLevelValue::Fp,
@@ -364,11 +340,11 @@ fn compile_lines(
 
                 for (arg_index, arg) in args.iter().enumerate() {
                     res.push(HighLevelInstruction::Eq {
-                        left: HighLevelValue::ShiftedMemoryPointer {
+                        left: HighLevelValue::from_var_or_constant(arg, compiler),
+                        right: HighLevelValue::ShiftedMemoryPointer {
                             shift_0: shift_of_new_fp,
                             shift_1: 2 + arg_index,
                         },
-                        right: HighLevelValue::from_var_or_constant(arg, compiler),
                     });
 
                     if let VarOrConstant::Var(var) = arg {
@@ -379,11 +355,11 @@ fn compile_lines(
                 let mut instructions_after_function_call = vec![];
                 for (ret_index, ret_var) in return_data.iter().enumerate() {
                     instructions_after_function_call.push(HighLevelInstruction::Eq {
-                        left: HighLevelValue::ShiftedMemoryPointer {
+                        left: HighLevelValue::from_var(ret_var, compiler),
+                        right: HighLevelValue::ShiftedMemoryPointer {
                             shift_0: shift_of_new_fp,
                             shift_1: 2 + args.len() + ret_index,
                         },
-                        right: HighLevelValue::from_var(ret_var, compiler),
                     });
                 }
 
@@ -519,7 +495,9 @@ fn compile_lines(
                 let size = match size {
                     ConstantValue::Scalar(scalar) => *scalar,
                     ConstantValue::PointerToZeroVector => {
-                        return Err("Cannot allocate memory with pointer to zero vector".to_string());
+                        return Err(
+                            "Cannot allocate memory with pointer to zero vector".to_string()
+                        );
                     }
                     ConstantValue::PublicInputStart => {
                         return Err("Cannot allocate memory with public input start".to_string());
@@ -553,10 +531,7 @@ fn compile_lines(
                 }
             }
             Line::Panic => {
-                res.push(HighLevelInstruction::Eq {
-                    left: HighLevelValue::Constant(0),
-                    right: HighLevelValue::Constant(1),
-                });
+                res.push(HighLevelInstruction::Panic);
             }
 
             Line::Print { line_info, content } => {

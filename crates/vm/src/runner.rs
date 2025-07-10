@@ -1,10 +1,12 @@
 use p3_field::PrimeCharacteristicRing;
 use p3_koala_bear::Poseidon2KoalaBear;
 
+use crate::bytecode::final_bytecode::MemOrFpOrConstant;
 use crate::AIR_COLUMNS_PER_OPCODE;
 use crate::bytecode::final_bytecode::Hint;
 use crate::bytecode::final_bytecode::Instruction;
-use crate::bytecode::final_bytecode::Value;
+use crate::bytecode::final_bytecode::MemOrConstant;
+use crate::bytecode::final_bytecode::MemOrFp;
 use crate::{DIMENSION, EF, F, bytecode::final_bytecode::Bytecode};
 use p3_field::PrimeField64;
 use p3_symmetric::Permutation;
@@ -15,6 +17,90 @@ const MAX_MEMORY_SIZE: usize = 1 << 20;
 struct Memory {
     data: Vec<Option<F>>,
     _extension: std::marker::PhantomData<EF>,
+}
+
+impl MemOrConstant {
+    fn try_read_value(&self, memory: &Memory, fp: usize) -> Option<F> {
+        match self {
+            MemOrConstant::Constant(c) => Some(F::from_usize(*c)),
+            MemOrConstant::MemoryAfterFp { shift } => memory.try_get(fp + *shift),
+        }
+    }
+
+    fn read_value(&self, memory: &Memory, fp: usize) -> F {
+        self.try_read_value(memory, fp).expect(&format!(
+            "Memory access error, value: {:?}, fp: {}",
+            self, fp
+        ))
+    }
+
+    fn is_value_unknown(&self, memory: &Memory, fp: usize) -> bool {
+        self.try_read_value(memory, fp).is_none()
+    }
+
+    fn memory_address(&self, fp: usize) -> Option<usize> {
+        match self {
+            MemOrConstant::Constant(_) => None,
+            MemOrConstant::MemoryAfterFp { shift } => Some(fp + *shift),
+        }
+    }
+}
+
+impl MemOrFp {
+    fn try_read_value(&self, memory: &Memory, fp: usize) -> Option<F> {
+        match self {
+            MemOrFp::MemoryAfterFp { shift } => memory.try_get(fp + *shift),
+            MemOrFp::Fp => Some(F::from_usize(fp)),
+        }
+    }
+
+    fn read_value(&self, memory: &Memory, fp: usize) -> F {
+        self.try_read_value(memory, fp).expect(&format!(
+            "Memory access error, value: {:?}, fp: {}",
+            self, fp
+        ))
+    }
+
+    fn is_value_unknown(&self, memory: &Memory, fp: usize) -> bool {
+        self.try_read_value(memory, fp).is_none()
+    }
+
+    fn memory_address(&self, fp: usize) -> Option<usize> {
+        match self {
+            MemOrFp::MemoryAfterFp { shift } => Some(fp + *shift),
+            MemOrFp::Fp => None,
+        }
+    }
+}
+
+
+impl MemOrFpOrConstant {
+    fn try_read_value(&self, memory: &Memory, fp: usize) -> Option<F> {
+        match self {
+            MemOrFpOrConstant::MemoryAfterFp { shift } => memory.try_get(fp + *shift),
+            MemOrFpOrConstant::Fp => Some(F::from_usize(fp)),
+            MemOrFpOrConstant::Constant(c) => Some(F::from_usize(*c)),
+        }
+    }
+
+    fn read_value(&self, memory: &Memory, fp: usize) -> F {
+        self.try_read_value(memory, fp).expect(&format!(
+            "Memory access error, value: {:?}, fp: {}",
+            self, fp
+        ))
+    }
+
+    fn is_value_unknown(&self, memory: &Memory, fp: usize) -> bool {
+        self.try_read_value(memory, fp).is_none()
+    }
+
+    fn memory_address(&self, fp: usize) -> Option<usize> {
+        match self {
+            MemOrFpOrConstant::MemoryAfterFp { shift } => Some(fp + *shift),
+            MemOrFpOrConstant::Fp => None,
+            MemOrFpOrConstant::Constant(_) => None,
+        }
+    }
 }
 
 impl Memory {
@@ -31,23 +117,6 @@ impl Memory {
             .get(index)
             .and_then(|opt| *opt)
             .expect(&format!("Memory access error, index: {}", index))
-    }
-
-    fn read_value(&self, value: Value, fp: usize) -> F {
-        self.try_read_value(value, fp).unwrap()
-    }
-
-    fn try_read_value(&self, value: Value, fp: usize) -> Option<F> {
-        match value {
-            Value::Constant(c) => Some(F::from_usize(c)),
-            Value::Fp => Some(F::from_usize(fp)),
-            Value::MemoryAfterFp { shift } => self.try_get(fp + shift),
-            Value::DirectMemory { shift } => self.try_get(shift),
-        }
-    }
-
-    fn is_value_unknown(&self, value: Value, fp: usize) -> bool {
-        self.try_read_value(value, fp).is_none()
     }
 
     fn set(&mut self, index: usize, value: F) {
@@ -83,23 +152,6 @@ impl Memory {
         for (i, v) in value.iter().enumerate() {
             let idx = DIMENSION * index + i;
             self.set(idx, *v);
-        }
-    }
-}
-
-impl Value {
-    // fn is_in_memory(&self) -> bool {
-    //     matches!(
-    //         self,
-    //         Value::MemoryAfterFp { .. } | Value::DirectMemory { .. }
-    //     )
-    // }
-
-    fn memory_address(&self, fp: usize) -> Option<usize> {
-        match self {
-            Value::Constant(_) | Value::Fp => None,
-            Value::MemoryAfterFp { shift } => Some(fp + *shift),
-            Value::DirectMemory { shift } => Some(*shift),
         }
     }
 }
@@ -183,7 +235,7 @@ pub fn execute_bytecode(
                 Hint::Print { line_info, content } => {
                     let values = content
                         .iter()
-                        .map(|value| memory.read_value(*value, fp).to_string())
+                        .map(|value| value.read_value(&memory, fp).to_string())
                         .collect::<Vec<_>>()
                         .join(", ");
                     let line_info = line_info.replace(";", "");
@@ -201,28 +253,28 @@ pub fn execute_bytecode(
                 arg_b,
                 res,
             } => {
-                if memory.is_value_unknown(*res, fp) {
+                if res.is_value_unknown(&memory, fp) {
                     let memory_address_res = res.memory_address(fp).unwrap();
-                    let a_value = memory.read_value(*arg_a, fp);
-                    let b_value = memory.read_value(*arg_b, fp);
+                    let a_value = arg_a.read_value(&memory, fp);
+                    let b_value = arg_b.read_value(&memory, fp);
                     let res_value = operation.compute(a_value, b_value);
                     memory.set(memory_address_res, res_value);
-                } else if memory.is_value_unknown(*arg_a, fp) {
+                } else if arg_a.is_value_unknown(&memory, fp) {
                     let memory_address_a = arg_a.memory_address(fp).unwrap();
-                    let res_value = memory.read_value(*res, fp);
-                    let b_value = memory.read_value(*arg_b, fp);
+                    let res_value = res.read_value(&memory, fp);
+                    let b_value = arg_b.read_value(&memory, fp);
                     let a_value = operation.inverse_compute(res_value, b_value);
                     memory.set(memory_address_a, a_value);
-                } else if memory.is_value_unknown(*arg_b, fp) {
+                } else if arg_b.is_value_unknown(&memory, fp) {
                     let memory_address_b = arg_b.memory_address(fp).unwrap();
-                    let res_value = memory.read_value(*res, fp);
-                    let a_value = memory.read_value(*arg_a, fp);
+                    let res_value = res.read_value(&memory, fp);
+                    let a_value = arg_a.read_value(&memory, fp);
                     let b_value = operation.inverse_compute(res_value, a_value);
                     memory.set(memory_address_b, b_value);
                 } else {
-                    let a_value = memory.read_value(*arg_a, fp);
-                    let b_value = memory.read_value(*arg_b, fp);
-                    let res_value = memory.read_value(*res, fp);
+                    let a_value = arg_a.read_value(&memory, fp);
+                    let b_value = arg_b.read_value(&memory, fp);
+                    let res_value = res.read_value(&memory, fp);
                     assert_eq!(res_value, operation.compute(a_value, b_value));
                 }
 
@@ -233,13 +285,13 @@ pub fn execute_bytecode(
                 shift_1,
                 res,
             } => {
-                if memory.is_value_unknown(*res, fp) {
+                if res.is_value_unknown(&memory, fp) {
                     let memory_address_res = res.memory_address(fp).unwrap();
                     let ptr = memory.get(fp + shift_0);
                     let value = memory.get(ptr.as_canonical_u64() as usize + shift_1);
                     memory.set(memory_address_res, value);
                 } else {
-                    let value = memory.read_value(*res, fp);
+                    let value = res.read_value(&memory, fp);
                     let ptr = memory.get(fp + shift_0);
                     memory.set(ptr.as_canonical_u64() as usize + shift_1, value);
                 }
@@ -250,9 +302,9 @@ pub fn execute_bytecode(
                 dest,
                 updated_fp,
             } => {
-                if memory.read_value(*condition, fp) != F::ZERO {
-                    pc = memory.read_value(*dest, fp).as_canonical_u64() as usize;
-                    fp = memory.read_value(*updated_fp, fp).as_canonical_u64() as usize;
+                if condition.read_value(&memory, fp) != F::ZERO {
+                    pc = dest.read_value(&memory, fp).as_canonical_u64() as usize;
+                    fp = updated_fp.read_value(&memory, fp).as_canonical_u64() as usize;
                 } else {
                     pc += 1;
                 }

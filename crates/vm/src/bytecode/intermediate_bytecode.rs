@@ -10,17 +10,27 @@ pub struct HighLevelBytecode {
     pub memory_size_per_function: BTreeMap<String, usize>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HighLevelValue {
     Label(Label),
-    Constant(usize),
-    PublicInputStart,
-    PointerToZeroVector, // in the memory of chunks of 8 field elements
+    Constant(ConstantValue),
     Fp,
     MemoryAfterFp { shift: usize }, // m[fp + shift]
-    MemoryPointer { shift: usize }, // m[m[fp + shift]]
     ShiftedMemoryPointer { shift_0: usize, shift_1: usize }, // m[m[fp + shift_0] + shift_1]
-    DirectMemory { shift: ConstantValue },  // m[shift]
+}
+
+impl HighLevelValue {
+    pub fn compiles_to_constant(&self) -> bool {
+        matches!(self, HighLevelValue::Constant(_) | HighLevelValue::Label(_))
+    }
+
+    pub fn is_fp(&self) -> bool {
+        matches!(self, HighLevelValue::Fp)
+    }
+
+    pub fn is_mem_after_fp(&self) -> bool {
+        matches!(self, HighLevelValue::MemoryAfterFp { .. })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -39,10 +49,16 @@ pub enum HighLevelInstruction {
         arg_b: HighLevelValue,
         res: HighLevelValue,
     },
+    MemoryPointerEq {
+        shift_0: usize,
+        shift_1: usize,
+        res: usize,
+    }, // m[fp + res] = m[m[fp + shift_0]]
     Eq {
         left: HighLevelValue,
         right: HighLevelValue,
     },
+    Panic,
     Jump {
         dest: HighLevelValue,
         updated_fp: Option<HighLevelValue>,
@@ -86,15 +102,11 @@ impl ToString for HighLevelValue {
         match self {
             HighLevelValue::Label(label) => label.clone(),
             HighLevelValue::Constant(value) => value.to_string(),
-            HighLevelValue::PublicInputStart => "public_input_start".to_string(),
-            HighLevelValue::PointerToZeroVector => "pointer_to_zero_vector".to_string(),
             HighLevelValue::Fp => "fp".to_string(),
             HighLevelValue::MemoryAfterFp { shift } => format!("m[fp + {}]", shift),
-            HighLevelValue::MemoryPointer { shift } => format!("m[m[fp + {}]]", shift),
             HighLevelValue::ShiftedMemoryPointer { shift_0, shift_1 } => {
                 format!("m[m[fp + {}] + {}]", shift_0, shift_1)
             }
-            HighLevelValue::DirectMemory { shift } => format!("m[{}]", shift.to_string()),
         }
     }
 }
@@ -102,6 +114,16 @@ impl ToString for HighLevelValue {
 impl ToString for HighLevelInstruction {
     fn to_string(&self) -> String {
         match self {
+            HighLevelInstruction::MemoryPointerEq {
+                shift_0,
+                shift_1,
+                res,
+            } => format!(
+                "{} = m[m[fp + {}] + {}]",
+                res.to_string(),
+                shift_0,
+                shift_1
+            ),
             HighLevelInstruction::Computation {
                 operation,
                 arg_a,
@@ -119,6 +141,7 @@ impl ToString for HighLevelInstruction {
             HighLevelInstruction::Eq { left, right } => {
                 format!("{} == {}", left.to_string(), right.to_string())
             }
+            HighLevelInstruction::Panic => "panic".to_string(),
             HighLevelInstruction::Jump { dest, updated_fp } => {
                 if let Some(fp) = updated_fp {
                     format!("jump {} with fp = {}", dest.to_string(), fp.to_string())

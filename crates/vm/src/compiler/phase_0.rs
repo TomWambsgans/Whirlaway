@@ -130,3 +130,53 @@ pub fn replace_if_eq_helper(lines: &mut Vec<Line>) {
         }
     }
 }
+
+
+pub fn remove_memory_raw_accesses_with_constants(program: &mut Program) {
+    let mut aux_var_counter = 0;
+    for function in program.functions.values_mut() {
+        remove_memory_raw_accesses_with_constants_helper(&mut function.instructions, &mut aux_var_counter);
+    }
+}
+
+pub fn remove_memory_raw_accesses_with_constants_helper(lines: &mut Vec<Line>, aux_var_counter: &mut usize) {
+    for i in (0..lines.len()).rev() {
+        match &mut lines[i] {
+            Line::IfCondition {
+                condition: _,
+                then_branch,
+                else_branch,
+            } => {
+                remove_memory_raw_accesses_with_constants_helper(then_branch, aux_var_counter);
+                remove_memory_raw_accesses_with_constants_helper(else_branch, aux_var_counter);
+            }
+            Line::ForLoop { body, .. } => {
+                remove_memory_raw_accesses_with_constants_helper(body, aux_var_counter);
+            }
+            Line::RawAccess { var, index } => {
+                if let VarOrConstant::Constant(constant) = index {
+                    let (var, index) = (var.clone(), constant.clone());
+                    let var_to_constant = Var {
+                        name: format!("@var_to_constant_{}", aux_var_counter),
+                    };
+                    *aux_var_counter += 1;
+                    lines.insert(
+                        i,
+                        Line::Assignment {
+                            var: var_to_constant.clone(),
+                            operation: HighLevelOperation::Add,
+                            arg0: index.into(),
+                            arg1: ConstantValue::Scalar(0).into(),
+                        },
+                    );
+                    lines[i + 1] = Line::RawAccess {
+                        var: var.clone(),
+                        index: var_to_constant.into(),
+                    };
+                }
+            }
+            _ => {}
+        }
+    }
+}
+

@@ -1,9 +1,12 @@
+use p3_field::PrimeField64;
 use std::collections::BTreeMap;
 
 use crate::{
-    AIR_COLUMNS_PER_OPCODE,
+    AIR_COLUMNS_PER_OPCODE, F,
     bytecode::{
-        final_bytecode::{Bytecode, Hint, Instruction, Operation, Value},
+        final_bytecode::{
+            Bytecode, Hint, Instruction, MemOrConstant, MemOrFp, MemOrFpOrConstant, Operation,
+        },
         intermediate_bytecode::*,
     },
     compiler::phase_2::compile_to_hight_level_bytecode,
@@ -75,24 +78,39 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
         ConstantValue::PointerToZeroVector => pointer_to_zero_vector,
     };
 
-    let convert_value = |value: HighLevelValue| match value {
-        HighLevelValue::Constant(c) => Ok(Value::Constant(c)),
-        HighLevelValue::Fp => Ok(Value::Fp),
-        HighLevelValue::MemoryAfterFp { shift } => Ok(Value::MemoryAfterFp { shift }),
-        HighLevelValue::DirectMemory { shift } => Ok(Value::DirectMemory {
-            shift: convert_constant(shift),
-        }),
-        HighLevelValue::ShiftedMemoryPointer { .. } | HighLevelValue::MemoryPointer { .. } => {
-            Err("Memory Pointer should only be used in AssertEq".to_string())
+    let try_as_constant = |value: &HighLevelValue| match value {
+        HighLevelValue::Constant(c) => Some(convert_constant(*c)),
+        HighLevelValue::Label(label) => Some(label_to_pc.get(label).cloned().unwrap()),
+        _ => None,
+    };
+
+    let try_as_mem_or_constant = |value: &HighLevelValue| {
+        if let Some(cst) = try_as_constant(value) {
+            return Some(MemOrConstant::Constant(cst));
         }
-        HighLevelValue::PointerToZeroVector => Ok(Value::Constant(pointer_to_zero_vector)),
-        HighLevelValue::Label(label) => Ok(Value::Constant(
-            label_to_pc
-                .get(&label)
-                .cloned()
-                .expect("Label not found in the bytecode"),
-        )),
-        HighLevelValue::PublicInputStart => Ok(Value::Constant(public_input_start)),
+        if let HighLevelValue::MemoryAfterFp { shift } = value {
+            return Some(MemOrConstant::MemoryAfterFp { shift: *shift });
+        }
+        return None;
+    };
+
+    let try_as_mem_or_fp = |value: &HighLevelValue| match value {
+        HighLevelValue::MemoryAfterFp { shift } => Some(MemOrFp::MemoryAfterFp { shift: *shift }),
+        HighLevelValue::Fp => Some(MemOrFp::Fp),
+        _ => None,
+    };
+
+    let try_as_mem_or_fp_or_constant = |value: &HighLevelValue| {
+        if let Some(cst) = try_as_constant(value) {
+            return Some(MemOrFpOrConstant::Constant(cst));
+        }
+        if let HighLevelValue::MemoryAfterFp { shift } = value {
+            return Some(MemOrFpOrConstant::MemoryAfterFp { shift: *shift });
+        }
+        if let HighLevelValue::Fp = value {
+            return Some(MemOrFpOrConstant::Fp);
+        }
+        None
     };
 
     for (pc_start, chunk) in code_chunks {
@@ -101,74 +119,126 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
             match instruction.clone() {
                 HighLevelInstruction::Computation {
                     operation,
-                    arg_a,
-                    arg_b,
+                    mut arg_a,
+                    mut arg_b,
                     res,
                 } => {
+                    let operation: Operation = operation.try_into().unwrap();
+
+                    if let Some(arg_a_cst) = try_as_constant(&arg_a) {
+                        if let Some(arg_b_cst) = try_as_constant(&arg_b) {
+                            // res = constant +/x constant
+
+                            let op_res = operation
+                                .compute(F::new(arg_a_cst as u32), F::new(arg_b_cst as u32));
+
+                            let res: MemOrFp = res.try_into().unwrap();
+
+                            low_level_bytecode.push(Instruction::Computation {
+                                operation: Operation::Add,
+                                arg_a: MemOrConstant::Constant(0),
+                                arg_b: res,
+                                res: MemOrConstant::Constant(op_res.as_canonical_u64() as usize),
+                            });
+                            continue;
+                        }
+                    }
+
+                    if arg_b.compiles_to_constant() {
+                        std::mem::swap(&mut arg_a, &mut arg_b);
+                    }
+
                     low_level_bytecode.push(Instruction::Computation {
-                        operation: match operation {
-                            HighLevelOperation::Add => {
-                                crate::bytecode::final_bytecode::Operation::Add
-                            }
-                            HighLevelOperation::Mul => {
-                                crate::bytecode::final_bytecode::Operation::Mul
-                            }
-                            _ => {
-                                unreachable!("Handled earlier in \"clean\"")
-                            }
-                        },
-                        arg_a: convert_value(arg_a).unwrap(),
-                        arg_b: convert_value(arg_b).unwrap(),
-                        res: convert_value(res).unwrap(),
+                        operation,
+                        arg_a: try_as_mem_or_constant(&arg_a).unwrap(),
+                        arg_b: try_as_mem_or_fp(&arg_b).unwrap(),
+                        res: try_as_mem_or_constant(&res).unwrap(),
                     });
                 }
-                HighLevelInstruction::Eq { left, right } => match right {
-                    HighLevelValue::ShiftedMemoryPointer { shift_0, shift_1 } => {
+                HighLevelInstruction::Panic => {
+                    low_level_bytecode.push(Instruction::Computation {
+                        // fp x 0 = 1 is impossible, so we can use it to panic
+                        operation: Operation::Mul,
+                        arg_a: MemOrConstant::Constant(0),
+                        arg_b: MemOrFp::Fp,
+                        res: MemOrConstant::Constant(1),
+                    });
+                }
+                HighLevelInstruction::Eq {
+                    mut left,
+                    mut right,
+                } => {
+                    // ShiftedMemoryPointer
+                    assert!(!matches!(left, HighLevelValue::ShiftedMemoryPointer { .. }));
+                    if let HighLevelValue::ShiftedMemoryPointer { shift_0, shift_1 } = right {
                         low_level_bytecode.push(Instruction::MemoryPointerEq {
                             shift_0,
                             shift_1,
-                            res: convert_value(left.clone()).unwrap(),
+                            res: try_as_mem_or_fp_or_constant(&dbg!(left)).unwrap(),
                         });
+                        continue;
                     }
-                    HighLevelValue::MemoryPointer { shift } => {
-                        low_level_bytecode.push(Instruction::MemoryPointerEq {
-                            shift_0: shift,
-                            shift_1: 0,
-                            res: convert_value(left.clone()).unwrap(),
-                        });
+
+                    // Fp
+                    if right == HighLevelValue::Fp {
+                        assert!(left != HighLevelValue::Fp);
+                        std::mem::swap(&mut left, &mut right);
                     }
-                    _ => {
-                        let left = convert_value(left).unwrap();
-                        let right = convert_value(right).unwrap();
+                    if left == HighLevelValue::Fp {
                         low_level_bytecode.push(Instruction::Computation {
                             operation: Operation::Add,
-                            arg_a: left,
-                            arg_b: Value::Constant(0),
-                            res: right,
+                            arg_a: MemOrConstant::Constant(0),
+                            arg_b: MemOrFp::Fp,
+                            res: try_as_mem_or_constant(&right).unwrap(),
                         });
+                        continue;
                     }
-                },
+
+                    if left.compiles_to_constant() && right.compiles_to_constant() {
+                        panic!("Weird ?")
+                    }
+
+                    if matches!(right, HighLevelValue::MemoryAfterFp { .. }) {
+                        std::mem::swap(&mut left, &mut right);
+                    }
+
+                    assert!(matches!(left, HighLevelValue::MemoryAfterFp { .. }));
+
+                    low_level_bytecode.push(Instruction::Computation {
+                        operation: Operation::Add,
+                        arg_a: MemOrConstant::Constant(0),
+                        arg_b: try_as_mem_or_fp(&left).unwrap(),
+                        res: try_as_mem_or_constant(&right).unwrap(),
+                    });
+                }
+                HighLevelInstruction::MemoryPointerEq { shift_0, shift_1, res } => {
+                    low_level_bytecode.push(Instruction::MemoryPointerEq {
+                        shift_0,
+                        shift_1,
+                        res: MemOrFpOrConstant::MemoryAfterFp { shift: res },
+                    });
+                }   
                 HighLevelInstruction::JumpIfNotZero {
                     condition,
                     dest,
                     updated_fp,
                 } => {
                     let updated_fp = updated_fp
-                        .map(|fp| convert_value(fp).unwrap())
-                        .unwrap_or(Value::Fp);
+                        .map(|fp| try_as_mem_or_fp(&fp).unwrap())
+                        .unwrap_or(MemOrFp::Fp);
                     low_level_bytecode.push(Instruction::JumpIfNotZero {
-                        condition: convert_value(condition).unwrap(),
-                        dest: convert_value(dest).unwrap(),
+                        condition: try_as_mem_or_constant(&condition).unwrap(),
+                        dest: try_as_mem_or_constant(&dest).unwrap(),
                         updated_fp,
                     });
                 }
                 HighLevelInstruction::Jump { dest, updated_fp } => {
                     low_level_bytecode.push(Instruction::JumpIfNotZero {
-                        condition: Value::Constant(1),
-                        dest: convert_value(dest).unwrap(),
+                        condition: MemOrConstant::Constant(1),
+                        dest: try_as_mem_or_constant(&dest).unwrap(),
                         updated_fp: updated_fp
-                            .map(|fp| convert_value(fp).unwrap())
-                            .unwrap_or(Value::Fp),
+                            .map(|fp| try_as_mem_or_fp(&fp).unwrap())
+                            .unwrap_or(MemOrFp::Fp),
                     });
                 }
                 HighLevelInstruction::Poseidon2_16 { shift } => {
@@ -202,7 +272,7 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
                         line_info: line_info.clone(),
                         content: content
                             .into_iter()
-                            .map(|c| convert_value(c).unwrap())
+                            .map(|c| try_as_mem_or_constant(&c).unwrap())
                             .collect(),
                     };
                     hints.entry(pc).or_insert_with(Vec::new).push(hint);
@@ -257,17 +327,12 @@ fn clean(bytecode: &mut HighLevelBytecode) {
                     }
                 }
                 HighLevelInstruction::Eq { left, right } => {
-                    if let HighLevelValue::ShiftedMemoryPointer { .. }
-                    | HighLevelValue::MemoryPointer { .. } = left
-                    {
+                    if let HighLevelValue::ShiftedMemoryPointer { .. } = left {
                         assert!(
                             !matches!(right, HighLevelValue::ShiftedMemoryPointer { .. }),
                             "Cannot compare two memory pointers directly"
                         );
-                        assert!(
-                            !matches!(right, HighLevelValue::MemoryPointer { .. }),
-                            "Cannot compare memory pointer with shifted memory pointer"
-                        );
+
                         std::mem::swap(left, right);
                     }
                 }
