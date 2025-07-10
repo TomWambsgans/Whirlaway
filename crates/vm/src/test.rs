@@ -3,7 +3,7 @@ use p3_koala_bear::Poseidon2KoalaBear;
 use p3_symmetric::Permutation;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::poseidon16_kb;
-use xmss::{WotsSecretKey, random_message};
+use xmss::{WotsSecretKey, XMSS_MERKLE_HEIGHT, XmssSecretKey, random_message};
 
 use crate::{
     F, compiler::compile_to_low_level_bytecode, parser::parse_program, runner::execute_bytecode,
@@ -244,9 +244,9 @@ fn test_verify_merkle_path() {
         private_input_start = public_input_start + 24; // leaf + root + "neighbours_are_left bits"
         thing_to_hash = public_input_start / 8;
         claimed_merkle_root = thing_to_hash + 1;
-        neighbours_are_left = public_input_start + 16;
-        proof = private_input_start / 8;
-        merkle_root = merkle_step(0, HEIGHT, thing_to_hash, neighbours_are_left, proof);
+        are_left = public_input_start + 16;
+        neighbours = private_input_start / 8;
+        merkle_root = merkle_step(0, HEIGHT, thing_to_hash, are_left, neighbours);
         print_chunk_of_8(merkle_root);
         assert_eq_ext(merkle_root, claimed_merkle_root);
         return;
@@ -264,26 +264,24 @@ fn test_verify_merkle_path() {
         return;
     }
 
-    fn merkle_step(step, height, thing_to_hash, neighbours_are_left, proof) -> 1 {
+    fn merkle_step(step, height, thing_to_hash, are_left, neighbours) -> 1 {
         if step == height {
             return thing_to_hash;
         }
-        neighbour_is_left = neighbours_are_left[0];
-        neighbour = proof;
+        is_left = are_left[0];
 
-        if neighbour_is_left == 1 {
-            hashed, trash = poseidon16(neighbour, thing_to_hash);
+        if is_left == 1 {
+            hashed, trash = poseidon16(thing_to_hash, neighbours);
         } else {
-            hashed, trash = poseidon16(thing_to_hash, neighbour);
+            hashed, trash = poseidon16(neighbours, thing_to_hash);
         }
 
         next_step = step + 1;
-        next_neighbours_are_left = neighbours_are_left + 1;
-        next_proof = proof + 1;
-        res = merkle_step(next_step, height, hashed, next_neighbours_are_left, next_proof);
+        next_are_left = are_left + 1;
+        next_neighbours = neighbours + 1;
+        res = merkle_step(next_step, height, hashed, next_are_left, next_neighbours);
         return res;
     }
-
     fn print_chunk_of_8(arr) {
         reindexed_arr = arr * 8;
         for i in 0..8 {
@@ -297,17 +295,17 @@ fn test_verify_merkle_path() {
     let mut rng = StdRng::seed_from_u64(0);
     let height = 8;
     let leaf = random_digest(&mut rng);
-    let neighbour_is_left = (0..height).map(|_| rng.random()).collect::<Vec<bool>>();
+    let is_left = (0..height).map(|_| rng.random()).collect::<Vec<bool>>();
 
     let mut private_input = vec![];
 
     let mut to_hash = leaf.clone();
     for i in 0..height {
         let neighbour = random_digest(&mut rng);
-        if neighbour_is_left[i] {
-            to_hash = poseidon16_kb(neighbour, to_hash).0;
-        } else {
+        if is_left[i] {
             to_hash = poseidon16_kb(to_hash, neighbour).0;
+        } else {
+            to_hash = poseidon16_kb(neighbour, to_hash).0;
         }
         private_input.extend(neighbour);
     }
@@ -318,7 +316,7 @@ fn test_verify_merkle_path() {
     let mut public_input = leaf.to_vec();
     public_input.extend(merkle_root);
     for i in 0..height {
-        if neighbour_is_left[i] {
+        if is_left[i] {
             public_input.push(F::ONE);
         } else {
             public_input.push(F::ZERO);
@@ -402,26 +400,6 @@ fn test_verify_wots_signature() {
         return res; 
     }
 
-    fn merkle_step(step, height, thing_to_hash, neighbours_are_left, proof) -> 1 {
-        if step == height {
-            return thing_to_hash;
-        }
-        neighbour_is_left = neighbours_are_left[0];
-        neighbour = proof;
-
-        if neighbour_is_left == 1 {
-            hashed, trash = poseidon16(neighbour, thing_to_hash);
-        } else {
-            hashed, trash = poseidon16(thing_to_hash, neighbour);
-        }
-
-        next_step = step + 1;
-        next_neighbours_are_left = neighbours_are_left + 1;
-        next_proof = proof + 1;
-        res = merkle_step(next_step, height, hashed, next_neighbours_are_left, next_proof);
-        return res;
-    }
-
     fn print_chunk_of_8(arr) {
         reindexed_arr = arr * 8;
         for i in 0..8 {
@@ -462,4 +440,153 @@ fn test_verify_wots_signature() {
     compile_and_run(program, &public_input, &private_input);
 
     dbg!(&public_key_hashed);
+}
+
+#[test]
+fn test_verify_xmss_signature() {
+    // Public input: xmss public key | message
+    // Private input: xmss signature = wots signatue (N_CHAINS x 8) + merkle proof (neighbours: XMSS_MERKLE_HEIGHT x 8 + is_left: XMSS_MERKLE_HEIGHT)
+    let program = r#"
+
+    const N_CHAINS = 64;
+    const CHAIN_LENGTH = 8;
+    const XMSS_MERKLE_HEIGHT = 5;
+
+    fn main() {
+        private_input_start = public_input_start + 72; // wots public key hash + message: 8 + 64 = 72
+        xmss_public_key = public_input_start / 8;
+        message = public_input_start + 8;
+        wots_signature = private_input_start / 8;
+        merkle_path = wots_signature + N_CHAINS;
+        xmss_public_key_recovered = verify_xmss(message, wots_signature, merkle_path);
+        assert_eq_ext(xmss_public_key, xmss_public_key);
+        print_chunk_of_8(xmss_public_key);
+        return;
+    }
+
+    fn verify_xmss(message, wots_signature, merkle_path) -> 1 {
+        // merkle_path: vectorized pointer to neighbours: XMSS_MERKLE_HEIGHT x 8 followed by is_left: XMSS_MERKLE_HEIGHT
+        wots_public_key = recover_wots_public_key(message, wots_signature);
+        wots_public_key_hash = hash_wots_public_key(wots_public_key);
+        are_left_vec = merkle_path + XMSS_MERKLE_HEIGHT;
+        are_left = are_left_vec * 8;
+        merkle_root = merkle_step(0, XMSS_MERKLE_HEIGHT, wots_public_key_hash, are_left, merkle_path);
+        return merkle_root;
+    }
+
+    fn recover_wots_public_key(message, signature) -> 1 {
+        // message: pointer
+        // signature: vectorized pointer
+        // return a pointer of vectorized pointers
+
+        public_key = malloc(N_CHAINS);
+        for i in 0..N_CHAINS {
+            msg_i = message[i];
+            n_hash_iter = CHAIN_LENGTH - msg_i;
+            signature_i = signature + i;
+            pk_i = hash_chain(signature_i, n_hash_iter);
+            public_key[i] = pk_i;
+        }
+        return public_key;
+    }
+
+    fn hash_chain(thing_to_hash, n_iter) -> 1 {
+        if n_iter == 0 {
+            return thing_to_hash;
+        }
+        hashed, trash = poseidon16(thing_to_hash, pointer_to_zero_vector);
+        n_iter_minus_one = n_iter - 1;
+        res = hash_chain(hashed, n_iter_minus_one);
+        return res;
+    }
+
+    fn hash_wots_public_key(public_key) -> 1 {
+        hashes = malloc(33); // N_CHAINS / 2 + 1
+        hashes[0] = pointer_to_zero_vector;
+        for i in 0..32 {
+            two_i = 2 * i;
+            two_i_plus_one = two_i + 1;
+            a = public_key[two_i];
+            b = public_key[two_i_plus_one];
+            c = hashes[i];
+            next, trash1, trash2 = poseidon24(a, b, c);
+            i_plus_one = i + 1;
+            hashes[i_plus_one] = next;
+        }
+        res = hashes[32];
+        return res; 
+    }
+
+    fn merkle_step(step, height, thing_to_hash, are_left, neighbours) -> 1 {
+        if step == height {
+            return thing_to_hash;
+        }
+        is_left = are_left[0];
+
+        if is_left == 1 {
+            hashed, trash = poseidon16(thing_to_hash, neighbours);
+        } else {
+            hashed, trash = poseidon16(neighbours, thing_to_hash);
+        }
+
+        next_step = step + 1;
+        next_are_left = are_left + 1;
+        next_neighbours = neighbours + 1;
+        res = merkle_step(next_step, height, hashed, next_are_left, next_neighbours);
+        return res;
+    }
+
+    fn print_chunk_of_8(arr) {
+        reindexed_arr = arr * 8;
+        for i in 0..8 {
+            arr_i = reindexed_arr[i];
+            print(arr_i);
+        }
+        return;
+    }
+
+    fn assert_eq_ext(a, b) {
+        // a and b both pointers in the memory of chunk of 8 field elements
+        a_shifted = a * 8;
+        b_shifted = b * 8;
+        for i in 0..8 {
+            a_i = a_shifted[i];
+            b_i = b_shifted[i];
+            assert a_i == b_i;
+        }
+        return;
+    }
+   "#;
+
+    let mut rng = StdRng::seed_from_u64(0);
+    let mesage = random_message(&mut rng);
+    let xmss_secret_key: XmssSecretKey = XmssSecretKey::random(&mut rng);
+    let index = rng.random_range(0..1 << XMSS_MERKLE_HEIGHT);
+    let signature = xmss_secret_key.sign(&mesage, index);
+
+    let mut public_input = xmss_secret_key.public_key().root.to_vec();
+    public_input.extend(mesage.iter().map(|&x| F::new(x as u32)));
+
+    let mut private_input = signature
+        .wots_signature
+        .0
+        .iter()
+        .flat_map(|digest| digest.to_vec())
+        .collect::<Vec<F>>();
+    private_input.extend(
+        signature
+            .merkle_proof
+            .iter()
+            .flat_map(|(_, neighbour)| *neighbour),
+    );
+    private_input.extend(
+        signature
+            .merkle_proof
+            .iter()
+            .map(|(is_left, _)| F::new(*is_left as u32)),
+    );
+
+    compile_and_run(program, &public_input, &private_input);
+
+    dbg!(xmss_secret_key.public_key().root); 
 }
