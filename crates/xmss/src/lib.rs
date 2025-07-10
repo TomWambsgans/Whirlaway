@@ -20,8 +20,8 @@ pub struct WotsSecretKey {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct WotsPublicKey([Digest; N_CHAINS]);
-pub struct WotsSignature([Digest; N_CHAINS]);
+pub struct WotsPublicKey(pub [Digest; N_CHAINS]);
+pub struct WotsSignature(pub [Digest; N_CHAINS]);
 
 impl WotsSecretKey {
     pub fn random<R: Rng>(rng: &mut R) -> Self {
@@ -94,8 +94,8 @@ impl WotsPublicKey {
 }
 
 pub struct XmssSecretKey {
-    wots_secret_keys: Vec<WotsSecretKey>,
-    merkle_tree: Vec<Vec<Digest>>,
+    pub wots_secret_keys: Vec<WotsSecretKey>,
+    pub merkle_tree: Vec<Vec<Digest>>,
 }
 
 pub struct XmssSignature {
@@ -193,6 +193,14 @@ fn iterate_hash(a: &Digest, n: usize) -> Digest {
     res
 }
 
+pub fn random_message<R: Rng>(rng: &mut R) -> Message {
+    let mut message = [0u8; N_CHAINS];
+    for i in 0..N_CHAINS {
+        message[i] = rng.random_range(0..CHAIN_LENGTH) as u8;
+    }
+    message
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,14 +217,6 @@ mod tests {
             signature.recover_public_key(&message, &signature),
             *sk.public_key()
         );
-    }
-
-    fn random_message<R: Rng>(rng: &mut R) -> Message {
-        let mut message = [0u8; N_CHAINS];
-        for i in 0..N_CHAINS {
-            message[i] = rng.random_range(0..CHAIN_LENGTH) as u8;
-        }
-        message
     }
 
     #[test]

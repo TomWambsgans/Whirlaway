@@ -53,8 +53,6 @@ Each opcode = 22 field elements:
 - Jump
 - Poseidon2_16
 - Poseidon2_24
-- ExtComputationAdd
-- ExtComputationMul
 
 ## Execution columns (committed)
 
@@ -109,7 +107,7 @@ ShouldJump * (next(fp) - C)
 (A - ShouldJump) * (next(pc) - (pc + 1))
 (A - ShouldJump) * (next(fp) - fp)
 
-TODO: Poseidon16, Poseidon24, ExtComputation
+TODO: Poseidon16, Poseidon24
 
 ## Memory layout:
 

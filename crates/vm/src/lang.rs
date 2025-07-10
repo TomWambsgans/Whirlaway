@@ -309,8 +309,8 @@ impl ToString for ConstantValue {
     fn to_string(&self) -> String {
         match self {
             ConstantValue::Scalar(scalar) => scalar.to_string(),
-            ConstantValue::PublicInputStart => "public_input_start".to_string(),
-            ConstantValue::PointerToZeroVector => "pointer_to_zero_vector".to_string(),
+            ConstantValue::PublicInputStart => "@public_input_start".to_string(),
+            ConstantValue::PointerToZeroVector => "@pointer_to_zero_vector".to_string(),
         }
     }
 }

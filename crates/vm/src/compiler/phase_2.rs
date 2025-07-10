@@ -70,7 +70,7 @@ pub fn compile_to_hight_level_bytecode(mut program: Program) -> Result<HighLevel
     replace_array_access(&mut program);
     replace_loops_with_recursion(&mut program);
     replace_if_eq(&mut program);
-    // println!("Program after phase 1: \n{}", program.to_string());
+    // println!("Program after phase 2: \n{}", program.to_string());
     let mut compiler = Compiler::new();
     let mut memory_size_per_function = BTreeMap::new();
     for function in program.functions.values() {

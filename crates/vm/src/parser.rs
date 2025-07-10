@@ -13,6 +13,7 @@ pub struct LangParser;
 pub enum ParseError {
     PestError(pest::error::Error<Rule>),
     SemanticError(String),
+    NotAConstant(String),
 }
 
 impl From<pest::error::Error<Rule>> for ParseError {
@@ -26,6 +27,7 @@ impl std::fmt::Display for ParseError {
         match self {
             ParseError::PestError(e) => write!(f, "Parse error: {}", e),
             ParseError::SemanticError(e) => write!(f, "Semantic error: {}", e),
+            ParseError::NotAConstant(e) => write!(f, "Not a constant: {}", e),
         }
     }
 }
@@ -516,8 +518,8 @@ fn parse_var_or_constant(
     match inner.as_rule() {
         Rule::identifier => {
             let name = inner.as_str();
-            if let Some(value) = context.resolve_constant(name) {
-                Ok(VarOrConstant::Constant(ConstantValue::Scalar(value)))
+            if let Ok(constant) = parse_constant_value(name, context) {
+                Ok(VarOrConstant::Constant(constant))
             } else {
                 Ok(VarOrConstant::Var(Var {
                     name: name.to_string(),
@@ -525,7 +527,8 @@ fn parse_var_or_constant(
             }
         }
         Rule::constant_value => Ok(VarOrConstant::Constant(parse_constant_value(
-            inner, context,
+            inner.as_str(),
+            context,
         )?)),
         other => Err(ParseError::SemanticError(format!(
             "Expected identifier or constant value, found: {:?}",
@@ -534,18 +537,19 @@ fn parse_var_or_constant(
     }
 }
 
-fn parse_constant_value(
-    pair: Pair<Rule>,
-    context: &ParseContext,
-) -> Result<ConstantValue, ParseError> {
-    if pair.as_str() == "public_input_start" {
+fn parse_constant_value(value: &str, context: &ParseContext) -> Result<ConstantValue, ParseError> {
+    if value == "public_input_start" {
         return Ok(ConstantValue::PublicInputStart);
-    } else if pair.as_str() == "pointer_to_zero_vector" {
+    } else if value == "pointer_to_zero_vector" {
         return Ok(ConstantValue::PointerToZeroVector);
-    } else if let Some(value) = context.resolve_constant(pair.as_str()) {
+    } else if let Some(value) = context.resolve_constant(value) {
         return Ok(ConstantValue::Scalar(value));
     } else {
-        Ok(ConstantValue::Scalar(pair.as_str().parse().unwrap()))
+        return Ok(ConstantValue::Scalar(
+            value
+                .parse()
+                .or_else(|_| Err(ParseError::NotAConstant(value.to_string())))?,
+        ));
     }
 }
 
