@@ -2,11 +2,8 @@
 
 ## Logup*
 
-If we use logup* (https://eprint.iacr.org/2025/946.pdf), we can avoid committing to the 22 bytecode columns (we only pay a constant cost in the size of the bytecode).
+If we use logup* (https://eprint.iacr.org/2025/946.pdf), we can avoid committing to the bytecode columns (we only pay a constant cost in the size of the bytecode).
 
-## TODO
-
-the current ISA can still be simplified a lot (typically, we never multiply fp x fp, or constant x constant etc)
 
 ## Memory
 
@@ -21,29 +18,17 @@ Contrary to Cairo, no ap register (Allocation Pointer)
 
 ## Opcode format
 
-Each opcode = 22 field elements:
+Each opcode = 12 field elements:
 
-- ArgA
-- ArgB
-- ArgC
+- A_arg
+- B_arg
+- C_arg
 
 ### Binary columns
 
-- A_IsConstant
-- B_IsConstant
-- C_IsConstant
-
-- A_IsFp
-- B_IsFp
-- C_IsFp
-
-- A_isMemAfterFp
-- B_isMemAfterFp
-- C_isMemAfterFp
-
-- A_isDirectMem
-- B_isDirectMem
-- C_isDirectMem
+- A_flag: (0: MemoryAfterFp, 1: Constant)
+- B_flag: (0: MemoryAfterFp, 1: Fp)
+- C_flag: (0: MemoryAfterFp, 1: Constant)
 
 ### Instruction selector
 
@@ -54,7 +39,9 @@ Each opcode = 22 field elements:
 - Poseidon2_16
 - Poseidon2_24
 
-## Execution columns (committed)
+## Degree 2 AIR
+
+### Execution columns (committed)
 
 - pc
 - fp
@@ -66,46 +53,91 @@ Each opcode = 22 field elements:
 - B
 - C
 
-## Execution columns (not committed, if we use logup*)
+### Execution columns (not committed, if we use logup*)
 
 - A_value = m[A_addr]
 - B_value = m[B_addr]
 - C_value = m[C_addr]
 
-## AIR transition constraints (degree 2)
+### Transition constraints
 
-ComputationAdd * (A_value + B_value - C_value)
-ComputationMul * (A_value * B_value - C_value)
+A_flag * (A - A_arg)
+B_flag * (B - fp)
+C_flag * (C - C_arg)
 
-A_IsConstant * (A - ArgA)
-B_IsConstant * (B - ArgB)
-C_IsConstant * (C - ArgC)
+(1 - A_flag) * ((fp + A_arg) - A_addr)
+(1 - B_flag) * ((fp + B_arg) - B_addr)
+(1 - C_flag) * ((fp + C_arg) - C_addr)
 
-A_IsFp * (A - fp)
-B_IsFp * (B - fp)
-C_IsFp * (C - fp)
+(1 - A_flag) * (A - A_value)
+(1 - B_flag) * (A - B_value)
+(1 - C_flag) * (A - C_value)
 
-(A_isMemAfterFp + A_isDirectMem) * (A - A_value)
-A_isMemAfterFp * (A_address - (fp + ArgA))
-A_isDirectMem * (A_address - ArgA)
+#### Add / Mul
 
-(B_isMemAfterFp + B_isDirectMem) * (B - B_value)
-B_isMemAfterFp * (B_address - (fp + ArgB))
-B_isDirectMem * (B_address - ArgB)
+ComputationAdd * (A + B - C)
+ComputationMul * (A * B - C)
 
-(C_isMemAfterFp + C_isDirectMem) * (C - C_value)
-C_isMemAfterFp * (C_address - (fp + ArgC))
-C_isDirectMem * (C_address - ArgC)
+#### MemoryPointerEq
 
-MemoryPointer * (A_address - ArgA)
-MemoryPointer * (B_address - A_value)
-MemoryPointer * (C - B_value)
+set A_flag = 0, B_flag = 1, C_flag = 0
+
+MemoryPointerEq * ((A_value + B_arg) - B_addr)
+MemoryPointerEq * (B_value - C_value)
+
+#### Jumps
 
 ShouldJump - Jump * A
-ShouldJump * (next(pc) - B)
-ShouldJump * (next(fp) - C)
+ShouldJump * (next(pc) - C)
+ShouldJump * (next(fp) - B)
 (A - ShouldJump) * (next(pc) - (pc + 1))
 (A - ShouldJump) * (next(fp) - fp)
+
+## Alternative: Degree 3 AIR
+
+### Execution columns (committed)
+
+- pc
+- fp
+- A_addr
+- B_addr
+- C_addr
+
+### Execution columns (not committed, if we use logup*)
+
+- A_value = m[A_addr]
+- B_value = m[B_addr]
+- C_value = m[C_addr]
+
+### Transition constraints
+
+Aliases:
+A = (A_flag * A_arg + (1 - A_flag) * A_value)
+B = (B_flag * fp + (1 - B_flag) * B_value)
+C = (C_flag * C_arg + (1 - C_flag) * C_value)
+
+(1 - A_flag) * ((fp + A_arg) - A_addr)
+(1 - B_flag) * ((fp + B_arg) - B_addr)
+(1 - C_flag) * ((fp + C_arg) - C_addr)
+
+#### Add / Mul
+
+ComputationAdd * (A + B - C)
+ComputationMul * (A * B - C)
+
+#### MemoryPointerEq
+
+set A_flag = 0, B_flag = 1, C_flag = 0
+
+MemoryPointerEq * ((A_value + B_arg) - B_addr)
+MemoryPointerEq * (B_value - C_value)
+
+#### Jumps
+
+Jump * A * (next(pc) - C)
+Jump * A * (next(fp) - B)
+A * (1 - Jump) * (next(pc) - (pc + 1))
+A * (1 - Jump) * (next(fp) - fp)
 
 TODO: Poseidon16, Poseidon24
 
