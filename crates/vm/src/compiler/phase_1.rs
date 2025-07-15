@@ -1,32 +1,27 @@
+use crate::{bytecode::intermediate_bytecode::*, lang::*};
 use std::collections::BTreeSet;
 
-use crate::{bytecode::intermediate_bytecode::*, lang::*};
-
-/// Replace all loops with recursive function
+/// Convert for loops into recursive function calls
 pub fn replace_loops_with_recursion(program: &mut Program) {
-    let mut loop_counter = 0;
+    let mut counter = 0;
     let mut new_functions = Vec::new();
+
     for function in program.functions.values_mut() {
-        replace_loops_with_recursion_helper(
-            &mut function.instructions,
-            &mut loop_counter,
-            &mut new_functions,
-        );
+        convert_loops_in_lines(&mut function.instructions, &mut counter, &mut new_functions);
     }
-    // Add new functions to the program
-    for new_function in new_functions {
-        program
-            .functions
-            .insert(new_function.name.clone(), new_function);
+
+    // Add generated functions to program
+    for func in new_functions {
+        program.functions.insert(func.name.clone(), func);
     }
 }
 
-fn replace_loops_with_recursion_helper(
+fn convert_loops_in_lines(
     lines: &mut Vec<Line>,
-    loop_counter: &mut usize,
+    counter: &mut usize,
     new_functions: &mut Vec<Function>,
 ) {
-    for line in &mut *lines {
+    for line in lines {
         match line {
             Line::ForLoop {
                 iterator,
@@ -34,237 +29,181 @@ fn replace_loops_with_recursion_helper(
                 end,
                 body,
             } => {
-                replace_loops_with_recursion_helper(body, loop_counter, new_functions);
+                // Recursively process nested loops first
+                convert_loops_in_lines(body, counter, new_functions);
 
-                let function_name = format!("@loop{}", loop_counter);
-                *loop_counter += 1;
+                let func_name = format!("@loop{}", counter);
+                *counter += 1;
 
-                let (_, mut external_vars) = get_internal_and_external_variables(&body);
+                // Find variables used inside loop but defined outside
+                let (_, mut external_vars) = find_variable_usage(&body);
+
+                // Include start/end variables if they're variables
                 if let VarOrConstant::Var(var) = start {
                     external_vars.insert(var.clone());
                 }
                 if let VarOrConstant::Var(var) = end {
                     external_vars.insert(var.clone());
-                }   
-        
-                // Remove the iterator from external variables
-                external_vars.remove(iterator);
-                let external_vars = external_vars.into_iter().collect::<Vec<_>>();
+                }
+                external_vars.remove(iterator); // Iterator is internal to loop
 
-                let mut function_arguments = vec![iterator.clone()];
-                function_arguments.extend(external_vars.clone());
+                let external_vars: Vec<_> = external_vars.into_iter().collect();
 
-                let mut first_call_arguments: Vec<VarOrConstant> = vec![start.clone().into()];
-                first_call_arguments.extend(external_vars.iter().map(|var| var.clone().into()));
+                // Create function arguments: iterator + external variables
+                let mut func_args = vec![iterator.clone()];
+                func_args.extend(external_vars.clone());
 
-                let mut then_branch = std::mem::take(body);
+                // Create recursive function body
+                let recursive_func = create_recursive_function(
+                    func_name.clone(),
+                    func_args,
+                    iterator.clone(),
+                    end.clone(),
+                    std::mem::take(body),
+                    &external_vars,
+                );
+                new_functions.push(recursive_func);
 
-                let incremented_iterator = Var {
-                    name: format!("@incremented_{}", iterator.name),
-                };
-                then_branch.push(Line::Assignment {
-                    var: incremented_iterator.clone(),
-                    operation: HighLevelOperation::Add,
-                    arg0: iterator.clone().into(),
-                    arg1: VarOrConstant::Constant(ConstantValue::Scalar(1)),
-                });
+                // Replace loop with initial function call
+                let mut call_args: Vec<VarOrConstant> = vec![start.clone()];
+                call_args.extend(external_vars.iter().map(|v| v.clone().into()));
 
-                let mut recursive_call_arguments: Vec<VarOrConstant> =
-                    vec![incremented_iterator.into()];
-                recursive_call_arguments.extend(external_vars.iter().map(|var| var.clone().into()));
-
-                then_branch.push(Line::FunctionCall {
-                    function_name: function_name.clone(),
-                    args: recursive_call_arguments,
-                    return_data: vec![],
-                });
-                then_branch.push(Line::FunctionRet {
-                    return_data: vec![],
-                });
-
-                let if_condition = Line::IfCondition {
-                    condition: Boolean::Different {
-                        left: iterator.clone().into(),
-                        right: end.clone(),
-                    },
-                    then_branch,
-                    else_branch: vec![Line::FunctionRet {
-                        return_data: vec![],
-                    }],
-                };
-
-                // Create a recursive function for the loop
-                let recursive_function = Function {
-                    name: function_name.clone(),
-                    arguments: function_arguments,
-                    n_returned_vars: 0,
-                    instructions: vec![if_condition],
-                };
-                new_functions.push(recursive_function);
-
-                // Replace the loop with a call to the recursive function
                 *line = Line::FunctionCall {
-                    function_name,
-                    args: first_call_arguments,
+                    function_name: func_name,
+                    args: call_args,
                     return_data: vec![],
                 };
             }
             Line::IfCondition {
-                condition: _,
                 then_branch,
                 else_branch,
+                ..
             } => {
-                // Recursively process the then and else branches
-                replace_loops_with_recursion_helper(then_branch, loop_counter, new_functions);
-                replace_loops_with_recursion_helper(else_branch, loop_counter, new_functions);
+                convert_loops_in_lines(then_branch, counter, new_functions);
+                convert_loops_in_lines(else_branch, counter, new_functions);
             }
-
-            Line::Assert(_)
-            | Line::FunctionRet { .. }
-            | Line::FunctionCall { .. }
-            | Line::Poseidon16 { .. }
-            | Line::Poseidon24 { .. }
-            | Line::MAlloc { .. }
-            | Line::Panic
-            | Line::ArrayAccess { .. }
-            | Line::Assignment { .. }
-            | Line::RawAccess { .. }
-            | Line::Print { .. } => {}
+            _ => {} // Other line types don't contain loops
         }
     }
 }
 
-pub fn get_internal_and_external_variables(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
-    let mut external_vars = BTreeSet::new();
-    let mut internal_vars = BTreeSet::new();
+fn create_recursive_function(
+    name: String,
+    args: Vec<Var>,
+    iterator: Var,
+    end: VarOrConstant,
+    mut body: Vec<Line>,
+    external_vars: &[Var],
+) -> Function {
+    // Add iterator increment
+    let next_iter = Var {
+        name: format!("@incremented_{}", iterator.name),
+    };
+    body.push(Line::Assignment {
+        var: next_iter.clone(),
+        operation: HighLevelOperation::Add,
+        arg0: iterator.clone().into(),
+        arg1: VarOrConstant::Constant(ConstantValue::Scalar(1)),
+    });
+
+    // Add recursive call
+    let mut recursive_args: Vec<VarOrConstant> = vec![next_iter.into()];
+    recursive_args.extend(external_vars.iter().map(|v| v.clone().into()));
+
+    body.push(Line::FunctionCall {
+        function_name: name.clone(),
+        args: recursive_args,
+        return_data: vec![],
+    });
+    body.push(Line::FunctionRet {
+        return_data: vec![],
+    });
+
+    // Create conditional: if iterator != end then body else return
+    let condition = Line::IfCondition {
+        condition: Boolean::Different {
+            left: iterator.into(),
+            right: end,
+        },
+        then_branch: body,
+        else_branch: vec![Line::FunctionRet {
+            return_data: vec![],
+        }],
+    };
+
+    Function {
+        name,
+        arguments: args,
+        n_returned_vars: 0,
+        instructions: vec![condition],
+    }
+}
+
+/// Find variables defined inside vs used from outside a block of code
+pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
+    let mut defined_vars = BTreeSet::new();
+    let mut used_vars = BTreeSet::new();
+
     for line in lines {
         match line {
             Line::Assignment {
-                var,
-                operation: _,
-                arg0,
-                arg1,
+                var, arg0, arg1, ..
             } => {
-                internal_vars.insert(var.clone());
-                if let VarOrConstant::Var(arg) = arg0 {
-                    if !internal_vars.contains(&arg) {
-                        external_vars.insert(arg.clone());
-                    }
-                }
-                if let VarOrConstant::Var(arg) = arg1 {
-                    if !internal_vars.contains(&arg) {
-                        external_vars.insert(arg.clone());
-                    }
-                }
+                defined_vars.insert(var.clone());
+                add_var_if_external(arg0, &defined_vars, &mut used_vars);
+                add_var_if_external(arg1, &defined_vars, &mut used_vars);
             }
             Line::IfCondition {
                 condition,
                 then_branch,
                 else_branch,
             } => {
-                match condition {
-                    Boolean::Equal { left, right } | Boolean::Different { left, right } => {
-                        if let VarOrConstant::Var(var) = left {
-                            if !internal_vars.contains(&var) {
-                                external_vars.insert(var.clone());
-                            }
-                        }
-                        if let VarOrConstant::Var(var) = right {
-                            if !internal_vars.contains(&var) {
-                                external_vars.insert(var.clone());
-                            }
-                        }
-                    }
-                }
+                add_condition_vars(condition, &defined_vars, &mut used_vars);
 
-                let (internal_then_branch, external_then_branch) =
-                    get_internal_and_external_variables(then_branch);
-                let (internal_else_branch, external_else_branch) =
-                    get_internal_and_external_variables(else_branch);
-                let new_internal_vars: BTreeSet<Var> = internal_then_branch
-                    .union(&internal_else_branch)
-                    .cloned()
-                    .collect();
-                let new_external_vars: BTreeSet<Var> = external_then_branch
-                    .union(&external_else_branch)
-                    .filter(|var| !internal_vars.contains(var))
-                    .cloned()
-                    .collect();
-                internal_vars.extend(new_internal_vars);
-                external_vars.extend(new_external_vars);
+                let (then_defined, then_used) = find_variable_usage(then_branch);
+                let (else_defined, else_used) = find_variable_usage(else_branch);
+
+                defined_vars.extend(then_defined.union(&else_defined).cloned());
+                used_vars.extend(
+                    then_used
+                        .union(&else_used)
+                        .filter(|v| !defined_vars.contains(v))
+                        .cloned(),
+                );
             }
             Line::RawAccess { var, index } => {
-                internal_vars.insert(var.clone());
-                if let VarOrConstant::Var(arg) = index {
-                    if !internal_vars.contains(&arg) {
-                        external_vars.insert(arg.clone());
-                    }
-                }
+                defined_vars.insert(var.clone());
+                add_var_if_external(index, &defined_vars, &mut used_vars);
             }
             Line::FunctionCall {
-                function_name: _,
-                args,
-                return_data,
+                args, return_data, ..
             } => {
                 for arg in args {
-                    if let VarOrConstant::Var(arg_var) = arg {
-                        if !internal_vars.contains(&arg_var) {
-                            external_vars.insert(arg_var.clone());
-                        }
-                    }
+                    add_var_if_external(arg, &defined_vars, &mut used_vars);
                 }
-                for var in return_data {
-                    internal_vars.insert(var.clone());
-                }
+                defined_vars.extend(return_data.iter().cloned());
             }
-            Line::Assert(condition) => match condition {
-                Boolean::Equal { left, right } | Boolean::Different { left, right } => {
-                    if let VarOrConstant::Var(var) = left {
-                        if !internal_vars.contains(&var) {
-                            external_vars.insert(var.clone());
-                        }
-                    }
-                    if let VarOrConstant::Var(var) = right {
-                        if !internal_vars.contains(&var) {
-                            external_vars.insert(var.clone());
-                        }
-                    }
-                }
-            },
-            Line::ForLoop { .. } | Line::ArrayAccess { .. } => {
-                unreachable!("Should have been replaced earlier: {}", line.to_string());
+            Line::Assert(condition) => {
+                add_condition_vars(condition, &defined_vars, &mut used_vars);
             }
             Line::FunctionRet { return_data } => {
                 for ret in return_data {
-                    if let VarOrConstant::Var(var) = ret {
-                        if !internal_vars.contains(&var) {
-                            external_vars.insert(var.clone());
-                        }
-                    }
+                    add_var_if_external(ret, &defined_vars, &mut used_vars);
                 }
             }
-            Line::MAlloc { var, size: _ } => {
-                internal_vars.insert(var.clone());
+            Line::MAlloc { var, .. } => {
+                defined_vars.insert(var.clone());
             }
-            Line::Panic => {}
             Line::Poseidon16 {
                 arg0,
                 arg1,
                 res0,
                 res1,
             } => {
-                if let VarOrConstant::Var(arg) = arg0 {
-                    if !internal_vars.contains(&arg) {
-                        external_vars.insert(arg.clone());
-                    }
-                }
-                if let VarOrConstant::Var(arg) = arg1 {
-                    if !internal_vars.contains(&arg) {
-                        external_vars.insert(arg.clone());
-                    }
-                }
-                internal_vars.insert(res0.clone());
-                internal_vars.insert(res1.clone());
+                add_var_if_external(arg0, &defined_vars, &mut used_vars);
+                add_var_if_external(arg1, &defined_vars, &mut used_vars);
+                defined_vars.insert(res0.clone());
+                defined_vars.insert(res1.clone());
             }
             Line::Poseidon24 {
                 arg0,
@@ -274,38 +213,45 @@ pub fn get_internal_and_external_variables(lines: &[Line]) -> (BTreeSet<Var>, BT
                 res1,
                 res2,
             } => {
-                if let VarOrConstant::Var(arg) = arg0 {
-                    if !internal_vars.contains(&arg) {
-                        external_vars.insert(arg.clone());
-                    }
-                }
-                if let VarOrConstant::Var(arg) = arg1 {
-                    if !internal_vars.contains(&arg) {
-                        external_vars.insert(arg.clone());
-                    }
-                }
-                if let VarOrConstant::Var(arg) = arg2 {
-                    if !internal_vars.contains(&arg) {
-                        external_vars.insert(arg.clone());
-                    }
-                }
-                internal_vars.insert(res0.clone());
-                internal_vars.insert(res1.clone());
-                internal_vars.insert(res2.clone());
+                add_var_if_external(arg0, &defined_vars, &mut used_vars);
+                add_var_if_external(arg1, &defined_vars, &mut used_vars);
+                add_var_if_external(arg2, &defined_vars, &mut used_vars);
+                defined_vars.insert(res0.clone());
+                defined_vars.insert(res1.clone());
+                defined_vars.insert(res2.clone());
             }
-            Line::Print {
-                line_info: _,
-                content,
-            } => {
+            Line::Print { content, .. } => {
                 for var in content {
-                    if let VarOrConstant::Var(arg) = var {
-                        if !internal_vars.contains(&arg) {
-                            external_vars.insert(arg.clone());
-                        }
-                    }
+                    add_var_if_external(var, &defined_vars, &mut used_vars);
                 }
             }
+            Line::ForLoop { .. } | Line::ArrayAccess { .. } => {
+                unreachable!("Should have been replaced earlier");
+            }
+            Line::Panic => {}
         }
     }
-    (internal_vars, external_vars)
+
+    (defined_vars, used_vars)
+}
+
+fn add_var_if_external(
+    var_or_const: &VarOrConstant,
+    defined: &BTreeSet<Var>,
+    used: &mut BTreeSet<Var>,
+) {
+    if let VarOrConstant::Var(var) = var_or_const {
+        if !defined.contains(var) {
+            used.insert(var.clone());
+        }
+    }
+}
+
+fn add_condition_vars(condition: &Boolean, defined: &BTreeSet<Var>, used: &mut BTreeSet<Var>) {
+    match condition {
+        Boolean::Equal { left, right } | Boolean::Different { left, right } => {
+            add_var_if_external(left, defined, used);
+            add_var_if_external(right, defined, used);
+        }
+    }
 }

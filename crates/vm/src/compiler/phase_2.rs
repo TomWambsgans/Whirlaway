@@ -1,59 +1,64 @@
-use std::collections::{BTreeMap, BTreeSet};
-
 use crate::{
     bytecode::intermediate_bytecode::*,
     compiler::{
-        phase_0::{remove_memory_raw_accesses_with_constants, replace_array_access, replace_assert_not_eq, replace_if_eq},
-        phase_1::{get_internal_and_external_variables, replace_loops_with_recursion},
+        phase_0::{
+            remove_memory_raw_accesses_with_constants, replace_array_access, replace_assert_not_eq,
+            replace_if_eq,
+        },
+        phase_1::{find_variable_usage, replace_loops_with_recursion},
     },
     lang::*,
+};
+use std::{
+    borrow::Borrow,
+    collections::{BTreeMap, BTreeSet},
 };
 
 struct Compiler {
     bytecode: BTreeMap<Label, Vec<HighLevelInstruction>>,
-    if_else_counter: usize,
-    function_call_counter: usize,
-
-    // relative to current Function's
-    func_name: String, // name of the current function being compiled
-    vars_in_scope: BTreeMap<Var, usize>, // var = m[fp + index]
-    args_count: usize, // number of arguments in the current function
-    current_stack_size: usize,
-}
-
-impl HighLevelValue {
-    fn from_var_or_constant(var_or_const: &VarOrConstant, compiler: &Compiler) -> Self {
-        match var_or_const {
-            VarOrConstant::Var(var) => HighLevelValue::from_var(var, compiler),
-            VarOrConstant::Constant(constant) => HighLevelValue::Constant(*constant),
-        }
-    }
-
-    fn from_var(var: &Var, compiler: &Compiler) -> Self {
-        HighLevelValue::MemoryAfterFp {
-            shift: compiler.get_shift(var),
-        }
-    }
+    if_counter: usize,
+    call_counter: usize,
+    func_name: String,
+    var_positions: BTreeMap<Var, usize>, // var -> memory offset from fp
+    args_count: usize,
+    stack_size: usize,
 }
 
 impl Compiler {
     fn new() -> Self {
-        Compiler {
-            vars_in_scope: BTreeMap::new(),
-            current_stack_size: 0,
+        Self {
+            var_positions: BTreeMap::new(),
+            stack_size: 0,
             bytecode: BTreeMap::new(),
             func_name: String::new(),
             args_count: 0,
-            if_else_counter: 0,
-            function_call_counter: 0,
+            if_counter: 0,
+            call_counter: 0,
         }
     }
 
-    pub fn get_shift(&self, var: &Var) -> usize {
-        self.vars_in_scope
+    fn get_var_offset(&self, var: &Var) -> usize {
+        self.var_positions
             .get(var)
-            .cloned()
-            .expect(&format!("Variable {} not found in current scope", var.name))
+            .unwrap_or_else(|| panic!("Variable {} not in scope", var.name))
+            .clone()
+    }
+}
+
+impl HighLevelValue {
+    fn from_var_or_const(var_or_const: &VarOrConstant, compiler: &Compiler) -> Self {
+        match var_or_const {
+            VarOrConstant::Var(var) => Self::MemoryAfterFp {
+                shift: compiler.get_var_offset(var),
+            },
+            VarOrConstant::Constant(c) => Self::Constant(*c),
+        }
+    }
+
+    fn from_var(var: &Var, compiler: &Compiler) -> Self {
+        Self::MemoryAfterFp {
+            shift: compiler.get_var_offset(var),
+        }
     }
 }
 
@@ -63,19 +68,21 @@ pub fn compile_to_hight_level_bytecode(mut program: Program) -> Result<HighLevel
     replace_loops_with_recursion(&mut program);
     replace_if_eq(&mut program);
     remove_memory_raw_accesses_with_constants(&mut program);
-    // println!("Program after phase 2: \n{}", program.to_string());
+
     let mut compiler = Compiler::new();
-    let mut memory_size_per_function = BTreeMap::new();
+    let mut memory_sizes = BTreeMap::new();
+
     for function in program.functions.values() {
         let instructions = compile_function(function, &mut compiler)?;
         compiler
             .bytecode
             .insert(format!("@function_{}", function.name), instructions);
-        memory_size_per_function.insert(function.name.clone(), compiler.current_stack_size);
+        memory_sizes.insert(function.name.clone(), compiler.stack_size);
     }
+
     Ok(HighLevelBytecode {
         bytecode: compiler.bytecode,
-        memory_size_per_function,
+        memory_size_per_function: memory_sizes,
     })
 }
 
@@ -83,62 +90,52 @@ fn compile_function(
     function: &Function,
     compiler: &mut Compiler,
 ) -> Result<Vec<HighLevelInstruction>, String> {
-    let (mut internal_vars, external_vars) =
-        get_internal_and_external_variables(&function.instructions);
+    let (mut internal_vars, external_vars) = find_variable_usage(&function.instructions);
 
-    // In case we reassign a variable which  is already a function argument:
     internal_vars.retain(|var| !function.arguments.contains(var));
 
-    for external_var in &external_vars {
-        if !function.arguments.contains(external_var) {
+    for var in &external_vars {
+        if !function.arguments.contains(var) {
             return Err(format!(
-                "Variable {} not found in function arguments of function {}",
-                external_var.name, function.name
+                "Variable {} not in function {} arguments",
+                var.name, function.name
             ));
         }
     }
 
-    let mut current_stack_size = 2; // for pc and fp (when returning)
+    // memory layout: pc, fp, args, return_vars, internal_vars
+    let mut stack_pos = 2; // Reserve space for pc and fp
+    let mut var_positions = BTreeMap::new();
 
-    // associate to each variable a shift (in memory, relative to fp)
-    let mut vars_in_scope = BTreeMap::new();
     for (i, var) in function.arguments.iter().enumerate() {
-        vars_in_scope.insert(var.clone(), i + current_stack_size);
+        var_positions.insert(var.clone(), stack_pos + i);
     }
+    stack_pos += function.arguments.len();
 
-    current_stack_size += function.arguments.len();
-
-    current_stack_size += function.n_returned_vars; // reserve space for returned vars
+    stack_pos += function.n_returned_vars;
 
     for (i, var) in internal_vars.iter().enumerate() {
-        vars_in_scope.insert(var.clone(), i + current_stack_size);
+        var_positions.insert(var.clone(), stack_pos + i);
     }
-
-    current_stack_size += internal_vars.len();
+    stack_pos += internal_vars.len();
 
     compiler.func_name = function.name.clone();
-    compiler.vars_in_scope = vars_in_scope;
-    compiler.current_stack_size = current_stack_size;
+    compiler.var_positions = var_positions;
+    compiler.stack_size = stack_pos;
     compiler.args_count = function.arguments.len();
 
-    let mut variables_already_declared: BTreeSet<Var> =
-        function.arguments.iter().cloned().collect();
-
-    compile_lines(
-        &function.instructions,
-        compiler,
-        None,
-        &mut variables_already_declared,
-    )
+    let mut declared_vars: BTreeSet<Var> = function.arguments.iter().cloned().collect();
+    compile_lines(&function.instructions, compiler, None, &mut declared_vars)
 }
 
 fn compile_lines(
     lines: &[Line],
     compiler: &mut Compiler,
     final_jump: Option<Label>,
-    variables_already_declared: &mut BTreeSet<Var>,
+    declared_vars: &mut BTreeSet<Var>,
 ) -> Result<Vec<HighLevelInstruction>, String> {
-    let mut res = Vec::new();
+    let mut instructions = Vec::new();
+
     for (i, line) in lines.iter().enumerate() {
         match line {
             Line::Assignment {
@@ -147,155 +144,92 @@ fn compile_lines(
                 arg0,
                 arg1,
             } => {
-                let value_a = HighLevelValue::from_var_or_constant(arg0, compiler);
-                let value_b = HighLevelValue::from_var_or_constant(arg1, compiler);
-                let instruction = HighLevelInstruction::Computation {
+                instructions.push(HighLevelInstruction::Computation {
                     operation: *operation,
-                    arg_a: value_a,
-                    arg_b: value_b,
+                    arg_a: HighLevelValue::from_var_or_const(arg0, compiler),
+                    arg_b: HighLevelValue::from_var_or_const(arg1, compiler),
                     res: HighLevelValue::from_var(var, compiler),
-                };
-                res.push(instruction);
-
-                if let VarOrConstant::Var(var) = arg0 {
-                    variables_already_declared.insert(var.clone());
-                }
-                if let VarOrConstant::Var(var) = arg1 {
-                    variables_already_declared.insert(var.clone());
-                }
-                variables_already_declared.insert(var.clone());
+                });
+                mark_vars_as_declared(&[arg0, arg1], declared_vars);
+                declared_vars.insert(var.clone());
             }
 
-            Line::Assert(condition) => match condition {
-                Boolean::Different { .. } => {
-                    unreachable!("Assert not equal should have been handled earlier")
-                }
-                Boolean::Equal { left, right } => {
-                    let left_value = HighLevelValue::from_var_or_constant(left, compiler);
-                    let right_value = HighLevelValue::from_var_or_constant(right, compiler);
-                    res.push(HighLevelInstruction::Eq {
-                        left: left_value,
-                        right: right_value,
-                    });
+            Line::Assert(Boolean::Equal { left, right }) => {
+                instructions.push(HighLevelInstruction::Eq {
+                    left: HighLevelValue::from_var_or_const(left, compiler),
+                    right: HighLevelValue::from_var_or_const(right, compiler),
+                });
+                mark_vars_as_declared(&[left, right], declared_vars);
+            }
 
-                    if let VarOrConstant::Var(var) = left {
-                        variables_already_declared.insert(var.clone());
-                    }
-                    if let VarOrConstant::Var(var) = right {
-                        variables_already_declared.insert(var.clone());
-                    }
-                }
-            },
             Line::IfCondition {
-                condition,
+                condition: Boolean::Different { left, right },
                 then_branch,
                 else_branch,
-            } => match condition {
-                Boolean::Equal { .. } => {
-                    unreachable!("If condition with equality should have been handled earlier")
-                }
-                Boolean::Different { left, right } => {
-                    let left_value = HighLevelValue::from_var_or_constant(left, compiler);
-                    let right_value = HighLevelValue::from_var_or_constant(right, compiler);
+            } => {
+                validate_vars_declared(&[left, right], declared_vars)?;
 
-                    if let VarOrConstant::Var(var) = left {
-                        assert!(
-                            variables_already_declared.contains(var),
-                            "{} not declared in scope",
-                            var.name
-                        );
-                    }
-                    if let VarOrConstant::Var(var) = right {
-                        assert!(
-                            variables_already_declared.contains(var),
-                            "{} not declared in scope",
-                            var.name
-                        );
-                    }
+                let temp_pos = compiler.stack_size;
+                compiler.stack_size += 1;
 
-                    let difference = HighLevelValue::MemoryAfterFp {
-                        shift: compiler.current_stack_size,
-                    };
-                    compiler.current_stack_size += 1; // reserve space for the result of the comparison
+                let if_id = compiler.if_counter;
+                compiler.if_counter += 1;
 
-                    let label_after = format!("@if_else_end_{}", compiler.if_else_counter);
-                    let label_if = format!("@if_{}", compiler.if_else_counter);
-                    let label_else = format!("@else_{}", compiler.if_else_counter);
-                    compiler.if_else_counter += 1;
+                let (if_label, else_label, end_label) = (
+                    format!("@if_{}", if_id),
+                    format!("@else_{}", if_id),
+                    format!("@if_else_end_{}", if_id),
+                );
 
-                    let current_stack_size = compiler.current_stack_size;
-                    let mut variables_declared_in_if = variables_already_declared.clone();
-                    let instructions_if = compile_lines(
-                        then_branch,
-                        compiler,
-                        Some(label_after.clone()),
-                        &mut variables_declared_in_if,
-                    )?;
-                    let if_stack_size = compiler.current_stack_size;
-                    compiler.current_stack_size = current_stack_size;
-                    let mut variables_declared_in_else = variables_already_declared.clone();
-                    let instructions_else = compile_lines(
-                        else_branch,
-                        compiler,
-                        Some(label_after.clone()),
-                        &mut variables_declared_in_else,
-                    )?;
-                    let else_stack_size = compiler.current_stack_size;
-
-                    compiler.current_stack_size = else_stack_size.max(if_stack_size);
-
-                    res.push(HighLevelInstruction::Computation {
-                        operation: HighLevelOperation::Sub,
-                        arg_a: left_value,
-                        arg_b: right_value,
-                        res: difference.clone(),
-                    });
-                    res.push(HighLevelInstruction::JumpIfNotZero {
-                        condition: difference,
-                        dest: HighLevelValue::Label(label_if.clone()),
-                        updated_fp: None,
-                    });
-                    res.push(HighLevelInstruction::Jump {
-                        dest: HighLevelValue::Label(label_else.clone()),
-                        updated_fp: None,
-                    });
-
-                    compiler.bytecode.insert(label_if, instructions_if);
-                    compiler.bytecode.insert(label_else, instructions_else);
-
-                    let mut variables_declared_after_if_else = variables_declared_in_if
-                        .intersection(&variables_declared_in_else)
-                        .cloned()
-                        .collect::<BTreeSet<_>>();
-
-                    let instructions_after_if_else = compile_lines(
-                        &lines[i + 1..],
-                        compiler,
-                        final_jump,
-                        &mut variables_declared_after_if_else,
-                    )?;
-                    compiler
-                        .bytecode
-                        .insert(label_after, instructions_after_if_else);
-
-                    return Ok(res);
-                }
-            },
-            Line::RawAccess { var, index } => {
-                let VarOrConstant::Var(index) = index else {
-                    unreachable!("handled earlier");
-                };
-                res.push(HighLevelInstruction::MemoryPointerEq {
-                    shift_0: compiler.get_shift(index),
-                    shift_1: 0,
-                    res: compiler.get_shift(var),
+                instructions.push(HighLevelInstruction::Computation {
+                    operation: HighLevelOperation::Sub,
+                    arg_a: HighLevelValue::from_var_or_const(left, compiler),
+                    arg_b: HighLevelValue::from_var_or_const(right, compiler),
+                    res: HighLevelValue::MemoryAfterFp { shift: temp_pos },
+                });
+                instructions.push(HighLevelInstruction::JumpIfNotZero {
+                    condition: HighLevelValue::MemoryAfterFp { shift: temp_pos },
+                    dest: HighLevelValue::Label(if_label.clone()),
+                    updated_fp: None,
+                });
+                instructions.push(HighLevelInstruction::Jump {
+                    dest: HighLevelValue::Label(else_label.clone()),
+                    updated_fp: None,
                 });
 
-                variables_already_declared.insert(index.clone());
-                variables_already_declared.insert(var.clone());
+                let original_stack = compiler.stack_size;
+                let if_instructions =
+                    compile_branch(then_branch, compiler, &end_label, declared_vars)?;
+                let if_stack = compiler.stack_size;
+
+                compiler.stack_size = original_stack;
+                let else_instructions =
+                    compile_branch(else_branch, compiler, &end_label, declared_vars)?;
+                let else_stack = compiler.stack_size;
+
+                compiler.stack_size = if_stack.max(else_stack);
+
+                compiler.bytecode.insert(if_label, if_instructions);
+                compiler.bytecode.insert(else_label, else_instructions);
+
+                let remaining =
+                    compile_lines(&lines[i + 1..], compiler, final_jump, declared_vars)?;
+                compiler.bytecode.insert(end_label, remaining);
+
+                return Ok(instructions);
             }
-            Line::ForLoop { .. } | Line::ArrayAccess { .. } => {
-                unreachable!("{line:?} should have been replaced earlier.")
+
+            Line::RawAccess { var, index } => {
+                let VarOrConstant::Var(index_var) = index else {
+                    unreachable!("Constants should be handled earlier");
+                };
+                instructions.push(HighLevelInstruction::MemoryPointerEq {
+                    shift_0: compiler.get_var_offset(index_var),
+                    shift_1: 0,
+                    res: compiler.get_var_offset(var),
+                });
+                declared_vars.insert(index_var.clone());
+                declared_vars.insert(var.clone());
             }
 
             Line::FunctionCall {
@@ -303,86 +237,36 @@ fn compile_lines(
                 args,
                 return_data,
             } => {
-                // Memory layout in the calling function: Pointer to new FP
-                // Memory layout in the called function: PC, FP, args, return_data
+                let call_id = compiler.call_counter;
+                compiler.call_counter += 1;
+                let return_label = format!("@return_from_call_{}", call_id);
 
-                for ret_var in return_data {
-                    variables_already_declared.insert(ret_var.clone());
-                }
+                let new_fp_pos = compiler.stack_size;
+                compiler.stack_size += 1;
 
-                let return_label = format!("@return_from_call_{}", compiler.function_call_counter);
-                compiler.function_call_counter += 1;
-
-                res.push(HighLevelInstruction::RequestMemory {
-                    shift: compiler.current_stack_size,
-                    size: HighLevelMetaValue::FunctionSize {
-                        function_name: function_name.clone(),
-                    },
-                    vectorized: false,
-                });
-                let shift_of_new_fp = compiler.current_stack_size;
-                compiler.current_stack_size += 1;
-
-                res.push(HighLevelInstruction::Eq {
-                    left: HighLevelValue::Label(return_label.clone()),
-                    right: HighLevelValue::ShiftedMemoryPointer {
-                        shift_0: shift_of_new_fp,
-                        shift_1: 0,
-                    },
-                });
-                res.push(HighLevelInstruction::Eq {
-                    left: HighLevelValue::Fp,
-                    right: HighLevelValue::ShiftedMemoryPointer {
-                        shift_0: shift_of_new_fp,
-                        shift_1: 1,
-                    },
-                });
-
-                for (arg_index, arg) in args.iter().enumerate() {
-                    res.push(HighLevelInstruction::Eq {
-                        left: HighLevelValue::from_var_or_constant(arg, compiler),
-                        right: HighLevelValue::ShiftedMemoryPointer {
-                            shift_0: shift_of_new_fp,
-                            shift_1: 2 + arg_index,
-                        },
-                    });
-
-                    if let VarOrConstant::Var(var) = arg {
-                        variables_already_declared.insert(var.clone());
-                    }
-                }
-
-                let mut instructions_after_function_call = vec![];
-                for (ret_index, ret_var) in return_data.iter().enumerate() {
-                    instructions_after_function_call.push(HighLevelInstruction::Eq {
-                        left: HighLevelValue::from_var(ret_var, compiler),
-                        right: HighLevelValue::ShiftedMemoryPointer {
-                            shift_0: shift_of_new_fp,
-                            shift_1: 2 + args.len() + ret_index,
-                        },
-                    });
-                }
-
-                let dest = HighLevelValue::Label(format!("@function_{}", function_name));
-                res.push(HighLevelInstruction::Jump {
-                    dest,
-                    updated_fp: Some(HighLevelValue::MemoryAfterFp {
-                        shift: shift_of_new_fp,
-                    }),
-                });
-
-                instructions_after_function_call.extend(compile_lines(
-                    &lines[i + 1..],
+                instructions.extend(setup_function_call(
+                    function_name,
+                    args,
+                    new_fp_pos,
+                    &return_label,
                     compiler,
-                    final_jump,
-                    variables_already_declared,
                 )?);
 
-                compiler
-                    .bytecode
-                    .insert(return_label, instructions_after_function_call);
+                mark_vars_as_declared(args, declared_vars);
+                declared_vars.extend(return_data.iter().cloned());
 
-                return Ok(res);
+                let after_call = compile_function_return(
+                    &lines[i + 1..],
+                    return_data,
+                    args.len(),
+                    new_fp_pos,
+                    compiler,
+                    final_jump,
+                    declared_vars,
+                )?;
+                compiler.bytecode.insert(return_label, after_call);
+
+                return Ok(instructions);
             }
 
             Line::Poseidon16 {
@@ -391,46 +275,19 @@ fn compile_lines(
                 res0,
                 res1,
             } => {
-                for res_var in [res0, res1] {
-                    if variables_already_declared.insert(res_var.clone()) {
-                        // value is new, we need to allocate memory
-                        res.push(HighLevelInstruction::RequestMemory {
-                            shift: compiler.get_shift(res_var),
-                            size: HighLevelMetaValue::Constant(1),
-                            vectorized: true,
-                        });
-                    }
-                }
-
-                res.push(HighLevelInstruction::Eq {
-                    left: HighLevelValue::MemoryAfterFp {
-                        shift: compiler.current_stack_size,
-                    },
-                    right: HighLevelValue::from_var_or_constant(arg0, compiler),
+                compile_poseidon(
+                    &mut instructions,
+                    &[arg0, arg1],
+                    &[res0, res1],
+                    4,
+                    compiler,
+                    declared_vars,
+                )?;
+                instructions.push(HighLevelInstruction::Poseidon2_16 {
+                    shift: compiler.stack_size - 4,
                 });
-                res.push(HighLevelInstruction::Eq {
-                    left: HighLevelValue::MemoryAfterFp {
-                        shift: compiler.current_stack_size + 1,
-                    },
-                    right: HighLevelValue::from_var_or_constant(arg1, compiler),
-                });
-                res.push(HighLevelInstruction::Eq {
-                    left: HighLevelValue::MemoryAfterFp {
-                        shift: compiler.current_stack_size + 2,
-                    },
-                    right: HighLevelValue::from_var(res0, compiler),
-                });
-                res.push(HighLevelInstruction::Eq {
-                    left: HighLevelValue::MemoryAfterFp {
-                        shift: compiler.current_stack_size + 3,
-                    },
-                    right: HighLevelValue::from_var(res1, compiler),
-                });
-                res.push(HighLevelInstruction::Poseidon2_16 {
-                    shift: compiler.current_stack_size,
-                });
-                compiler.current_stack_size += 4;
             }
+
             Line::Poseidon24 {
                 arg0,
                 arg1,
@@ -439,117 +296,252 @@ fn compile_lines(
                 res1,
                 res2,
             } => {
-                for res_var in [res0, res1, res2] {
-                    if variables_already_declared.insert(res_var.clone()) {
-                        // value is new, we need to allocate memory
-                        res.push(HighLevelInstruction::RequestMemory {
-                            shift: compiler.get_shift(res_var),
-                            size: HighLevelMetaValue::Constant(1),
-                            vectorized: true,
-                        });
-                    }
-                }
-
-                res.push(HighLevelInstruction::Eq {
-                    left: HighLevelValue::MemoryAfterFp {
-                        shift: compiler.current_stack_size,
-                    },
-                    right: HighLevelValue::from_var_or_constant(arg0, compiler),
+                compile_poseidon(
+                    &mut instructions,
+                    &[arg0, arg1, arg2],
+                    &[res0, res1, res2],
+                    6,
+                    compiler,
+                    declared_vars,
+                )?;
+                instructions.push(HighLevelInstruction::Poseidon2_24 {
+                    shift: compiler.stack_size - 6,
                 });
-                res.push(HighLevelInstruction::Eq {
-                    left: HighLevelValue::MemoryAfterFp {
-                        shift: compiler.current_stack_size + 1,
-                    },
-                    right: HighLevelValue::from_var_or_constant(arg1, compiler),
-                });
-                res.push(HighLevelInstruction::Eq {
-                    left: HighLevelValue::MemoryAfterFp {
-                        shift: compiler.current_stack_size + 2,
-                    },
-                    right: HighLevelValue::from_var_or_constant(arg2, compiler),
-                });
-                res.push(HighLevelInstruction::Eq {
-                    left: HighLevelValue::MemoryAfterFp {
-                        shift: compiler.current_stack_size + 3,
-                    },
-                    right: HighLevelValue::from_var(res0, compiler),
-                });
-                res.push(HighLevelInstruction::Eq {
-                    left: HighLevelValue::MemoryAfterFp {
-                        shift: compiler.current_stack_size + 4,
-                    },
-                    right: HighLevelValue::from_var(res1, compiler),
-                });
-                res.push(HighLevelInstruction::Eq {
-                    left: HighLevelValue::MemoryAfterFp {
-                        shift: compiler.current_stack_size + 5,
-                    },
-                    right: HighLevelValue::from_var(res2, compiler),
-                });
-                res.push(HighLevelInstruction::Poseidon2_24 {
-                    shift: compiler.current_stack_size,
-                });
-                compiler.current_stack_size += 6;
             }
+
             Line::MAlloc { var, size } => {
-                let size = match size {
-                    ConstantValue::Scalar(scalar) => *scalar,
-                    ConstantValue::PointerToZeroVector => {
-                        return Err(
-                            "Cannot allocate memory with pointer to zero vector".to_string()
-                        );
-                    }
-                    ConstantValue::PublicInputStart => {
-                        return Err("Cannot allocate memory with public input start".to_string());
-                    }
+                let ConstantValue::Scalar(size_val) = size else {
+                    return Err("Invalid memory allocation size".to_string());
                 };
-                res.push(HighLevelInstruction::RequestMemory {
-                    shift: compiler.get_shift(var),
-                    size: HighLevelMetaValue::Constant(size),
+                instructions.push(HighLevelInstruction::RequestMemory {
+                    shift: compiler.get_var_offset(var),
+                    size: HighLevelMetaValue::Constant(*size_val),
                     vectorized: false,
                 });
             }
+
             Line::FunctionRet { return_data } => {
                 if compiler.func_name == "main" {
-                    res.push(HighLevelInstruction::Jump {
+                    instructions.push(HighLevelInstruction::Jump {
                         dest: HighLevelValue::Label("@end_program".to_string()),
                         updated_fp: None,
                     });
                 } else {
-                    for (ret_index, return_var) in return_data.iter().enumerate() {
-                        res.push(HighLevelInstruction::Eq {
-                            left: HighLevelValue::MemoryAfterFp {
-                                shift: 2 + compiler.args_count + ret_index,
-                            },
-                            right: HighLevelValue::from_var_or_constant(return_var, compiler),
-                        });
-                    }
-                    res.push(HighLevelInstruction::Jump {
-                        dest: HighLevelValue::MemoryAfterFp { shift: 0 },
-                        updated_fp: Some(HighLevelValue::MemoryAfterFp { shift: 1 }),
-                    });
+                    compile_function_ret(&mut instructions, return_data, compiler);
                 }
             }
-            Line::Panic => {
-                res.push(HighLevelInstruction::Panic);
-            }
+
+            Line::Panic => instructions.push(HighLevelInstruction::Panic),
 
             Line::Print { line_info, content } => {
-                res.push(HighLevelInstruction::Print {
+                instructions.push(HighLevelInstruction::Print {
                     line_info: line_info.clone(),
                     content: content
-                        .into_iter()
-                        .map(|c| HighLevelValue::from_var_or_constant(c, compiler))
+                        .iter()
+                        .map(|c| HighLevelValue::from_var_or_const(c, compiler))
                         .collect(),
                 });
             }
+
+            Line::Assert(Boolean::Different { .. }) => {
+                unreachable!("Assert not equal should be handled earlier")
+            }
+            Line::IfCondition {
+                condition: Boolean::Equal { .. },
+                ..
+            } => unreachable!("If condition with equality should be handled earlier"),
+            Line::ForLoop { .. } | Line::ArrayAccess { .. } => {
+                unreachable!("Should be replaced earlier: {:?}", line)
+            }
         }
     }
-    if let Some(final_jump_label) = final_jump {
-        res.push(HighLevelInstruction::Jump {
-            dest: HighLevelValue::Label(final_jump_label),
+
+    if let Some(jump_label) = final_jump {
+        instructions.push(HighLevelInstruction::Jump {
+            dest: HighLevelValue::Label(jump_label),
             updated_fp: None,
         });
     }
-    Ok(res)
+
+    Ok(instructions)
+}
+
+// Helper functions
+fn mark_vars_as_declared<VoC: Borrow<VarOrConstant>>(vars: &[VoC], declared: &mut BTreeSet<Var>) {
+    for var in vars {
+        if let VarOrConstant::Var(v) = var.borrow() {
+            declared.insert(v.clone());
+        }
+    }
+}
+
+fn validate_vars_declared(vars: &[&VarOrConstant], declared: &BTreeSet<Var>) -> Result<(), String> {
+    for var in vars {
+        if let VarOrConstant::Var(v) = var {
+            if !declared.contains(v) {
+                return Err(format!("Variable {} not declared", v.name));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn compile_branch(
+    lines: &[Line],
+    compiler: &mut Compiler,
+    end_label: &str,
+    declared_vars: &mut BTreeSet<Var>,
+) -> Result<Vec<HighLevelInstruction>, String> {
+    let mut branch_vars = declared_vars.clone();
+    let instructions = compile_lines(
+        lines,
+        compiler,
+        Some(end_label.to_string()),
+        &mut branch_vars,
+    )?;
+    *declared_vars = declared_vars.intersection(&branch_vars).cloned().collect();
+    Ok(instructions)
+}
+
+fn setup_function_call(
+    func_name: &str,
+    args: &[VarOrConstant],
+    new_fp_pos: usize,
+    return_label: &str,
+    compiler: &Compiler,
+) -> Result<Vec<HighLevelInstruction>, String> {
+    let mut instructions = vec![
+        HighLevelInstruction::RequestMemory {
+            shift: new_fp_pos,
+            size: HighLevelMetaValue::FunctionSize {
+                function_name: func_name.to_string(),
+            },
+            vectorized: false,
+        },
+        HighLevelInstruction::Eq {
+            left: HighLevelValue::Label(return_label.to_string()),
+            right: HighLevelValue::ShiftedMemoryPointer {
+                shift_0: new_fp_pos,
+                shift_1: 0,
+            },
+        },
+        HighLevelInstruction::Eq {
+            left: HighLevelValue::Fp,
+            right: HighLevelValue::ShiftedMemoryPointer {
+                shift_0: new_fp_pos,
+                shift_1: 1,
+            },
+        },
+    ];
+
+    // Copy arguments
+    for (i, arg) in args.iter().enumerate() {
+        instructions.push(HighLevelInstruction::Eq {
+            left: HighLevelValue::from_var_or_const(arg, compiler),
+            right: HighLevelValue::ShiftedMemoryPointer {
+                shift_0: new_fp_pos,
+                shift_1: 2 + i,
+            },
+        });
+    }
+
+    instructions.push(HighLevelInstruction::Jump {
+        dest: HighLevelValue::Label(format!("@function_{}", func_name)),
+        updated_fp: Some(HighLevelValue::MemoryAfterFp { shift: new_fp_pos }),
+    });
+
+    Ok(instructions)
+}
+
+fn compile_function_return(
+    remaining_lines: &[Line],
+    return_data: &[Var],
+    args_len: usize,
+    new_fp_pos: usize,
+    compiler: &mut Compiler,
+    final_jump: Option<Label>,
+    declared_vars: &mut BTreeSet<Var>,
+) -> Result<Vec<HighLevelInstruction>, String> {
+    let mut instructions = Vec::new();
+
+    // Copy return values
+    for (i, ret_var) in return_data.iter().enumerate() {
+        instructions.push(HighLevelInstruction::Eq {
+            left: HighLevelValue::from_var(ret_var, compiler),
+            right: HighLevelValue::ShiftedMemoryPointer {
+                shift_0: new_fp_pos,
+                shift_1: 2 + args_len + i,
+            },
+        });
+    }
+
+    instructions.extend(compile_lines(
+        remaining_lines,
+        compiler,
+        final_jump,
+        declared_vars,
+    )?);
+    Ok(instructions)
+}
+
+fn compile_poseidon(
+    instructions: &mut Vec<HighLevelInstruction>,
+    args: &[&VarOrConstant],
+    results: &[&Var],
+    total_size: usize,
+    compiler: &mut Compiler,
+    declared_vars: &mut BTreeSet<Var>,
+) -> Result<(), String> {
+    // Allocate memory for new result variables
+    for res_var in results {
+        if declared_vars.insert((*res_var).clone()) {
+            instructions.push(HighLevelInstruction::RequestMemory {
+                shift: compiler.get_var_offset(res_var),
+                size: HighLevelMetaValue::Constant(1),
+                vectorized: true,
+            });
+        }
+    }
+
+    let start_pos = compiler.stack_size;
+
+    for (i, arg) in args.iter().enumerate() {
+        instructions.push(HighLevelInstruction::Eq {
+            left: HighLevelValue::MemoryAfterFp {
+                shift: start_pos + i,
+            },
+            right: HighLevelValue::from_var_or_const(arg, compiler),
+        });
+    }
+
+    for (i, res) in results.iter().enumerate() {
+        instructions.push(HighLevelInstruction::Eq {
+            left: HighLevelValue::MemoryAfterFp {
+                shift: start_pos + args.len() + i,
+            },
+            right: HighLevelValue::from_var(res, compiler),
+        });
+    }
+
+    compiler.stack_size += total_size;
+    Ok(())
+}
+
+fn compile_function_ret(
+    instructions: &mut Vec<HighLevelInstruction>,
+    return_data: &[VarOrConstant],
+    compiler: &Compiler,
+) {
+    for (i, ret_var) in return_data.iter().enumerate() {
+        instructions.push(HighLevelInstruction::Eq {
+            left: HighLevelValue::MemoryAfterFp {
+                shift: 2 + compiler.args_count + i,
+            },
+            right: HighLevelValue::from_var_or_const(ret_var, compiler),
+        });
+    }
+    instructions.push(HighLevelInstruction::Jump {
+        dest: HighLevelValue::MemoryAfterFp { shift: 0 },
+        updated_fp: Some(HighLevelValue::MemoryAfterFp { shift: 1 }),
+    });
 }
