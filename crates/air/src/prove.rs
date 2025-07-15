@@ -7,10 +7,11 @@ use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use p3_util::log2_strict_usize;
 use rand::distr::{Distribution, StandardUniform};
 use serde::{Deserialize, Serialize};
-use sumcheck::{SumcheckComputation, SumcheckGrinding};
+use sumcheck::{SumcheckComputation, SumcheckComputationPacked, SumcheckGrinding};
 use tracing::{Level, info_span, instrument, span};
 use utils::{
-    ConstraintFolder, add_multilinears, multilinears_linear_combination, packed_multilinear,
+    ConstraintFolder, ConstraintFolderPacked, add_multilinears, multilinears_linear_combination,
+    packed_multilinear,
 };
 use whir_p3::{
     dft::EvalsDft,
@@ -37,11 +38,13 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 
 */
 
-impl<'a, F, EF, A> AirTable<F, EF, A>
+impl<F, EF, A> AirTable<F, EF, A>
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
-    A: Air<ConstraintFolder<'a, F, F, EF>> + Air<ConstraintFolder<'a, F, EF, EF>>,
+    A: for<'a> Air<ConstraintFolder<'a, F, F, EF>>
+        + for<'a> Air<ConstraintFolder<'a, F, EF, EF>>
+        + for<'a> Air<ConstraintFolderPacked<'a, F, EF>>,
 {
     #[instrument(name = "air: prove", skip_all)]
     pub fn prove<H, C, Challenger, const DIGEST_ELEMS: usize>(
@@ -230,5 +233,17 @@ pub struct InnerSumcheckCircuit;
 impl<F: Field, EF: ExtensionField<F>> SumcheckComputation<F, EF, EF> for InnerSumcheckCircuit {
     fn eval(&self, point: &[EF], _: &[EF]) -> EF {
         point[0] * point[1]
+    }
+}
+
+impl<F: Field, EF: ExtensionField<F>> SumcheckComputationPacked<F, EF> for InnerSumcheckCircuit {
+    fn eval_packed(
+        &self,
+        _: &[<F as Field>::Packing],
+        _: &[EF],
+        _: &[Vec<F>],
+    ) -> impl Iterator<Item = EF> + Send + Sync {
+        // Unreachable
+        std::iter::once(EF::ZERO)
     }
 }

@@ -1,6 +1,7 @@
-use std::borrow::Borrow;
+use std::{any::TypeId, borrow::Borrow};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_field::{BasedVectorSpace, PackedValue};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use rand::distr::{Distribution, StandardUniform};
 use rayon::prelude::*;
@@ -14,7 +15,7 @@ use whir_p3::{
     poly::{dense::WhirDensePolynomial, evals::EvaluationsList},
 };
 
-use crate::{SumcheckComputation, SumcheckGrinding};
+use crate::{SumcheckComputation, SumcheckComputationPacked, SumcheckGrinding};
 
 pub const MIN_VARS_FOR_GPU: usize = 0; // When there are a small number of variables, it's not worth using GPU
 
@@ -38,7 +39,9 @@ where
     NF: ExtensionField<F>,
     EF: ExtensionField<NF> + ExtensionField<F> + TwoAdicField,
     M: Borrow<EvaluationsList<NF>>,
-    SC: SumcheckComputation<F, NF, EF> + SumcheckComputation<F, EF, EF>,
+    SC: SumcheckComputation<F, NF, EF>
+        + SumcheckComputation<F, EF, EF>
+        + SumcheckComputationPacked<F, EF>,
     StandardUniform: Distribution<EF>,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
@@ -113,7 +116,7 @@ where
     F: TwoAdicField,
     NF: ExtensionField<F>,
     EF: ExtensionField<NF> + ExtensionField<F> + TwoAdicField,
-    SC: SumcheckComputation<F, NF, EF>,
+    SC: SumcheckComputation<F, NF, EF> + SumcheckComputationPacked<F, EF>,
     StandardUniform: Distribution<EF>,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
@@ -209,21 +212,60 @@ fn compute_over_hypercube<F, NF, EF, SC>(
 where
     F: Field,
     NF: ExtensionField<F>,
-    EF: ExtensionField<NF>,
-    SC: SumcheckComputation<F, NF, EF>,
+    EF: ExtensionField<NF> + ExtensionField<F>,
+    SC: SumcheckComputation<F, NF, EF> + SumcheckComputationPacked<F, EF>,
 {
     assert!(
         pols.iter()
             .all(|p| p.num_variables() == pols[0].num_variables())
     );
-    (0..1 << pols[0].num_variables())
-        .into_par_iter()
-        .map(|x| {
-            let point = pols.iter().map(|pol| pol.evals()[x]).collect::<Vec<_>>();
-            let eq_mle_eval = eq_mle.map(|p| p.evals()[x]);
-            eval_sumcheck_computation(computation, batching_scalars, &point, eq_mle_eval)
-        })
-        .sum()
+    let n_vars = pols[0].num_variables();
+    if TypeId::of::<NF>() == TypeId::of::<F>() {
+        let pols: &[EvaluationsList<F>] = unsafe { std::mem::transmute(pols) };
+        let packed_pols = pols
+            .iter()
+            .map(|p| F::Packing::pack_slice(p.evals()))
+            .collect::<Vec<_>>();
+
+        let decomposed_batching_scalars: Vec<_> = (0..<EF as BasedVectorSpace<F>>::DIMENSION)
+            .map(|i| {
+                batching_scalars
+                    .iter()
+                    .map(|x| x.as_basis_coefficients_slice()[i])
+                    .collect()
+            })
+            .collect();
+
+        (0..(1 << n_vars) / F::Packing::WIDTH)
+            .into_par_iter()
+            .enumerate()
+            .map(|(x, i)| {
+                let point = packed_pols.iter().map(|pol| pol[x]).collect::<Vec<_>>();
+                let res =
+                    computation.eval_packed(&point, batching_scalars, &decomposed_batching_scalars);
+                if let Some(eq_mle) = eq_mle {
+                    res.enumerate()
+                        .map(|(idx_in_packing, res)| {
+                            res * eq_mle.evals()[i * F::Packing::WIDTH + idx_in_packing]
+                        })
+                        .sum()
+                } else {
+                    res.sum()
+                }
+            })
+            .sum()
+    } else {
+        // TODO packing everywhere
+        assert_eq!(TypeId::of::<NF>(), TypeId::of::<EF>());
+        (0..1 << n_vars)
+            .into_par_iter()
+            .map(|x| {
+                let point = pols.iter().map(|pol| pol.evals()[x]).collect::<Vec<_>>();
+                let eq_mle_eval = eq_mle.map(|p| p.evals()[x]);
+                eval_sumcheck_computation(computation, batching_scalars, &point, eq_mle_eval)
+            })
+            .sum()
+    }
 }
 
 pub fn eval_sumcheck_computation<F, NF, EF, SC>(
