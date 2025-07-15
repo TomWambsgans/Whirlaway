@@ -188,7 +188,6 @@ fn parse_statement(pair: Pair<Rule>, context: &ParseContext) -> Result<Line, Par
 
     match inner.as_rule() {
         Rule::single_assignment => parse_single_assignment(inner, context),
-        Rule::raw_memory_access => parse_raw_memory_access(inner, context),
         Rule::array_access => parse_array_access(inner, context),
         Rule::array_assign => parse_array_assign(inner, context),
         Rule::if_statement => parse_if_statement(inner, context),
@@ -238,20 +237,6 @@ fn parse_single_assignment(pair: Pair<Rule>, context: &ParseContext) -> Result<L
         }
         _ => Err(ParseError::SemanticError("Expected expression".to_string())),
     }
-}
-
-fn parse_raw_memory_access(pair: Pair<Rule>, context: &ParseContext) -> Result<Line, ParseError> {
-    let mut inner = pair.into_inner();
-    let var_name = inner.next().unwrap().as_str().to_string();
-    let index = inner.next().unwrap();
-
-    let var = Var { name: var_name };
-    let index_value = parse_var_or_constant(index, context)?;
-
-    Ok(Line::RawAccess {
-        var,
-        index: index_value,
-    })
 }
 
 fn parse_array_access(pair: Pair<Rule>, context: &ParseContext) -> Result<Line, ParseError> {
