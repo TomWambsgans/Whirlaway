@@ -262,6 +262,12 @@ mod tests {
     }
 
     #[test]
+    fn test_all() {
+        test();
+        test_packed();
+    }
+
+    #[test]
     fn test() {
         let mut rng = StdRng::seed_from_u64(0);
 
@@ -408,6 +414,222 @@ mod tests {
                 my_air.eval(&mut folder);
 
                 (0..core::cmp::min(HEIGHT, PackingF::WIDTH)).map(move |idx_in_packing| {
+                    EF::from_basis_coefficients_fn(|coeff_idx| {
+                        BasedVectorSpace::<PackingF>::as_basis_coefficients_slice(
+                            &folder.accumulator,
+                        )[coeff_idx]
+                            .as_slice()[idx_in_packing]
+                    })
+                })
+            })
+            .collect::<Vec<EF>>();
+
+        dbg!(res.into_par_iter().sum::<EF>());
+        dbg!(time.elapsed());
+    }
+}
+
+#[cfg(test)]
+mod tests_ef {
+
+    use super::*;
+    use p3_air::{Air, AirBuilder, BaseAir};
+    use p3_field::BasedVectorSpace;
+    use p3_field::PackedValue;
+    use p3_field::{ExtensionField, Field, PrimeCharacteristicRing};
+    use p3_matrix::dense::RowMajorMatrix;
+    use p3_matrix::dense::RowMajorMatrixView;
+    use rayon::prelude::*;
+    use utils::ConstraintFolder;
+
+    type PackingF = <F as Field>::Packing;
+    type PackingEF = <EF as Field>::Packing;
+    type PackingExtension = <EF as ExtensionField<F>>::ExtensionPacking;
+
+    const N_COLS: usize = 3;
+    const HEIGHT: usize = 1 << 20;
+    const N_CONSTRAINTS: usize = 150;
+
+    struct MyAir;
+
+    impl<F: Field> BaseAir<F> for MyAir {
+        fn width(&self) -> usize {
+            N_COLS
+        }
+    }
+
+    impl<AB: AirBuilder> Air<AB> for MyAir {
+        #[inline]
+        fn eval(&self, builder: &mut AB) {
+            let main = builder.main();
+            let up = &main.row_slice(0).expect("The matrix is empty?")[..];
+            let down = &main.row_slice(1).expect("The matrix is empty?")[..];
+            let up = up
+                .iter()
+                .map(|x| x.clone().into())
+                .collect::<Vec<AB::Expr>>();
+            let down = down
+                .iter()
+                .map(|x| x.clone().into())
+                .collect::<Vec<AB::Expr>>();
+
+            for _ in 0..N_CONSTRAINTS / 3 {
+                builder.assert_eq(
+                    up[0].clone() * up[1].clone(),
+                    down[1].clone() * down[2].clone(),
+                );
+                builder.assert_eq(
+                    up[1].clone() * up[1].clone(),
+                    down[2].clone() * down[2].clone(),
+                );
+                builder.assert_eq(
+                    up[0].clone() * up[0].clone(),
+                    down[2].clone() * down[2].clone(),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test() {
+        let mut rng = StdRng::seed_from_u64(0);
+
+        let my_air = MyAir;
+
+        let trace = RowMajorMatrix::new(
+            (0..N_COLS * HEIGHT)
+                .map(|_| rng.random())
+                .collect::<Vec<EF>>(),
+            N_COLS,
+        );
+
+        let alpha: EF = rng.random();
+        let alpha_powers = alpha.powers().take(N_CONSTRAINTS).collect();
+
+        let time = Instant::now();
+
+        let res = (0..HEIGHT)
+            .into_par_iter()
+            .map(|i| {
+                let mut point = trace.row(i).unwrap().into_iter().collect::<Vec<EF>>();
+                point.extend(
+                    trace
+                        .row((i + 1) % HEIGHT)
+                        .unwrap()
+                        .into_iter()
+                        .collect::<Vec<EF>>(),
+                );
+                let mut folder = ConstraintFolder {
+                    main: RowMajorMatrixView::new(&point, point.len() / 2),
+                    alpha_powers: &alpha_powers,
+                    accumulator: EF::ZERO,
+                    constraint_index: 0,
+                    _phantom: std::marker::PhantomData::<F>,
+                };
+                my_air.eval(&mut folder);
+                folder.accumulator
+            })
+            .collect::<Vec<_>>();
+
+        dbg!(res.into_par_iter().sum::<EF>());
+        dbg!(time.elapsed());
+    }
+
+    #[derive(Debug)]
+    pub struct ConstraintFolderPacked<'a> {
+        pub main: RowMajorMatrixView<'a, PackingEF>,
+        pub alpha_powers: &'a [EF],
+        pub accumulator: PackingExtension,
+        pub constraint_index: usize,
+    }
+
+    impl<'a> AirBuilder for ConstraintFolderPacked<'a> {
+        type F = F;
+        type Expr = PackingEF;
+        type Var = PackingEF;
+        type M = RowMajorMatrixView<'a, PackingEF>;
+
+        #[inline]
+        fn main(&self) -> Self::M {
+            self.main
+        }
+
+        #[inline]
+        fn is_first_row(&self) -> Self::Expr {
+            unreachable!()
+        }
+
+        #[inline]
+        fn is_last_row(&self) -> Self::Expr {
+            unreachable!()
+        }
+
+        /// Returns an expression indicating rows where transition constraints should be checked.
+        ///
+        /// # Panics
+        /// This function panics if `size` is not `2`.
+        #[inline]
+        fn is_transition_window(&self, _: usize) -> Self::Expr {
+            unreachable!()
+        }
+
+        #[inline]
+        fn assert_zero<I: Into<Self::Expr>>(&mut self, x: I) {
+            let alpha_power = self.alpha_powers[self.constraint_index];
+            self.accumulator += Into::<PackingExtension>::into(alpha_power) * x.into();
+            self.constraint_index += 1;
+        }
+
+        #[inline]
+        fn assert_zeros<const N: usize, I: Into<Self::Expr>>(&mut self, array: [I; N]) {
+            for (i, a) in array.into_iter().enumerate() {
+                let alpha_power = self.alpha_powers[self.constraint_index + i];
+                self.accumulator += alpha_power * a.into();
+            }
+            self.constraint_index += N;
+        }
+    }
+
+    #[test]
+    fn test_all() {
+        test();
+        test_packed();
+    }
+
+    #[test]
+    fn test_packed() {
+        let mut rng = StdRng::seed_from_u64(0);
+
+        let my_air = MyAir;
+
+        let trace = RowMajorMatrix::new(
+            (0..N_COLS * HEIGHT)
+                .map(|_| rng.random())
+                .collect::<Vec<EF>>(),
+            N_COLS,
+        );
+
+        let alpha: EF = rng.random();
+        let alpha_powers = alpha.powers().take(N_CONSTRAINTS).collect();
+
+        let time = Instant::now();
+
+        let res = (0..HEIGHT)
+            .into_par_iter()
+            .step_by(PackingEF::WIDTH)
+            .flat_map_iter(|i_start| {
+                let main =
+                    RowMajorMatrix::new(trace.vertically_packed_row_pair(i_start, 1), N_COLS);
+
+                let mut folder = ConstraintFolderPacked {
+                    main: main.as_view(),
+                    alpha_powers: &alpha_powers,
+                    accumulator: PackingExtension::ZERO,
+                    constraint_index: 0,
+                };
+                my_air.eval(&mut folder);
+
+                (0..core::cmp::min(HEIGHT, PackingEF::WIDTH)).map(move |idx_in_packing| {
                     EF::from_basis_coefficients_fn(|coeff_idx| {
                         BasedVectorSpace::<PackingF>::as_basis_coefficients_slice(
                             &folder.accumulator,
