@@ -6,7 +6,7 @@ use rand::distr::{Distribution, StandardUniform};
 use rayon::prelude::*;
 use tracing::instrument;
 use utils::{
-    HypercubePoint, batch_fold_multilinear_in_large_field, batch_fold_multilinear_in_small_field,
+    batch_fold_multilinear_in_large_field, batch_fold_multilinear_in_small_field,
     univariate_selectors,
 };
 use whir_p3::{
@@ -216,13 +216,11 @@ where
         pols.iter()
             .all(|p| p.num_variables() == pols[0].num_variables())
     );
-    HypercubePoint::par_iter(pols[0].num_variables())
+    (0..1 << pols[0].num_variables())
+        .into_par_iter()
         .map(|x| {
-            let point = pols
-                .iter()
-                .map(|pol| pol.evals()[x.val])
-                .collect::<Vec<_>>();
-            let eq_mle_eval = eq_mle.map(|p| p.evals()[x.val]);
+            let point = pols.iter().map(|pol| pol.evals()[x]).collect::<Vec<_>>();
+            let eq_mle_eval = eq_mle.map(|p| p.evals()[x]);
             eval_sumcheck_computation(computation, batching_scalars, &point, eq_mle_eval)
         })
         .sum()
