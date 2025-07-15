@@ -925,6 +925,7 @@ dependencies = [
  "p3-field",
  "p3-koala-bear",
  "p3-matrix",
+ "rand",
  "rayon",
  "tracing",
  "whir-p3",
@@ -979,6 +980,7 @@ name = "whirlaway"
 version = "0.1.0"
 dependencies = [
  "air",
+ "p3-air",
  "p3-baby-bear",
  "p3-challenger",
  "p3-field",
@@ -989,9 +991,12 @@ dependencies = [
  "p3-symmetric",
  "p3-uni-stark",
  "rand",
+ "rayon",
+ "sumcheck",
  "tracing",
  "tracing-forest",
  "tracing-subscriber",
+ "utils",
  "whir-p3",
 ]
 
