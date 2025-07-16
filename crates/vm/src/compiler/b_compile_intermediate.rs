@@ -34,7 +34,7 @@ impl Compiler {
     fn get_var_offset(&self, var: &Var) -> usize {
         self.var_positions
             .get(var)
-            .unwrap_or_else(|| panic!("Variable {} not in scope", var.name))
+            .unwrap_or_else(|| panic!("Variable {} not in scope", var))
             .clone()
     }
 }
@@ -338,7 +338,7 @@ fn validate_vars_declared<VoC: Borrow<VarOrConstant>>(
     for voc in vocs {
         if let VarOrConstant::Var(v) = voc.borrow() {
             if !declared.contains(v) {
-                return Err(format!("Variable {} not declared", v.name));
+                return Err(format!("Variable {} not declared", v));
             }
         }
     }

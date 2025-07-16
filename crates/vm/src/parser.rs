@@ -40,6 +40,7 @@ pub fn parse_program(input: &str) -> Result<Program, ParseError> {
 
     let mut constants = BTreeMap::new();
     let mut functions = BTreeMap::new();
+    let mut trash_var_count = 0;
 
     for pair in program_pair.into_inner() {
         match pair.as_rule() {
@@ -48,7 +49,7 @@ pub fn parse_program(input: &str) -> Result<Program, ParseError> {
                 constants.insert(name, value);
             }
             Rule::function => {
-                let function = parse_function(pair, &constants)?;
+                let function = parse_function(pair, &constants, &mut trash_var_count)?;
                 functions.insert(function.name.clone(), function);
             }
             Rule::EOI => break,
@@ -88,6 +89,7 @@ fn parse_constant_declaration(pair: Pair<Rule>) -> Result<(String, usize), Parse
 fn parse_function(
     pair: Pair<Rule>,
     constants: &BTreeMap<String, usize>,
+    trash_var_count: &mut usize,
 ) -> Result<Function, ParseError> {
     let mut inner = pair.into_inner();
     let name = inner.next().unwrap().as_str().to_string();
@@ -101,9 +103,7 @@ fn parse_function(
             Rule::parameter_list => {
                 for param in pair.into_inner() {
                     if param.as_rule() == Rule::identifier {
-                        arguments.push(Var {
-                            name: param.as_str().to_string(),
-                        });
+                        arguments.push(param.as_str().to_string());
                     }
                 }
             }
@@ -116,7 +116,7 @@ fn parse_function(
                     .ok_or_else(|| ParseError::SemanticError("Invalid return count".to_string()))?;
             }
             Rule::statement => {
-                instructions.push(parse_statement(pair, constants)?);
+                instructions.push(parse_statement(pair, constants, trash_var_count)?);
             }
             _ => {}
         }
@@ -133,6 +133,7 @@ fn parse_function(
 fn parse_statement(
     pair: Pair<Rule>,
     constants: &BTreeMap<String, usize>,
+    trash_var_count: &mut usize,
 ) -> Result<Line, ParseError> {
     let inner = pair.into_inner().next().unwrap();
 
@@ -140,10 +141,10 @@ fn parse_statement(
         Rule::single_assignment => parse_assignment(inner, constants),
         Rule::array_access => parse_array_access(inner, constants),
         Rule::array_assign => parse_array_assign(inner, constants),
-        Rule::if_statement => parse_if_statement(inner, constants),
-        Rule::for_statement => parse_for_statement(inner, constants),
+        Rule::if_statement => parse_if_statement(inner, constants, trash_var_count),
+        Rule::for_statement => parse_for_statement(inner, constants, trash_var_count),
         Rule::return_statement => parse_return_statement(inner, constants),
-        Rule::function_call => parse_function_call(inner, constants),
+        Rule::function_call => parse_function_call(inner, constants, trash_var_count),
         Rule::assert_eq_statement => parse_assert_eq(inner, constants),
         Rule::assert_not_eq_statement => parse_assert_not_eq(inner, constants),
         _ => Err(ParseError::SemanticError("Unknown statement".to_string())),
@@ -153,6 +154,7 @@ fn parse_statement(
 fn parse_if_statement(
     pair: Pair<Rule>,
     constants: &BTreeMap<String, usize>,
+    trash_var_count: &mut usize,
 ) -> Result<Line, ParseError> {
     let mut inner = pair.into_inner();
     let condition = parse_condition(inner.next().unwrap(), constants)?;
@@ -162,11 +164,11 @@ fn parse_if_statement(
 
     for item in inner {
         match item.as_rule() {
-            Rule::statement => then_branch.push(parse_statement(item, constants)?),
+            Rule::statement => then_branch.push(parse_statement(item, constants, trash_var_count)?),
             Rule::else_clause => {
                 for else_item in item.into_inner() {
                     if else_item.as_rule() == Rule::statement {
-                        else_branch.push(parse_statement(else_item, constants)?);
+                        else_branch.push(parse_statement(else_item, constants, trash_var_count)?);
                     }
                 }
             }
@@ -186,9 +188,7 @@ fn parse_assignment(
     constants: &BTreeMap<String, usize>,
 ) -> Result<Line, ParseError> {
     let mut inner = pair.into_inner();
-    let var = Var {
-        name: inner.next().unwrap().as_str().to_string(),
-    };
+    let var = inner.next().unwrap().as_str().to_string();
     let expr = inner.next().unwrap();
     let value = parse_expression(expr, constants)?;
 
@@ -199,12 +199,8 @@ fn parse_array_access(
     constants: &BTreeMap<String, usize>,
 ) -> Result<Line, ParseError> {
     let mut inner = pair.into_inner();
-    let var_assigned = Var {
-        name: inner.next().unwrap().as_str().to_string(),
-    };
-    let array = Var {
-        name: inner.next().unwrap().as_str().to_string(),
-    };
+    let var_assigned = inner.next().unwrap().as_str().to_string();
+    let array = inner.next().unwrap().as_str().to_string();
     let index = parse_expression(inner.next().unwrap(), constants)?;
     Ok(Line::ArrayAccess {
         access_type: ArrayAccessType::VarIsAssigned(var_assigned),
@@ -218,9 +214,7 @@ fn parse_array_assign(
     constants: &BTreeMap<String, usize>,
 ) -> Result<Line, ParseError> {
     let mut inner = pair.into_inner();
-    let array = Var {
-        name: inner.next().unwrap().as_str().to_string(),
-    };
+    let array = inner.next().unwrap().as_str().to_string();
     let index = parse_expression(inner.next().unwrap(), constants)?;
     let expr = parse_expression(inner.next().unwrap(), constants)?;
     Ok(Line::ArrayAccess {
@@ -233,18 +227,17 @@ fn parse_array_assign(
 fn parse_for_statement(
     pair: Pair<Rule>,
     constants: &BTreeMap<String, usize>,
+    trash_var_count: &mut usize,
 ) -> Result<Line, ParseError> {
     let mut inner = pair.into_inner();
-    let iterator = Var {
-        name: inner.next().unwrap().as_str().to_string(),
-    };
+    let iterator = inner.next().unwrap().as_str().to_string();
     let start = parse_expression(inner.next().unwrap(), constants)?;
     let end = parse_expression(inner.next().unwrap(), constants)?;
 
     let mut body = Vec::new();
     for item in inner {
         if item.as_rule() == Rule::statement {
-            body.push(parse_statement(item, constants)?);
+            body.push(parse_statement(item, constants, trash_var_count)?);
         }
     }
 
@@ -387,6 +380,7 @@ fn parse_argument_list(
 fn parse_function_call(
     pair: Pair<Rule>,
     constants: &BTreeMap<String, usize>,
+    trash_var_count: &mut usize,
 ) -> Result<Line, ParseError> {
     let inner = pair.clone().into_inner();
     let mut return_data = Vec::new();
@@ -414,6 +408,13 @@ fn parse_function_call(
             Rule::identifier => function_name = item.as_str().to_string(),
             Rule::argument_list => args = parse_argument_list(item, constants)?,
             _ => {}
+        }
+    }
+
+    for var in &mut return_data {
+        if var == "_" {
+            *trash_var_count += 1;
+            *var = format!("@trash_{}", trash_var_count);
         }
     }
 
@@ -537,9 +538,7 @@ fn parse_var_or_constant(
                         ConstantValue::Scalar(value),
                     )))
                 } else {
-                    Ok(VarOrConstant::Var(Var {
-                        name: text.to_string(),
-                    }))
+                    Ok(VarOrConstant::Var(text.to_string()))
                 }
             }
         },

@@ -15,10 +15,7 @@ pub struct Function {
     pub instructions: Vec<Line>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Var {
-    pub name: String,
-}
+pub type Var = String;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum VarOrConstant {
@@ -420,12 +417,6 @@ impl ToString for Boolean {
                 format!("{} != {}", left.to_string(), right.to_string())
             }
         }
-    }
-}
-
-impl ToString for Var {
-    fn to_string(&self) -> String {
-        self.name.clone()
     }
 }
 

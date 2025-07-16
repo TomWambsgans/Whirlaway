@@ -130,9 +130,7 @@ fn simplify_lines(
                 index,
             } => {
                 // Create pointer variable: ptr = array + index
-                let ptr_var = Var {
-                    name: format!("@aux_var_{}", counters.aux_vars),
-                };
+                let ptr_var = format!("@aux_var_{}", counters.aux_vars);
                 counters.aux_vars += 1;
 
                 let simplified_index = simplify_expr(index, &mut res, counters);
@@ -161,9 +159,7 @@ fn simplify_lines(
                     }
                     VarOrConstant::Constant(cst) => {
                         // Constants need to be assigned to variables first
-                        let const_var = Var {
-                            name: format!("@aux_var_{}", counters.aux_vars),
-                        };
+                        let const_var = format!("@aux_var_{}", counters.aux_vars);
                         counters.aux_vars += 1;
                         res.push(SimpleLine::Assignment {
                             var: const_var.clone(),
@@ -182,9 +178,7 @@ fn simplify_lines(
                 Boolean::Different { left, right } => {
                     let left = simplify_expr(left, &mut res, counters);
                     let right = simplify_expr(right, &mut res, counters);
-                    let diff_var = Var {
-                        name: format!("@aux_var_{}", counters.aux_vars),
-                    };
+                    let diff_var = format!("@aux_var_{}", counters.aux_vars);
                     counters.aux_vars += 1;
                     res.push(SimpleLine::Assignment {
                         var: diff_var.clone(),
@@ -231,9 +225,7 @@ fn simplify_lines(
                 let left_simplified = simplify_expr(left, &mut res, counters);
                 let right_simplified = simplify_expr(right, &mut res, counters);
 
-                let diff_var = Var {
-                    name: format!("@diff_{}", counters.aux_vars),
-                };
+                let diff_var = format!("@diff_{}", counters.aux_vars);
                 counters.aux_vars += 1;
                 res.push(SimpleLine::Assignment {
                     var: diff_var.clone(),
@@ -387,9 +379,7 @@ fn simplify_expr(
         } => {
             let left_var = simplify_expr(left, lines, counters);
             let right_var = simplify_expr(right, lines, counters);
-            let aux_var = Var {
-                name: format!("@aux_var_{}", counters.aux_vars),
-            };
+            let aux_var = format!("@aux_var_{}", counters.aux_vars);
             counters.aux_vars += 1;
             lines.push(SimpleLine::Assignment {
                 var: aux_var.clone(),
@@ -443,7 +433,7 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                 external_vars.extend(
                     then_external
                         .union(&else_external)
-                        .filter(|v| !internal_vars.contains(v))
+                        .filter(|v| !internal_vars.contains(*v))
                         .cloned(),
                 );
             }
@@ -548,9 +538,7 @@ fn create_recursive_function(
     external_vars: &[Var],
 ) -> SimpleFunction {
     // Add iterator increment
-    let next_iter = Var {
-        name: format!("@incremented_{}", iterator.name),
-    };
+    let next_iter = format!("@incremented_{}", iterator);
     body.push(SimpleLine::Assignment {
         var: next_iter.clone(),
         operation: HighLevelOperation::Add,
@@ -571,9 +559,7 @@ fn create_recursive_function(
         return_data: vec![],
     });
 
-    let diff_var = Var {
-        name: format!("@diff_{}", iterator.name),
-    };
+    let diff_var = format!("@diff_{}", iterator);
 
     let instructions = vec![
         SimpleLine::Assignment {

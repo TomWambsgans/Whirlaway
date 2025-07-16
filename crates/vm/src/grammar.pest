@@ -63,5 +63,5 @@ var_or_constant = { constant_value | identifier }
 constant_value = { number | "public_input_start" }
 
 // Lexical elements
-identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+identifier = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
 number = @{ ASCII_DIGIT+ }

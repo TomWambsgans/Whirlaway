@@ -271,9 +271,9 @@ fn test_verify_merkle_path() {
         is_left = are_left[0];
 
         if is_left == 1 {
-            hashed, trash = poseidon16(thing_to_hash, neighbours);
+            hashed, _ = poseidon16(thing_to_hash, neighbours);
         } else {
-            hashed, trash = poseidon16(neighbours, thing_to_hash);
+            hashed, _ = poseidon16(neighbours, thing_to_hash);
         }
 
         next_step = step + 1;
@@ -377,7 +377,7 @@ fn test_verify_wots_signature() {
         if n_iter == 0 {
             return thing_to_hash;
         }
-        hashed, trash = poseidon16(thing_to_hash, pointer_to_zero_vector);
+        hashed, _ = poseidon16(thing_to_hash, pointer_to_zero_vector);
         n_iter_minus_one = n_iter - 1;
         res = hash_chain(hashed, n_iter_minus_one);
         return res;
@@ -392,7 +392,7 @@ fn test_verify_wots_signature() {
             a = public_key[two_i];
             b = public_key[two_i_plus_one];
             c = hashes[i];
-            next, trash1, trash2 = poseidon24(a, b, c);
+            next, _1, _2 = poseidon24(a, b, c);
             i_plus_one = i + 1;
             hashes[i_plus_one] = next;
         }
@@ -494,7 +494,7 @@ fn test_verify_xmss_signature() {
         if n_iter == 0 {
             return thing_to_hash;
         }
-        hashed, trash = poseidon16(thing_to_hash, pointer_to_zero_vector);
+        hashed, _ = poseidon16(thing_to_hash, pointer_to_zero_vector);
         n_iter_minus_one = n_iter - 1;
         res = hash_chain(hashed, n_iter_minus_one);
         return res;
@@ -509,7 +509,7 @@ fn test_verify_xmss_signature() {
             a = public_key[two_i];
             b = public_key[two_i_plus_one];
             c = hashes[i];
-            next, trash1, trash2 = poseidon24(a, b, c);
+            next, _1, _2 = poseidon24(a, b, c);
             i_plus_one = i + 1;
             hashes[i_plus_one] = next;
         }
@@ -524,9 +524,9 @@ fn test_verify_xmss_signature() {
         is_left = are_left[0];
 
         if is_left == 1 {
-            hashed, trash = poseidon16(thing_to_hash, neighbours);
+            hashed, _ = poseidon16(thing_to_hash, neighbours);
         } else {
-            hashed, trash = poseidon16(neighbours, thing_to_hash);
+            hashed, _ = poseidon16(neighbours, thing_to_hash);
         }
 
         next_step = step + 1;
@@ -611,17 +611,15 @@ fn test_aggregate_xmss_signatures() {
     fn main() {
         private_input_start = public_input_start + 160;
         message = public_input_start;
-        xmss_public_keys_temp = public_input_start + N_CHAINS;
-        xmss_public_keys = xmss_public_keys_temp / 8;
+        xmss_public_keys = (public_input_start + N_CHAINS) / 8;
         bitfield = public_input_start + 144; // message + N_PUBLIC_KEYS x 8
 
-        bitfield_counter = malloc(11); // N_PUBLIC_KEYS + 1
+        bitfield_counter = malloc(N_PUBLIC_KEYS + 1);
         bitfield_counter[0] = 0;
 
         for i in 0..N_PUBLIC_KEYS {
             bitfield_counter_i = bitfield_counter[i];
             bit = bitfield[i];
-            i_plus_one = i + 1;
             if bit == 1 {
                 xmss_public_key = xmss_public_keys + i;
                 wots_signature_offset = private_input_start / 8;
@@ -632,10 +630,9 @@ fn test_aggregate_xmss_signatures() {
                 assert_eq_ext(xmss_public_key, xmss_public_key_recovered);
                 print(VERIF_SUCCESSFUL);
 
-                bitfield_counter_i_plus_one = bitfield_counter_i + 1;
-                bitfield_counter[i_plus_one] = bitfield_counter_i_plus_one;
+                bitfield_counter[i + 1] = bitfield_counter_i + 1;
             } else {
-                bitfield_counter[i_plus_one] = bitfield_counter_i;
+                bitfield_counter[i + 1] = bitfield_counter_i;
             }
         }
         return;
@@ -645,9 +642,7 @@ fn test_aggregate_xmss_signatures() {
         // merkle_path: vectorized pointer to neighbours: XMSS_MERKLE_HEIGHT x 8 followed by is_left: XMSS_MERKLE_HEIGHT
         wots_public_key = recover_wots_public_key(message, wots_signature);
         wots_public_key_hash = hash_wots_public_key(wots_public_key);
-        are_left_vec = merkle_path + XMSS_MERKLE_HEIGHT;
-        are_left = are_left_vec * 8;
-        merkle_root = merkle_step(0, XMSS_MERKLE_HEIGHT, wots_public_key_hash, are_left, merkle_path);
+        merkle_root = merkle_step(0, XMSS_MERKLE_HEIGHT, wots_public_key_hash, (merkle_path + XMSS_MERKLE_HEIGHT) * 8, merkle_path);
         return merkle_root;
     }
 
@@ -660,8 +655,7 @@ fn test_aggregate_xmss_signatures() {
         for i in 0..N_CHAINS {
             msg_i = message[i];
             n_hash_iter = CHAIN_LENGTH - msg_i;
-            signature_i = signature + i;
-            pk_i = hash_chain(signature_i, n_hash_iter);
+            pk_i = hash_chain(signature + i, n_hash_iter);
             public_key[i] = pk_i;
         }
         return public_key;
@@ -671,9 +665,8 @@ fn test_aggregate_xmss_signatures() {
         if n_iter == 0 {
             return thing_to_hash;
         }
-        hashed, trash = poseidon16(thing_to_hash, pointer_to_zero_vector);
-        n_iter_minus_one = n_iter - 1;
-        res = hash_chain(hashed, n_iter_minus_one);
+        hashed, _ = poseidon16(thing_to_hash, pointer_to_zero_vector);
+        res = hash_chain(hashed, n_iter - 1);
         return res;
     }
 
@@ -681,14 +674,11 @@ fn test_aggregate_xmss_signatures() {
         hashes = malloc(33); // N_CHAINS / 2 + 1
         hashes[0] = pointer_to_zero_vector;
         for i in 0..32 {
-            two_i = 2 * i;
-            two_i_plus_one = two_i + 1;
-            a = public_key[two_i];
-            b = public_key[two_i_plus_one];
+            a = public_key[2 * i];
+            b = public_key[(2 * i) + 1];
             c = hashes[i];
-            next, trash1, trash2 = poseidon24(a, b, c);
-            i_plus_one = i + 1;
-            hashes[i_plus_one] = next;
+            next, _, _ = poseidon24(a, b, c);
+            hashes[i + 1] = next;
         }
         res = hashes[32];
         return res; 
@@ -701,15 +691,12 @@ fn test_aggregate_xmss_signatures() {
         is_left = are_left[0];
 
         if is_left == 1 {
-            hashed, trash = poseidon16(thing_to_hash, neighbours);
+            hashed, _ = poseidon16(thing_to_hash, neighbours);
         } else {
-            hashed, trash = poseidon16(neighbours, thing_to_hash);
+            hashed, _ = poseidon16(neighbours, thing_to_hash);
         }
 
-        next_step = step + 1;
-        next_are_left = are_left + 1;
-        next_neighbours = neighbours + 1;
-        res = merkle_step(next_step, height, hashed, next_are_left, next_neighbours);
+        res = merkle_step(step + 1, height, hashed, are_left + 1, neighbours + 1);
         return res;
     }
 
