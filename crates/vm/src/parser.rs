@@ -269,28 +269,29 @@ fn parse_expression(
 ) -> Result<Expression, ParseError> {
     match pair.as_rule() {
         Rule::expression => parse_expression(pair.into_inner().next().unwrap(), constants),
-        Rule::add_expr => parse_add_expr(pair, constants),
-        Rule::sub_expr => parse_sub_expr(pair, constants),
-        Rule::mul_expr => parse_mul_expr(pair, constants),
-        Rule::div_expr => parse_div_expr(pair, constants),
+        Rule::add_expr => parse_binary_expr(pair, constants, HighLevelOperation::Add),
+        Rule::sub_expr => parse_binary_expr(pair, constants, HighLevelOperation::Sub),
+        Rule::mul_expr => parse_binary_expr(pair, constants, HighLevelOperation::Mul),
+        Rule::div_expr => parse_binary_expr(pair, constants, HighLevelOperation::Div),
         Rule::primary => parse_primary(pair, constants),
         Rule::var_or_constant => Ok(Expression::Value(parse_var_or_constant(pair, constants)?)),
         _ => Err(ParseError::SemanticError("Invalid expression".to_string())),
     }
 }
 
-fn parse_add_expr(
+fn parse_binary_expr(
     pair: Pair<Rule>,
     constants: &BTreeMap<String, usize>,
+    operator: HighLevelOperation,
 ) -> Result<Expression, ParseError> {
     let mut inner = pair.into_inner();
-    let mut expr = parse_sub_expr(inner.next().unwrap(), constants)?;
+    let mut expr = parse_expression(inner.next().unwrap(), constants)?;
 
     while let Some(right) = inner.next() {
-        let right_expr = parse_sub_expr(right, constants)?;
+        let right_expr = parse_expression(right, constants)?;
         expr = Expression::Binary {
             left: Box::new(expr),
-            operator: HighLevelOperation::Add,
+            operator,
             right: Box::new(right_expr),
         };
     }
@@ -298,62 +299,6 @@ fn parse_add_expr(
     Ok(expr)
 }
 
-fn parse_sub_expr(
-    pair: Pair<Rule>,
-    constants: &BTreeMap<String, usize>,
-) -> Result<Expression, ParseError> {
-    let mut inner = pair.into_inner();
-    let mut expr = parse_mul_expr(inner.next().unwrap(), constants)?;
-
-    while let Some(right) = inner.next() {
-        let right_expr = parse_mul_expr(right, constants)?;
-        expr = Expression::Binary {
-            left: Box::new(expr),
-            operator: HighLevelOperation::Sub,
-            right: Box::new(right_expr),
-        };
-    }
-
-    Ok(expr)
-}
-
-fn parse_mul_expr(
-    pair: Pair<Rule>,
-    constants: &BTreeMap<String, usize>,
-) -> Result<Expression, ParseError> {
-    let mut inner = pair.into_inner();
-    let mut expr = parse_div_expr(inner.next().unwrap(), constants)?;
-
-    while let Some(right) = inner.next() {
-        let right_expr = parse_div_expr(right, constants)?;
-        expr = Expression::Binary {
-            left: Box::new(expr),
-            operator: HighLevelOperation::Mul,
-            right: Box::new(right_expr),
-        };
-    }
-
-    Ok(expr)
-}
-
-fn parse_div_expr(
-    pair: Pair<Rule>,
-    constants: &BTreeMap<String, usize>,
-) -> Result<Expression, ParseError> {
-    let mut inner = pair.into_inner();
-    let mut expr = parse_primary(inner.next().unwrap(), constants)?;
-
-    while let Some(right) = inner.next() {
-        let right_expr = parse_primary(right, constants)?;
-        expr = Expression::Binary {
-            left: Box::new(expr),
-            operator: HighLevelOperation::Div,
-            right: Box::new(right_expr),
-        };
-    }
-
-    Ok(expr)
-}
 
 fn parse_primary(
     pair: Pair<Rule>,
