@@ -25,37 +25,41 @@ statement = {
 }
 
 return_statement = { "return" ~ (tuple_expression)? ~ ";" }
-tuple_expression = { var_or_constant ~ ("," ~ var_or_constant)* }
+tuple_expression = { expression ~ ("," ~ expression)* }
 
 single_assignment = { identifier ~ "=" ~ expression ~ ";" }
 
-array_access = { identifier ~ "=" ~ identifier ~ "[" ~ var_or_constant ~ "]" ~ ";" }
-array_assign = { identifier ~ "[" ~ var_or_constant ~ "]" ~ "=" ~ var_or_constant ~ ";" }
+array_access = { identifier ~ "=" ~ identifier ~ "[" ~ expression ~ "]" ~ ";" }
+array_assign = { identifier ~ "[" ~ expression ~ "]" ~ "=" ~ expression ~ ";" }
 
 if_statement = { "if" ~ condition ~ "{" ~ statement* ~ "}" ~ else_clause? }
 
 condition = {condition_eq | condition_diff}
-condition_eq = { var_or_constant ~ "==" ~ var_or_constant }
-condition_diff = { var_or_constant ~ "!=" ~ var_or_constant }
+condition_eq = { expression ~ "==" ~ expression }
+condition_diff = { expression ~ "!=" ~ expression }
 
 else_clause = { "else" ~ "{" ~ statement* ~ "}" }
 
-for_statement = { "for" ~ identifier ~ "in" ~ var_or_constant ~ ".." ~ var_or_constant ~ "{" ~ statement* ~ "}" }
+for_statement = { "for" ~ identifier ~ "in" ~ expression ~ ".." ~ expression ~ "{" ~ statement* ~ "}" }
 
-function_call = { function_res? ~ identifier ~ "(" ~ var_list? ~ ")" ~ ";" }
+function_call = { function_res? ~ identifier ~ "(" ~ argument_list? ~ ")" ~ ";" }
 function_res = { var_list ~ "=" }
-var_list = { var_or_constant ~ ("," ~ var_or_constant)* }
+var_list = { identifier ~ ("," ~ identifier)* }
+argument_list = { expression ~ ("," ~ expression)* }
 
-assert_eq_statement = { "assert" ~ var_or_constant ~ "==" ~ var_or_constant ~ ";" }
-assert_not_eq_statement = { "assert" ~ var_or_constant ~ "!=" ~ var_or_constant ~ ";" }
+assert_eq_statement = { "assert" ~ expression ~ "==" ~ expression ~ ";" }
+assert_not_eq_statement = { "assert" ~ expression ~ "!=" ~ expression ~ ";" }
 
 // Expressions
-expression = { binary_expression | var_or_constant }
-binary_expression = { var_or_constant ~ binary_operator ~ var_or_constant }
-binary_operator = { "+" | "*" | "-" | "/" }
+expression = { add_expr }
+add_expr = { sub_expr ~ ("+" ~ sub_expr)* }
+sub_expr = { mul_expr ~ ("-" ~ mul_expr)* }
+mul_expr = { div_expr ~ ("*" ~ div_expr)* }
+div_expr = { primary ~ ("/" ~ primary)* }
+primary = { "(" ~ expression ~ ")" | var_or_constant }
 
 // Basic elements
-var_or_constant = {  constant_value | identifier }
+var_or_constant = { constant_value | identifier }
 constant_value = { number | "public_input_start" }
 
 // Lexical elements

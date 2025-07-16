@@ -1,35 +1,52 @@
 use std::collections::BTreeMap;
 
-use crate::lang::ConstantValue;
+use crate::{bytecode::bytecode::Operation, lang::ConstExpression};
 
 pub type Label = String;
 
 #[derive(Debug, Clone)]
-pub struct HighLevelBytecode {
-    pub bytecode: BTreeMap<Label, Vec<HighLevelInstruction>>,
+pub struct IntermediateBytecode {
+    pub bytecode: BTreeMap<Label, Vec<IntermediateInstruction>>,
     pub memory_size_per_function: BTreeMap<String, usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HighLevelValue {
-    Label(Label),
-    Constant(ConstantValue),
+pub enum IntermediateValue {
+    Constant(ConstExpression),
     Fp,
     MemoryAfterFp { shift: usize }, // m[fp + shift]
-    ShiftedMemoryPointer { shift_0: usize, shift_1: usize }, // m[m[fp + shift_0] + shift_1]
 }
 
-impl HighLevelValue {
-    pub fn compiles_to_constant(&self) -> bool {
-        matches!(self, HighLevelValue::Constant(_) | HighLevelValue::Label(_))
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum IntermediaryMemOrFpOrConstant {
+    MemoryAfterFp { shift: usize }, // m[fp + shift]
+    Fp,
+    Constant(ConstExpression),
+}
+
+impl IntermediateValue {
+    pub fn label(label: Label) -> Self {
+        Self::Constant(ConstExpression::label(label))
+    }
+
+    pub fn as_constant(&self) -> Option<ConstExpression> {
+        if let IntermediateValue::Constant(c) = self {
+            Some(c.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn is_constant(&self) -> bool {
+        matches!(self, IntermediateValue::Constant(_))
     }
 
     pub fn is_fp(&self) -> bool {
-        matches!(self, HighLevelValue::Fp)
+        matches!(self, IntermediateValue::Fp)
     }
 
     pub fn is_mem_after_fp(&self) -> bool {
-        matches!(self, HighLevelValue::MemoryAfterFp { .. })
+        matches!(self, IntermediateValue::MemoryAfterFp { .. })
     }
 }
 
@@ -42,31 +59,27 @@ pub enum HighLevelOperation {
 }
 
 #[derive(Debug, Clone)]
-pub enum HighLevelInstruction {
+pub enum IntermediateInstruction {
     Computation {
-        operation: HighLevelOperation,
-        arg_a: HighLevelValue,
-        arg_b: HighLevelValue,
-        res: HighLevelValue,
+        operation: Operation,
+        arg_a: IntermediateValue,
+        arg_b: IntermediateValue,
+        res: IntermediateValue,
     },
-    MemoryPointerEq {
+    Deref {
         shift_0: usize,
         shift_1: usize,
-        res: usize,
-    }, // m[fp + res] = m[m[fp + shift_0]]
-    Eq {
-        left: HighLevelValue,
-        right: HighLevelValue,
-    },
+        res: IntermediaryMemOrFpOrConstant,
+    }, // res = m[m[fp + shift_0]]
     Panic,
     Jump {
-        dest: HighLevelValue,
-        updated_fp: Option<HighLevelValue>,
+        dest: IntermediateValue,
+        updated_fp: Option<IntermediateValue>,
     },
     JumpIfNotZero {
-        condition: HighLevelValue,
-        dest: HighLevelValue,
-        updated_fp: Option<HighLevelValue>,
+        condition: IntermediateValue,
+        dest: IntermediateValue,
+        updated_fp: Option<IntermediateValue>,
     },
     Poseidon2_16 {
         shift: usize,
@@ -80,51 +93,91 @@ pub enum HighLevelInstruction {
 
     // HINTS (does not appears in the final bytecode)
     RequestMemory {
-        shift: usize,             // m[fp + shift] where the hint will be stored
-        size: HighLevelMetaValue, // the hint
+        shift: usize,          // m[fp + shift] where the hint will be stored
+        size: ConstExpression, // the hint
         vectorized: bool, // if true, will be 8-alligned, and the returned pointer will be "divied" by 8 (i.e. everything is in chunks of 8 field elements)
     },
 
     Print {
-        line_info: String,            // information about the line where the print occurs
-        content: Vec<HighLevelValue>, // values to print
+        line_info: String, // information about the line where the print occurs
+        content: Vec<IntermediateValue>, // values to print
     },
 }
 
-#[derive(Debug, Clone)]
-pub enum HighLevelMetaValue {
-    Constant(usize),
-    FunctionSize { function_name: Label },
-}
+impl IntermediateInstruction {
+    pub fn computation(
+        operation: HighLevelOperation,
+        arg_a: IntermediateValue,
+        arg_b: IntermediateValue,
+        res: IntermediateValue,
+    ) -> Self {
+        match operation {
+            HighLevelOperation::Add => Self::Computation {
+                operation: Operation::Add,
+                arg_a,
+                arg_b,
+                res,
+            },
+            HighLevelOperation::Mul => Self::Computation {
+                operation: Operation::Mul,
+                arg_a,
+                arg_b,
+                res,
+            },
+            HighLevelOperation::Sub => Self::Computation {
+                operation: Operation::Add,
+                arg_a: res,
+                arg_b: arg_b,
+                res: arg_a,
+            },
+            HighLevelOperation::Div => Self::Computation {
+                operation: Operation::Mul,
+                arg_a: res,
+                arg_b: arg_b,
+                res: arg_a,
+            },
+        }
+    }
 
-impl ToString for HighLevelValue {
-    fn to_string(&self) -> String {
-        match self {
-            HighLevelValue::Label(label) => label.clone(),
-            HighLevelValue::Constant(value) => value.to_string(),
-            HighLevelValue::Fp => "fp".to_string(),
-            HighLevelValue::MemoryAfterFp { shift } => format!("m[fp + {}]", shift),
-            HighLevelValue::ShiftedMemoryPointer { shift_0, shift_1 } => {
-                format!("m[m[fp + {}] + {}]", shift_0, shift_1)
-            }
+    pub fn equality(left: IntermediateValue, right: IntermediateValue) -> Self {
+        Self::Computation {
+            operation: Operation::Add,
+            arg_a: left,
+            arg_b: IntermediateValue::Constant(ConstExpression::zero()),
+            res: right,
         }
     }
 }
 
-impl ToString for HighLevelInstruction {
+impl ToString for IntermediateValue {
     fn to_string(&self) -> String {
         match self {
-            HighLevelInstruction::MemoryPointerEq {
+            IntermediateValue::Constant(value) => value.to_string(),
+            IntermediateValue::Fp => "fp".to_string(),
+            IntermediateValue::MemoryAfterFp { shift } => format!("m[fp + {}]", shift),
+        }
+    }
+}
+
+impl ToString for IntermediaryMemOrFpOrConstant {
+    fn to_string(&self) -> String {
+        match self {
+            Self::MemoryAfterFp { shift } => format!("m[fp + {}]", shift),
+            Self::Fp => "fp".to_string(),
+            Self::Constant(c) => format!("{}", c.to_string()),
+        }
+    }
+}
+
+impl ToString for IntermediateInstruction {
+    fn to_string(&self) -> String {
+        match self {
+            IntermediateInstruction::Deref {
                 shift_0,
                 shift_1,
                 res,
-            } => format!(
-                "{} = m[m[fp + {}] + {}]",
-                res.to_string(),
-                shift_0,
-                shift_1
-            ),
-            HighLevelInstruction::Computation {
+            } => format!("{} = m[m[fp + {}] + {}]", res.to_string(), shift_0, shift_1),
+            IntermediateInstruction::Computation {
                 operation,
                 arg_a,
                 arg_b,
@@ -138,18 +191,15 @@ impl ToString for HighLevelInstruction {
                     arg_b.to_string()
                 )
             }
-            HighLevelInstruction::Eq { left, right } => {
-                format!("{} == {}", left.to_string(), right.to_string())
-            }
-            HighLevelInstruction::Panic => "panic".to_string(),
-            HighLevelInstruction::Jump { dest, updated_fp } => {
+            IntermediateInstruction::Panic => "panic".to_string(),
+            IntermediateInstruction::Jump { dest, updated_fp } => {
                 if let Some(fp) = updated_fp {
                     format!("jump {} with fp = {}", dest.to_string(), fp.to_string())
                 } else {
                     format!("jump {}", dest.to_string())
                 }
             }
-            HighLevelInstruction::JumpIfNotZero {
+            IntermediateInstruction::JumpIfNotZero {
                 condition,
                 dest,
                 updated_fp,
@@ -169,15 +219,15 @@ impl ToString for HighLevelInstruction {
                     )
                 }
             }
-            HighLevelInstruction::Poseidon2_16 { shift } => format!(
+            IntermediateInstruction::Poseidon2_16 { shift } => format!(
                 "poseidon2_16 m[8 * m[fp + {}] .. 8 * (1 + m[fp + {}])] | m[8 * m[fp + {} + 1]] .. 8 * (1 + m[fp + {} + 1])]",
                 shift, shift, shift, shift
             ),
-            HighLevelInstruction::Poseidon2_24 { shift } => format!(
+            IntermediateInstruction::Poseidon2_24 { shift } => format!(
                 "poseidon2_24 m[8 * m[fp + {}] .. 8 * (1 + m[fp + {}])] | m[8 * m[fp + {} + 1]] .. 8 * (1 + m[fp + {} + 1])]",
                 shift, shift, shift, shift
             ),
-            HighLevelInstruction::RequestMemory {
+            IntermediateInstruction::RequestMemory {
                 shift,
                 size,
                 vectorized,
@@ -187,7 +237,7 @@ impl ToString for HighLevelInstruction {
                 size.to_string(),
                 if *vectorized { "# vectorized" } else { "" }
             ),
-            HighLevelInstruction::Print { line_info, content } => format!(
+            IntermediateInstruction::Print { line_info, content } => format!(
                 "print {}: {}",
                 line_info,
                 content
@@ -211,18 +261,7 @@ impl ToString for HighLevelOperation {
     }
 }
 
-impl ToString for HighLevelMetaValue {
-    fn to_string(&self) -> String {
-        match self {
-            HighLevelMetaValue::Constant(value) => value.to_string(),
-            HighLevelMetaValue::FunctionSize { function_name } => {
-                format!("function_size({})", function_name)
-            }
-        }
-    }
-}
-
-impl ToString for HighLevelBytecode {
+impl ToString for IntermediateBytecode {
     fn to_string(&self) -> String {
         let mut res = String::new();
         for (label, instructions) in &self.bytecode {

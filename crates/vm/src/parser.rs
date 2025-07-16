@@ -150,88 +150,6 @@ fn parse_statement(
     }
 }
 
-fn parse_assignment(
-    pair: Pair<Rule>,
-    constants: &BTreeMap<String, usize>,
-) -> Result<Line, ParseError> {
-    let mut inner = pair.into_inner();
-    let var = Var {
-        name: inner.next().unwrap().as_str().to_string(),
-    };
-    let expr = inner.next().unwrap().into_inner().next().unwrap();
-
-    match expr.as_rule() {
-        Rule::binary_expression => {
-            let mut expr_inner = expr.into_inner();
-            let arg0 = parse_var_or_constant(expr_inner.next().unwrap(), constants)?;
-            let op_str = expr_inner.next().unwrap().as_str();
-            let arg1 = parse_var_or_constant(expr_inner.next().unwrap(), constants)?;
-
-            let operation = match op_str {
-                "+" => HighLevelOperation::Add,
-                "-" => HighLevelOperation::Sub,
-                "*" => HighLevelOperation::Mul,
-                "/" => HighLevelOperation::Div,
-                _ => return Err(ParseError::SemanticError("Unknown operator".to_string())),
-            };
-
-            Ok(Line::Assignment {
-                var,
-                operation,
-                arg0,
-                arg1,
-            })
-        }
-        Rule::var_or_constant => {
-            let value = parse_var_or_constant(expr, constants)?;
-            Ok(Line::Assignment {
-                var,
-                operation: HighLevelOperation::Add,
-                arg0: value,
-                arg1: VarOrConstant::Constant(ConstantValue::Scalar(0)),
-            })
-        }
-        _ => Err(ParseError::SemanticError("Invalid expression".to_string())),
-    }
-}
-
-fn parse_array_access(
-    pair: Pair<Rule>,
-    constants: &BTreeMap<String, usize>,
-) -> Result<Line, ParseError> {
-    let mut inner = pair.into_inner();
-    let value = Var {
-        name: inner.next().unwrap().as_str().to_string(),
-    }
-    .into();
-    let array = Var {
-        name: inner.next().unwrap().as_str().to_string(),
-    };
-    let index = parse_var_or_constant(inner.next().unwrap(), constants)?;
-    Ok(Line::ArrayAccess {
-        value,
-        array,
-        index,
-    })
-}
-
-fn parse_array_assign(
-    pair: Pair<Rule>,
-    constants: &BTreeMap<String, usize>,
-) -> Result<Line, ParseError> {
-    let mut inner = pair.into_inner();
-    let array = Var {
-        name: inner.next().unwrap().as_str().to_string(),
-    };
-    let index = parse_var_or_constant(inner.next().unwrap(), constants)?;
-    let value = parse_var_or_constant(inner.next().unwrap(), constants)?;
-    Ok(Line::ArrayAccess {
-        value,
-        array,
-        index,
-    })
-}
-
 fn parse_if_statement(
     pair: Pair<Rule>,
     constants: &BTreeMap<String, usize>,
@@ -263,6 +181,55 @@ fn parse_if_statement(
     })
 }
 
+fn parse_assignment(
+    pair: Pair<Rule>,
+    constants: &BTreeMap<String, usize>,
+) -> Result<Line, ParseError> {
+    let mut inner = pair.into_inner();
+    let var = Var {
+        name: inner.next().unwrap().as_str().to_string(),
+    };
+    let expr = inner.next().unwrap();
+    let value = parse_expression(expr, constants)?;
+
+    Ok(Line::Assignment { var, value })
+}
+fn parse_array_access(
+    pair: Pair<Rule>,
+    constants: &BTreeMap<String, usize>,
+) -> Result<Line, ParseError> {
+    let mut inner = pair.into_inner();
+    let var_assigned = Var {
+        name: inner.next().unwrap().as_str().to_string(),
+    };
+    let array = Var {
+        name: inner.next().unwrap().as_str().to_string(),
+    };
+    let index = parse_expression(inner.next().unwrap(), constants)?;
+    Ok(Line::ArrayAccess {
+        access_type: ArrayAccessType::VarIsAssigned(var_assigned),
+        array,
+        index,
+    })
+}
+
+fn parse_array_assign(
+    pair: Pair<Rule>,
+    constants: &BTreeMap<String, usize>,
+) -> Result<Line, ParseError> {
+    let mut inner = pair.into_inner();
+    let array = Var {
+        name: inner.next().unwrap().as_str().to_string(),
+    };
+    let index = parse_expression(inner.next().unwrap(), constants)?;
+    let expr = parse_expression(inner.next().unwrap(), constants)?;
+    Ok(Line::ArrayAccess {
+        access_type: ArrayAccessType::ArrayIsAssigned(expr),
+        array,
+        index,
+    })
+}
+
 fn parse_for_statement(
     pair: Pair<Rule>,
     constants: &BTreeMap<String, usize>,
@@ -271,8 +238,8 @@ fn parse_for_statement(
     let iterator = Var {
         name: inner.next().unwrap().as_str().to_string(),
     };
-    let start = parse_var_or_constant(inner.next().unwrap(), constants)?;
-    let end = parse_var_or_constant(inner.next().unwrap(), constants)?;
+    let start = parse_expression(inner.next().unwrap(), constants)?;
+    let end = parse_expression(inner.next().unwrap(), constants)?;
 
     let mut body = Vec::new();
     for item in inner {
@@ -297,15 +264,126 @@ fn parse_return_statement(
     for item in pair.into_inner() {
         if item.as_rule() == Rule::tuple_expression {
             for tuple_item in item.into_inner() {
-                if tuple_item.as_rule() == Rule::var_or_constant {
-                    return_data.push(parse_var_or_constant(tuple_item, constants)?);
-                }
+                return_data.push(parse_expression(tuple_item, constants)?);
             }
         }
     }
     Ok(Line::FunctionRet { return_data })
 }
+fn parse_expression(
+    pair: Pair<Rule>,
+    constants: &BTreeMap<String, usize>,
+) -> Result<Expression, ParseError> {
+    match pair.as_rule() {
+        Rule::expression => parse_expression(pair.into_inner().next().unwrap(), constants),
+        Rule::add_expr => parse_add_expr(pair, constants),
+        Rule::sub_expr => parse_sub_expr(pair, constants),
+        Rule::mul_expr => parse_mul_expr(pair, constants),
+        Rule::div_expr => parse_div_expr(pair, constants),
+        Rule::primary => parse_primary(pair, constants),
+        Rule::var_or_constant => Ok(Expression::Value(parse_var_or_constant(pair, constants)?)),
+        _ => Err(ParseError::SemanticError("Invalid expression".to_string())),
+    }
+}
 
+fn parse_add_expr(
+    pair: Pair<Rule>,
+    constants: &BTreeMap<String, usize>,
+) -> Result<Expression, ParseError> {
+    let mut inner = pair.into_inner();
+    let mut expr = parse_sub_expr(inner.next().unwrap(), constants)?;
+
+    while let Some(right) = inner.next() {
+        let right_expr = parse_sub_expr(right, constants)?;
+        expr = Expression::Binary {
+            left: Box::new(expr),
+            operator: HighLevelOperation::Add,
+            right: Box::new(right_expr),
+        };
+    }
+
+    Ok(expr)
+}
+
+fn parse_sub_expr(
+    pair: Pair<Rule>,
+    constants: &BTreeMap<String, usize>,
+) -> Result<Expression, ParseError> {
+    let mut inner = pair.into_inner();
+    let mut expr = parse_mul_expr(inner.next().unwrap(), constants)?;
+
+    while let Some(right) = inner.next() {
+        let right_expr = parse_mul_expr(right, constants)?;
+        expr = Expression::Binary {
+            left: Box::new(expr),
+            operator: HighLevelOperation::Sub,
+            right: Box::new(right_expr),
+        };
+    }
+
+    Ok(expr)
+}
+
+fn parse_mul_expr(
+    pair: Pair<Rule>,
+    constants: &BTreeMap<String, usize>,
+) -> Result<Expression, ParseError> {
+    let mut inner = pair.into_inner();
+    let mut expr = parse_div_expr(inner.next().unwrap(), constants)?;
+
+    while let Some(right) = inner.next() {
+        let right_expr = parse_div_expr(right, constants)?;
+        expr = Expression::Binary {
+            left: Box::new(expr),
+            operator: HighLevelOperation::Mul,
+            right: Box::new(right_expr),
+        };
+    }
+
+    Ok(expr)
+}
+
+fn parse_div_expr(
+    pair: Pair<Rule>,
+    constants: &BTreeMap<String, usize>,
+) -> Result<Expression, ParseError> {
+    let mut inner = pair.into_inner();
+    let mut expr = parse_primary(inner.next().unwrap(), constants)?;
+
+    while let Some(right) = inner.next() {
+        let right_expr = parse_primary(right, constants)?;
+        expr = Expression::Binary {
+            left: Box::new(expr),
+            operator: HighLevelOperation::Div,
+            right: Box::new(right_expr),
+        };
+    }
+
+    Ok(expr)
+}
+
+fn parse_primary(
+    pair: Pair<Rule>,
+    constants: &BTreeMap<String, usize>,
+) -> Result<Expression, ParseError> {
+    let inner = pair.into_inner().next().unwrap();
+    match inner.as_rule() {
+        Rule::expression => parse_expression(inner, constants),
+        Rule::var_or_constant => Ok(Expression::Value(parse_var_or_constant(inner, constants)?)),
+        _ => Err(ParseError::SemanticError(
+            "Invalid primary expression".to_string(),
+        )),
+    }
+}
+
+fn parse_argument_list(
+    pair: Pair<Rule>,
+    constants: &BTreeMap<String, usize>,
+) -> Result<Vec<Expression>, ParseError> {
+    pair.into_inner()
+        .map(|item| parse_expression(item, constants))
+        .collect()
+}
 fn parse_function_call(
     pair: Pair<Rule>,
     constants: &BTreeMap<String, usize>,
@@ -334,34 +412,60 @@ fn parse_function_call(
                 }
             }
             Rule::identifier => function_name = item.as_str().to_string(),
-            Rule::var_list => args = parse_var_list(item, constants)?,
+            Rule::argument_list => args = parse_argument_list(item, constants)?,
             _ => {}
         }
     }
 
     match function_name.as_str() {
-        "poseidon16" => Ok(Line::Poseidon16 {
-            arg0: args[0].clone(),
-            arg1: args[1].clone(),
-            res0: return_data[0].clone(),
-            res1: return_data[1].clone(),
-        }),
-        "poseidon24" => Ok(Line::Poseidon24 {
-            arg0: args[0].clone(),
-            arg1: args[1].clone(),
-            arg2: args[2].clone(),
-            res0: return_data[0].clone(),
-            res1: return_data[1].clone(),
-            res2: return_data[2].clone(),
-        }),
-        "malloc" => Ok(Line::MAlloc {
-            var: return_data[0].clone(),
-            size: args[0].as_constant().unwrap(),
-        }),
-        "print" => Ok(Line::Print {
-            line_info: pair.as_str().to_string(),
-            content: args,
-        }),
+        "poseidon16" => {
+            assert!(
+                args.len() == 2 && return_data.len() == 2,
+                "Invalid poseidon16 call"
+            );
+            Ok(Line::Poseidon16 {
+                args: [args[0].clone(), args[1].clone()],
+                res: [return_data[0].clone(), return_data[1].clone()],
+            })
+        }
+        "poseidon24" => {
+            assert!(
+                args.len() == 3 && return_data.len() == 3,
+                "Invalid poseidon24 call"
+            );
+            Ok(Line::Poseidon24 {
+                args: [args[0].clone(), args[1].clone(), args[2].clone()],
+                res: [
+                    return_data[0].clone(),
+                    return_data[1].clone(),
+                    return_data[2].clone(),
+                ],
+            })
+        }
+        "malloc" => {
+            assert!(
+                args.len() == 1 && return_data.len() == 1,
+                "Invalid malloc call"
+            );
+            let size = args[0]
+                .clone()
+                .try_into()
+                .map_err(ParseError::SemanticError)?;
+            Ok(Line::MAlloc {
+                var: return_data[0].clone(),
+                size,
+            })
+        }
+        "print" => {
+            assert!(
+                return_data.is_empty(),
+                "Print function should not return values"
+            );
+            Ok(Line::Print {
+                line_info: pair.as_str().to_string(),
+                content: args,
+            })
+        }
         _ => Ok(Line::FunctionCall {
             function_name,
             args,
@@ -370,34 +474,14 @@ fn parse_function_call(
     }
 }
 
-fn parse_assert_eq(
-    pair: Pair<Rule>,
-    constants: &BTreeMap<String, usize>,
-) -> Result<Line, ParseError> {
-    let mut inner = pair.into_inner();
-    let left = parse_var_or_constant(inner.next().unwrap(), constants)?;
-    let right = parse_var_or_constant(inner.next().unwrap(), constants)?;
-    Ok(Line::Assert(Boolean::Equal { left, right }))
-}
-
-fn parse_assert_not_eq(
-    pair: Pair<Rule>,
-    constants: &BTreeMap<String, usize>,
-) -> Result<Line, ParseError> {
-    let mut inner = pair.into_inner();
-    let left = parse_var_or_constant(inner.next().unwrap(), constants)?;
-    let right = parse_var_or_constant(inner.next().unwrap(), constants)?;
-    Ok(Line::Assert(Boolean::Different { left, right }))
-}
-
 fn parse_condition(
     pair: Pair<Rule>,
     constants: &BTreeMap<String, usize>,
 ) -> Result<Boolean, ParseError> {
     let inner = pair.into_inner().next().unwrap();
     let mut parts = inner.clone().into_inner();
-    let left = parse_var_or_constant(parts.next().unwrap(), constants)?;
-    let right = parse_var_or_constant(parts.next().unwrap(), constants)?;
+    let left = parse_expression(parts.next().unwrap(), constants)?;
+    let right = parse_expression(parts.next().unwrap(), constants)?;
 
     match inner.as_rule() {
         Rule::condition_eq => Ok(Boolean::Equal { left, right }),
@@ -406,24 +490,52 @@ fn parse_condition(
     }
 }
 
+fn parse_assert_eq(
+    pair: Pair<Rule>,
+    constants: &BTreeMap<String, usize>,
+) -> Result<Line, ParseError> {
+    let mut inner = pair.into_inner();
+    let left = parse_expression(inner.next().unwrap(), constants)?;
+    let right = parse_expression(inner.next().unwrap(), constants)?;
+    Ok(Line::Assert(Boolean::Equal { left, right }))
+}
+
+fn parse_assert_not_eq(
+    pair: Pair<Rule>,
+    constants: &BTreeMap<String, usize>,
+) -> Result<Line, ParseError> {
+    let mut inner = pair.into_inner();
+    let left = parse_expression(inner.next().unwrap(), constants)?;
+    let right = parse_expression(inner.next().unwrap(), constants)?;
+    Ok(Line::Assert(Boolean::Different { left, right }))
+}
+
 fn parse_var_or_constant(
     pair: Pair<Rule>,
     constants: &BTreeMap<String, usize>,
 ) -> Result<VarOrConstant, ParseError> {
-    let inner = pair.into_inner().next().unwrap();
-    let text = inner.as_str();
+    let text = pair.as_str();
 
-    match inner.as_rule() {
+    match pair.as_rule() {
+        Rule::var_or_constant => {
+            return parse_var_or_constant(pair.into_inner().next().unwrap(), constants);
+        }
         Rule::identifier | Rule::constant_value => match text {
-            "public_input_start" => Ok(VarOrConstant::Constant(ConstantValue::PublicInputStart)),
-            "pointer_to_zero_vector" => {
-                Ok(VarOrConstant::Constant(ConstantValue::PointerToZeroVector))
-            }
+            "public_input_start" => Ok(VarOrConstant::Constant(ConstExpression::Value(
+                ConstantValue::PublicInputStart,
+            ))),
+            "pointer_to_zero_vector" => Ok(VarOrConstant::Constant(ConstExpression::Value(
+                ConstantValue::PointerToZeroVector,
+            ))),
             _ => {
                 if let Some(value) = constants.get(text) {
-                    Ok(VarOrConstant::Constant(ConstantValue::Scalar(*value)))
+                    Ok(VarOrConstant::Constant(ConstExpression::Value(
+                        ConstantValue::Scalar(*value),
+                    )))
                 } else if let Ok(value) = text.parse::<usize>() {
-                    Ok(VarOrConstant::Constant(ConstantValue::Scalar(value)))
+                    Ok(VarOrConstant::Constant(ConstExpression::Value(
+                        ConstantValue::Scalar(value),
+                    )))
                 } else {
                     Ok(VarOrConstant::Var(Var {
                         name: text.to_string(),
@@ -444,4 +556,73 @@ fn parse_var_list(
     pair.into_inner()
         .map(|item| parse_var_or_constant(item, constants))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parser() {
+        let program = r#"
+
+// This is a comment
+
+const A = 10000;
+const B = 20000;
+// Another comment
+
+fn main() {
+// this a comment
+
+    c = a + b;
+    assert c == d;
+    if c != b { // this a comment
+        d = 1;
+        e = 9;
+        f = d * ((a - b) + ((h / 1) + d));
+    } else {
+        f = 8;
+    }
+    assert f != g;
+    oo = memory[B];
+    x = 8;
+    y = 9;
+    uuu = y[9];
+    vvv = y[uuu];
+
+    gh = memory[7];
+    hh = memory[gh];
+
+    print(hh);
+
+    xx, yy = poseidon16(x, y);
+    xxx, yyy, zzz = poseidon24(7, y, b);
+
+    k = public_input_start;
+
+    for i in a..(b + 9) * ( 7 - 7 ) {
+        assert i != d;
+    }
+
+    i, j, k = my_function1(b, b, a);
+}
+
+fn my_function1(a, b, c) -> 2 {
+    d = a + b;
+    e = b + c;
+    if e == e {
+        return 0, 0;
+    }
+    if d != e {
+        return d, e;
+    } else {
+        return e, d;
+    }
+}
+    "#;
+
+        let parsed = parse_program(program).unwrap();
+        println!("{}", parsed.to_string());
+    }
 }

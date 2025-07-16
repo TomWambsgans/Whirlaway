@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::{
     F,
-    bytecode::intermediate_bytecode::{HighLevelOperation, HighLevelValue},
+    bytecode::intermediate_bytecode::{HighLevelOperation, IntermediateValue},
 };
 
 pub type Label = String;
@@ -48,7 +48,7 @@ pub enum Instruction {
         arg_b: MemOrFp,
         res: MemOrConstant,
     },
-    MemoryPointerEq {
+    Deref {
         shift_0: usize,
         shift_1: usize,
         res: MemOrFpOrConstant,
@@ -97,13 +97,13 @@ impl TryFrom<HighLevelOperation> for Operation {
     }
 }
 
-impl TryFrom<HighLevelValue> for MemOrFp {
+impl TryFrom<IntermediateValue> for MemOrFp {
     type Error = String;
 
-    fn try_from(value: HighLevelValue) -> Result<Self, Self::Error> {
+    fn try_from(value: IntermediateValue) -> Result<Self, Self::Error> {
         match value {
-            HighLevelValue::MemoryAfterFp { shift } => Ok(MemOrFp::MemoryAfterFp { shift }),
-            HighLevelValue::Fp => Ok(MemOrFp::Fp),
+            IntermediateValue::MemoryAfterFp { shift } => Ok(MemOrFp::MemoryAfterFp { shift }),
+            IntermediateValue::Fp => Ok(MemOrFp::Fp),
             _ => Err(format!("Cannot convert {:?} to MemOrFp", value)),
         }
     }
@@ -192,7 +192,7 @@ impl ToString for Instruction {
                     arg_b.to_string()
                 )
             }
-            Self::MemoryPointerEq {
+            Self::Deref {
                 shift_0,
                 shift_1,
                 res,

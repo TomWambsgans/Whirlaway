@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::bytecode::intermediate_bytecode::HighLevelOperation;
+use crate::bytecode::{bytecode::Label, intermediate_bytecode::HighLevelOperation};
 
 #[derive(Debug, Clone)]
 pub struct Program {
@@ -23,11 +23,31 @@ pub struct Var {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum VarOrConstant {
     Var(Var),
-    Constant(ConstantValue),
+    Constant(ConstExpression),
+}
+
+impl VarOrConstant {
+    pub fn zero() -> Self {
+        Self::scalar(0)
+    }
+
+    pub fn one() -> Self {
+        Self::scalar(1)
+    }
+
+    pub fn scalar(scalar: usize) -> Self {
+        Self::Constant(ConstantValue::Scalar(scalar).into())
+    }
 }
 
 impl From<ConstantValue> for VarOrConstant {
     fn from(constant: ConstantValue) -> Self {
+        Self::Constant(constant.into())
+    }
+}
+
+impl From<ConstExpression> for VarOrConstant {
+    fn from(constant: ConstExpression) -> Self {
         Self::Constant(constant)
     }
 }
@@ -46,7 +66,7 @@ impl VarOrConstant {
         }
     }
 
-    pub fn as_constant(&self) -> Option<ConstantValue> {
+    pub fn as_constant(&self) -> Option<ConstExpression> {
         match self {
             Self::Var(_) => None,
             Self::Constant(constant) => Some(constant.clone()),
@@ -56,111 +76,208 @@ impl VarOrConstant {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Boolean {
-    Equal {
-        left: VarOrConstant,
-        right: VarOrConstant,
-    },
-    Different {
-        left: VarOrConstant,
-        right: VarOrConstant,
-    },
+    Equal { left: Expression, right: Expression },
+    Different { left: Expression, right: Expression },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ConstantValue {
     Scalar(usize),
     PublicInputStart,
     PointerToZeroVector, // In the memory of chunks of 8 field elements
+    FunctionSize { function_name: Label },
+    Label(Label),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ConstExpression {
+    Value(ConstantValue),
+    Binary {
+        left: Box<Self>,
+        operator: HighLevelOperation,
+        right: Box<Self>,
+    },
+}
+
+impl ConstExpression {
+    pub fn zero() -> Self {
+        Self::scalar(0)
+    }
+
+    pub fn one() -> Self {
+        Self::scalar(1)
+    }
+
+    pub fn label(label: Label) -> Self {
+        Self::Value(ConstantValue::Label(label))
+    }
+
+    pub fn scalar(scalar: usize) -> Self {
+        Self::Value(ConstantValue::Scalar(scalar))
+    }
+
+    pub fn function_size(function_name: Label) -> Self {
+        Self::Value(ConstantValue::FunctionSize { function_name })
+    }
+}
+
+impl From<ConstantValue> for ConstExpression {
+    fn from(value: ConstantValue) -> Self {
+        Self::Value(value)
+    }
+}
+
+impl TryFrom<Expression> for ConstExpression {
+    type Error = String;
+
+    fn try_from(expr: Expression) -> Result<Self, Self::Error> {
+        match expr {
+            Expression::Value(VarOrConstant::Constant(constant)) => Ok(constant),
+            Expression::Value(VarOrConstant::Var(_)) => Err("Expected constant value".to_string()),
+            Expression::Binary {
+                left,
+                operator,
+                right,
+            } => {
+                let left = Box::new(Self::try_from(*left)?);
+                let right = Box::new(Self::try_from(*right)?);
+                Ok(Self::Binary {
+                    left,
+                    operator,
+                    right,
+                })
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Expression {
+    Value(VarOrConstant),
+    Binary {
+        left: Box<Self>,
+        operator: HighLevelOperation,
+        right: Box<Self>,
+    },
+}
+
+impl From<VarOrConstant> for Expression {
+    fn from(value: VarOrConstant) -> Self {
+        Self::Value(value)
+    }
+}
+
+impl From<Var> for Expression {
+    fn from(var: Var) -> Self {
+        Self::Value(var.into())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ArrayAccessType {
+    VarIsAssigned(Var),          // var = array[index]
+    ArrayIsAssigned(Expression), // array[index] = expr
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Line {
     Assignment {
         var: Var,
-        operation: HighLevelOperation,
-        arg0: VarOrConstant,
-        arg1: VarOrConstant,
+        value: Expression,
     },
     ArrayAccess {
-        value: VarOrConstant,
+        access_type: ArrayAccessType,
         array: Var,
-        index: VarOrConstant,
+        index: Expression,
     },
-    RawAccess {
-        var: Var,
-        index: VarOrConstant,
-    }, // var = memory[index]
     Assert(Boolean),
     IfCondition {
         condition: Boolean,
-        then_branch: Vec<Line>,
-        else_branch: Vec<Line>,
+        then_branch: Vec<Self>,
+        else_branch: Vec<Self>,
     },
     ForLoop {
         iterator: Var,
-        start: VarOrConstant,
-        end: VarOrConstant,
-        body: Vec<Line>,
+        start: Expression,
+        end: Expression,
+        body: Vec<Self>,
     },
     FunctionCall {
         function_name: String,
-        args: Vec<VarOrConstant>,
+        args: Vec<Expression>,
         return_data: Vec<Var>,
     },
     FunctionRet {
-        return_data: Vec<VarOrConstant>,
+        return_data: Vec<Expression>,
     },
     Poseidon16 {
-        arg0: VarOrConstant,
-        arg1: VarOrConstant,
-        res0: Var,
-        res1: Var,
-        // 4 pointers in the memory of chunks of 8 field elements
+        args: [Expression; 2],
+        res: [Var; 2],
     },
     Poseidon24 {
-        arg0: VarOrConstant,
-        arg1: VarOrConstant,
-        arg2: VarOrConstant,
-        res0: Var,
-        res1: Var,
-        res2: Var,
-        // 6 pointers in the memory of chunks of 8 field elements
+        args: [Expression; 3],
+        res: [Var; 3],
     },
     Print {
         line_info: String,
-        content: Vec<VarOrConstant>,
+        content: Vec<Expression>,
     },
     MAlloc {
         var: Var,
-        size: ConstantValue,
+        size: ConstExpression,
     },
     Panic,
+}
+
+impl ToString for Expression {
+    fn to_string(&self) -> String {
+        match self {
+            Expression::Value(val) => val.to_string(),
+            Expression::Binary {
+                left,
+                operator,
+                right,
+            } => {
+                format!(
+                    "({} {} {})",
+                    left.to_string(),
+                    operator.to_string(),
+                    right.to_string()
+                )
+            }
+        }
+    }
 }
 
 impl Line {
     fn to_string_with_indent(&self, indent: usize) -> String {
         let spaces = "    ".repeat(indent);
         let line_str = match self {
-            Line::Assignment {
-                var,
-                operation,
-                arg0,
-                arg1,
-            } => {
-                format!(
-                    "{} = {} {} {}",
-                    var.to_string(),
-                    arg0.to_string(),
-                    operation.to_string(),
-                    arg1.to_string()
-                )
+            Line::Assignment { var, value } => {
+                format!("{} = {}", var.to_string(), value.to_string())
             }
-            Line::ArrayAccess { value, array, index } => {
-                format!("{} = {}[{}]", value.to_string(), array.to_string(), index.to_string())
-            }
-            Line::RawAccess { var, index } => {
-                format!("{} = memory[{}]", var.to_string(), index.to_string())
-            }
+            Line::ArrayAccess {
+                access_type,
+                array,
+                index,
+            } => match access_type {
+                ArrayAccessType::VarIsAssigned(var) => {
+                    format!(
+                        "{} = {}[{}]",
+                        var.to_string(),
+                        array.to_string(),
+                        index.to_string()
+                    )
+                }
+                ArrayAccessType::ArrayIsAssigned(expr) => {
+                    format!(
+                        "{}[{}] = {}",
+                        array.to_string(),
+                        index.to_string(),
+                        expr.to_string()
+                    )
+                }
+            },
             Line::Assert(condition) => format!("assert {}", condition.to_string()),
             Line::IfCondition {
                 condition,
@@ -172,13 +289,13 @@ impl Line {
                     .map(|line| line.to_string_with_indent(indent + 1))
                     .collect::<Vec<_>>()
                     .join("\n");
-                
+
                 let else_str = else_branch
                     .iter()
                     .map(|line| line.to_string_with_indent(indent + 1))
                     .collect::<Vec<_>>()
                     .join("\n");
-                
+
                 if else_branch.is_empty() {
                     format!(
                         "if {} {{\n{}\n{}}}",
@@ -232,7 +349,7 @@ impl Line {
                     .map(|var| var.to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
-                
+
                 if return_data.is_empty() {
                     format!("{}({})", function_name, args_str)
                 } else {
@@ -248,10 +365,8 @@ impl Line {
                 format!("return {}", return_data_str)
             }
             Line::Poseidon16 {
-                arg0,
-                arg1,
-                res0,
-                res1,
+                args: [arg0, arg1],
+                res: [res0, res1],
             } => {
                 format!(
                     "{}, {} = poseidon16({}, {})",
@@ -262,12 +377,8 @@ impl Line {
                 )
             }
             Line::Poseidon24 {
-                arg0,
-                arg1,
-                arg2,
-                res0,
-                res1,
-                res2,
+                args: [arg0, arg1, arg2],
+                res: [res0, res1, res2],
             } => {
                 format!(
                     "{}, {}, {} = poseidon24({}, {}, {})",
@@ -299,6 +410,19 @@ impl Line {
     }
 }
 
+impl ToString for Boolean {
+    fn to_string(&self) -> String {
+        match self {
+            Boolean::Equal { left, right } => {
+                format!("{} == {}", left.to_string(), right.to_string())
+            }
+            Boolean::Different { left, right } => {
+                format!("{} != {}", left.to_string(), right.to_string())
+            }
+        }
+    }
+}
+
 impl ToString for Var {
     fn to_string(&self) -> String {
         self.name.clone()
@@ -311,6 +435,10 @@ impl ToString for ConstantValue {
             ConstantValue::Scalar(scalar) => scalar.to_string(),
             ConstantValue::PublicInputStart => "@public_input_start".to_string(),
             ConstantValue::PointerToZeroVector => "@pointer_to_zero_vector".to_string(),
+            ConstantValue::FunctionSize { function_name } => {
+                format!("@function_size_{}", function_name)
+            }
+            ConstantValue::Label(label) => label.to_string(),
         }
     }
 }
@@ -324,14 +452,21 @@ impl ToString for VarOrConstant {
     }
 }
 
-impl ToString for Boolean {
+impl ToString for ConstExpression {
     fn to_string(&self) -> String {
         match self {
-            Boolean::Equal { left, right } => {
-                format!("{} == {}", left.to_string(), right.to_string())
-            }
-            Boolean::Different { left, right } => {
-                format!("{} != {}", left.to_string(), right.to_string())
+            ConstExpression::Value(value) => value.to_string(),
+            ConstExpression::Binary {
+                left,
+                operator,
+                right,
+            } => {
+                format!(
+                    "({} {} {})",
+                    left.to_string(),
+                    operator.to_string(),
+                    right.to_string()
+                )
             }
         }
     }
@@ -364,16 +499,19 @@ impl ToString for Function {
             .map(|arg| arg.to_string())
             .collect::<Vec<_>>()
             .join(", ");
-        
+
         let instructions_str = self
             .instructions
             .iter()
             .map(|line| line.to_string_with_indent(1))
             .collect::<Vec<_>>()
             .join("\n");
-        
+
         if self.instructions.is_empty() {
-            format!("fn {}({}) -> {} {{}}", self.name, args_str, self.n_returned_vars)
+            format!(
+                "fn {}({}) -> {} {{}}",
+                self.name, args_str, self.n_returned_vars
+            )
         } else {
             format!(
                 "fn {}({}) -> {} {{\n{}\n}}",

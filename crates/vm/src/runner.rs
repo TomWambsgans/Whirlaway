@@ -1,13 +1,13 @@
 use p3_field::PrimeCharacteristicRing;
 use p3_koala_bear::Poseidon2KoalaBear;
 
-use crate::bytecode::final_bytecode::MemOrFpOrConstant;
 use crate::AIR_COLUMNS_PER_OPCODE;
-use crate::bytecode::final_bytecode::Hint;
-use crate::bytecode::final_bytecode::Instruction;
-use crate::bytecode::final_bytecode::MemOrConstant;
-use crate::bytecode::final_bytecode::MemOrFp;
-use crate::{DIMENSION, EF, F, bytecode::final_bytecode::Bytecode};
+use crate::bytecode::bytecode::Hint;
+use crate::bytecode::bytecode::Instruction;
+use crate::bytecode::bytecode::MemOrConstant;
+use crate::bytecode::bytecode::MemOrFp;
+use crate::bytecode::bytecode::MemOrFpOrConstant;
+use crate::{DIMENSION, EF, F, bytecode::bytecode::Bytecode};
 use p3_field::PrimeField64;
 use p3_symmetric::Permutation;
 
@@ -72,7 +72,6 @@ impl MemOrFp {
         }
     }
 }
-
 
 impl MemOrFpOrConstant {
     fn try_read_value(&self, memory: &Memory, fp: usize) -> Option<F> {
@@ -280,7 +279,7 @@ pub fn execute_bytecode(
 
                 pc += 1;
             }
-            Instruction::MemoryPointerEq {
+            Instruction::Deref {
                 shift_0,
                 shift_1,
                 res,
