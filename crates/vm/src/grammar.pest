@@ -14,7 +14,6 @@ return_count = { "->" ~ number }
 // Statements
 statement = {
     single_assignment |
-    array_access |
     array_assign |
     if_statement |
     for_statement |
@@ -29,7 +28,6 @@ tuple_expression = { expression ~ ("," ~ expression)* }
 
 single_assignment = { identifier ~ "=" ~ expression ~ ";" }
 
-array_access = { identifier ~ "=" ~ identifier ~ "[" ~ expression ~ "]" ~ ";" }
 array_assign = { identifier ~ "[" ~ expression ~ "]" ~ "=" ~ expression ~ ";" }
 
 if_statement = { "if" ~ condition ~ "{" ~ statement* ~ "}" ~ else_clause? }
@@ -56,7 +54,12 @@ add_expr = { sub_expr ~ ("+" ~ sub_expr)* }
 sub_expr = { mul_expr ~ ("-" ~ mul_expr)* }
 mul_expr = { div_expr ~ ("*" ~ div_expr)* }
 div_expr = { primary ~ ("/" ~ primary)* }
-primary = { "(" ~ expression ~ ")" | var_or_constant }
+primary = { 
+    "(" ~ expression ~ ")" | 
+    array_access_expr |
+    var_or_constant 
+}
+array_access_expr = { identifier ~ "[" ~ expression ~ "]" }
 
 // Basic elements
 var_or_constant = { constant_value | identifier }

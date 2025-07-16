@@ -40,10 +40,7 @@ fn test_fibonacci_program() {
             print(a);
             return;
         }
-        new_a = b;
-        new_b = a + b;
-        new_i = i + 1;
-        fibonacci(new_a, new_b, new_i, n);
+        fibonacci(b, a + b, i + 1, n);
         return;
     }
    "#;
@@ -55,7 +52,7 @@ fn test_mini_program_0() {
     let program = r#"
     fn main() {
         for i in 0..5 {
-            for j in i..10 {
+            for j in i..2*i*(2+1) {
                 print(i, j);
             }
         }
@@ -618,21 +615,19 @@ fn test_aggregate_xmss_signatures() {
         bitfield_counter[0] = 0;
 
         for i in 0..N_PUBLIC_KEYS {
-            bitfield_counter_i = bitfield_counter[i];
-            bit = bitfield[i];
-            if bit == 1 {
+            if bitfield[i] == 1 {
                 xmss_public_key = xmss_public_keys + i;
                 wots_signature_offset = private_input_start / 8;
-                wots_signature_shift = bitfield_counter_i * XMSS_SIGNATURE_SIZE_ROUNDED_UP;
+                wots_signature_shift = bitfield_counter[i] * XMSS_SIGNATURE_SIZE_ROUNDED_UP;
                 wots_signature = wots_signature_offset + wots_signature_shift;
                 merkle_path = wots_signature + N_CHAINS;
                 xmss_public_key_recovered = verify_xmss(message, wots_signature, merkle_path);
                 assert_eq_ext(xmss_public_key, xmss_public_key_recovered);
                 print(VERIF_SUCCESSFUL);
 
-                bitfield_counter[i + 1] = bitfield_counter_i + 1;
+                bitfield_counter[i + 1] = bitfield_counter[i] + 1;
             } else {
-                bitfield_counter[i + 1] = bitfield_counter_i;
+                bitfield_counter[i + 1] = bitfield_counter[i];
             }
         }
         return;
@@ -671,13 +666,10 @@ fn test_aggregate_xmss_signatures() {
     }
 
     fn hash_wots_public_key(public_key) -> 1 {
-        hashes = malloc(33); // N_CHAINS / 2 + 1
+        hashes = malloc((N_CHAINS / 2) + 1);
         hashes[0] = pointer_to_zero_vector;
         for i in 0..32 {
-            a = public_key[2 * i];
-            b = public_key[(2 * i) + 1];
-            c = hashes[i];
-            next, _, _ = poseidon24(a, b, c);
+            next, _, _ = poseidon24(public_key[2 * i], public_key[(2 * i) + 1], hashes[i]);
             hashes[i + 1] = next;
         }
         res = hashes[32];
@@ -688,9 +680,7 @@ fn test_aggregate_xmss_signatures() {
         if step == height {
             return thing_to_hash;
         }
-        is_left = are_left[0];
-
-        if is_left == 1 {
+        if are_left[0] == 1 {
             hashed, _ = poseidon16(thing_to_hash, neighbours);
         } else {
             hashed, _ = poseidon16(neighbours, thing_to_hash);

@@ -131,6 +131,11 @@ impl TryFrom<Expression> for ConstExpression {
         match expr {
             Expression::Value(VarOrConstant::Constant(constant)) => Ok(constant),
             Expression::Value(VarOrConstant::Var(_)) => Err("Expected constant value".to_string()),
+            Expression::ArrayAccess { array, index } => Err(format!(
+                "Expected constant, found array access: {}[{}]",
+                array,
+                index.to_string()
+            )),
             Expression::Binary {
                 left,
                 operator,
@@ -151,6 +156,10 @@ impl TryFrom<Expression> for ConstExpression {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Expression {
     Value(VarOrConstant),
+    ArrayAccess {
+        array: Var,
+        index: Box<Expression>,
+    },
     Binary {
         left: Box<Self>,
         operator: HighLevelOperation,
@@ -171,21 +180,16 @@ impl From<Var> for Expression {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ArrayAccessType {
-    VarIsAssigned(Var),          // var = array[index]
-    ArrayIsAssigned(Expression), // array[index] = expr
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Line {
     Assignment {
         var: Var,
         value: Expression,
     },
-    ArrayAccess {
-        access_type: ArrayAccessType,
+    ArrayAssign {
+        // array[index] = value
         array: Var,
         index: Expression,
+        value: Expression,
     },
     Assert(Boolean),
     IfCondition {
@@ -230,6 +234,9 @@ impl ToString for Expression {
     fn to_string(&self) -> String {
         match self {
             Expression::Value(val) => val.to_string(),
+            Expression::ArrayAccess { array, index } => {
+                format!("{}[{}]", array, index.to_string())
+            }
             Expression::Binary {
                 left,
                 operator,
@@ -253,28 +260,18 @@ impl Line {
             Line::Assignment { var, value } => {
                 format!("{} = {}", var.to_string(), value.to_string())
             }
-            Line::ArrayAccess {
-                access_type,
+            Line::ArrayAssign {
                 array,
                 index,
-            } => match access_type {
-                ArrayAccessType::VarIsAssigned(var) => {
-                    format!(
-                        "{} = {}[{}]",
-                        var.to_string(),
-                        array.to_string(),
-                        index.to_string()
-                    )
-                }
-                ArrayAccessType::ArrayIsAssigned(expr) => {
-                    format!(
-                        "{}[{}] = {}",
-                        array.to_string(),
-                        index.to_string(),
-                        expr.to_string()
-                    )
-                }
-            },
+                value,
+            } => {
+                format!(
+                    "{}[{}] = {}",
+                    array.to_string(),
+                    index.to_string(),
+                    value.to_string()
+                )
+            }
             Line::Assert(condition) => format!("assert {}", condition.to_string()),
             Line::IfCondition {
                 condition,

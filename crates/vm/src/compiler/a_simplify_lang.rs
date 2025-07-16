@@ -2,9 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     bytecode::intermediate_bytecode::HighLevelOperation,
-    lang::{
-        ArrayAccessType, Boolean, ConstExpression, Expression, Line, Program, Var, VarOrConstant,
-    },
+    lang::{Boolean, ConstExpression, Expression, Line, Program, Var, VarOrConstant},
 };
 
 #[derive(Debug, Clone)]
@@ -90,6 +88,7 @@ pub fn simplify_program(program: &Program) -> SimpleProgram {
 struct Counters {
     aux_vars: usize,
     loops: usize,
+    aux_arr: usize,
 }
 
 fn simplify_lines(
@@ -109,6 +108,15 @@ fn simplify_lines(
                         arg1: VarOrConstant::zero(),
                     });
                 }
+                Expression::ArrayAccess { array, index } => {
+                    handle_array_assignment(
+                        counters,
+                        &mut res,
+                        array.clone(),
+                        index,
+                        ArrayAccessType::VarIsAssigned(var.clone()),
+                    );
+                }
                 Expression::Binary {
                     left,
                     operator,
@@ -124,55 +132,18 @@ fn simplify_lines(
                     });
                 }
             },
-            Line::ArrayAccess {
-                access_type,
+            Line::ArrayAssign {
                 array,
                 index,
+                value,
             } => {
-                // Create pointer variable: ptr = array + index
-                let ptr_var = format!("@aux_var_{}", counters.aux_vars);
-                counters.aux_vars += 1;
-
-                let simplified_index = simplify_expr(index, &mut res, counters);
-
-                res.push(SimpleLine::Assignment {
-                    var: ptr_var.clone(),
-                    operation: HighLevelOperation::Add,
-                    arg0: array.clone().into(),
-                    arg1: simplified_index,
-                });
-
-                let value_simplified = match access_type {
-                    ArrayAccessType::VarIsAssigned(var) => VarOrConstant::Var(var.clone()),
-                    ArrayAccessType::ArrayIsAssigned(expr) => {
-                        simplify_expr(expr, &mut res, counters)
-                    }
-                };
-
-                // Replace with raw access
-                match value_simplified {
-                    VarOrConstant::Var(var) => {
-                        res.push(SimpleLine::RawAccess {
-                            var,
-                            index: ptr_var.into(),
-                        });
-                    }
-                    VarOrConstant::Constant(cst) => {
-                        // Constants need to be assigned to variables first
-                        let const_var = format!("@aux_var_{}", counters.aux_vars);
-                        counters.aux_vars += 1;
-                        res.push(SimpleLine::Assignment {
-                            var: const_var.clone(),
-                            operation: HighLevelOperation::Add,
-                            arg0: cst.into(),
-                            arg1: VarOrConstant::zero(),
-                        });
-                        res.push(SimpleLine::RawAccess {
-                            var: const_var,
-                            index: ptr_var.into(),
-                        });
-                    }
-                }
+                handle_array_assignment(
+                    counters,
+                    &mut res,
+                    array.clone(),
+                    index,
+                    ArrayAccessType::ArrayIsAssigned(value.clone()),
+                );
             }
             Line::Assert(boolean) => match boolean {
                 Boolean::Different { left, right } => {
@@ -265,14 +236,26 @@ fn simplify_lines(
                 }
                 external_vars.remove(iterator); // Iterator is internal to loop
 
-                let external_vars: Vec<_> = external_vars.into_iter().collect();
+                let mut external_vars: Vec<_> = external_vars.into_iter().collect();
+
+                let start_simplified = simplify_expr(start, &mut res, counters);
+                let end_simplified = simplify_expr(end, &mut res, counters);
+
+                for (simplified, original) in [
+                    (start_simplified.clone(), start.clone()),
+                    (end_simplified.clone(), end.clone()),
+                ] {
+                    if !matches!(original, Expression::Value(_)) {
+                        // the simplified var is auxiliary
+                        if let VarOrConstant::Var(var) = simplified {
+                            external_vars.push(var);
+                        }
+                    }
+                }
 
                 // Create function arguments: iterator + external variables
                 let mut func_args = vec![iterator.clone()];
                 func_args.extend(external_vars.clone());
-
-                let start_simplified = simplify_expr(start, &mut res, counters);
-                let end_simplified = simplify_expr(end, &mut res, counters);
 
                 // Create recursive function body
                 let recursive_func = create_recursive_function(
@@ -372,6 +355,18 @@ fn simplify_expr(
 ) -> VarOrConstant {
     match expr {
         Expression::Value(value) => return value.clone(),
+        Expression::ArrayAccess { array, index } => {
+            let aux_arr = format!("@aux_arr_{}", counters.aux_arr);
+            counters.aux_arr += 1;
+            handle_array_assignment(
+                counters,
+                lines,
+                array.clone(),
+                index,
+                ArrayAccessType::VarIsAssigned(aux_arr.clone()),
+            );
+            return VarOrConstant::Var(aux_arr);
+        }
         Expression::Binary {
             left,
             operator,
@@ -379,6 +374,17 @@ fn simplify_expr(
         } => {
             let left_var = simplify_expr(left, lines, counters);
             let right_var = simplify_expr(right, lines, counters);
+
+            if let (VarOrConstant::Constant(left_cst), VarOrConstant::Constant(right_cst)) =
+                (&left_var, &right_var)
+            {
+                return VarOrConstant::Constant(ConstExpression::Binary {
+                    left: Box::new(left_cst.clone()),
+                    operator: *operator,
+                    right: Box::new(right_cst.clone()),
+                });
+            }
+
             let aux_var = format!("@aux_var_{}", counters.aux_vars);
             counters.aux_vars += 1;
             lines.push(SimpleLine::Assignment {
@@ -490,21 +496,14 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                 on_new_expr(start, &internal_vars, &mut external_vars);
                 on_new_expr(end, &internal_vars, &mut external_vars);
             }
-            Line::ArrayAccess {
-                access_type,
+            Line::ArrayAssign {
                 array,
                 index,
+                value,
             } => {
                 on_new_expr(&array.clone().into(), &internal_vars, &mut external_vars);
                 on_new_expr(index, &internal_vars, &mut external_vars);
-                match access_type {
-                    ArrayAccessType::VarIsAssigned(var) => {
-                        internal_vars.insert(var.clone());
-                    }
-                    ArrayAccessType::ArrayIsAssigned(expr) => {
-                        on_new_expr(expr, &internal_vars, &mut external_vars);
-                    }
-                }
+                on_new_expr(value, &internal_vars, &mut external_vars);
             }
             Line::Panic => {}
         }
@@ -521,12 +520,73 @@ fn vars_in_expression(expr: &Expression) -> BTreeSet<Var> {
                 vars.insert(var.clone());
             }
         }
+        Expression::ArrayAccess { array, index } => {
+            vars.insert(array.clone());
+            vars.extend(vars_in_expression(index));
+        }
         Expression::Binary { left, right, .. } => {
             vars.extend(vars_in_expression(left));
             vars.extend(vars_in_expression(right));
         }
     }
     vars
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ArrayAccessType {
+    VarIsAssigned(Var),          // var = array[index]
+    ArrayIsAssigned(Expression), // array[index] = expr
+}
+
+fn handle_array_assignment(
+    counters: &mut Counters,
+    res: &mut Vec<SimpleLine>,
+    array: Var,
+    index: &Expression,
+    access_type: ArrayAccessType,
+) {
+    // Create pointer variable: ptr = array + index
+    let ptr_var = format!("@aux_var_{}", counters.aux_vars);
+    counters.aux_vars += 1;
+
+    let simplified_index = simplify_expr(index, res, counters);
+
+    res.push(SimpleLine::Assignment {
+        var: ptr_var.clone(),
+        operation: HighLevelOperation::Add,
+        arg0: array.clone().into(),
+        arg1: simplified_index,
+    });
+
+    let value_simplified = match access_type {
+        ArrayAccessType::VarIsAssigned(var) => VarOrConstant::Var(var.clone()),
+        ArrayAccessType::ArrayIsAssigned(expr) => simplify_expr(&expr, res, counters),
+    };
+
+    // Replace with raw access
+    match value_simplified {
+        VarOrConstant::Var(var) => {
+            res.push(SimpleLine::RawAccess {
+                var,
+                index: ptr_var.into(),
+            });
+        }
+        VarOrConstant::Constant(cst) => {
+            // Constants need to be assigned to variables first
+            let const_var = format!("@aux_var_{}", counters.aux_vars);
+            counters.aux_vars += 1;
+            res.push(SimpleLine::Assignment {
+                var: const_var.clone(),
+                operation: HighLevelOperation::Add,
+                arg0: cst.into(),
+                arg1: VarOrConstant::zero(),
+            });
+            res.push(SimpleLine::RawAccess {
+                var: const_var,
+                index: ptr_var.into(),
+            });
+        }
+    }
 }
 
 fn create_recursive_function(

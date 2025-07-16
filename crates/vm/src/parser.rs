@@ -139,7 +139,6 @@ fn parse_statement(
 
     match inner.as_rule() {
         Rule::single_assignment => parse_assignment(inner, constants),
-        Rule::array_access => parse_array_access(inner, constants),
         Rule::array_assign => parse_array_assign(inner, constants),
         Rule::if_statement => parse_if_statement(inner, constants, trash_var_count),
         Rule::for_statement => parse_for_statement(inner, constants, trash_var_count),
@@ -194,20 +193,6 @@ fn parse_assignment(
 
     Ok(Line::Assignment { var, value })
 }
-fn parse_array_access(
-    pair: Pair<Rule>,
-    constants: &BTreeMap<String, usize>,
-) -> Result<Line, ParseError> {
-    let mut inner = pair.into_inner();
-    let var_assigned = inner.next().unwrap().as_str().to_string();
-    let array = inner.next().unwrap().as_str().to_string();
-    let index = parse_expression(inner.next().unwrap(), constants)?;
-    Ok(Line::ArrayAccess {
-        access_type: ArrayAccessType::VarIsAssigned(var_assigned),
-        array,
-        index,
-    })
-}
 
 fn parse_array_assign(
     pair: Pair<Rule>,
@@ -216,11 +201,11 @@ fn parse_array_assign(
     let mut inner = pair.into_inner();
     let array = inner.next().unwrap().as_str().to_string();
     let index = parse_expression(inner.next().unwrap(), constants)?;
-    let expr = parse_expression(inner.next().unwrap(), constants)?;
-    Ok(Line::ArrayAccess {
-        access_type: ArrayAccessType::ArrayIsAssigned(expr),
+    let value = parse_expression(inner.next().unwrap(), constants)?;
+    Ok(Line::ArrayAssign {
         array,
         index,
+        value,
     })
 }
 
@@ -274,9 +259,21 @@ fn parse_expression(
         Rule::mul_expr => parse_binary_expr(pair, constants, HighLevelOperation::Mul),
         Rule::div_expr => parse_binary_expr(pair, constants, HighLevelOperation::Div),
         Rule::primary => parse_primary(pair, constants),
-        Rule::var_or_constant => Ok(Expression::Value(parse_var_or_constant(pair, constants)?)),
         _ => Err(ParseError::SemanticError("Invalid expression".to_string())),
     }
+}
+
+fn parse_array_access(
+    pair: Pair<Rule>,
+    constants: &BTreeMap<String, usize>,
+) -> Result<Expression, ParseError> {
+    let mut inner = pair.into_inner();
+    let array = inner.next().unwrap().as_str().to_string();
+    let index = parse_expression(inner.next().unwrap(), constants)?;
+    Ok(Expression::ArrayAccess {
+        array,
+        index: Box::new(index),
+    })
 }
 
 fn parse_binary_expr(
@@ -299,7 +296,6 @@ fn parse_binary_expr(
     Ok(expr)
 }
 
-
 fn parse_primary(
     pair: Pair<Rule>,
     constants: &BTreeMap<String, usize>,
@@ -308,6 +304,7 @@ fn parse_primary(
     match inner.as_rule() {
         Rule::expression => parse_expression(inner, constants),
         Rule::var_or_constant => Ok(Expression::Value(parse_var_or_constant(inner, constants)?)),
+        Rule::array_access_expr => parse_array_access(inner, constants),
         _ => Err(ParseError::SemanticError(
             "Invalid primary expression".to_string(),
         )),
