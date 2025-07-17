@@ -28,7 +28,7 @@ type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
 
 // Koalabear
 type F = KoalaBear;
-type EF = BinomialExtensionField<F, 4>;
+type EF = BinomialExtensionField<F, 8>;
 type LinearLayers = GenericPoseidon2LinearLayersKoalaBear;
 const SBOX_DEGREE: u64 = 3;
 const SBOX_REGISTERS: usize = 0;

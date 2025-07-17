@@ -17,7 +17,7 @@ Key techniques:
 
 `RUSTFLAGS='-C target-cpu=native' cargo run --release`
 
-CPU: 110K poseidon2 / s (i9-12900H) -> WIP, expect improvements in the future
+CPU: 75K poseidon2 / s (i9-12900H) -> easy 100K with Ring Switching / Univariate Skip in WHIR
 
 GPU: 1M poseidon2 / s (RTX 4090) -> switch to branch [gpu](https://github.com/TomWambsgans/Whirlaway/tree/gpu)
 

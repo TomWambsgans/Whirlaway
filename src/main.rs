@@ -7,7 +7,7 @@ use whir_p3::parameters::{FoldingFactor, errors::SecurityAssumption};
 
 use crate::examples::poseidon2::prove_poseidon2;
 
-const SECURITY_BITS: usize = 90; // (temporary, will be 128 bits in the future with extension of degree 8 of KoalaBear)
+const SECURITY_BITS: usize = 128;
 
 fn main() {
     let (log_n_rows, log_inv_rate) = (17, 1);
@@ -19,7 +19,7 @@ fn main() {
             FoldingFactor::ConstantFromSecondRound(7, 4),
             log_inv_rate,
             3,
-            4,
+            5,
         ),
         0,
         true,
