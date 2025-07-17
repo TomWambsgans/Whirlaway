@@ -901,22 +901,24 @@ fn test_fiat_shamir() {
     fn main() {
         start = public_input_start;
         n = start[0];
-        transcript = start + 1;
+        transcript = start + n + 1;
 
         fs_state = fiat_shamir_new(transcript);
 
         all_states = malloc(n + 1);
         all_states[0] = fs_state;
+
         for i in 0..n {
+            n_elements = start[i + 1];
             fs_state = all_states[i];
-            new_fs_state, _ = fiat_shamir_receive_base_field(fs_state);
+            new_fs_state, _ = fiat_shamir_receive_many_base_fields(fs_state, n_elements);
             all_states[i + 1] = new_fs_state;
         }
 
         final_state = all_states[n];
         fiat_shamir_print_state(final_state);
 
-        expected_state = start + n + 1;
+        expected_state = final_state[0];
 
         left = final_state[1] * 8;
         for i in 0..8 {
@@ -954,39 +956,63 @@ fn test_fiat_shamir() {
         return fs_state;
     }
 
-    fn fiat_shamir_receive_base_field(fs_state) -> 2 {
-        new_fs_state = malloc(6);
-        transcript_ptr = fs_state[0]; 
-        value = transcript_ptr[0]; 
+    fn less_than_8(a) -> 1 {
+        if a * (a - 1) * (a - 2) * (a - 3) * (a - 4) * (a - 5) * (a - 6) * (a - 7) == 0 {
+            return 1; // a < 8
+        }
+        return 0; // a >= 8
+    }
+
+    fn fiat_shamir_receive_many_base_fields(fs_state, n) -> 2 {
+        // return the updated fs_state, and a pointer to n field elements
+
+        transcript_ptr = fs_state[0];
         input_buffer_size = fs_state[3];
         input_buffer = fs_state[4];
         input_buffer_ptr = input_buffer * 8;
-        input_buffer_ptr[input_buffer_size] = value;
 
-        if input_buffer_size == 7 {
-            // duplexing
-            l, r = poseidon16(input_buffer, fs_state[2]);
-            new_fs_state[0] = transcript_ptr + 1;
-            new_fs_state[1] = l;
-            new_fs_state[2] = r;
-            new_fs_state[3] = 0; // reset input buffer size
-            allocated = malloc_vec(1);
-            new_fs_state[4] = allocated;
-            new_fs_state[5] = 8; // reset output buffer size
+        for i in 0..n {
+            input_buffer_ptr[input_buffer_size + i] = transcript_ptr[i];
 
-            return new_fs_state, value;
+            if input_buffer_size + i == 7 {
+                break;
+            }
         }
 
-        new_fs_state[0] = transcript_ptr + 1;
-        new_fs_state[1] = fs_state[1];
-        new_fs_state[2] = fs_state[2];
-        new_fs_state[3] = input_buffer_size + 1;
-        new_fs_state[4] = fs_state[4];
-        new_fs_state[5] = 0; // "Any buffered output is now invalid."
-        return new_fs_state, value;
-    }
+        finished = less_than_8(input_buffer_size + n);
+        if finished == 1 {
+            // no duplexing
+            new_fs_state = malloc(6);
+            new_fs_state[0] = transcript_ptr + n;
+            new_fs_state[1] = fs_state[1];
+            new_fs_state[2] = fs_state[2];
+            new_fs_state[3] = input_buffer_size + n;
+            new_fs_state[4] = fs_state[4];
+            new_fs_state[5] = 0; // "Any buffered output is now invalid."
+            return new_fs_state, transcript_ptr;
+        }
 
-    
+        steps_done = 8 - input_buffer_size;
+
+        // duplexing
+        l, r = poseidon16(input_buffer, fs_state[2]);
+        new_fs_state = malloc(6);
+        new_fs_state[0] = transcript_ptr + steps_done;
+        new_fs_state[1] = l;
+        new_fs_state[2] = r;
+        new_fs_state[3] = 0; // reset input buffer size
+        allocated = malloc_vec(1);
+        new_fs_state[4] = allocated; // input buffer
+        new_fs_state[5] = 8; // output_buffer_size
+
+        remaining = n - steps_done;
+        if remaining == 0 {
+            return new_fs_state, transcript_ptr;
+        }
+        // continue reading
+        final_fs_state, _ = fiat_shamir_receive_many_base_fields(new_fs_state, remaining);
+        return final_fs_state, transcript_ptr;
+    }
 
     fn fiat_shamir_print_state(fs_state) {
         left = fs_state[1] * 8;
@@ -1002,28 +1028,41 @@ fn test_fiat_shamir() {
 
     
    "#;
-    let n = 100;
+    let n = 1000;
 
     let poseidon16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
     let mut rng = StdRng::seed_from_u64(0);
     let challenger = MyChallenger::new(poseidon16);
-    let proof_data = (0..n).map(|_| rng.random()).collect::<Vec<F>>();
+
+    let mut public_input = vec![F::from_usize(n)];
+    let mut proof_data = vec![];
+    let mut sizes = vec![];
+
+    for _ in 0..n {
+        let size = rng.random_range(1..30);
+        sizes.push(size);
+        let data = (0..size).map(|_| rng.random()).collect::<Vec<F>>();
+        proof_data.extend(data);
+    }
+
+
     let mut verifier_state = VerifierState::new(
         &DomainSeparator::<EF, F>::new(vec![]),
         proof_data.clone(),
         challenger,
     );
-    for _ in 0..n {
-        let _ = verifier_state.next_base_scalars_const::<1>();
+
+    for size in &sizes {
+        let _ = verifier_state.next_base_scalars_vec(*size);
     }
 
-    let mut public_input = vec![F::from_usize(n)];
-    public_input.extend(proof_data);
-    public_input.extend(verifier_state.challenger().sponge_state.to_vec());
 
-    let private_input = vec![];
+    public_input.extend(sizes.iter().map(|&x| F::from_usize(x)));
+    public_input.extend(proof_data.clone());
+        public_input.extend(verifier_state.challenger().sponge_state.to_vec());
 
-    compile_and_run(program, &public_input, &private_input);
+
+    compile_and_run(program, &public_input, &[]);
 
     dbg!(verifier_state.challenger().sponge_state);
 }
