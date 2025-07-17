@@ -113,7 +113,7 @@ impl TryFrom<IntermediateValue> for MemOrFp {
 pub enum Hint {
     RequestMemory {
         shift: usize, // m[fp + shift] where the hint will be stored
-        size: usize,  // the hint
+        size: MemOrConstant,  // the hint
         vectorized: bool,
     },
 
@@ -232,7 +232,7 @@ impl ToString for Hint {
                 format!(
                     "m[fp + {}] = malloc({}) {}",
                     shift,
-                    size,
+                    size.to_string(),
                     if *vectorized { "# vectorized" } else { "" }
                 )
             }

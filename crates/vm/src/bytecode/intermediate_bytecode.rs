@@ -17,6 +17,12 @@ pub enum IntermediateValue {
     MemoryAfterFp { shift: usize }, // m[fp + shift]
 }
 
+impl From<ConstExpression> for IntermediateValue {
+    fn from(value: ConstExpression) -> Self {
+        IntermediateValue::Constant(value)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum IntermediaryMemOrFpOrConstant {
     MemoryAfterFp { shift: usize }, // m[fp + shift]
@@ -94,7 +100,7 @@ pub enum IntermediateInstruction {
     // HINTS (does not appears in the final bytecode)
     RequestMemory {
         shift: usize,          // m[fp + shift] where the hint will be stored
-        size: ConstExpression, // the hint
+        size: IntermediateValue, // the hint
         vectorized: bool, // if true, will be 8-alligned, and the returned pointer will be "divied" by 8 (i.e. everything is in chunks of 8 field elements)
     },
 

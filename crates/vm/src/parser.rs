@@ -390,13 +390,9 @@ fn parse_function_call(
                 args.len() == 1 && return_data.len() == 1,
                 "Invalid malloc call"
             );
-            let size = args[0]
-                .clone()
-                .try_into()
-                .map_err(ParseError::SemanticError)?;
             Ok(Line::MAlloc {
                 var: return_data[0].clone(),
-                size,
+                size: args[0].clone(),
             })
         }
         "print" => {

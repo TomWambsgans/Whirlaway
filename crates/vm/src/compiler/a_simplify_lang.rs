@@ -57,7 +57,7 @@ pub enum SimpleLine {
     },
     MAlloc {
         var: Var,
-        size: ConstExpression,
+        size: VarOrConstant,
     },
     Panic,
 }
@@ -334,9 +334,10 @@ fn simplify_lines(
                 });
             }
             Line::MAlloc { var, size } => {
+                let simplified_size = simplify_expr(size, &mut res, counters);
                 res.push(SimpleLine::MAlloc {
                     var: var.clone(),
-                    size: size.clone(),
+                    size: simplified_size,
                 });
             }
             Line::Panic => {

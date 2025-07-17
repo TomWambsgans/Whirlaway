@@ -219,6 +219,9 @@ pub fn execute_bytecode(
                     vectorized,
                 } => {
                     // TODO avoid memory fragmentation (easy perf boost in perspective)
+
+                    let size = size.read_value(&memory, fp).as_canonical_u64() as usize;
+
                     if *vectorized {
                         // find the next multiple of 8
                         let ap_next_multiple_of_8 = (ap + 7) / 8 * 8;

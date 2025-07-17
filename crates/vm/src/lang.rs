@@ -124,35 +124,6 @@ impl From<ConstantValue> for ConstExpression {
     }
 }
 
-impl TryFrom<Expression> for ConstExpression {
-    type Error = String;
-
-    fn try_from(expr: Expression) -> Result<Self, Self::Error> {
-        match expr {
-            Expression::Value(VarOrConstant::Constant(constant)) => Ok(constant),
-            Expression::Value(VarOrConstant::Var(_)) => Err("Expected constant value".to_string()),
-            Expression::ArrayAccess { array, index } => Err(format!(
-                "Expected constant, found array access: {}[{}]",
-                array,
-                index.to_string()
-            )),
-            Expression::Binary {
-                left,
-                operator,
-                right,
-            } => {
-                let left = Box::new(Self::try_from(*left)?);
-                let right = Box::new(Self::try_from(*right)?);
-                Ok(Self::Binary {
-                    left,
-                    operator,
-                    right,
-                })
-            }
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Expression {
     Value(VarOrConstant),
@@ -225,7 +196,7 @@ pub enum Line {
     },
     MAlloc {
         var: Var,
-        size: ConstExpression,
+        size: Expression,
     },
     Panic,
 }

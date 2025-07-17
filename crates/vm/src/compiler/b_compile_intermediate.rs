@@ -282,7 +282,7 @@ fn compile_lines(
                 declared_vars.insert(var.clone());
                 instructions.push(IntermediateInstruction::RequestMemory {
                     shift: compiler.get_var_offset(var),
-                    size: size.clone(),
+                    size: IntermediateValue::from_var_or_const(size, compiler),
                     vectorized: false,
                 });
             }
@@ -355,7 +355,7 @@ fn setup_function_call(
     let mut instructions = vec![
         IntermediateInstruction::RequestMemory {
             shift: new_fp_pos,
-            size: ConstExpression::function_size(func_name.to_string()),
+            size: ConstExpression::function_size(func_name.to_string()).into(),
             vectorized: false,
         },
         IntermediateInstruction::Deref {
@@ -406,7 +406,7 @@ fn compile_poseidon(
         if declared_vars.insert((*res_var).clone()) {
             instructions.push(IntermediateInstruction::RequestMemory {
                 shift: compiler.get_var_offset(res_var),
-                size: ConstExpression::one(),
+                size: ConstExpression::one().into(),
                 vectorized: true,
             });
         }

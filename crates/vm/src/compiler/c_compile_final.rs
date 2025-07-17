@@ -215,10 +215,19 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
                     size,
                     vectorized,
                 } => {
+                    let size = match size {
+                        IntermediateValue::Constant(c) => {
+                            MemOrConstant::Constant(convert_constant_expression(&c, &compiler))
+                        }
+                        IntermediateValue::MemoryAfterFp { shift } => {
+                            MemOrConstant::MemoryAfterFp { shift }
+                        }
+                        IntermediateValue::Fp => unreachable!(),
+                    };
                     let hint = Hint::RequestMemory {
                         shift,
                         vectorized,
-                        size: convert_constant_expression(&size, &compiler),
+                        size,
                     };
                     hints.entry(pc).or_insert_with(Vec::new).push(hint);
                 }
@@ -257,7 +266,10 @@ fn convert_constant_value(constant: &ConstantValue, compiler: &Compiler) -> usiz
         ConstantValue::FunctionSize { function_name } => *compiler
             .memory_size_per_function
             .get(function_name)
-            .unwrap(),
+            .expect(&format!(
+                "Function {} not found in memory size map",
+                function_name
+            )),
         ConstantValue::Label(label) => compiler.label_to_pc.get(label).cloned().unwrap(),
     }
 }
