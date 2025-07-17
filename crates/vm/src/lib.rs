@@ -1,5 +1,5 @@
 use p3_field::extension::BinomialExtensionField;
-use p3_koala_bear::KoalaBear;
+use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
 
 pub mod bytecode;
 pub mod compiler;
@@ -13,5 +13,9 @@ mod test;
 const DIMENSION: usize = 8;
 type F = KoalaBear;
 type EF = BinomialExtensionField<F, DIMENSION>;
+type Poseidon16 = Poseidon2KoalaBear<16>;
+type Poseidon24 = Poseidon2KoalaBear<24>;
+#[cfg(test)]
+type MyChallenger = p3_challenger::DuplexChallenger<F, Poseidon16, 16, 8>;
 
-const AIR_COLUMNS_PER_OPCODE: usize = 1; // TODO
+const FIELD_ELEMENTS_PER_OPCODE: usize = 13;

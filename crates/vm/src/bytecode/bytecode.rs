@@ -112,8 +112,8 @@ impl TryFrom<IntermediateValue> for MemOrFp {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Hint {
     RequestMemory {
-        shift: usize, // m[fp + shift] where the hint will be stored
-        size: MemOrConstant,  // the hint
+        shift: usize,        // m[fp + shift] where the hint will be stored
+        size: MemOrConstant, // the hint
         vectorized: bool,
     },
 

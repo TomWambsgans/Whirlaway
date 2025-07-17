@@ -58,6 +58,7 @@ pub enum SimpleLine {
     MAlloc {
         var: Var,
         size: VarOrConstant,
+        vectorized: bool,
     },
     Panic,
 }
@@ -333,11 +334,16 @@ fn simplify_lines(
                     content: simplified_content,
                 });
             }
-            Line::MAlloc { var, size } => {
+            Line::MAlloc {
+                var,
+                size,
+                vectorized,
+            } => {
                 let simplified_size = simplify_expr(size, &mut res, counters);
                 res.push(SimpleLine::MAlloc {
                     var: var.clone(),
                     size: simplified_size,
+                    vectorized: *vectorized,
                 });
             }
             Line::Panic => {
@@ -775,8 +781,17 @@ impl SimpleLine {
                     .join(", ");
                 format!("print({})", content_str)
             }
-            SimpleLine::MAlloc { var, size } => {
-                format!("{} = malloc({})", var.to_string(), size.to_string())
+            SimpleLine::MAlloc {
+                var,
+                size,
+                vectorized,
+            } => {
+                let alloc_type = if *vectorized {
+                    "malloc_vectorized"
+                } else {
+                    "malloc"
+                };
+                format!("{} = {}({})", var.to_string(), alloc_type, size.to_string())
             }
             SimpleLine::Panic => "panic".to_string(),
         };

@@ -278,12 +278,16 @@ fn compile_lines(
                 });
             }
 
-            SimpleLine::MAlloc { var, size } => {
+            SimpleLine::MAlloc {
+                var,
+                size,
+                vectorized,
+            } => {
                 declared_vars.insert(var.clone());
                 instructions.push(IntermediateInstruction::RequestMemory {
                     shift: compiler.get_var_offset(var),
                     size: IntermediateValue::from_var_or_const(size, compiler),
-                    vectorized: false,
+                    vectorized: *vectorized,
                 });
             }
 

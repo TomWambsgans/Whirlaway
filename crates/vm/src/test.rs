@@ -1,12 +1,13 @@
 use p3_field::{BasedVectorSpace, PrimeCharacteristicRing};
-use p3_koala_bear::Poseidon2KoalaBear;
 use p3_symmetric::Permutation;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::poseidon16_kb;
+use whir_p3::fiat_shamir::{domain_separator::DomainSeparator, verifier::VerifierState};
 use xmss::{WotsSecretKey, XMSS_MERKLE_HEIGHT, XmssSecretKey, random_message};
 
 use crate::{
-    EF, F, compiler::compile_to_low_level_bytecode, parser::parse_program, runner::execute_bytecode,
+    EF, F, MyChallenger, Poseidon16, Poseidon24, compiler::compile_to_low_level_bytecode,
+    parser::parse_program, runner::execute_bytecode,
 };
 
 fn compile_and_run(program: &str, public_input: &[F], private_input: &[F]) {
@@ -14,8 +15,8 @@ fn compile_and_run(program: &str, public_input: &[F], private_input: &[F]) {
     let compiled = compile_to_low_level_bytecode(parsed_program).unwrap();
     println!("Compiled Program:\n\n{}", compiled.to_string());
 
-    let poseidon_16 = Poseidon2KoalaBear::<16>::new_from_rng_128(&mut StdRng::seed_from_u64(0));
-    let poseidon_24 = Poseidon2KoalaBear::<24>::new_from_rng_128(&mut StdRng::seed_from_u64(0));
+    let poseidon_16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
+    let poseidon_24 = Poseidon24::new_from_rng_128(&mut StdRng::seed_from_u64(0));
 
     execute_bytecode(
         &compiled,
@@ -163,7 +164,7 @@ fn test_mini_program_3() {
     compile_and_run(program, &public_input, &[]);
 
     let mut rng = StdRng::seed_from_u64(0);
-    let poseidon_16 = Poseidon2KoalaBear::<16>::new_from_rng_128(&mut rng);
+    let poseidon_16 = Poseidon16::new_from_rng_128(&mut rng);
     poseidon_16.permute_mut(&mut public_input);
     dbg!(public_input);
 }
@@ -200,7 +201,7 @@ fn test_mini_program_4() {
         .unwrap();
     compile_and_run(program, &public_input, &[]);
 
-    let poseidon_24 = Poseidon2KoalaBear::<24>::new_from_rng_128(&mut StdRng::seed_from_u64(0));
+    let poseidon_24 = Poseidon24::new_from_rng_128(&mut StdRng::seed_from_u64(0));
     poseidon_24.permute_mut(&mut public_input);
     dbg!(public_input);
 }
@@ -884,4 +885,140 @@ fn test_product_extension_field() {
 
     dbg!(a + b);
     dbg!(a * b);
+}
+
+#[test]
+fn test_fiat_shamir() {
+    let program = r#"
+
+    const W = 3; // in the extension field, X^8 = 3
+
+    fn main() {
+        start = public_input_start;
+        n = start[0];
+        transcript = start + 1;
+
+        fs_state = fiat_shamir_new(transcript);
+
+        all_states = malloc(n + 1);
+        all_states[0] = fs_state;
+        for i in 0..n {
+            fs_state = all_states[i];
+            new_fs_state, _ = fiat_shamir_receive_base_field(fs_state);
+            all_states[i + 1] = new_fs_state;
+        }
+
+        final_state = all_states[n];
+        fiat_shamir_print_state(final_state);
+
+        expected_state = start + n + 1;
+
+        left = final_state[1] * 8;
+        for i in 0..8 {
+            assert left[i] == expected_state[i];
+        }
+        right = final_state[2] * 8;
+        for i in 0..8 {
+            assert right[i] == expected_state[i + 8];
+        }
+
+        return;
+    }
+
+    // FIAT SHAMIR layout:
+    // 0 -> transcript
+    // 1 -> vectorized pointer to first half of sponge state
+    // 2 -> vectorized pointer to second half of sponge state
+    // 3 -> input_buffer_size
+    // 4 -> input_buffer (vectorized pointer)
+    // 5 -> output_buffer_size
+
+    fn fiat_shamir_new(transcript) -> 1 {
+        // transcript is a (normal) pointer
+
+        // TODO domain separator
+        fs_state = malloc(6);
+        fs_state[0] = transcript;
+        fs_state[1] = pointer_to_zero_vector; // first half of sponge state
+        fs_state[2] = pointer_to_zero_vector; // second half of sponge state
+        fs_state[3] = 0; // input buffer size
+        allocated = malloc_vec(1);
+        fs_state[4] = allocated; // input buffer (vectorized pointer)
+        fs_state[5] = 8; // output buffer size
+
+        return fs_state;
+    }
+
+    fn fiat_shamir_receive_base_field(fs_state) -> 2 {
+        new_fs_state = malloc(6);
+        transcript_ptr = fs_state[0]; 
+        value = transcript_ptr[0]; 
+        input_buffer_size = fs_state[3];
+        input_buffer = fs_state[4];
+        input_buffer_ptr = input_buffer * 8;
+        input_buffer_ptr[input_buffer_size] = value;
+
+        if input_buffer_size == 7 {
+            // duplexing
+            l, r = poseidon16(input_buffer, fs_state[2]);
+            new_fs_state[0] = transcript_ptr + 1;
+            new_fs_state[1] = l;
+            new_fs_state[2] = r;
+            new_fs_state[3] = 0; // reset input buffer size
+            allocated = malloc_vec(1);
+            new_fs_state[4] = allocated;
+            new_fs_state[5] = 8; // reset output buffer size
+
+            return new_fs_state, value;
+        }
+
+        new_fs_state[0] = transcript_ptr + 1;
+        new_fs_state[1] = fs_state[1];
+        new_fs_state[2] = fs_state[2];
+        new_fs_state[3] = input_buffer_size + 1;
+        new_fs_state[4] = fs_state[4];
+        new_fs_state[5] = fs_state[5];
+        return new_fs_state, value;
+    }
+
+    
+
+    fn fiat_shamir_print_state(fs_state) {
+        left = fs_state[1] * 8;
+        for i in 0..8 {
+            print(left[i]);
+        }
+        right = fs_state[2] * 8;
+        for i in 0..8 {
+            print(right[i]);
+        }
+        return;
+    }
+
+    
+   "#;
+    let n = 100;
+
+    let poseidon16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
+    let mut rng = StdRng::seed_from_u64(0);
+    let challenger = MyChallenger::new(poseidon16);
+    let proof_data = (0..n).map(|_| rng.random()).collect::<Vec<F>>();
+    let mut verifier_state = VerifierState::new(
+        &DomainSeparator::<EF, F>::new(vec![]),
+        proof_data.clone(),
+        challenger,
+    );
+    for _ in 0..n {
+        let _ = verifier_state.next_base_scalars_const::<1>();
+    }
+
+    let mut public_input = vec![F::from_usize(n)];
+    public_input.extend(proof_data);
+    public_input.extend(verifier_state.challenger().sponge_state.to_vec());
+
+    let private_input = vec![];
+
+    compile_and_run(program, &public_input, &private_input);
+
+    dbg!(verifier_state.challenger().sponge_state);
 }

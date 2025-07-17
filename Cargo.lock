@@ -1063,6 +1063,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "vm"
 version = "0.1.0"
 dependencies = [
+ "p3-challenger",
  "p3-field",
  "p3-koala-bear",
  "p3-poseidon2",
@@ -1071,6 +1072,7 @@ dependencies = [
  "pest_derive",
  "rand",
  "utils",
+ "whir-p3",
  "xmss",
 ]
 
@@ -1086,7 +1088,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/tcoratger/whir-p3#9caef91cb3b804b6a2d24de681857a2e4b97cd85"
+source = "git+https://github.com/tcoratger/whir-p3#c3ebc624c318316384aabc7a4a3d10ab27cc0dae"
 dependencies = [
  "clap",
  "itertools",

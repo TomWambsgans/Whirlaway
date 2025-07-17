@@ -99,7 +99,7 @@ pub enum IntermediateInstruction {
 
     // HINTS (does not appears in the final bytecode)
     RequestMemory {
-        shift: usize,          // m[fp + shift] where the hint will be stored
+        shift: usize,            // m[fp + shift] where the hint will be stored
         size: IntermediateValue, // the hint
         vectorized: bool, // if true, will be 8-alligned, and the returned pointer will be "divied" by 8 (i.e. everything is in chunks of 8 field elements)
     },

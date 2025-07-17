@@ -393,6 +393,18 @@ fn parse_function_call(
             Ok(Line::MAlloc {
                 var: return_data[0].clone(),
                 size: args[0].clone(),
+                vectorized: false,
+            })
+        }
+        "malloc_vec" => {
+            assert!(
+                args.len() == 1 && return_data.len() == 1,
+                "Invalid malloc_vec call"
+            );
+            Ok(Line::MAlloc {
+                var: return_data[0].clone(),
+                size: args[0].clone(),
+                vectorized: true,
             })
         }
         "print" => {

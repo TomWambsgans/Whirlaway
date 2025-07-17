@@ -1,7 +1,8 @@
 use p3_field::PrimeCharacteristicRing;
-use p3_koala_bear::Poseidon2KoalaBear;
 
-use crate::AIR_COLUMNS_PER_OPCODE;
+use crate::FIELD_ELEMENTS_PER_OPCODE;
+use crate::Poseidon16;
+use crate::Poseidon24;
 use crate::bytecode::bytecode::Hint;
 use crate::bytecode::bytecode::Instruction;
 use crate::bytecode::bytecode::MemOrConstant;
@@ -114,8 +115,14 @@ impl Memory {
     fn get(&self, index: usize) -> F {
         self.data
             .get(index)
-            .and_then(|opt| *opt)
-            .expect(&format!("Memory access error, index: {}", index))
+            .unwrap_or_else(|| {
+                panic!(
+                    "Memory access error: index {} out of bounds (max: {})",
+                    index,
+                    self.data.len()
+                )
+            })
+            .unwrap_or_else(|| panic!("Memory access error: index {} is None", index,))
     }
 
     fn set(&mut self, index: usize, value: F) {
@@ -159,18 +166,18 @@ pub fn execute_bytecode(
     bytecode: &Bytecode,
     public_input: &[F],
     private_input: &[F],
-    poseidon_16: Poseidon2KoalaBear<16>,
-    poseidon_24: Poseidon2KoalaBear<24>,
+    poseidon_16: Poseidon16,
+    poseidon_24: Poseidon24,
 ) {
     let mut memory = Memory::default();
 
     // TODO place the bytecode into memory
     // For now we will it with zeros
-    for _ in 0..bytecode.instructions.len() * AIR_COLUMNS_PER_OPCODE {
+    for _ in 0..bytecode.instructions.len() * FIELD_ELEMENTS_PER_OPCODE {
         memory.data.push(Some(F::ZERO));
     }
 
-    for _ in bytecode.instructions.len() * AIR_COLUMNS_PER_OPCODE..bytecode.public_input_start {
+    for _ in bytecode.instructions.len() * FIELD_ELEMENTS_PER_OPCODE..bytecode.public_input_start {
         memory.data.push(Some(F::ZERO)); // For "pointer_to_zero_vector"
     }
 

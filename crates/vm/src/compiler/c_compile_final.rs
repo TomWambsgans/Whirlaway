@@ -2,7 +2,7 @@ use p3_field::PrimeField64;
 use std::collections::BTreeMap;
 
 use crate::{
-    AIR_COLUMNS_PER_OPCODE, F,
+    F, FIELD_ELEMENTS_PER_OPCODE,
     bytecode::{
         bytecode::{
             Bytecode, Hint, Instruction, Label, MemOrConstant, MemOrFp, MemOrFpOrConstant,
@@ -32,10 +32,10 @@ struct Compiler {
 
 pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, String> {
     let mut intermediate_bytecode = compile_to_intermediate_bytecode(program)?;
-    // println!(
-    //     "\nHigh level bytecode:\n\n{}\n",
-    //     high_level_bytecode.to_string()
-    // );
+    println!(
+        "\nIntermediate bytecode:\n\n{}\n",
+        intermediate_bytecode.to_string()
+    );
 
     intermediate_bytecode.bytecode.insert(
         "@end_program".to_string(),
@@ -55,7 +55,7 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
         .iter()
         .map(|(_, instructions)| instructions.len())
         .sum::<usize>();
-    let mut pointer_to_zero_vector = bytecode_size * AIR_COLUMNS_PER_OPCODE;
+    let mut pointer_to_zero_vector = bytecode_size * FIELD_ELEMENTS_PER_OPCODE;
     // make it 8-aligned
     if pointer_to_zero_vector % 8 != 0 {
         pointer_to_zero_vector += 8 - (pointer_to_zero_vector % 8);
@@ -136,6 +136,7 @@ pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, Strin
                                 arg_b: res,
                                 res: MemOrConstant::Constant(op_res.as_canonical_u64() as usize),
                             });
+                            pc += 1;
                             continue;
                         }
                     }

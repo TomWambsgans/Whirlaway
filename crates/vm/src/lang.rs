@@ -197,6 +197,7 @@ pub enum Line {
     MAlloc {
         var: Var,
         size: Expression,
+        vectorized: bool,
     },
     Panic,
 }
@@ -366,8 +367,20 @@ impl Line {
                     .join(", ");
                 format!("print({})", content_str)
             }
-            Line::MAlloc { var, size } => {
-                format!("{} = malloc({})", var.to_string(), size.to_string())
+            Line::MAlloc {
+                var,
+                size,
+                vectorized,
+            } => {
+                if *vectorized {
+                    format!(
+                        "{} = malloc_vectorized({})",
+                        var.to_string(),
+                        size.to_string()
+                    )
+                } else {
+                    format!("{} = malloc({})", var.to_string(), size.to_string())
+                }
             }
             Line::Panic => "panic".to_string(),
         };
