@@ -146,6 +146,8 @@ fn parse_statement(
         Rule::function_call => parse_function_call(inner, constants, trash_var_count),
         Rule::assert_eq_statement => parse_assert_eq(inner, constants),
         Rule::assert_not_eq_statement => parse_assert_not_eq(inner, constants),
+        Rule::break_statement => Ok(Line::Break),
+        Rule::continue_statement => todo!("Continue statement not implemented yet"),
         _ => Err(ParseError::SemanticError("Unknown statement".to_string())),
     }
 }

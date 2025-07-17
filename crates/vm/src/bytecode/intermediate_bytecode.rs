@@ -238,10 +238,10 @@ impl ToString for IntermediateInstruction {
                 size,
                 vectorized,
             } => format!(
-                "request_memory m[fp + {}] = {} {}",
+                "m[fp + {}] = {}({})",
                 shift,
+                if *vectorized { "malloc_vec" } else { "malloc" },
                 size.to_string(),
-                if *vectorized { "# vectorized" } else { "" }
             ),
             IntermediateInstruction::Print { line_info, content } => format!(
                 "print {}: {}",

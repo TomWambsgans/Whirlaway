@@ -199,6 +199,7 @@ pub enum Line {
         size: Expression,
         vectorized: bool,
     },
+    Break,
     Panic,
 }
 
@@ -382,6 +383,7 @@ impl Line {
                     format!("{} = malloc({})", var.to_string(), size.to_string())
                 }
             }
+            Line::Break => "break".to_string(),
             Line::Panic => "panic".to_string(),
         };
         format!("{}{}", spaces, line_str)

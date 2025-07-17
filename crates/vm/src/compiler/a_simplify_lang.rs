@@ -69,7 +69,7 @@ pub fn simplify_program(program: &Program) -> SimpleProgram {
     let mut counters = Counters::default();
     for (name, func) in &program.functions {
         let simplified_instructions =
-            simplify_lines(&func.instructions, &mut counters, &mut new_functions);
+            simplify_lines(&func.instructions, &mut counters, &mut new_functions, false);
         new_functions.insert(
             name.clone(),
             SimpleFunction {
@@ -96,6 +96,7 @@ fn simplify_lines(
     lines: &[Line],
     counters: &mut Counters,
     new_functions: &mut BTreeMap<String, SimpleFunction>,
+    in_a_loop: bool,
 ) -> Vec<SimpleLine> {
     let mut res = Vec::new();
     for line in lines {
@@ -206,8 +207,10 @@ fn simplify_lines(
                     arg1: right_simplified,
                 });
 
-                let then_branch_simplified = simplify_lines(then_branch, counters, new_functions);
-                let else_branch_simplified = simplify_lines(else_branch, counters, new_functions);
+                let then_branch_simplified =
+                    simplify_lines(then_branch, counters, new_functions, in_a_loop);
+                let else_branch_simplified =
+                    simplify_lines(else_branch, counters, new_functions, in_a_loop);
 
                 res.push(SimpleLine::IfNotZero {
                     condition: diff_var.into(),
@@ -221,7 +224,7 @@ fn simplify_lines(
                 end,
                 body,
             } => {
-                let simplified_body = simplify_lines(body, counters, new_functions);
+                let simplified_body = simplify_lines(body, counters, new_functions, true);
 
                 let func_name = format!("@loop_{}", counters.loops);
                 counters.loops += 1;
@@ -295,6 +298,10 @@ fn simplify_lines(
                 });
             }
             Line::FunctionRet { return_data } => {
+                assert!(
+                    !in_a_loop,
+                    "Function return inside a loop is not currently supported"
+                );
                 let simplified_return_data = return_data
                     .iter()
                     .map(|ret| simplify_expr(ret, &mut res, counters))
@@ -344,6 +351,12 @@ fn simplify_lines(
                     var: var.clone(),
                     size: simplified_size,
                     vectorized: *vectorized,
+                });
+            }
+            Line::Break => {
+                assert!(in_a_loop, "Break statement outside of a loop");
+                res.push(SimpleLine::FunctionRet {
+                    return_data: vec![],
                 });
             }
             Line::Panic => {
@@ -512,7 +525,7 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                 on_new_expr(index, &internal_vars, &mut external_vars);
                 on_new_expr(value, &internal_vars, &mut external_vars);
             }
-            Line::Panic => {}
+            Line::Panic | Line::Break => {}
         }
     }
 

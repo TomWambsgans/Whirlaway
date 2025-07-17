@@ -230,10 +230,10 @@ impl ToString for Hint {
                 vectorized,
             } => {
                 format!(
-                    "m[fp + {}] = malloc({}) {}",
+                    "m[fp + {}] = {}({})",
                     shift,
-                    size.to_string(),
-                    if *vectorized { "# vectorized" } else { "" }
+                    if *vectorized { "malloc_vec" } else { "malloc" },
+                    size.to_string()
                 )
             }
             Self::Print { line_info, content } => {

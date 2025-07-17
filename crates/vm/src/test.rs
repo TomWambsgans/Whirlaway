@@ -55,6 +55,11 @@ fn test_mini_program_0() {
         for i in 0..5 {
             for j in i..2*i*(2+1) {
                 print(i, j);
+                if i == 4 {
+                    if j == 7 {
+                        break;
+                    }
+                }
             }
         }
         return;
@@ -977,7 +982,7 @@ fn test_fiat_shamir() {
         new_fs_state[2] = fs_state[2];
         new_fs_state[3] = input_buffer_size + 1;
         new_fs_state[4] = fs_state[4];
-        new_fs_state[5] = fs_state[5];
+        new_fs_state[5] = 0; // "Any buffered output is now invalid."
         return new_fs_state, value;
     }
 
