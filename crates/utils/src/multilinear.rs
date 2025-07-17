@@ -1,5 +1,7 @@
+use std::any::TypeId;
 use std::borrow::Borrow;
 
+use p3_field::PackedValue;
 use p3_field::{ExtensionField, Field, dot_product};
 use rayon::prelude::*;
 use tracing::instrument;
@@ -11,6 +13,16 @@ pub fn fold_multilinear_in_small_field<F: Field, EF: ExtensionField<F>>(
 ) -> EvaluationsList<EF> {
     assert!(scalars.len().is_power_of_two() && scalars.len() <= m.num_evals());
     let new_size = m.num_evals() / scalars.len();
+
+    if TypeId::of::<F>() == TypeId::of::<EF>() {
+        return unsafe {
+            std::mem::transmute(fold_multilinear_packed::<F>(
+                std::mem::transmute(m),
+                scalars,
+            ))
+        };
+    }
+
     EvaluationsList::new(
         (0..new_size)
             .into_par_iter()
@@ -23,6 +35,42 @@ pub fn fold_multilinear_in_small_field<F: Field, EF: ExtensionField<F>>(
             })
             .collect(),
     )
+}
+
+// TODO packing for all the cases
+pub fn fold_multilinear_packed<F: Field>(
+    m: &EvaluationsList<F>,
+    scalars: &[F],
+) -> EvaluationsList<F> {
+    assert!(scalars.len().is_power_of_two() && scalars.len() <= m.num_evals());
+    let new_size = m.num_evals() / scalars.len();
+
+    let inners = (0..scalars.len())
+        .map(|i| &m.evals()[i * new_size..(i + 1) * new_size])
+        .collect::<Vec<_>>();
+
+    let inners_packed = inners
+        .iter()
+        .map(|inner| F::Packing::pack_slice(inner))
+        .collect::<Vec<_>>();
+
+    let packed_res = (0..new_size / F::Packing::WIDTH)
+        .into_par_iter()
+        .map(|i| {
+            scalars
+                .iter()
+                .enumerate()
+                .map(|(j, s)| inners_packed[j][i] * *s)
+                .sum::<F::Packing>()
+        })
+        .collect::<Vec<_>>();
+
+    let mut unpacked: Vec<F> = unsafe { std::mem::transmute(packed_res) };
+    unsafe {
+        unpacked.set_len(new_size);
+    }
+
+    EvaluationsList::new(unpacked)
 }
 
 pub fn fold_multilinear_in_large_field<F: Field, EF: ExtensionField<F>>(

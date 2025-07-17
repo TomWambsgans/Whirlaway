@@ -1,19 +1,13 @@
 use ::air::AirSettings;
 use air::table::AirTable;
-use p3_baby_bear::{BabyBear, GenericPoseidon2LinearLayersBabyBear};
-use p3_challenger::HashChallenger;
-use p3_field::{ExtensionField, PrimeField64, TwoAdicField, extension::BinomialExtensionField};
-use p3_keccak::Keccak256Hash;
-use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear};
+use p3_challenger::DuplexChallenger;
+use p3_field::PrimeField64;
+use p3_field::extension::BinomialExtensionField;
+use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear, Poseidon2KoalaBear};
 use p3_matrix::Matrix;
-use p3_poseidon2::GenericPoseidon2LinearLayers;
-use p3_poseidon2_air::{Poseidon2Air, RoundConstants, generate_trace_rows, num_cols};
-use p3_uni_stark::SymbolicExpression;
-use rand::{
-    Rng, SeedableRng,
-    distr::{Distribution, StandardUniform},
-    rngs::StdRng,
-};
+use p3_poseidon2_air::{Poseidon2Air, RoundConstants, generate_trace_rows};
+use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::fmt;
 use std::time::{Duration, Instant};
 use tracing::level_filters::LevelFilter;
@@ -21,32 +15,36 @@ use tracing_forest::ForestLayer;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use whir_p3::{
     fiat_shamir::domain_separator::DomainSeparator, parameters::FoldingFactor,
-    poly::evals::EvaluationsList,
+    whir::parameters::WhirConfig,
 };
 
-type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
+// Koalabear
+type Poseidon16 = Poseidon2KoalaBear<16>;
+type Poseidon24 = Poseidon2KoalaBear<24>;
 
-#[cfg(test)]
-mod tests {
+type MerkleHash = PaddingFreeSponge<Poseidon24, 24, 16, 8>; // leaf hashing
+type MerkleCompress = TruncatedPermutation<Poseidon16, 2, 8, 16>; // 2-to-1 compression
+type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
 
-    use whir_p3::parameters::errors::SecurityAssumption;
+// Koalabear
+type F = KoalaBear;
+type EF = BinomialExtensionField<F, 8>;
+type LinearLayers = GenericPoseidon2LinearLayersKoalaBear;
+const SBOX_DEGREE: u64 = 3;
+const SBOX_REGISTERS: usize = 0;
+const HALF_FULL_ROUNDS: usize = 4;
+const PARTIAL_ROUNDS: usize = 20;
 
-    use super::*;
+// BabyBear
+// type F = BabyBear;
+// type EF = BinomialExtensionField<F, 4>;
+// type LinearLayers = GenericPoseidon2LinearLayersBabyBear;
+// const SBOX_DEGREE: u64 = 7;
+// const SBOX_REGISTERS: usize = 1;
+// const HALF_FULL_ROUNDS: usize = 4;
+// const PARTIAL_ROUNDS: usize = 13;
 
-    #[test]
-    fn test_poseidon2() {
-        let settings = AirSettings::new(
-            100,
-            SecurityAssumption::CapacityBound,
-            FoldingFactor::Constant(4),
-            2,
-            3,
-            1,
-        );
-        SupportedField::KoalaBear.prove_poseidon2_with(7, settings.clone(), 3, false);
-        SupportedField::BabyBear.prove_poseidon2_with(7, settings.clone(), 8, false);
-    }
-}
+const WIDTH: usize = 16;
 
 #[derive(Clone, Debug)]
 pub struct Poseidon2Benchmark {
@@ -54,7 +52,7 @@ pub struct Poseidon2Benchmark {
     pub settings: AirSettings,
     pub prover_time: Duration,
     pub verifier_time: Duration,
-    pub proof_size: usize,
+    pub proof_size: f64, // in bytes
 }
 
 impl fmt::Display for Poseidon2Benchmark {
@@ -79,130 +77,17 @@ impl fmt::Display for Poseidon2Benchmark {
             self.prover_time.as_millis() as f64 / 1000.0,
             (n_rows as f64 / self.prover_time.as_secs_f64()).round() as usize
         )?;
-        writeln!(f, "Proof size: {:.1} KiB", self.proof_size as f64 / 1024.0)?;
+        writeln!(f, "Proof size: {:.1} KiB", self.proof_size / 1024.0)?;
         writeln!(f, "Verification: {} ms", self.verifier_time.as_millis())
     }
 }
 
-#[allow(dead_code)]
-#[derive(Clone, Copy, Debug)]
-pub enum SupportedField {
-    KoalaBear,
-    BabyBear,
-}
-
-impl SupportedField {
-    pub fn prove_poseidon2_with(
-        &self,
-        log_n_rows: usize,
-        settings: AirSettings,
-        n_preprocessed_columns: usize,
-        display_logs: bool,
-    ) -> Poseidon2Benchmark {
-        match self {
-            SupportedField::KoalaBear => prove_poseidon2_koala_bear(
-                log_n_rows,
-                settings,
-                n_preprocessed_columns,
-                display_logs,
-            ),
-            SupportedField::BabyBear => prove_poseidon2_baby_bear(
-                log_n_rows,
-                settings,
-                n_preprocessed_columns,
-                display_logs,
-            ),
-        }
-    }
-}
-
-fn prove_poseidon2_koala_bear(
+pub fn prove_poseidon2(
     log_n_rows: usize,
     settings: AirSettings,
     n_preprocessed_columns: usize,
     display_logs: bool,
 ) -> Poseidon2Benchmark {
-    type F = KoalaBear;
-    type EF = BinomialExtensionField<F, 4>;
-    type LinearLayers = GenericPoseidon2LinearLayersKoalaBear;
-
-    const WIDTH: usize = 16;
-    const SBOX_DEGREE: u64 = 3;
-    const SBOX_REGISTERS: usize = 0;
-    const HALF_FULL_ROUNDS: usize = 4;
-    const PARTIAL_ROUNDS: usize = 20;
-    const COLS: usize =
-        num_cols::<WIDTH, SBOX_DEGREE, SBOX_REGISTERS, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>();
-
-    prove_poseidon2::<
-        F,
-        EF,
-        LinearLayers,
-        WIDTH,
-        SBOX_DEGREE,
-        SBOX_REGISTERS,
-        HALF_FULL_ROUNDS,
-        PARTIAL_ROUNDS,
-        COLS,
-    >(log_n_rows, settings, n_preprocessed_columns, display_logs)
-}
-
-fn prove_poseidon2_baby_bear(
-    log_n_rows: usize,
-    settings: AirSettings,
-    n_preprocessed_columns: usize,
-    display_logs: bool,
-) -> Poseidon2Benchmark {
-    type F = BabyBear;
-    type EF = BinomialExtensionField<F, 4>;
-    type LinearLayers = GenericPoseidon2LinearLayersBabyBear;
-
-    const WIDTH: usize = 16;
-    const SBOX_DEGREE: u64 = 7;
-    const SBOX_REGISTERS: usize = 1;
-    const HALF_FULL_ROUNDS: usize = 4;
-    const PARTIAL_ROUNDS: usize = 13;
-    const COLS: usize =
-        num_cols::<WIDTH, SBOX_DEGREE, SBOX_REGISTERS, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>();
-
-    prove_poseidon2::<
-        F,
-        EF,
-        LinearLayers,
-        WIDTH,
-        SBOX_DEGREE,
-        SBOX_REGISTERS,
-        HALF_FULL_ROUNDS,
-        PARTIAL_ROUNDS,
-        COLS,
-    >(log_n_rows, settings, n_preprocessed_columns, display_logs)
-}
-
-fn prove_poseidon2<
-    F,
-    EF,
-    LinearLayers,
-    const WIDTH: usize,
-    const SBOX_DEGREE: u64,
-    const SBOX_REGISTERS: usize,
-    const HALF_FULL_ROUNDS: usize,
-    const PARTIAL_ROUNDS: usize,
-    const COLS: usize,
->(
-    log_n_rows: usize,
-    settings: AirSettings,
-    n_preprocessed_columns: usize,
-    display_logs: bool,
-) -> Poseidon2Benchmark
-where
-    StandardUniform: Distribution<F>,
-    EF: ExtensionField<F> + TwoAdicField,
-    F: TwoAdicField + PrimeField64,
-    StandardUniform: Distribution<EF>,
-    LinearLayers: GenericPoseidon2LinearLayers<F, WIDTH>
-        + GenericPoseidon2LinearLayers<EF, WIDTH>
-        + GenericPoseidon2LinearLayers<SymbolicExpression<F>, WIDTH>,
-{
     if display_logs {
         let env_filter = EnvFilter::builder()
             .with_default_directive(LevelFilter::INFO.into())
@@ -216,8 +101,10 @@ where
 
     let n_rows = 1 << log_n_rows;
 
-    let rng = &mut StdRng::seed_from_u64(0);
-    let constants = RoundConstants::<F, WIDTH, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>::from_rng(rng);
+    let mut rng = StdRng::seed_from_u64(0);
+    let constants =
+        RoundConstants::<F, WIDTH, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>::from_rng(&mut rng);
+
     let poseidon_air = Poseidon2Air::<
         F,
         LinearLayers,
@@ -245,8 +132,9 @@ where
 
     let mut witness = witness_matrix
         .rows()
-        .map(|col| EvaluationsList::new(col.collect()))
+        .map(|col| whir_p3::poly::evals::EvaluationsList::new(col.collect()))
         .collect::<Vec<_>>();
+
     let preprocessed_columns = witness.drain(..n_preprocessed_columns).collect::<Vec<_>>();
 
     let table = AirTable::<F, EF, _>::new(
@@ -256,32 +144,51 @@ where
         preprocessed_columns,
         3,
     );
-    // println!("Constraints degree: {}", table.constraint_degree());
-    // table.check_validity(&witness);
+
+    let poseidon16 = Poseidon16::new_from_rng_128(&mut rng);
+    let poseidon24 = Poseidon24::new_from_rng_128(&mut rng);
+    let merkle_hash = MerkleHash::new(poseidon24);
+    let merkle_compress = MerkleCompress::new(poseidon16.clone());
 
     let t = Instant::now();
 
-    let whir_params = table.build_whir_params(&settings);
-    let mut domainsep: DomainSeparator<EF, F, u8> = DomainSeparator::new("🐎", false);
-    domainsep.commit_statement(&whir_params);
-    domainsep.add_whir_proof(&whir_params);
-    let mut prover_state = domainsep.to_prover_state(MyChallenger::new(vec![], Keccak256Hash));
+    let whir_params: WhirConfig<_, _, _, _, MyChallenger> =
+        table.build_whir_params(&settings, merkle_hash.clone(), merkle_compress.clone());
+    let mut domainsep: DomainSeparator<EF, F> = DomainSeparator::new(vec![]);
+    domainsep.commit_statement::<_, _, _, 8>(&whir_params);
+    domainsep.add_whir_proof::<_, _, _, 8>(&whir_params);
 
-    table.prove(&settings, &mut prover_state, witness);
-    let proof_size = prover_state.narg_string().len();
+    let challenger = MyChallenger::new(poseidon16);
+
+    let mut prover_state = domainsep.to_prover_state(challenger.clone());
+
+    table.prove(
+        &settings,
+        merkle_hash.clone(),
+        merkle_compress.clone(),
+        &mut prover_state,
+        witness,
+    );
+    // let proof_size = prover_state.narg_string().len();
 
     let prover_time = t.elapsed();
     let time = Instant::now();
 
-    let mut verifier_state = domainsep.to_verifier_state(
-        prover_state.narg_string(),
-        MyChallenger::new(vec![], Keccak256Hash),
-    );
+    let mut verifier_state =
+        domainsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
 
     table
-        .verify(&settings, &mut verifier_state, log_n_rows)
+        .verify(
+            &settings,
+            merkle_hash,
+            merkle_compress,
+            &mut verifier_state,
+            log_n_rows,
+        )
         .unwrap();
     let verifier_time = time.elapsed();
+
+    let proof_size = prover_state.proof_data().len() as f64 * (F::ORDER_U64 as f64).log2() / 8.0;
 
     Poseidon2Benchmark {
         log_n_rows,

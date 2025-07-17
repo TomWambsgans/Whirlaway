@@ -6,18 +6,9 @@ mod uni_skip_utils;
 mod utils;
 mod verify;
 
-type ByteHash = Blake3;
-type FieldHash = SerializingHasher<ByteHash>;
-type MyCompress = CompressionFunctionFromHasher<ByteHash, 2, 32>;
 const WHIR_POW_BITS: usize = 16;
 
-use p3_blake3::Blake3;
-use p3_challenger::HashChallenger;
-use p3_keccak::Keccak256Hash;
-use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
 use whir_p3::parameters::{FoldingFactor, errors::SecurityAssumption};
-
-type MyChallenger = HashChallenger<u8, Keccak256Hash, 32>;
 
 #[derive(Clone, Debug)]
 pub struct AirSettings {

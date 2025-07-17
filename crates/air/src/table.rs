@@ -1,16 +1,16 @@
 use p3_air::Air;
+use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use p3_uni_stark::{SymbolicAirBuilder, get_symbolic_constraints};
 use utils::{log2_up, univariate_selectors};
 use whir_p3::{
-    fiat_shamir::pow::blake3::Blake3PoW,
     parameters::{MultivariateParameters, ProtocolParameters},
     poly::{dense::WhirDensePolynomial, evals::EvaluationsList},
     whir::parameters::WhirConfig,
 };
 
-use crate::{AirSettings, ByteHash, FieldHash, MyChallenger, MyCompress, WHIR_POW_BITS};
+use crate::{AirSettings, WHIR_POW_BITS};
 
 pub struct AirTable<F: Field, EF, A> {
     pub log_length: usize,
@@ -24,7 +24,11 @@ pub struct AirTable<F: Field, EF, A> {
     _phantom: std::marker::PhantomData<EF>,
 }
 
-impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A> {
+impl<F, EF, A> AirTable<F, EF, A>
+where
+    F: TwoAdicField,
+    EF: ExtensionField<F> + TwoAdicField,
+{
     pub fn new(
         air: A,
         log_length: usize,
@@ -35,7 +39,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A
     where
         A: Air<SymbolicAirBuilder<F>>,
     {
-        let symbolic_constraints = get_symbolic_constraints::<F, A>(&air, 0, 0);
+        let symbolic_constraints = get_symbolic_constraints(&air, 0, 0);
         let n_constraints = symbolic_constraints.len();
 
         Self {
@@ -65,16 +69,17 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A
         self.preprocessed_columns.len()
     }
 
-    pub fn build_whir_params(
+    pub fn build_whir_params<H, C, Challenger>(
         &self,
         settings: &AirSettings,
-    ) -> WhirConfig<EF, F, FieldHash, MyCompress, Blake3PoW, MyChallenger, u8> {
+        merkle_hash: H,
+        merkle_compress: C,
+    ) -> WhirConfig<EF, F, H, C, Challenger>
+    where
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    {
         let num_variables = self.log_length + self.log_n_witness_columns();
         let mv_params = MultivariateParameters::new(num_variables);
-
-        let byte_hash = ByteHash {};
-        let merkle_hash = FieldHash::new(byte_hash);
-        let merkle_compress = MyCompress::new(byte_hash);
 
         let whir_params = ProtocolParameters {
             initial_statement: true,
@@ -86,6 +91,7 @@ impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A
             soundness_type: settings.whir_soudness_type,
             starting_log_inv_rate: settings.whir_log_inv_rate,
             rs_domain_initial_reduction_factor: settings.whir_initial_domain_reduction_factor,
+            univariate_skip: false,
         };
 
         WhirConfig::new(mv_params, whir_params)

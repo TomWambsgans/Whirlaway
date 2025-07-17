@@ -117,22 +117,21 @@ pest_derive = "2.7"
 tracing = "0.1.26"
 tracing-subscriber = { version = "0.3.19", features = ["std", "env-filter"] }
 tracing-forest = { version = "0.1.6", features = ["ansi", "smallvec"] }
-p3-koala-bear = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigger_fields" }
-p3-baby-bear = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigger_fields" }
-p3-field = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigger_fields" }
-p3-poseidon2 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigger_fields" }
-p3-matrix = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigger_fields" }
-p3-blake3 = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigger_fields" }
-p3-symmetric = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigger_fields" }
-p3-air = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigger_fields" }
-p3-uni-stark = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigger_fields" }
-p3-poseidon2-air = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigger_fields" }
-p3-goldilocks = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigger_fields" }
-p3-keccak = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigger_fields" }
-p3-challenger = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigger_fields" }
-p3-util = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "bigger_fields" }
+p3-koala-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
+p3-baby-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
+p3-field = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
+p3-poseidon2 = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
+p3-matrix = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
+p3-blake3 = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
+p3-symmetric = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
+p3-air = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
+p3-uni-stark = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
+p3-poseidon2-air = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
+p3-goldilocks = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
+p3-challenger = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
+p3-util = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
 
-whir-p3 = { git = "https://github.com/TomWambsgans/whir-p3", branch = "koala_bear_8" }
+whir-p3 = { git = "https://github.com/tcoratger/whir-p3" }
 
 [dependencies]
 air.workspace = true
@@ -145,7 +144,7 @@ rand.workspace = true
 p3-poseidon2-air.workspace = true
 p3-matrix.workspace = true
 p3-challenger.workspace = true
-p3-keccak.workspace = true
+p3-symmetric.workspace = true
 tracing-forest.workspace = true
 tracing-subscriber.workspace = true
 whir-p3.workspace = true

@@ -1,13 +1,14 @@
 use p3_air::Air;
-use p3_field::{
-    ExtensionField, PrimeField64, TwoAdicField, cyclic_subgroup_known_order, dot_product,
-};
+use p3_challenger::{FieldChallenger, GrindingChallenger};
+use p3_field::{ExtensionField, Packable, TwoAdicField, cyclic_subgroup_known_order, dot_product};
+use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use rand::distr::{Distribution, StandardUniform};
+use serde::{Deserialize, Serialize};
 use sumcheck::{SumcheckComputation, SumcheckError, SumcheckGrinding};
 use tracing::instrument;
 use utils::{ConstraintFolder, fold_multilinear_in_large_field, log2_up};
 use whir_p3::{
-    fiat_shamir::{errors::ProofError, pow::blake3::Blake3PoW, verifier::VerifierState},
+    fiat_shamir::{errors::ProofError, verifier::VerifierState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::reader::CommitmentReader,
@@ -17,7 +18,7 @@ use whir_p3::{
 };
 
 use crate::{
-    AirSettings, MyChallenger,
+    AirSettings,
     utils::{column_down, column_up, matrix_down_lde, matrix_up_lde},
 };
 
@@ -46,69 +47,72 @@ impl From<SumcheckError> for AirVerifError {
 }
 
 impl<
-    'a,
-    F: TwoAdicField + PrimeField64,
+    F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
-    A: Air<ConstraintFolder<'a, F, EF, EF>>,
+    A: for<'a> Air<ConstraintFolder<'a, F, EF, EF>>,
 > AirTable<F, EF, A>
 {
     #[instrument(name = "air table: verify", skip_all)]
-    pub fn verify(
+    pub fn verify<H, C, Challenger, const DIGEST_ELEMS: usize>(
         &self,
         settings: &AirSettings,
-        verifier_state: &mut VerifierState<'_, EF, F, MyChallenger, u8>,
+        merkle_hash: H,
+        merkle_compress: C,
+        verifier_state: &mut VerifierState<F, EF, Challenger>,
         log_length: usize,
     ) -> Result<(), AirVerifError>
     where
         StandardUniform: Distribution<EF> + Distribution<F>,
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
+        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
+        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        F: Eq + Packable,
     {
-        let whir_params = self.build_whir_params(settings);
+        let whir_params = self.build_whir_params(settings, merkle_hash, merkle_compress);
 
         let commitment_reader = CommitmentReader::new(&whir_params);
         let whir_verifier = Verifier::new(&whir_params);
         let parsed_commitment = commitment_reader
-            .parse_commitment::<32>(verifier_state)
+            .parse_commitment::<DIGEST_ELEMS>(verifier_state)
             .map_err(|_| AirVerifError::InvalidPcsCommitment)?;
 
-        verifier_state
-            .challenge_pow::<Blake3PoW>(
-                settings
-                    .security_bits
-                    .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_constraints)))
-                    as f64,
-            )
-            .unwrap();
-
-        let constraints_batching_scalar = verifier_state.challenge_scalars_array::<1>().unwrap()[0];
-
-        verifier_state
-            .challenge_pow::<Blake3PoW>(
-                settings
-                    .security_bits
-                    .saturating_sub(EF::bits().saturating_sub(self.log_length))
-                    as f64,
-            )
-            .unwrap();
-
-        let zerocheck_challenges =
-            verifier_state.challenge_scalars_vec(log_length - settings.univariate_skips + 1)?;
-
-        let (sc_sum, outer_sumcheck_challenge) = sumcheck::verify_with_univariate_skip::<EF, F>(
-            verifier_state,
-            self.constraint_degree + 1,
-            log_length,
-            settings.univariate_skips,
-            SumcheckGrinding::Auto {
-                security_bits: settings.security_bits,
-            },
+        verifier_state.check_pow_grinding(
+            settings
+                .security_bits
+                .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_constraints))),
         )?;
+
+        let constraints_batching_scalar = verifier_state.sample();
+
+        verifier_state.check_pow_grinding(
+            settings
+                .security_bits
+                .saturating_sub(EF::bits().saturating_sub(self.log_length)),
+        )?;
+
+        let mut zerocheck_challenges = vec![EF::ZERO; log_length - settings.univariate_skips + 1];
+        for challenge in &mut zerocheck_challenges {
+            *challenge = verifier_state.sample();
+        }
+
+        let (sc_sum, outer_sumcheck_challenge) =
+            sumcheck::verify_with_univariate_skip::<F, EF, Challenger>(
+                verifier_state,
+                self.constraint_degree + 1,
+                log_length,
+                settings.univariate_skips,
+                SumcheckGrinding::Auto {
+                    security_bits: settings.security_bits,
+                },
+            )?;
         if sc_sum != EF::ZERO {
             return Err(AirVerifError::SumMismatch);
         }
 
-        let witness_shifted_evals =
-            verifier_state.next_scalars_vec(2 * self.n_witness_columns())?;
-        let (witness_up, witness_down) = witness_shifted_evals.split_at(self.n_witness_columns());
+        let witness_up = verifier_state.next_extension_scalars_vec(self.n_witness_columns())?;
+        let witness_down = verifier_state.next_extension_scalars_vec(self.n_witness_columns())?;
+
         let outer_selector_evals = self
             .univariate_selectors
             .iter()
@@ -135,9 +139,9 @@ impl<
 
         let global_point = [
             preprocessed_up,
-            witness_up.to_vec(),
+            witness_up.clone(),
             preprocessed_down,
-            witness_down.to_vec(),
+            witness_down.clone(),
         ]
         .concat();
 
@@ -163,32 +167,32 @@ impl<
             return Err(AirVerifError::SumMismatch);
         }
 
-        verifier_state
-            .challenge_pow::<Blake3PoW>(
-                settings
-                    .security_bits
-                    .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_witness_columns())))
-                    as f64,
-            )
-            .unwrap();
+        verifier_state.check_pow_grinding(
+            settings
+                .security_bits
+                .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_witness_columns()))),
+        )?;
 
-        let columns_batching_scalars =
-            verifier_state.challenge_scalars_vec(self.log_n_witness_columns())?;
+        let mut columns_batching_scalars = vec![EF::ZERO; self.log_n_witness_columns()];
+        for challenge in &mut columns_batching_scalars {
+            *challenge = verifier_state.sample();
+        }
 
-        let [alpha] = verifier_state.challenge_scalars_array()?;
+        let alpha: EF = verifier_state.sample();
 
-        let sub_evals = verifier_state.next_scalars_vec(1 << settings.univariate_skips)?;
+        let sub_evals =
+            verifier_state.next_extension_scalars_vec(1 << settings.univariate_skips)?;
 
         if dot_product::<EF, _, _>(
             sub_evals.iter().copied(),
             outer_selector_evals.iter().copied(),
         ) != dot_product::<EF, _, _>(
-            witness_up.to_vec().into_iter(),
+            witness_up.iter().copied(),
             EvaluationsList::eval_eq(&columns_batching_scalars).evals()[..self.n_witness_columns()]
                 .iter()
                 .copied(),
         ) + dot_product::<EF, _, _>(
-            witness_down.to_vec().into_iter(),
+            witness_down.iter().copied(),
             EvaluationsList::eval_eq(&columns_batching_scalars).evals()[..self.n_witness_columns()]
                 .iter()
                 .copied(),
@@ -197,9 +201,12 @@ impl<
             return Err(AirVerifError::SumMismatch);
         }
 
-        let epsilons = verifier_state.challenge_scalars_vec(settings.univariate_skips)?;
+        let mut epsilons = vec![EF::ZERO; settings.univariate_skips];
+        for challenge in &mut epsilons {
+            *challenge = verifier_state.sample();
+        }
 
-        let (batched_inner_sum, inner_sumcheck_challenge) = sumcheck::verify::<EF, F>(
+        let (batched_inner_sum, inner_sumcheck_challenge) = sumcheck::verify::<F, EF, Challenger>(
             verifier_state,
             log_length,
             2,
@@ -209,7 +216,7 @@ impl<
         )?;
 
         if batched_inner_sum
-            != EvaluationsList::new(sub_evals.clone()).evaluate(&MultilinearPoint(epsilons.clone()))
+            != EvaluationsList::new(sub_evals).evaluate(&MultilinearPoint(epsilons.clone()))
         {
             return Err(AirVerifError::SumMismatch);
         }
@@ -227,7 +234,7 @@ impl<
 
         let final_point = [
             columns_batching_scalars.clone(),
-            inner_sumcheck_challenge.point.clone(),
+            inner_sumcheck_challenge.point,
         ]
         .concat();
 
