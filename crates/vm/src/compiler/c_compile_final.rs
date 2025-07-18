@@ -9,11 +9,10 @@ use crate::{
             Operation,
         },
         intermediate_bytecode::{
-            HighLevelOperation, IntermediaryMemOrFpOrConstant, IntermediateInstruction,
-            IntermediateValue,
+            HighLevelOperation, IntermediaryMemOrFpOrConstant, IntermediateBytecode,
+            IntermediateInstruction, IntermediateValue,
         },
     },
-    compiler::b_compile_intermediate::compile_to_intermediate_bytecode,
     lang::*,
 };
 
@@ -30,13 +29,9 @@ struct Compiler {
     label_to_pc: BTreeMap<Label, usize>,
 }
 
-pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, String> {
-    let mut intermediate_bytecode = compile_to_intermediate_bytecode(program)?;
-    // println!(
-    //     "\nIntermediate bytecode:\n\n{}\n",
-    //     intermediate_bytecode.to_string()
-    // );
-
+pub fn compile_to_low_level_bytecode(
+    mut intermediate_bytecode: IntermediateBytecode,
+) -> Result<Bytecode, String> {
     intermediate_bytecode.bytecode.insert(
         "@end_program".to_string(),
         vec![IntermediateInstruction::Jump {

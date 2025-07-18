@@ -1,6 +1,9 @@
 use crate::{
     bytecode::intermediate_bytecode::*,
-    compiler::a_simplify_lang::{SimpleFunction, SimpleLine, simplify_program},
+    compiler::{
+        SimpleProgram,
+        a_simplify_lang::{SimpleFunction, SimpleLine},
+    },
     lang::*,
 };
 use std::{
@@ -56,10 +59,9 @@ impl IntermediateValue {
     }
 }
 
-pub fn compile_to_intermediate_bytecode(program: Program) -> Result<IntermediateBytecode, String> {
-    let simple_program = simplify_program(&program);
-    // println!("Simplified program: {}", simple_program.to_string());
-
+pub fn compile_to_intermediate_bytecode(
+    simple_program: SimpleProgram,
+) -> Result<IntermediateBytecode, String> {
     let mut compiler = Compiler::new();
     let mut memory_sizes = BTreeMap::new();
 
