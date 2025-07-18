@@ -2,12 +2,26 @@ use p3_field::{BasedVectorSpace, PrimeCharacteristicRing};
 use p3_symmetric::Permutation;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::poseidon16_kb;
-use whir_p3::fiat_shamir::{domain_separator::DomainSeparator, verifier::VerifierState};
+use whir_p3::{
+    dft::EvalsDft,
+    fiat_shamir::{domain_separator::DomainSeparator, verifier::VerifierState},
+    parameters::{
+        FoldingFactor, MultivariateParameters, ProtocolParameters, errors::SecurityAssumption,
+    },
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    whir::{
+        committer::{reader::CommitmentReader, writer::CommitmentWriter},
+        parameters::WhirConfig,
+        prover::Prover,
+        statement::{Statement, weights::Weights},
+        verifier::Verifier,
+    },
+};
 use xmss::{WotsSecretKey, XMSS_MERKLE_HEIGHT, XmssSecretKey, random_message};
 
 use crate::{
-    EF, F, MyChallenger, Poseidon16, Poseidon24, compiler::compile_to_low_level_bytecode,
-    parser::parse_program, runner::execute_bytecode,
+    EF, F, MerkleCompress, MerkleHash, MyChallenger, Poseidon16, Poseidon24,
+    compiler::compile_to_low_level_bytecode, parser::parse_program, runner::execute_bytecode,
 };
 
 fn compile_and_run(program: &str, public_input: &[F], private_input: &[F]) {
@@ -1380,16 +1394,25 @@ fn test_whir_verif() {
     const RS_REDUCTION_FACTOR_2 = 5;
 
     fn main() {
-        transcript_start = public_input_start;
-        fs_state = fiat_shamir_new(transcript_start);
+        transcript_start = public_input_start / 8;
+        fs_state = fs_new(transcript_start);
 
+        fs_state_1, root_0, ood_point_0, ood_eval_0 = whir_parse_commitment(fs_state);
+
+        // In the future point / eval will come from the PIOP
+        fs_state_2, point = fs_hint(fs_state_1, N_VARS);
+        fs_state_3, eval = fs_hint(fs_state_2, 1);
+
+        fs_print_state(fs_state_3);
 
         return;
     }
 
-    whir_parse_commitment(fs_state) -> {
-        fs_state_1 = fs_receive_base_field(fs_state, N_VARS);
-
+    fn whir_parse_commitment(fs_state) -> 4 {
+        fs_state_1, root = fs_receive(fs_state, 1); // vectorized pointer of len 1
+        fs_state_2, ood_point = fs_sample_ef(fs_state_1);  // vectorized pointer of len 1
+        fs_state_3, ood_eval = fs_receive(fs_state_2, 1); // vectorized pointer of len 1
+        return fs_state_3, root, ood_point, ood_eval;
     }
     
     // FIAT SHAMIR layout:
@@ -1421,6 +1444,13 @@ fn test_whir_verif() {
         // return the updated fs_state, and a pointer to n field elements
         res = malloc(n);
         new_fs_state = fs_sample_helper(fs_state, n, res);
+        return new_fs_state, res;
+    }
+
+    fn fs_sample_ef(fs_state) -> 2 {
+        // return the updated fs_state, and a vectorized pointer to 1 chunk of 8 field elements
+        res = malloc_vec(1);
+        new_fs_state = fs_sample_helper(fs_state, 8, res * 8);
         return new_fs_state, res;
     }
 
@@ -1467,7 +1497,18 @@ fn test_whir_verif() {
         return final_res;
 
     }
-    
+
+    fn fs_hint(fs_state, n) -> 2 {
+        // return the updated fs_state, and a vectorized pointer to n chunk of 8 field elements
+
+        res = fs_state[0];
+        new_fs_state = malloc(4);
+        new_fs_state[0] = res + n;
+        new_fs_state[1] = fs_state[1];
+        new_fs_state[2] = fs_state[2];
+        new_fs_state[3] = fs_state[3];
+        return new_fs_state, res; 
+    }
 
     fn fs_receive(fs_state, n) -> 2 {
         // return the updated fs_state, and a vectorized pointer to n chunk of 8 field elements
@@ -1504,6 +1545,14 @@ fn test_whir_verif() {
         right = fs_state[2] * 8;
         for i in 0..8 {
             print(right[i]);
+        }
+        return;
+    }
+
+    fn print_chunck(vec_ptr) {
+        ptr = vec_ptr * 8;
+        for i in 0..8 {
+            print(ptr[i]);
         }
         return;
     }
@@ -1564,54 +1613,98 @@ fn test_whir_verif() {
         return res;
     }
    "#;
-    let n = 1000;
 
     let poseidon16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
+    let poseidon24 = Poseidon24::new_from_rng_128(&mut StdRng::seed_from_u64(0));
+
+    let merkle_hash = MerkleHash::new(poseidon24);
+    let merkle_compress = MerkleCompress::new(poseidon16.clone());
+
+    let whir_params = ProtocolParameters {
+        initial_statement: true,
+        security_level: 128,
+        pow_bits: 0,
+        folding_factor: FoldingFactor::ConstantFromSecondRound(7, 4),
+        merkle_hash,
+        merkle_compress,
+        soundness_type: SecurityAssumption::CapacityBound,
+        starting_log_inv_rate: 1,
+        rs_domain_initial_reduction_factor: 5,
+        univariate_skip: false,
+    };
+
+    let num_variables = 25;
+
+    let mv_params = MultivariateParameters::<EF>::new(num_variables);
+
+    let params =
+        WhirConfig::<EF, F, MerkleHash, MerkleCompress, MyChallenger>::new(mv_params, whir_params);
+    assert_eq!(params.committment_ood_samples, 1);
+
     let mut rng = StdRng::seed_from_u64(0);
+    let polynomial =
+        EvaluationsList::<F>::new((0..1 << num_variables).map(|_| rng.random()).collect());
+
+    let point = MultilinearPoint::<EF>::rand(&mut rng, num_variables);
+
+    let mut statement = Statement::<EF>::new(num_variables);
+    let eval = polynomial.evaluate(&point);
+    let weights = Weights::evaluation(point.clone());
+    statement.add_constraint(weights, eval);
+
     let challenger = MyChallenger::new(poseidon16);
+    let domainsep = DomainSeparator::new(vec![]);
 
-    let mut public_input = vec![F::from_usize(n)];
-    let mut proof_data = vec![];
-    let mut is_samples = vec![];
-    let mut sizes = vec![];
+    let mut prover_state = domainsep.to_prover_state(challenger.clone());
 
-    for _ in 0..n {
-        let is_sample: bool = rng.random();
-        let size = rng.random_range(1..30);
-        is_samples.push(is_sample);
-        sizes.push(size);
-        if !is_sample {
-            proof_data.extend((0..size).map(|_| rng.random()).collect::<Vec<F>>());
-        }
-    }
+    // Commit to the polynomial and produce a witness
+    let committer = CommitmentWriter::new(&params);
 
-    let mut verifier_state = VerifierState::new(
-        &DomainSeparator::<EF, F>::new(vec![]),
-        proof_data.clone(),
-        challenger,
-    );
+    let dft = EvalsDft::<F>::new(1 << params.max_fft_size());
 
-    for (is_sample, size) in is_samples.iter().zip(&sizes) {
-        if *is_sample {
-            for _ in 0..*size {
-                let _ = verifier_state.sample_bits(1);
-            }
-        } else {
-            let _ = verifier_state.next_base_scalars_vec(*size);
-        }
-    }
+    let witness = committer
+        .commit(&dft, &mut prover_state, polynomial)
+        .unwrap();
 
-    // public_input.extend(sizes.iter().map(|&x| F::from_usize(x)));
+    let mut public_input = prover_state.proof_data().to_vec();
+    let commitment_size = public_input.len();
+    assert_eq!(commitment_size, 16);
     public_input.extend(
-        is_samples
+        point
             .iter()
-            .zip(&sizes)
-            .flat_map(|(&is_sample, &size)| vec![F::from_bool(is_sample), F::from_usize(size)]),
+            .flat_map(|x| <EF as BasedVectorSpace<F>>::as_basis_coefficients_slice(x).to_vec()),
     );
-    public_input.extend(proof_data.clone());
-    public_input.extend(verifier_state.challenger().sponge_state.to_vec());
+    public_input.extend(<EF as BasedVectorSpace<F>>::as_basis_coefficients_slice(&eval).to_vec());
+
+    let prover = Prover(&params);
+
+    prover
+        .prove(&dft, &mut prover_state, statement.clone(), witness)
+        .unwrap();
+
+    public_input.extend(prover_state.proof_data()[commitment_size..].to_vec());
+
+
+    let commitment_reader = CommitmentReader::new(&params);
+
+    // Create a verifier with matching parameters
+    let verifier = Verifier::new(&params);
+
+    // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
+    let mut verifier_state =
+        domainsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
+
+    // Parse the commitment
+    let parsed_commitment = commitment_reader
+        .parse_commitment::<8>(&mut verifier_state)
+        .unwrap();
 
     dbg!(verifier_state.challenger().sponge_state);
 
+    verifier
+        .verify(&mut verifier_state, &parsed_commitment, &statement)
+        .unwrap();
+
     compile_and_run(program, &public_input, &[]);
+
 }
