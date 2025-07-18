@@ -58,7 +58,7 @@ impl IntermediateValue {
 
 pub fn compile_to_intermediate_bytecode(program: Program) -> Result<IntermediateBytecode, String> {
     let simple_program = simplify_program(&program);
-    println!("Simplified program: {}", simple_program.to_string());
+    // println!("Simplified program: {}", simple_program.to_string());
 
     let mut compiler = Compiler::new();
     let mut memory_sizes = BTreeMap::new();

@@ -32,10 +32,10 @@ struct Compiler {
 
 pub fn compile_to_low_level_bytecode(program: Program) -> Result<Bytecode, String> {
     let mut intermediate_bytecode = compile_to_intermediate_bytecode(program)?;
-    println!(
-        "\nIntermediate bytecode:\n\n{}\n",
-        intermediate_bytecode.to_string()
-    );
+    // println!(
+    //     "\nIntermediate bytecode:\n\n{}\n",
+    //     intermediate_bytecode.to_string()
+    // );
 
     intermediate_bytecode.bytecode.insert(
         "@end_program".to_string(),

@@ -13,7 +13,7 @@ use crate::{
 fn compile_and_run(program: &str, public_input: &[F], private_input: &[F]) {
     let parsed_program = parse_program(program).unwrap();
     let compiled = compile_to_low_level_bytecode(parsed_program).unwrap();
-    println!("Compiled Program:\n\n{}", compiled.to_string());
+    // println!("Compiled Program:\n\n{}", compiled.to_string());
 
     let poseidon_16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
     let poseidon_24 = Poseidon24::new_from_rng_128(&mut StdRng::seed_from_u64(0));
@@ -901,7 +901,7 @@ fn test_fiat_shamir() {
     fn main() {
         start = public_input_start;
         n = start[0];
-        transcript = start + n + 1;
+        transcript = start + (2 * n) + 1;
 
         fs_state = fiat_shamir_new(transcript);
 
@@ -909,9 +909,14 @@ fn test_fiat_shamir() {
         all_states[0] = fs_state;
 
         for i in 0..n {
-            n_elements = start[i + 1];
+            is_sample = start[(2 * i) + 1];
+            n_elements = start[(2 * i) + 2];
             fs_state = all_states[i];
-            new_fs_state, _ = fiat_shamir_receive_many_base_fields(fs_state, n_elements);
+            if is_sample == 1 {
+                new_fs_state, _ = fiat_shamir_sample_base_field(fs_state, n_elements);
+            } else {
+                new_fs_state, _ = fiat_shamir_receive_base_field(fs_state, n_elements);
+            }
             all_states[i + 1] = new_fs_state;
         }
 
@@ -951,7 +956,7 @@ fn test_fiat_shamir() {
         fs_state[3] = 0; // input buffer size
         allocated = malloc_vec(1);
         fs_state[4] = allocated; // input buffer (vectorized pointer)
-        fs_state[5] = 8; // output buffer size
+        fs_state[5] = 0; // output buffer size
 
         return fs_state;
     }
@@ -963,7 +968,74 @@ fn test_fiat_shamir() {
         return 0; // a >= 8
     }
 
-    fn fiat_shamir_receive_many_base_fields(fs_state, n) -> 2 {
+    fn fiat_shamir_sample_base_field(fs_state, n) -> 2 {
+        // return the updated fs_state, and a pointer to n field elements
+        res = malloc(n);
+        new_fs_state = fiat_shamir_sample_base_field_helper(fs_state, n, res);
+        return new_fs_state, res;
+    }
+
+    fn fiat_shamir_sample_base_field_helper(fs_state, n, res) -> 1 {
+        // return the updated fs_state
+        // fill res with n field elements
+
+        output_buffer_size = fs_state[5];
+        output_buffer_ptr = fs_state[2] * 8;
+
+        for i in 0..n {
+            if output_buffer_size - i == 0 {
+                break;
+            }
+            res[i] = output_buffer_ptr[8 - i];
+        }
+
+        finished = less_than_8(output_buffer_size - n);
+        if finished == 1 {
+            // no duplexing
+            new_fs_state = malloc(6);
+            new_fs_state[0] = fs_state[0];
+            new_fs_state[1] = fs_state[1];
+            new_fs_state[2] = fs_state[2];
+            new_fs_state[3] = fs_state[3];
+            new_fs_state[4] = fs_state[4];
+            new_fs_state[5] = output_buffer_size - n;
+            return new_fs_state;
+        }
+
+        // duplexing
+        input_buffer_size = fs_state[3];
+        input_buffer = fs_state[4];
+        input_buffer_ptr = input_buffer * 8;
+        l_ptr = 8 * fs_state[1];
+
+        for i in input_buffer_size..8 {
+            input_buffer_ptr[i] = l_ptr[i];
+        }
+
+        l, r = poseidon16(input_buffer, fs_state[2]);
+        new_fs_state = malloc(6);
+        new_fs_state[0] = fs_state[0];
+        new_fs_state[1] = l;
+        new_fs_state[2] = r;
+        new_fs_state[3] = 0; // reset input buffer size
+        allocated = malloc_vec(1);
+        new_fs_state[4] = allocated; // input buffer
+        new_fs_state[5] = 8; // output_buffer_size
+
+        remaining = n - output_buffer_size;
+        if remaining == 0 {
+            print(5);
+
+            return new_fs_state;
+        }
+
+        shifted_res = res + output_buffer_size;
+        final_res = fiat_shamir_sample_base_field_helper(new_fs_state, remaining, shifted_res);
+        return final_res;
+
+    }
+
+    fn fiat_shamir_receive_base_field(fs_state, n) -> 2 {
         // return the updated fs_state, and a pointer to n field elements
 
         transcript_ptr = fs_state[0];
@@ -1010,7 +1082,7 @@ fn test_fiat_shamir() {
             return new_fs_state, transcript_ptr;
         }
         // continue reading
-        final_fs_state, _ = fiat_shamir_receive_many_base_fields(new_fs_state, remaining);
+        final_fs_state, _ = fiat_shamir_receive_base_field(new_fs_state, remaining);
         return final_fs_state, transcript_ptr;
     }
 
@@ -1025,8 +1097,6 @@ fn test_fiat_shamir() {
         }
         return;
     }
-
-    
    "#;
     let n = 1000;
 
@@ -1036,15 +1106,18 @@ fn test_fiat_shamir() {
 
     let mut public_input = vec![F::from_usize(n)];
     let mut proof_data = vec![];
+    let mut is_samples = vec![];
     let mut sizes = vec![];
 
     for _ in 0..n {
+        let is_sample: bool = rng.random();
         let size = rng.random_range(1..30);
+        is_samples.push(is_sample);
         sizes.push(size);
-        let data = (0..size).map(|_| rng.random()).collect::<Vec<F>>();
-        proof_data.extend(data);
+        if !is_sample {
+            proof_data.extend((0..size).map(|_| rng.random()).collect::<Vec<F>>());
+        }
     }
-
 
     let mut verifier_state = VerifierState::new(
         &DomainSeparator::<EF, F>::new(vec![]),
@@ -1052,17 +1125,27 @@ fn test_fiat_shamir() {
         challenger,
     );
 
-    for size in &sizes {
-        let _ = verifier_state.next_base_scalars_vec(*size);
+    for (is_sample, size) in is_samples.iter().zip(&sizes) {
+        if *is_sample {
+            for _ in 0..*size {
+                let _ = verifier_state.sample_bits(1);
+            }
+        } else {
+            let _ = verifier_state.next_base_scalars_vec(*size);
+        }
     }
 
-
-    public_input.extend(sizes.iter().map(|&x| F::from_usize(x)));
+    // public_input.extend(sizes.iter().map(|&x| F::from_usize(x)));
+    public_input.extend(
+        is_samples
+            .iter()
+            .zip(&sizes)
+            .flat_map(|(&is_sample, &size)| vec![F::from_bool(is_sample), F::from_usize(size)]),
+    );
     public_input.extend(proof_data.clone());
-        public_input.extend(verifier_state.challenger().sponge_state.to_vec());
-
-
-    compile_and_run(program, &public_input, &[]);
+    public_input.extend(verifier_state.challenger().sponge_state.to_vec());
 
     dbg!(verifier_state.challenger().sponge_state);
+
+    compile_and_run(program, &public_input, &[]);
 }
