@@ -46,12 +46,60 @@ pub fn run_whir_verif() {
         fs_state_1, root_0, ood_point_0, ood_eval_0 = whir_parse_commitment(fs_state);
 
         // In the future point / eval will come from the PIOP
-        fs_state_2, point = fs_hint(fs_state_1, N_VARS);
-        fs_state_3, eval = fs_hint(fs_state_2, 1);
+        fs_state_2, pcs_point = fs_hint(fs_state_1, N_VARS);
+        fs_state_3, pcs_eval = fs_hint(fs_state_2, 1);
+        fs_state_4, combination_randomness_gen_0 = fs_sample_ef(fs_state_3);  // vectorized pointer of len 1
 
-        fs_print_state(fs_state_3);
+        claimed_sum_side = mul_extension_vec(combination_randomness_gen_0, pcs_eval);
+        claimed_sum = add_extension_vec(ood_eval_0, claimed_sum_side);
+
+        fs_states = malloc(FOLDING_FACTOR_0 + 1);
+        fs_states[0] = fs_state_4;
+
+        claimed_sums = malloc(FOLDING_FACTOR_0 + 1);
+        claimed_sums[0] = claimed_sum;
+
+        randomness = malloc(FOLDING_FACTOR_0); // in reverse order
+
+        for sc_round in 0..FOLDING_FACTOR_0 {
+            fs_state_5, poly = fs_receive(fs_states[sc_round], 3); // vectorized pointer of len 1
+            sum_over_boolean_hypercube = degree_two_polynomial_sum_at_0_and_1(poly);
+            consistent = eq_extension_vec(sum_over_boolean_hypercube, claimed_sums[sc_round]);
+            if consistent == 0 {
+                panic();
+            }
+            fs_state_6, rand = fs_sample_ef(fs_state_5);  // vectorized pointer of len 1
+            fs_states[sc_round + 1] = fs_state_6;
+            new_claimed_sum = degree_two_polynomial_eval(poly, rand);
+            claimed_sums[sc_round + 1] = new_claimed_sum;
+            randomness[FOLDING_FACTOR_0 - 1 - sc_round] = rand;
+        }
+
+        fs_state_7 = fs_states[FOLDING_FACTOR_0];
+
+        fs_print_state(fs_state_7);
 
         return;
+    }
+
+    fn degree_two_polynomial_sum_at_0_and_1(coeffs) -> 1 {
+        // coeffs is a vectorized pointer to 3 chunks of 8 field elements
+        // return a vectorized pointer to 1 chunk of 8 field elements
+        a = add_extension_vec(coeffs, coeffs);
+        b = add_extension_vec(a, coeffs + 1);
+        c = add_extension_vec(b, coeffs + 2);
+        return c;
+    }
+
+    fn degree_two_polynomial_eval(coeffs, point) -> 1 {
+        // everythiing is vectorized pointers
+        point_squared = mul_extension_vec(point, point);
+        a_xx = mul_extension_vec(coeffs + 2, point_squared);
+        b_x = mul_extension_vec(coeffs + 1, point);
+        c = coeffs;
+        res_0 = add_extension_vec(a_xx, b_x);
+        res_1 = add_extension_vec(res_0, c);
+        return res_1;
     }
 
     fn whir_parse_commitment(fs_state) -> 4 {
@@ -105,13 +153,13 @@ pub fn run_whir_verif() {
         // fill res with n field elements
 
         output_buffer_size = fs_state[3];
-        output_buffer_ptr = fs_state[2] * 8;
+        output_buffer_ptr = fs_state[1] * 8;
 
         for i in 0..n {
             if output_buffer_size - i == 0 {
                 break;
             }
-            res[i] = output_buffer_ptr[8 - i];
+            res[i] = output_buffer_ptr[7 - i];
         }
 
         finished = less_than_8(output_buffer_size - n);
@@ -203,8 +251,18 @@ pub fn run_whir_verif() {
         return;
     }
 
-    fn mul_extension(a, b) -> 1 {
+    fn mul_extension_vec(a, b) -> 1 {
+        c = malloc_vec(1);
+        a_ptr = a * 8;
+        b_ptr = b * 8;
+        c_ptr = c * 8;
+        mul_extension(a_ptr, b_ptr, c_ptr);
+        return c;
+    }
+
+    fn mul_extension(a, b, c) {
         // a, b and c are pointers
+        // c = a * b
 
         a0 = a[0];
         a1 = a[1];
@@ -233,31 +291,72 @@ pub fn run_whir_verif() {
         c6 = (a6 * b0) + (a5 * b1) + (a4 * b2) + (a3 * b3) + (a2 * b4) + (a1 * b5) + (a0 * b6) + W * (a7 * b7);
         c7 = (a7 * b0) + (a6 * b1) + (a5 * b2) + (a4 * b3) + (a3 * b4) + (a2 * b5) + (a1 * b6) + (a0 * b7);
 
-        res = malloc(8);
-        res[0] = c0;
-        res[1] = c1;
-        res[2] = c2;
-        res[3] = c3;
-        res[4] = c4;
-        res[5] = c5;
-        res[6] = c6;
-        res[7] = c7;
+        c[0] = c0;
+        c[1] = c1;
+        c[2] = c2;
+        c[3] = c3;
+        c[4] = c4;
+        c[5] = c5;
+        c[6] = c6;
+        c[7] = c7;
+        return;
+    }
 
+    fn add_extension_vec(a, b) -> 1 {
+        c = malloc_vec(1);
+        a_ptr = a * 8;
+        b_ptr = b * 8;
+        c_ptr = c * 8;
+        add_extension(a_ptr, b_ptr, c_ptr);
+        return c;
+    }
+
+    fn add_extension(a, b, c) {
+        // a, b and c are pointers
+        // c = a + b
+        c[0] = a[0] + b[0];
+        c[1] = a[1] + b[1];
+        c[2] = a[2] + b[2];
+        c[3] = a[3] + b[3];
+        c[4] = a[4] + b[4];
+        c[5] = a[5] + b[5];
+        c[6] = a[6] + b[6];
+        c[7] = a[7] + b[7];
+        return;
+    }
+
+    fn eq_extension_vec(a, b) -> 1 {
+        // a and b are vectorized pointers
+        // return 1 if a == b, 0 otherwise
+        a_ptr = a * 8;
+        b_ptr = b * 8;
+        res = eq_extension(a_ptr, b_ptr);
         return res;
     }
 
-    fn add_extension(a, b) -> 1 {
-        res = malloc(8);
-        res[0] = a[0] + b[0];
-        res[1] = a[1] + b[1];
-        res[2] = a[2] + b[2];
-        res[3] = a[3] + b[3];
-        res[4] = a[4] + b[4];
-        res[5] = a[5] + b[5];
-        res[6] = a[6] + b[6];
-        res[7] = a[7] + b[7];
-        return res;
+    fn eq_extension(a, b) -> 1 {
+        // a and b are pointers
+        // return 1 if a == b, 0 otherwise
+        if a[0] != b[0] { return 0; }
+        if a[1] != b[1] { return 0; }
+        if a[2] != b[2] { return 0; }
+        if a[3] != b[3] { return 0; }
+        if a[4] != b[4] { return 0; }
+        if a[5] != b[5] { return 0; }
+        if a[6] != b[6] { return 0; }
+        if a[7] != b[7] { return 0; }
+        return 1; // a == b
     }
+
+    fn print_chunk(vec) {
+        // vec is a vectorized pointer
+        ptr = vec * 8;
+        for i in 0..8 {
+            print(ptr[i]);
+        }
+        return;
+    }
+
    "#;
 
     let poseidon16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
@@ -343,8 +442,6 @@ pub fn run_whir_verif() {
     let parsed_commitment = commitment_reader
         .parse_commitment::<8>(&mut verifier_state)
         .unwrap();
-
-    dbg!(verifier_state.challenger().sponge_state);
 
     verifier
         .verify(&mut verifier_state, &parsed_commitment, &statement)

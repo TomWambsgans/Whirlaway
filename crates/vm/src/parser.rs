@@ -419,6 +419,13 @@ fn parse_function_call(
                 content: args,
             })
         }
+        "panic" => {
+            assert!(
+                return_data.is_empty() && args.is_empty(),
+                "Panic has no args and returns no values"
+            );
+            Ok(Line::Panic)
+        }
         _ => Ok(Line::FunctionCall {
             function_name,
             args,

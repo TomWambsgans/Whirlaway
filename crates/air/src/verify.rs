@@ -4,15 +4,16 @@ use p3_field::{ExtensionField, Packable, TwoAdicField, cyclic_subgroup_known_ord
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use rand::distr::{Distribution, StandardUniform};
 use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 use sumcheck::{SumcheckComputation, SumcheckError, SumcheckGrinding};
 use tracing::instrument;
 use utils::{ConstraintFolder, fold_multilinear_in_large_field, log2_up};
 use whir_p3::{
-    fiat_shamir::{errors::ProofError, verifier::VerifierState},
+    fiat_shamir::{errors::ProofError, verifier::{ChallengerState, VerifierState}},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::reader::CommitmentReader,
-        statement::{Statement, weights::Weights},
+        statement::{weights::Weights, Statement},
         verifier::Verifier,
     },
 };
@@ -63,7 +64,7 @@ impl<
     ) -> Result<(), AirVerifError>
     where
         StandardUniform: Distribution<EF> + Distribution<F>,
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F> + Debug + ChallengerState,
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,

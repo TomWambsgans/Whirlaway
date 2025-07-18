@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, TwoAdicField};
 use rand::distr::{Distribution, StandardUniform};
@@ -31,7 +33,7 @@ where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     StandardUniform: Distribution<EF>,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F> + Debug,
 {
     let sumation_sets = vec![(0..2).map(|i| EF::from_usize(i)).collect::<Vec<_>>(); n_vars];
     let max_degree_per_vars = vec![degree; n_vars];
@@ -54,7 +56,7 @@ where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     StandardUniform: Distribution<EF>,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F> + Debug,
 {
     let mut max_degree_per_vars = vec![degree * ((1 << skips) - 1)];
     max_degree_per_vars.extend(vec![degree; n_vars - skips]);
@@ -81,7 +83,7 @@ where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
     StandardUniform: Distribution<EF>,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F> + Debug,
 {
     assert_eq!(max_degree_per_vars.len(), sumation_sets.len(),);
     let mut challenges = Vec::new();
