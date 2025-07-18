@@ -893,10 +893,8 @@ fn test_product_extension_field() {
 }
 
 #[test]
-fn test_fiat_shamir() {
+fn test_fiat_shamir_complete() {
     let program = r#"
-
-    const W = 3; // in the extension field, X^8 = 3
 
     fn main() {
         start = public_input_start;
@@ -915,7 +913,7 @@ fn test_fiat_shamir() {
             if is_sample == 1 {
                 new_fs_state, _ = fiat_shamir_sample_base_field(fs_state, n_elements);
             } else {
-                new_fs_state, _ = fiat_shamir_receive_base_field(fs_state, n_elements);
+                new_fs_state, _ = fs_receive_base_field(fs_state, n_elements);
             }
             all_states[i + 1] = new_fs_state;
         }
@@ -1035,7 +1033,7 @@ fn test_fiat_shamir() {
 
     }
 
-    fn fiat_shamir_receive_base_field(fs_state, n) -> 2 {
+    fn fs_receive_base_field(fs_state, n) -> 2 {
         // return the updated fs_state, and a pointer to n field elements
 
         transcript_ptr = fs_state[0];
@@ -1082,7 +1080,7 @@ fn test_fiat_shamir() {
             return new_fs_state, transcript_ptr;
         }
         // continue reading
-        final_fs_state, _ = fiat_shamir_receive_base_field(new_fs_state, remaining);
+        final_fs_state, _ = fs_receive_base_field(new_fs_state, remaining);
         return final_fs_state, transcript_ptr;
     }
 
@@ -1096,6 +1094,474 @@ fn test_fiat_shamir() {
             print(right[i]);
         }
         return;
+    }
+   "#;
+    let n = 1000;
+
+    let poseidon16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
+    let mut rng = StdRng::seed_from_u64(0);
+    let challenger = MyChallenger::new(poseidon16);
+
+    let mut public_input = vec![F::from_usize(n)];
+    let mut proof_data = vec![];
+    let mut is_samples = vec![];
+    let mut sizes = vec![];
+
+    for _ in 0..n {
+        let is_sample: bool = rng.random();
+        let size = rng.random_range(1..30);
+        is_samples.push(is_sample);
+        sizes.push(size);
+        if !is_sample {
+            proof_data.extend((0..size).map(|_| rng.random()).collect::<Vec<F>>());
+        }
+    }
+
+    let mut verifier_state = VerifierState::new(
+        &DomainSeparator::<EF, F>::new(vec![]),
+        proof_data.clone(),
+        challenger,
+    );
+
+    for (is_sample, size) in is_samples.iter().zip(&sizes) {
+        if *is_sample {
+            for _ in 0..*size {
+                let _ = verifier_state.sample_bits(1);
+            }
+        } else {
+            let _ = verifier_state.next_base_scalars_vec(*size);
+        }
+    }
+
+    // public_input.extend(sizes.iter().map(|&x| F::from_usize(x)));
+    public_input.extend(
+        is_samples
+            .iter()
+            .zip(&sizes)
+            .flat_map(|(&is_sample, &size)| vec![F::from_bool(is_sample), F::from_usize(size)]),
+    );
+    public_input.extend(proof_data.clone());
+    public_input.extend(verifier_state.challenger().sponge_state.to_vec());
+
+    dbg!(verifier_state.challenger().sponge_state);
+
+    compile_and_run(program, &public_input, &[]);
+}
+
+#[test]
+fn test_fiat_shamir_simple() {
+    let program = r#"
+
+    fn main() {
+        start = public_input_start;
+        n = start[0]; // n is assumed to be a multiple of 8 for padding
+
+        fs_state = fs_new((start + (2 * n) + 8) / 8);
+
+        all_states = malloc(n + 1);
+        all_states[0] = fs_state;
+
+        for i in 0..n {
+            is_sample = start[(2 * i) + 1];
+            n_elements = start[(2 * i) + 2];
+            fs_state = all_states[i];
+            if is_sample == 1 {
+                new_fs_state, _ = fs_sample(fs_state, n_elements);
+            } else {
+                new_fs_state, _ = fs_receive(fs_state, n_elements);
+            }
+            all_states[i + 1] = new_fs_state;
+        }
+
+        final_state = all_states[n];
+        fs_print_state(final_state);
+
+        expected_state = final_state[0] * 8;
+
+        left = final_state[1] * 8;
+        for i in 0..8 {
+            assert left[i] == expected_state[i];
+        }
+        right = final_state[2] * 8;
+        for i in 0..8 {
+            assert right[i] == expected_state[i + 8];
+        }
+
+        return;
+    }
+
+    // FIAT SHAMIR layout:
+    // 0 -> transcript (vectorized pointer)
+    // 1 -> vectorized pointer to first half of sponge state
+    // 2 -> vectorized pointer to second half of sponge state
+    // 3 -> output_buffer_size
+
+    fn fs_new(transcript) -> 1 {
+        // transcript is a (vectorized) pointer
+        // TODO domain separator
+        fs_state = malloc(4);
+        fs_state[0] = transcript;
+        fs_state[1] = pointer_to_zero_vector; // first half of sponge state
+        fs_state[2] = pointer_to_zero_vector; // second half of sponge state
+        fs_state[3] = 0; // output buffer size
+
+        return fs_state;
+    }
+
+    fn less_than_8(a) -> 1 {
+        if a * (a - 1) * (a - 2) * (a - 3) * (a - 4) * (a - 5) * (a - 6) * (a - 7) == 0 {
+            return 1; // a < 8
+        }
+        return 0; // a >= 8
+    }
+
+    fn fs_sample(fs_state, n) -> 2 {
+        // return the updated fs_state, and a pointer to n field elements
+        res = malloc(n);
+        new_fs_state = fs_sample_helper(fs_state, n, res);
+        return new_fs_state, res;
+    }
+
+    fn fs_sample_helper(fs_state, n, res) -> 1 {
+        // return the updated fs_state
+        // fill res with n field elements
+
+        output_buffer_size = fs_state[3];
+        output_buffer_ptr = fs_state[2] * 8;
+
+        for i in 0..n {
+            if output_buffer_size - i == 0 {
+                break;
+            }
+            res[i] = output_buffer_ptr[8 - i];
+        }
+
+        finished = less_than_8(output_buffer_size - n);
+        if finished == 1 {
+            // no duplexing
+            new_fs_state = malloc(4);
+            new_fs_state[0] = fs_state[0];
+            new_fs_state[1] = fs_state[1];
+            new_fs_state[2] = fs_state[2];
+            new_fs_state[3] = output_buffer_size - n;
+            return new_fs_state;
+        }
+
+        // duplexing
+        l, r = poseidon16(fs_state[1], fs_state[2]);
+        new_fs_state = malloc(4);
+        new_fs_state[0] = fs_state[0];
+        new_fs_state[1] = l;
+        new_fs_state[2] = r;
+        new_fs_state[3] = 8; // output_buffer_size
+
+        remaining = n - output_buffer_size;
+        if remaining == 0 {
+            return new_fs_state;
+        }
+
+        shifted_res = res + output_buffer_size;
+        final_res = fs_sample_helper(new_fs_state, remaining, shifted_res);
+        return final_res;
+
+    }
+    
+
+    fn fs_receive(fs_state, n) -> 2 {
+        // return the updated fs_state, and a vectorized pointer to n chunk of 8 field elements
+
+        res = fs_state[0];
+        final_fs_state = fs_observe(fs_state, n);
+        return final_fs_state, res;
+    }
+
+    fn fs_observe(fs_state, n) -> 1 {
+        // observe n chunk of 8 field elements from the transcript
+        // and return the updated fs_state
+        // duplexing
+        l, r = poseidon16(fs_state[0], fs_state[2]);
+        new_fs_state = malloc(4);
+        new_fs_state[0] = fs_state[0] + 1;
+        new_fs_state[1] = l;
+        new_fs_state[2] = r;
+        new_fs_state[3] = 8; // output_buffer_size
+
+        if n == 1 {
+            return new_fs_state;
+        } else {
+            final_fs_state = fs_observe(new_fs_state, n - 1);
+            return final_fs_state;
+        }
+    }
+
+    fn fs_print_state(fs_state) {
+        left = fs_state[1] * 8;
+        for i in 0..8 {
+            print(left[i]);
+        }
+        right = fs_state[2] * 8;
+        for i in 0..8 {
+            print(right[i]);
+        }
+        return;
+    }
+   "#;
+    let n = 8 * 100; // must be a multiple of 8 for padding
+
+    let poseidon16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
+    let mut rng = StdRng::seed_from_u64(0);
+    let challenger = MyChallenger::new(poseidon16);
+
+    let mut public_input = vec![F::from_usize(n)];
+    let mut proof_data = vec![];
+    let mut is_samples = vec![];
+    let mut sizes = vec![];
+
+    for _ in 0..n {
+        let is_sample: bool = rng.random();
+        let size = rng.random_range(1..20);
+        is_samples.push(is_sample);
+        sizes.push(size);
+        if !is_sample {
+            proof_data.extend((0..size * 8).map(|_| rng.random()).collect::<Vec<F>>());
+        }
+    }
+
+    let mut verifier_state = VerifierState::new(
+        &DomainSeparator::<EF, F>::new(vec![]),
+        proof_data.clone(),
+        challenger,
+    );
+
+    for (is_sample, size) in is_samples.iter().zip(&sizes) {
+        if *is_sample {
+            for _ in 0..*size {
+                let _ = verifier_state.sample_bits(1);
+            }
+        } else {
+            let _ = verifier_state.next_base_scalars_vec(*size * 8);
+        }
+    }
+
+    // public_input.extend(sizes.iter().map(|&x| F::from_usize(x)));
+    public_input.extend(
+        is_samples
+            .iter()
+            .zip(&sizes)
+            .flat_map(|(&is_sample, &size)| vec![F::from_bool(is_sample), F::from_usize(size)]),
+    );
+    public_input.extend(vec![F::ZERO; 7]); // padding
+    public_input.extend(proof_data.clone());
+    public_input.extend(verifier_state.challenger().sponge_state.to_vec());
+
+    dbg!(verifier_state.challenger().sponge_state);
+
+    compile_and_run(program, &public_input, &[]);
+}
+
+#[test]
+fn test_whir_verif() {
+    let program = r#"
+
+    // 1 OOD QUERY PER ROUND, 0 GRINDING
+
+    const W = 3; // in the extension field, X^8 = 3
+
+    const N_VARS = 25;
+    const LOG_INV_RATE = 1; 
+    const N_ROUNDS = 3;
+
+    const FOLDING_FACTOR_0 = 7;
+    const FOLDING_FACTOR_1 = 4;
+    const FOLDING_FACTOR_2 = 4;
+
+    const RS_REDUCTION_FACTOR_0 = 5;
+    const RS_REDUCTION_FACTOR_1 = 5;
+    const RS_REDUCTION_FACTOR_2 = 5;
+
+    fn main() {
+        transcript_start = public_input_start;
+        fs_state = fiat_shamir_new(transcript_start);
+
+
+        return;
+    }
+
+    whir_parse_commitment(fs_state) -> {
+        fs_state_1 = fs_receive_base_field(fs_state, N_VARS);
+
+    }
+    
+    // FIAT SHAMIR layout:
+    // 0 -> transcript (vectorized pointer)
+    // 1 -> vectorized pointer to first half of sponge state
+    // 2 -> vectorized pointer to second half of sponge state
+    // 3 -> output_buffer_size
+
+    fn fs_new(transcript) -> 1 {
+        // transcript is a (vectorized) pointer
+        // TODO domain separator
+        fs_state = malloc(4);
+        fs_state[0] = transcript;
+        fs_state[1] = pointer_to_zero_vector; // first half of sponge state
+        fs_state[2] = pointer_to_zero_vector; // second half of sponge state
+        fs_state[3] = 0; // output buffer size
+
+        return fs_state;
+    }
+
+    fn less_than_8(a) -> 1 {
+        if a * (a - 1) * (a - 2) * (a - 3) * (a - 4) * (a - 5) * (a - 6) * (a - 7) == 0 {
+            return 1; // a < 8
+        }
+        return 0; // a >= 8
+    }
+
+    fn fs_sample(fs_state, n) -> 2 {
+        // return the updated fs_state, and a pointer to n field elements
+        res = malloc(n);
+        new_fs_state = fs_sample_helper(fs_state, n, res);
+        return new_fs_state, res;
+    }
+
+    fn fs_sample_helper(fs_state, n, res) -> 1 {
+        // return the updated fs_state
+        // fill res with n field elements
+
+        output_buffer_size = fs_state[3];
+        output_buffer_ptr = fs_state[2] * 8;
+
+        for i in 0..n {
+            if output_buffer_size - i == 0 {
+                break;
+            }
+            res[i] = output_buffer_ptr[8 - i];
+        }
+
+        finished = less_than_8(output_buffer_size - n);
+        if finished == 1 {
+            // no duplexing
+            new_fs_state = malloc(4);
+            new_fs_state[0] = fs_state[0];
+            new_fs_state[1] = fs_state[1];
+            new_fs_state[2] = fs_state[2];
+            new_fs_state[3] = output_buffer_size - n;
+            return new_fs_state;
+        }
+
+        // duplexing
+        l, r = poseidon16(fs_state[1], fs_state[2]);
+        new_fs_state = malloc(4);
+        new_fs_state[0] = fs_state[0];
+        new_fs_state[1] = l;
+        new_fs_state[2] = r;
+        new_fs_state[3] = 8; // output_buffer_size
+
+        remaining = n - output_buffer_size;
+        if remaining == 0 {
+            return new_fs_state;
+        }
+
+        shifted_res = res + output_buffer_size;
+        final_res = fs_sample_helper(new_fs_state, remaining, shifted_res);
+        return final_res;
+
+    }
+    
+
+    fn fs_receive(fs_state, n) -> 2 {
+        // return the updated fs_state, and a vectorized pointer to n chunk of 8 field elements
+
+        res = fs_state[0];
+        final_fs_state = fs_observe(fs_state, n);
+        return final_fs_state, res;
+    }
+
+    fn fs_observe(fs_state, n) -> 1 {
+        // observe n chunk of 8 field elements from the transcript
+        // and return the updated fs_state
+        // duplexing
+        l, r = poseidon16(fs_state[0], fs_state[2]);
+        new_fs_state = malloc(4);
+        new_fs_state[0] = fs_state[0] + 1;
+        new_fs_state[1] = l;
+        new_fs_state[2] = r;
+        new_fs_state[3] = 8; // output_buffer_size
+
+        if n == 1 {
+            return new_fs_state;
+        } else {
+            final_fs_state = fs_observe(new_fs_state, n - 1);
+            return final_fs_state;
+        }
+    }
+
+    fn fs_print_state(fs_state) {
+        left = fs_state[1] * 8;
+        for i in 0..8 {
+            print(left[i]);
+        }
+        right = fs_state[2] * 8;
+        for i in 0..8 {
+            print(right[i]);
+        }
+        return;
+    }
+
+    fn mul_extension(a, b) -> 1 {
+        // a, b and c are pointers
+
+        a0 = a[0];
+        a1 = a[1];
+        a2 = a[2];
+        a3 = a[3];
+        a4 = a[4];
+        a5 = a[5];
+        a6 = a[6];
+        a7 = a[7];
+
+        b0 = b[0];
+        b1 = b[1];
+        b2 = b[2];
+        b3 = b[3];
+        b4 = b[4];
+        b5 = b[5];
+        b6 = b[6];
+        b7 = b[7];
+
+        c0 = (a0 * b0) + W * ((a1 * b7) + (a2 * b6) + (a3 * b5) + (a4 * b4) + (a5 * b3) + (a6 * b2) + (a7 * b1));
+        c1 = (a1 * b0) + (a0 * b1) + W * ((a2 * b7) + (a3 * b6) + (a4 * b5) + (a5 * b4) + (a6 * b3) + (a7 * b2));
+        c2 = (a2 * b0) + (a1 * b1) + (a0 * b2) + W * ((a3 * b7) + (a4 * b6) + (a5 * b5) + (a6 * b4) + (a7 * b3));
+        c3 = (a3 * b0) + (a2 * b1) + (a1 * b2) + (a0 * b3) + W * ((a4 * b7) + (a5 * b6) + (a6 * b5) + (a7 * b4));
+        c4 = (a4 * b0) + (a3 * b1) + (a2 * b2) + (a1 * b3) + (a0 * b4) + W * ((a5 * b7) + (a6 * b6) + (a7 * b5));
+        c5 = (a5 * b0) + (a4 * b1) + (a3 * b2) + (a2 * b3) + (a1 * b4) + (a0 * b5) + W * ((a6 * b7) + (a7 * b6));
+        c6 = (a6 * b0) + (a5 * b1) + (a4 * b2) + (a3 * b3) + (a2 * b4) + (a1 * b5) + (a0 * b6) + W * (a7 * b7);
+        c7 = (a7 * b0) + (a6 * b1) + (a5 * b2) + (a4 * b3) + (a3 * b4) + (a2 * b5) + (a1 * b6) + (a0 * b7);
+
+        res = malloc(8);
+        res[0] = c0;
+        res[1] = c1;
+        res[2] = c2;
+        res[3] = c3;
+        res[4] = c4;
+        res[5] = c5;
+        res[6] = c6;
+        res[7] = c7;
+
+        return res;
+    }
+
+    fn add_extension(a, b) -> 1 {
+        res = malloc(8);
+        res[0] = a[0] + b[0];
+        res[1] = a[1] + b[1];
+        res[2] = a[2] + b[2];
+        res[3] = a[3] + b[3];
+        res[4] = a[4] + b[4];
+        res[5] = a[5] + b[5];
+        res[6] = a[6] + b[6];
+        res[7] = a[7] + b[7];
+        return res;
     }
    "#;
     let n = 1000;
