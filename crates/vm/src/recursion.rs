@@ -106,13 +106,44 @@ pub fn run_whir_verif() {
             internal_states = malloc(1 + ((TWO_POW_FOLDING_FACTOR_0 / 8) / 2)); // "/ 2" because with poseidon24 we hash 2 chuncks of 8 field elements at each permutation
             internal_states[0] = pointer_to_zero_vector; // initial state
             for j in 0..(TWO_POW_FOLDING_FACTOR_0 / 8) / 2 {
-                _, _, new_state = poseidon24(answer + (2*i), answer + (2*i) + 1, internal_states[j]);
-                internal_states[j + 1] = new_state;
+                new_state_0, _, new_state_2 = poseidon24(answer + (2*j), answer + (2*j) + 1, internal_states[j]);
+                if j == ((TWO_POW_FOLDING_FACTOR_0 / 8) / 2) - 1 {
+                    // last step
+                    internal_states[j + 1] = new_state_0;
+                } else {
+                    internal_states[j + 1] = new_state_2;
+                }
             }
             leaf_hashes[i] = internal_states[(TWO_POW_FOLDING_FACTOR_0 / 8) / 2];
         }
 
         folded_domain_size = N_VARS + LOG_INV_RATE - FOLDING_FACTOR_0;
+
+        fs_states_c = malloc(NUM_QUERIES_0 + 1);
+        fs_states_c[0] = fs_state_10;
+
+        for i in 0..NUM_QUERIES_0 {
+            fs_state_11, merkle_path = fs_hint(fs_states_c[i], folded_domain_size);
+            fs_states_c[i + 1] = fs_state_11;
+
+            stir_index_bits = stir_challenges_indexes[i]; // a pointer to 31 bits
+
+            states = malloc(1 + folded_domain_size);
+            states[0] = leaf_hashes[i];
+            for j in 0..folded_domain_size {
+                if stir_index_bits[j] == 1 {
+                    left = merkle_path + j;
+                    right = states[j];
+                } else {
+                    left = states[j];
+                    right = merkle_path + j;
+                }
+                state_j_plus_1, _ = poseidon16(left, right);
+                states[j + 1] = state_j_plus_1;
+            }
+            correct_root = eq_extension_vec(states[folded_domain_size], root_0);
+            assert correct_root == 1;
+        }
 
 
         return;

@@ -145,8 +145,8 @@ pub fn prove_poseidon2(
         3,
     );
 
-    let poseidon16 = Poseidon16::new_from_rng_128(&mut rng);
-    let poseidon24 = Poseidon24::new_from_rng_128(&mut rng);
+    let poseidon16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
+    let poseidon24 = Poseidon24::new_from_rng_128(&mut StdRng::seed_from_u64(0));
     let merkle_hash = MerkleHash::new(poseidon24);
     let merkle_compress = MerkleCompress::new(poseidon16.clone());
 

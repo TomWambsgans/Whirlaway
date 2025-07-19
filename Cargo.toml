@@ -117,19 +117,19 @@ pest_derive = "2.7"
 tracing = "0.1.26"
 tracing-subscriber = { version = "0.3.19", features = ["std", "env-filter"] }
 tracing-forest = { version = "0.1.6", features = ["ansi", "smallvec"] }
-p3-koala-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
-p3-baby-bear = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
-p3-field = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
-p3-poseidon2 = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
-p3-matrix = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
-p3-blake3 = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
-p3-symmetric = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
-p3-air = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
-p3-uni-stark = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
-p3-poseidon2-air = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
-p3-goldilocks = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
-p3-challenger = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
-p3-util = { git = "https://github.com/Plonky3/Plonky3.git", rev = "d0c4a36" }
+p3-koala-bear = { path = "../Plonky3-fork/koala-bear" }
+p3-baby-bear = { path = "../Plonky3-fork/baby-bear" }
+p3-field = { path = "../Plonky3-fork/field" }
+p3-poseidon2 = { path = "../Plonky3-fork/poseidon2" }
+p3-matrix = { path = "../Plonky3-fork/matrix" }
+p3-blake3 = { path = "../Plonky3-fork/blake3" }
+p3-symmetric = { path = "../Plonky3-fork/symmetric" }
+p3-air = { path = "../Plonky3-fork/air" }
+p3-uni-stark = { path = "../Plonky3-fork/uni-stark" }
+p3-poseidon2-air = { path = "../Plonky3-fork/poseidon2-air" }
+p3-goldilocks = { path = "../Plonky3-fork/goldilocks" }
+p3-challenger = { path = "../Plonky3-fork/challenger" }
+p3-util = { path = "../Plonky3-fork/util" }
 
 whir-p3 = { path = "../fork-whir-p3" }
 
