@@ -45,6 +45,27 @@ pub fn run_whir_verif() {
 
     const NUM_QUERIES_0 = 138;
 
+    const ROOT_19 = 339671193;
+    const ROOT_18 = 1816824389;
+    const ROOT_17 = 373019801;
+    const ROOT_16 = 1848593786;
+    const ROOT_15 = 1168510561;
+    const ROOT_14 = 1047035213;
+    const ROOT_13 = 809067698;
+    const ROOT_12 = 1989134074;
+    const ROOT_11 = 2000983452;
+    const ROOT_10 = 860702919;
+    const ROOT_9 = 665670555;
+    const ROOT_8 = 392596362;
+    const ROOT_7 = 699882112;
+    const ROOT_6 = 1548376985;
+    const ROOT_5 = 170455089;
+    const ROOT_4 = 148625052;
+    const ROOT_3 = 1748172362;
+    const ROOT_2 = 2113994754;
+    const ROOT_1 = 2130706432;
+    const ROOT_0 = 1;
+
     fn main() {
         transcript_start = public_input_start / 8;
         fs_state = fs_new(transcript_start);
@@ -155,11 +176,26 @@ pub fn run_whir_verif() {
         for i in 0..NUM_QUERIES_0 {
             dot_product_base_extension(answers[i] * 8, poly_eq_0, folds + i, two_pow_FOLDING_FACTOR_0);
         }
-        
-        print_chunk(folds + 1);
 
+        circle_values = malloc(NUM_QUERIES_0); // ROOT^each_stir_index
+        for i in 0..NUM_QUERIES_0 {
+            stir_index_bits = stir_challenges_indexes[i];
+            circle_value = unit_root_pow(folded_domain_size, stir_index_bits);
+            circle_values[i] = circle_value;
+            print(circle_value);
+        }
 
         return;
+    }
+
+    fn unit_root_pow(domain_size, index_bits) -> 1 {
+        // index_bits is a pointer to domain_size bits
+
+        if domain_size == 19 {
+            return ((index_bits[0] * ROOT_19) + (1 - index_bits[0])) * ((index_bits[1] * ROOT_18) + (1 - index_bits[1])) * ((index_bits[2] * ROOT_17) + (1 - index_bits[2])) * ((index_bits[3] * ROOT_16) + (1 - index_bits[3])) * ((index_bits[4] * ROOT_15) + (1 - index_bits[4])) * ((index_bits[5] * ROOT_14) + (1 - index_bits[5])) * ((index_bits[6] * ROOT_13) + (1 - index_bits[6])) * ((index_bits[7] * ROOT_12) + (1 - index_bits[7])) * ((index_bits[8] * ROOT_11) + (1 - index_bits[8])) * ((index_bits[9] * ROOT_10) + (1 - index_bits[9])) * ((index_bits[10] * ROOT_9) + (1 - index_bits[10])) * ((index_bits[11] * ROOT_8) + (1 - index_bits[11])) * ((index_bits[12] * ROOT_7) + (1 - index_bits[12])) * ((index_bits[13] * ROOT_6) + (1 - index_bits[13])) * ((index_bits[14] * ROOT_5) + (1 - index_bits[14])) * ((index_bits[15] * ROOT_4) + (1 - index_bits[15])) * ((index_bits[16] * ROOT_3) + (1 - index_bits[16])) * ((index_bits[17] * ROOT_2) + (1 - index_bits[17])) * ((index_bits[18] * ROOT_1) + (1 - index_bits[18]));
+        }
+
+        panic(); // unimplemented
     }
 
     fn dot_product_base_extension(a, b, res, n) {
