@@ -202,14 +202,21 @@ fn compile_lines(
                 return Ok(instructions);
             }
 
-            SimpleLine::RawAccess { var, index } => {
+            SimpleLine::RawAccess { res, index, shift } => {
                 validate_vars_declared(&[VarOrConstant::Var(index.clone())], declared_vars)?;
-                declared_vars.insert(var.clone());
+                if let VarOrConstant::Var(var) = res {
+                    declared_vars.insert(var.clone());
+                }
                 instructions.push(IntermediateInstruction::Deref {
-                    shift_0: compiler.get_var_offset(index),
-                    shift_1: 0,
-                    res: IntermediaryMemOrFpOrConstant::MemoryAfterFp {
-                        shift: compiler.get_var_offset(var),
+                    shift_0: compiler.get_var_offset(index).into(),
+                    shift_1: shift.clone(),
+                    res: match res {
+                        VarOrConstant::Var(var) => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
+                            shift: compiler.get_var_offset(var),
+                        },
+                        VarOrConstant::Constant(c) => {
+                            IntermediaryMemOrFpOrConstant::Constant(c.clone())
+                        }
                     },
                 });
             }
@@ -243,8 +250,8 @@ fn compile_lines(
                     // Copy return values
                     for (i, ret_var) in return_data.iter().enumerate() {
                         instructions.push(IntermediateInstruction::Deref {
-                            shift_0: new_fp_pos,
-                            shift_1: 2 + args.len() + i,
+                            shift_0: new_fp_pos.into(),
+                            shift_1: (2 + args.len() + i).into(),
                             res: IntermediaryMemOrFpOrConstant::MemoryAfterFp {
                                 shift: compiler.get_var_offset(ret_var),
                             },
@@ -368,15 +375,15 @@ fn setup_function_call(
             vectorized: false,
         },
         IntermediateInstruction::Deref {
-            shift_0: new_fp_pos,
-            shift_1: 0,
+            shift_0: new_fp_pos.into(),
+            shift_1: ConstExpression::zero(),
             res: IntermediaryMemOrFpOrConstant::Constant(ConstExpression::label(
                 return_label.to_string(),
             )),
         },
         IntermediateInstruction::Deref {
-            shift_0: new_fp_pos,
-            shift_1: 1,
+            shift_0: new_fp_pos.into(),
+            shift_1: ConstExpression::one(),
             res: IntermediaryMemOrFpOrConstant::Fp,
         },
     ];
@@ -384,8 +391,8 @@ fn setup_function_call(
     // Copy arguments
     for (i, arg) in args.iter().enumerate() {
         instructions.push(IntermediateInstruction::Deref {
-            shift_0: new_fp_pos,
-            shift_1: 2 + i,
+            shift_0: new_fp_pos.into(),
+            shift_1: (2 + i).into(),
             res: match arg {
                 VarOrConstant::Var(var) => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
                     shift: compiler.get_var_offset(var),
@@ -467,10 +474,14 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
     for line in lines {
         match line {
             SimpleLine::Assignment { var, .. }
-            | SimpleLine::RawAccess { var, .. }
             | SimpleLine::MAlloc { var, .. }
             | SimpleLine::DecomposeBits { var, .. } => {
                 internal_vars.insert(var.clone());
+            }
+            SimpleLine::RawAccess { res, .. } => {
+                if let VarOrConstant::Var(var) = res {
+                    internal_vars.insert(var.clone());
+                }
             }
             SimpleLine::FunctionCall { return_data, .. } => {
                 internal_vars.extend(return_data.iter().cloned());

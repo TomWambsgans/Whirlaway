@@ -1,4 +1,5 @@
 use p3_field::PrimeCharacteristicRing;
+use p3_field::PrimeField64;
 use std::collections::BTreeMap;
 
 use crate::{
@@ -164,17 +165,17 @@ pub fn compile_to_low_level_bytecode(
                     res,
                 } => {
                     low_level_bytecode.push(Instruction::Deref {
-                        shift_0,
-                        shift_1,
+                        shift_0: eval_constant_expression(&shift_0, &compiler).as_canonical_u64()
+                            as usize,
+                        shift_1: eval_constant_expression(&shift_1, &compiler).as_canonical_u64()
+                            as usize,
                         res: match res {
                             IntermediaryMemOrFpOrConstant::MemoryAfterFp { shift } => {
                                 MemOrFpOrConstant::MemoryAfterFp { shift }
                             }
                             IntermediaryMemOrFpOrConstant::Fp => MemOrFpOrConstant::Fp,
                             IntermediaryMemOrFpOrConstant::Constant(c) => {
-                                MemOrFpOrConstant::Constant(convert_constant_expression(
-                                    &c, &compiler,
-                                ))
+                                MemOrFpOrConstant::Constant(eval_constant_expression(&c, &compiler))
                             }
                         },
                     });
@@ -258,7 +259,7 @@ pub fn compile_to_low_level_bytecode(
     });
 }
 
-fn convert_constant_value(constant: &ConstantValue, compiler: &Compiler) -> usize {
+fn eval_constant_value(constant: &ConstantValue, compiler: &Compiler) -> usize {
     match constant {
         ConstantValue::Scalar(scalar) => *scalar,
         ConstantValue::PublicInputStart => compiler.public_input_start,
@@ -274,16 +275,16 @@ fn convert_constant_value(constant: &ConstantValue, compiler: &Compiler) -> usiz
     }
 }
 
-fn convert_constant_expression(constant: &ConstExpression, compiler: &Compiler) -> F {
+fn eval_constant_expression(constant: &ConstExpression, compiler: &Compiler) -> F {
     match constant {
-        ConstExpression::Value(value) => F::from_usize(convert_constant_value(value, compiler)),
+        ConstExpression::Value(value) => F::from_usize(eval_constant_value(value, compiler)),
         ConstExpression::Binary {
             left,
             operator,
             right,
         } => {
-            let left = convert_constant_expression(left, compiler);
-            let right = convert_constant_expression(right, compiler);
+            let left = eval_constant_expression(left, compiler);
+            let right = eval_constant_expression(right, compiler);
             match operator {
                 HighLevelOperation::Add => left + right,
                 HighLevelOperation::Sub => left - right,
@@ -296,7 +297,7 @@ fn convert_constant_expression(constant: &ConstExpression, compiler: &Compiler) 
 
 fn try_as_constant(value: &IntermediateValue, compiler: &Compiler) -> Option<F> {
     if let IntermediateValue::Constant(c) = value {
-        Some(convert_constant_expression(c, compiler))
+        Some(eval_constant_expression(c, compiler))
     } else {
         None
     }

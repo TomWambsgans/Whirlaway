@@ -27,9 +27,10 @@ pub enum SimpleLine {
         arg1: VarOrConstant,
     },
     RawAccess {
-        var: Var,
+        res: VarOrConstant,
         index: Var,
-    }, // var = memory[index]
+        shift: ConstExpression,
+    }, // res = memory[index + shift]
     IfNotZero {
         condition: VarOrConstant,
         then_branch: Vec<Self>,
@@ -364,10 +365,7 @@ fn simplify_lines(
                     vectorized: *vectorized,
                 });
             }
-            Line::DecomposeBits {
-                var,
-                to_decompose,
-            } => {
+            Line::DecomposeBits { var, to_decompose } => {
                 let simplified_to_decompose = simplify_expr(&to_decompose, &mut res, counters);
                 res.push(SimpleLine::DecomposeBits {
                     var: var.clone(),
@@ -519,10 +517,7 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                     on_new_expr(var, &internal_vars, &mut external_vars);
                 }
             }
-            Line::DecomposeBits {
-                var,
-                to_decompose,
-            } => {
+            Line::DecomposeBits { var, to_decompose } => {
                 on_new_expr(&to_decompose, &internal_vars, &mut external_vars);
                 internal_vars.insert(var.clone());
             }
@@ -588,45 +583,41 @@ fn handle_array_assignment(
     index: &Expression,
     access_type: ArrayAccessType,
 ) {
-    // Create pointer variable: ptr = array + index
-    let ptr_var = format!("@aux_var_{}", counters.aux_vars);
-    counters.aux_vars += 1;
-
-    let simplified_index = simplify_expr(index, res, counters);
-
-    res.push(SimpleLine::Assignment {
-        var: ptr_var.clone(),
-        operation: HighLevelOperation::Add,
-        arg0: array.clone().into(),
-        arg1: simplified_index,
-    });
-
     let value_simplified = match access_type {
         ArrayAccessType::VarIsAssigned(var) => VarOrConstant::Var(var.clone()),
         ArrayAccessType::ArrayIsAssigned(expr) => simplify_expr(&expr, res, counters),
+    };
+
+    let (index_var, shift) = match simplify_expr(index, res, counters) {
+        VarOrConstant::Var(var) => {
+            // Create pointer variable: ptr = array + index
+            let ptr_var = format!("@aux_var_{}", counters.aux_vars);
+            counters.aux_vars += 1;
+            res.push(SimpleLine::Assignment {
+                var: ptr_var.clone(),
+                operation: HighLevelOperation::Add,
+                arg0: array.clone().into(),
+                arg1: var.into(),
+            });
+            (ptr_var, ConstExpression::zero())
+        }
+        VarOrConstant::Constant(c) => (array, c),
     };
 
     // Replace with raw access
     match value_simplified {
         VarOrConstant::Var(var) => {
             res.push(SimpleLine::RawAccess {
-                var,
-                index: ptr_var.into(),
+                res: var.into(),
+                index: index_var.into(),
+                shift,
             });
         }
         VarOrConstant::Constant(cst) => {
-            // Constants need to be assigned to variables first
-            let const_var = format!("@aux_var_{}", counters.aux_vars);
-            counters.aux_vars += 1;
-            res.push(SimpleLine::Assignment {
-                var: const_var.clone(),
-                operation: HighLevelOperation::Add,
-                arg0: cst.into(),
-                arg1: VarOrConstant::zero(),
-            });
             res.push(SimpleLine::RawAccess {
-                var: const_var,
-                index: ptr_var.into(),
+                res: VarOrConstant::Constant(cst),
+                index: index_var.into(),
+                shift,
             });
         }
     }
@@ -722,8 +713,13 @@ impl SimpleLine {
                     to_decompose.to_string()
                 )
             }
-            SimpleLine::RawAccess { var, index } => {
-                format!("{} = memory[{}]", var.to_string(), index.to_string())
+            SimpleLine::RawAccess { res, index, shift } => {
+                format!(
+                    "{} = memory[{} + {}]",
+                    res.to_string(),
+                    index.to_string(),
+                    shift.to_string()
+                )
             }
             SimpleLine::IfNotZero {
                 condition,

@@ -73,8 +73,8 @@ pub enum IntermediateInstruction {
         res: IntermediateValue,
     },
     Deref {
-        shift_0: usize,
-        shift_1: usize,
+        shift_0: ConstExpression,
+        shift_1: ConstExpression,
         res: IntermediaryMemOrFpOrConstant,
     }, // res = m[m[fp + shift_0]]
     Panic,
@@ -185,7 +185,7 @@ impl ToString for IntermediateInstruction {
                 shift_0,
                 shift_1,
                 res,
-            } => format!("{} = m[m[fp + {}] + {}]", res.to_string(), shift_0, shift_1),
+            } => format!("{} = m[m[fp + {}] + {}]", res.to_string(), shift_0.to_string(), shift_1.to_string()),
             IntermediateInstruction::DecomposeBits { res_offset, to_decompose } => {
                 format!("m[fp + {}] = decompose_bits({})", res_offset, to_decompose.to_string())
             }

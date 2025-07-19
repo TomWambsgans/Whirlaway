@@ -96,6 +96,12 @@ pub enum ConstExpression {
     },
 }
 
+impl From<usize> for ConstExpression {
+    fn from(value: usize) -> Self {
+        ConstExpression::Value(ConstantValue::Scalar(value))
+    }
+}
+
 impl ConstExpression {
     pub fn zero() -> Self {
         Self::scalar(0)

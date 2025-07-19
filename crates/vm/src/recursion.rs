@@ -182,7 +182,6 @@ pub fn run_whir_verif() {
             stir_index_bits = stir_challenges_indexes[i];
             circle_value = unit_root_pow(folded_domain_size, stir_index_bits);
             circle_values[i] = circle_value;
-            print(circle_value);
         }
 
         return;
@@ -483,9 +482,7 @@ pub fn run_whir_verif() {
         c = malloc_vec(1);
         b_ptr = b_in_extension * 8;
         c_ptr = c * 8;
-        for i in 0..8 {
-            c_ptr[i] = a_in_base * b_ptr[i];
-        }
+        c_ptr[0] = a_in_base * b_ptr[0]; c_ptr[1] = a_in_base * b_ptr[1]; c_ptr[2] = a_in_base * b_ptr[2]; c_ptr[3] = a_in_base * b_ptr[3]; c_ptr[4] = a_in_base * b_ptr[4]; c_ptr[5] = a_in_base * b_ptr[5]; c_ptr[6] = a_in_base * b_ptr[6]; c_ptr[7] = a_in_base * b_ptr[7];
         return c;
     }
 
