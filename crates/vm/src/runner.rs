@@ -13,7 +13,7 @@ use p3_field::Field;
 use p3_field::PrimeField64;
 use p3_symmetric::Permutation;
 
-const MAX_MEMORY_SIZE: usize = 1 << 20;
+const MAX_MEMORY_SIZE: usize = 1 << 25;
 
 #[derive(Debug, Clone, Default)]
 struct Memory {

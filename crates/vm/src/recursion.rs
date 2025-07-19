@@ -147,13 +147,69 @@ pub fn run_whir_verif() {
 
         fs_state_11 = fs_states_c[NUM_QUERIES_0];
 
-        poly_eq_0 = poly_eq(folding_randomness, FOLDING_FACTOR_0);
+        two_pow_FOLDING_FACTOR_0 = pow(2, FOLDING_FACTOR_0);
+
+        poly_eq_0 = poly_eq(folding_randomness, FOLDING_FACTOR_0, two_pow_FOLDING_FACTOR_0);
+
+        folds = malloc_vec(NUM_QUERIES_0);
+        for i in 0..NUM_QUERIES_0 {
+            dot_product_base_extension(answers[i] * 8, poly_eq_0, folds + i, two_pow_FOLDING_FACTOR_0);
+        }
+        
+        print_chunk(folds + 1);
 
 
         return;
     }
 
-    fn poly_eq(point, n) -> 1 {
+    fn dot_product_base_extension(a, b, res, n) {
+        // a is a pointer to n base field elements
+        // b is a vectorized pointer to n extension field elements
+        // res is a vectorized pointer to 1 extension field element, will be set to the dot product of a and b
+        // n is the number of elements in a and b
+
+        if n == 0 {
+            // base case
+            res_ptr = res * 8;
+            res_ptr[0] = 0; res_ptr[1] = 0; res_ptr[2] = 0; res_ptr[3] = 0; res_ptr[4] = 0; res_ptr[5] = 0; res_ptr[6] = 0; res_ptr[7] = 0;
+            return;
+        }
+
+        inner_res = malloc_vec(1);
+        dot_product_base_extension(a + 1, b + 1, inner_res, n - 1);
+
+        ab = mul_base_by_extension_vec(a[0], b);
+        inner_ptr = inner_res * 8;
+        ab_ptr = ab * 8;
+        res_ptr = res * 8;
+        add_extension(ab_ptr, inner_ptr, res_ptr);
+        return;
+    }
+
+    fn dot_product(a, b, res, n) {
+        // a, b and res are vectorized pointers to extension field elements
+        // n is the number of elements in a and b
+        // res is a vectorized pointer to 1 extension field element, will be set to the dot product of a and b
+
+        if n == 0 {
+            // base case
+            res_ptr = res * 8;
+            res_ptr[0] = 0; res_ptr[1] = 0; res_ptr[2] = 0; res_ptr[3] = 0; res_ptr[4] = 0; res_ptr[5] = 0; res_ptr[6] = 0; res_ptr[7] = 0;
+            return;
+        }
+
+        inner_res = malloc_vec(1);
+        dot_product(a + 1, b + 1, inner_res, n - 1);
+
+        ab = mul_extension_vec(a, b);
+        inner_ptr = inner_res * 8;
+        ab_ptr = ab * 8;
+        res_ptr = res * 8;
+        add_extension(ab_ptr, inner_ptr, res_ptr);
+        return;
+    }
+
+    fn poly_eq(point, n, two_pow_n) -> 1 {
         // point is a pointer to n vectorized pointers, each pointing to 1 chunk of 8 field elements
         // return a vectorized pointer to 2^n extension field elements, corresponding to the "equality polynomial" at point
         // Example: for n = 2: eq(x, y) = [(1 - x)(1 - y), (1 - x)y, x(1 - y), xy]
@@ -167,10 +223,9 @@ pub fn run_whir_verif() {
             return res;
         }
 
-        two_pow_n = pow(2, n);
         res = malloc_vec(two_pow_n);
 
-        inner_res = poly_eq(point + 1, n - 1);
+        inner_res = poly_eq(point + 1, n - 1, two_pow_n / 2);
 
         two_pow_n_minus_1 = two_pow_n / 2;
 
@@ -386,6 +441,16 @@ pub fn run_whir_verif() {
             print(ptr[i]);
         }
         return;
+    }
+
+    fn mul_base_by_extension_vec(a_in_base, b_in_extension) -> 1 {
+        c = malloc_vec(1);
+        b_ptr = b_in_extension * 8;
+        c_ptr = c * 8;
+        for i in 0..8 {
+            c_ptr[i] = a_in_base * b_ptr[i];
+        }
+        return c;
     }
 
     fn mul_extension_vec(a, b) -> 1 {
