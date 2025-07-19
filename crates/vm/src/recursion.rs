@@ -35,6 +35,10 @@ pub fn run_whir_verif() {
     const FOLDING_FACTOR_1 = 4;
     const FOLDING_FACTOR_2 = 4;
 
+    const TWO_POW_FOLDING_FACTOR_0 = 128;
+    const TWO_POW_FOLDING_FACTOR_1 = 16;
+    const TWO_POW_FOLDING_FACTOR_2 = 16;
+
     const RS_REDUCTION_FACTOR_0 = 5;
     const RS_REDUCTION_FACTOR_1 = 1;
     const RS_REDUCTION_FACTOR_2 = 1;
@@ -55,8 +59,8 @@ pub fn run_whir_verif() {
         claimed_sum_side = mul_extension_vec(combination_randomness_gen_0, pcs_eval);
         claimed_sum = add_extension_vec(ood_eval_0, claimed_sum_side);
 
-        fs_states = malloc(FOLDING_FACTOR_0 + 1);
-        fs_states[0] = fs_state_4;
+        fs_states_a = malloc(FOLDING_FACTOR_0 + 1);
+        fs_states_a[0] = fs_state_4;
 
         claimed_sums = malloc(FOLDING_FACTOR_0 + 1);
         claimed_sums[0] = claimed_sum;
@@ -64,58 +68,76 @@ pub fn run_whir_verif() {
         randomness = malloc(FOLDING_FACTOR_0); // in reverse order
 
         for sc_round in 0..FOLDING_FACTOR_0 {
-            fs_state_5, poly = fs_receive(fs_states[sc_round], 3); // vectorized pointer of len 1
+            fs_state_5, poly = fs_receive(fs_states_a[sc_round], 3); // vectorized pointer of len 1
             sum_over_boolean_hypercube = degree_two_polynomial_sum_at_0_and_1(poly);
             consistent = eq_extension_vec(sum_over_boolean_hypercube, claimed_sums[sc_round]);
             if consistent == 0 {
                 panic();
             }
             fs_state_6, rand = fs_sample_ef(fs_state_5);  // vectorized pointer of len 1
-            fs_states[sc_round + 1] = fs_state_6;
+            fs_states_a[sc_round + 1] = fs_state_6;
             new_claimed_sum = degree_two_polynomial_eval(poly, rand);
             claimed_sums[sc_round + 1] = new_claimed_sum;
             randomness[FOLDING_FACTOR_0 - 1 - sc_round] = rand;
         }
 
-        fs_state_7 = fs_states[FOLDING_FACTOR_0];
+        fs_state_7 = fs_states_a[FOLDING_FACTOR_0];
 
         fs_state_8, root_1, ood_point_1, ood_eval_1 = parse_commitment(fs_state_7);
 
-        folded_domain_size = N_VARS + LOG_INV_RATE - FOLDING_FACTOR_0;
-        fs_state_9, stir_challenges_indexes = sample_bits(fs_state_8, NUM_QUERIES_0, folded_domain_size);
+        fs_state_9, stir_challenges_indexes = sample_bits(fs_state_8, NUM_QUERIES_0);
 
-        fs_print_state(fs_state_9); // 614216178 .. 310158447
+        // fs_print_state(fs_state_9); // 614216178 .. 310158447
+
+        answers = malloc(NUM_QUERIES_0); // a vector of vectorized pointers, each pointing to TWO_POW_FOLDING_FACTOR_0 base field elements
+        fs_states_b = malloc(NUM_QUERIES_0 + 1);
+        fs_states_b[0] = fs_state_9;
+
+        for i in 0..NUM_QUERIES_0 {
+            new_fs_state, answer = fs_hint(fs_states_b[i], TWO_POW_FOLDING_FACTOR_0 / 8); // "/ 8" because initial merkle leaves are in the basefield
+            fs_states_b[i + 1] = new_fs_state;
+            answers[i] = answer;
+        }
+        fs_state_10 = fs_states_b[NUM_QUERIES_0];
+
+        leaf_hashes = malloc(NUM_QUERIES_0); // a vector of vectorized pointers, each pointing to 1 chunk of 8 field elements
+        for i in 0..NUM_QUERIES_0 {
+            answer = answers[i];
+            internal_states = malloc(1 + ((TWO_POW_FOLDING_FACTOR_0 / 8) / 2)); // "/ 2" because with poseidon24 we hash 2 chuncks of 8 field elements at each permutation
+            internal_states[0] = pointer_to_zero_vector; // initial state
+            for j in 0..(TWO_POW_FOLDING_FACTOR_0 / 8) / 2 {
+                _, _, new_state = poseidon24(answer + (2*i), answer + (2*i) + 1, internal_states[j]);
+                internal_states[j + 1] = new_state;
+            }
+            leaf_hashes[i] = internal_states[(TWO_POW_FOLDING_FACTOR_0 / 8) / 2];
+        }
+
+        folded_domain_size = N_VARS + LOG_INV_RATE - FOLDING_FACTOR_0;
+
 
         return;
     }
 
-    fn sample_bits(fs_state, n, n_bits) -> 2 {
-        // return the updated fs_state, and a pointer to n field elements, each < 2^bits
+    fn sample_bits(fs_state, n) -> 2 {
+        // return the updated fs_state, and a pointer to n pointers, each pointing to 31 (boolean) field elements
         samples = malloc(n);
         new_fs_state = fs_sample_helper(fs_state, n, samples);
         sampled_bits = malloc(n);
         for i in 0..n {
-            mod = modulo(samples[i], n_bits);
-            sampled_bits[i] = mod;
+            bits = checked_decompose_bits(samples[i]);
+            sampled_bits[i] = bits;
         }
 
         return new_fs_state, sampled_bits;
     }
 
-    fn modulo(a, n_bits) -> 1 {
-        // return a % 2^n_bits
+    fn checked_decompose_bits(a) -> 1 {
+        // return a pointer to bits of a
         bits = decompose_bits(a); // hint
         bit0 = bits[0]; bit1 = bits[1]; bit2 = bits[2]; bit3 = bits[3]; bit4 = bits[4]; bit5 = bits[5]; bit6 = bits[6]; bit7 = bits[7]; bit8 = bits[8]; bit9 = bits[9]; bit10 = bits[10]; bit11 = bits[11]; bit12 = bits[12]; bit13 = bits[13]; bit14 = bits[14]; bit15 = bits[15]; bit16 = bits[16]; bit17 = bits[17]; bit18 = bits[18]; bit19 = bits[19]; bit20 = bits[20]; bit21 = bits[21]; bit22 = bits[22]; bit23 = bits[23]; bit24 = bits[24]; bit25 = bits[25]; bit26 = bits[26]; bit27 = bits[27]; bit28 = bits[28]; bit29 = bits[29]; bit30 = bits[30];
         assert bit0 * (1 - bit0) == 0; assert bit1 * (1 - bit1) == 0; assert bit2 * (1 - bit2) == 0; assert bit3 * (1 - bit3) == 0; assert bit4 * (1 - bit4) == 0; assert bit5 * (1 - bit5) == 0; assert bit6 * (1 - bit6) == 0; assert bit7 * (1 - bit7) == 0; assert bit8 * (1 - bit8) == 0; assert bit9 * (1 - bit9) == 0; assert bit10 * (1 - bit10) == 0; assert bit11 * (1 - bit11) == 0; assert bit12 * (1 - bit12) == 0; assert bit13 * (1 - bit13) == 0; assert bit14 * (1 - bit14) == 0; assert bit15 * (1 - bit15) == 0; assert bit16 * (1 - bit16) == 0; assert bit17 * (1 - bit17) == 0; assert bit18 * (1 - bit18) == 0; assert bit19 * (1 - bit19) == 0; assert bit20 * (1 - bit20) == 0; assert bit21 * (1 - bit21) == 0; assert bit22 * (1 - bit22) == 0; assert bit23 * (1 - bit23) == 0; assert bit24 * (1 - bit24) == 0; assert bit25 * (1 - bit25) == 0; assert bit26 * (1 - bit26) == 0; assert bit27 * (1 - bit27) == 0; assert bit28 * (1 - bit28) == 0; assert bit29 * (1 - bit29) == 0; assert bit30 * (1 - bit30) == 0;
-        a_0_to_18 = bit0 + (2 * bit1) + (4 * bit2) + (8 * bit3) + (16 * bit4) + (32 * bit5) + (64 * bit6) + (128 * bit7) + (256 * bit8) + (512 * bit9) + (1024 * bit10) + (2048 * bit11) + (4096 * bit12) + (8192 * bit13) + (16384 * bit14) + (32768 * bit15) + (65536 * bit16) + (131072 * bit17) + (262144 * bit18);
-        a_18_to_30 = (524288 * bit19) + (1048576 * bit20) + (2097152 * bit21) + (4194304 * bit22) + (8388608 * bit23) + (16777216 * bit24) + (33554432 * bit25) + (67108864 * bit26) + (134217728 * bit27) + (268435456 * bit28) + (536870912 * bit29) + (1073741824 * bit30);
-        assert a == a_0_to_18 + a_18_to_30;
-        if n_bits == 19 {
-            return a_0_to_18;
-        }
-        
-        // unimplemented
-        panic();
+        assert a == bit0 + (2 * bit1) + (4 * bit2) + (8 * bit3) + (16 * bit4) + (32 * bit5) + (64 * bit6) + (128 * bit7) + (256 * bit8) + (512 * bit9) + (1024 * bit10) + (2048 * bit11) + (4096 * bit12) + (8192 * bit13) + (16384 * bit14) + (32768 * bit15) + (65536 * bit16) + (131072 * bit17) + (262144 * bit18) + (524288 * bit19) + (1048576 * bit20) + (2097152 * bit21) + (4194304 * bit22) + (8388608 * bit23) + (16777216 * bit24) + (33554432 * bit25) + (67108864 * bit26) + (134217728 * bit27) + (268435456 * bit28) + (536870912 * bit29) + (1073741824 * bit30);
+        return bits; // a pointer to 31 bits
     }
 
     fn degree_two_polynomial_sum_at_0_and_1(coeffs) -> 1 {
