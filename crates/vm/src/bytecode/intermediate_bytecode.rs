@@ -103,7 +103,10 @@ pub enum IntermediateInstruction {
         size: IntermediateValue, // the hint
         vectorized: bool, // if true, will be 8-alligned, and the returned pointer will be "divied" by 8 (i.e. everything is in chunks of 8 field elements)
     },
-
+    DecomposeBits {
+        res_offset: usize, // m[fp + res_offset] = a pointer to 31 field elements, containing the bits of "to_decompose"
+        to_decompose: IntermediateValue,
+    },
     Print {
         line_info: String, // information about the line where the print occurs
         content: Vec<IntermediateValue>, // values to print
@@ -183,6 +186,9 @@ impl ToString for IntermediateInstruction {
                 shift_1,
                 res,
             } => format!("{} = m[m[fp + {}] + {}]", res.to_string(), shift_0, shift_1),
+            IntermediateInstruction::DecomposeBits { res_offset, to_decompose } => {
+                format!("m[fp + {}] = decompose_bits({})", res_offset, to_decompose.to_string())
+            }
             IntermediateInstruction::Computation {
                 operation,
                 arg_a,

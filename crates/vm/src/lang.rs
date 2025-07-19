@@ -190,6 +190,9 @@ pub enum Line {
         args: [Expression; 3],
         res: [Var; 3],
     },
+    Break,
+    Panic,
+    // Hints:
     Print {
         line_info: String,
         content: Vec<Expression>,
@@ -199,8 +202,10 @@ pub enum Line {
         size: Expression,
         vectorized: bool,
     },
-    Break,
-    Panic,
+    DecomposeBits {
+        var: Var, // a pointer to 31 field elements, containing the bits of "to_decompose"
+        to_decompose: Expression,
+    },
 }
 
 impl ToString for Expression {
@@ -382,6 +387,16 @@ impl Line {
                 } else {
                     format!("{} = malloc({})", var.to_string(), size.to_string())
                 }
+            }
+            Line::DecomposeBits {
+                var,
+                to_decompose,
+            } => {
+                format!(
+                    "{} = decompose_bits({})",
+                    var.to_string(),
+                    to_decompose.to_string()
+                )
             }
             Line::Break => "break".to_string(),
             Line::Panic => "panic".to_string(),

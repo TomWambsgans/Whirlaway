@@ -9,6 +9,7 @@ use crate::bytecode::bytecode::MemOrConstant;
 use crate::bytecode::bytecode::MemOrFp;
 use crate::bytecode::bytecode::MemOrFpOrConstant;
 use crate::{DIMENSION, EF, F, bytecode::bytecode::Bytecode};
+use p3_field::Field;
 use p3_field::PrimeField64;
 use p3_symmetric::Permutation;
 
@@ -23,7 +24,7 @@ struct Memory {
 impl MemOrConstant {
     fn try_read_value(&self, memory: &Memory, fp: usize) -> Option<F> {
         match self {
-            MemOrConstant::Constant(c) => Some(F::from_usize(*c)),
+            MemOrConstant::Constant(c) => Some(*c),
             MemOrConstant::MemoryAfterFp { shift } => memory.try_get(fp + *shift),
         }
     }
@@ -79,7 +80,7 @@ impl MemOrFpOrConstant {
         match self {
             MemOrFpOrConstant::MemoryAfterFp { shift } => memory.try_get(fp + *shift),
             MemOrFpOrConstant::Fp => Some(F::from_usize(fp)),
-            MemOrFpOrConstant::Constant(c) => Some(F::from_usize(*c)),
+            MemOrFpOrConstant::Constant(c) => Some(*c),
         }
     }
 
@@ -225,21 +226,26 @@ pub fn execute_bytecode(
                     size,
                     vectorized,
                 } => {
-                    // TODO avoid memory fragmentation (easy perf boost in perspective)
-
-                    let size = size.read_value(&memory, fp).as_canonical_u64() as usize;
-
-                    if *vectorized {
-                        // find the next multiple of 8
-                        let ap_next_multiple_of_8 = (ap + 7) / 8 * 8;
-                        memory.set(fp + shift, F::from_usize(ap_next_multiple_of_8 / 8));
-                        ap = ap_next_multiple_of_8 + size * 8;
-                    } else {
-                        memory.set(fp + shift, F::from_usize(ap));
-                        ap += size;
-                    }
-
+                    malloc(&mut memory, &mut ap, fp, *shift, *size, *vectorized);
                     // does not increase PC
+                }
+                Hint::DecomposeBits {
+                    res_offset: result_offset,
+                    to_decompose,
+                } => {
+                    let size = MemOrConstant::Constant(F::from_usize(F::bits())); // 31 for KoalaBear
+                    malloc(&mut memory, &mut ap, fp, *result_offset, size, false);
+                    let start = memory.get(fp + *result_offset).as_canonical_u64() as usize;
+                    let to_decompose_value =
+                        to_decompose.read_value(&memory, fp).as_canonical_u64();
+                    for i in 0..F::bits() {
+                        let bit = if to_decompose_value & (1 << i) != 0 {
+                            F::ONE
+                        } else {
+                            F::ZERO
+                        };
+                        memory.set(start + i, bit);
+                    }
                 }
                 Hint::Print { line_info, content } => {
                     let values = content
@@ -392,4 +398,27 @@ pub fn execute_bytecode(
         );
     }
     // TODO fill the bytecode into memory
+}
+
+fn malloc(
+    memory: &mut Memory,
+    ap: &mut usize,
+    fp: usize,
+    res_offset: usize,
+    size: MemOrConstant,
+    vectorized: bool,
+) {
+    // TODO avoid memory fragmentation (easy perf boost in perspective)
+
+    let size = size.read_value(&memory, fp).as_canonical_u64() as usize;
+
+    if vectorized {
+        // find the next multiple of 8
+        let ap_next_multiple_of_8 = (*ap + 7) / 8 * 8;
+        memory.set(fp + res_offset, F::from_usize(ap_next_multiple_of_8 / 8));
+        *ap = ap_next_multiple_of_8 + size * 8;
+    } else {
+        memory.set(fp + res_offset, F::from_usize(*ap));
+        *ap += size;
+    }
 }

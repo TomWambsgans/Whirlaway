@@ -279,7 +279,17 @@ fn compile_lines(
                     shift: compiler.stack_size - 6,
                 });
             }
-
+            SimpleLine::FunctionRet { return_data } => {
+                if compiler.func_name == "main" {
+                    instructions.push(IntermediateInstruction::Jump {
+                        dest: IntermediateValue::label("@end_program".to_string()),
+                        updated_fp: None,
+                    });
+                } else {
+                    compile_function_ret(&mut instructions, return_data, compiler);
+                }
+            }
+            SimpleLine::Panic => instructions.push(IntermediateInstruction::Panic),
             SimpleLine::MAlloc {
                 var,
                 size,
@@ -292,20 +302,13 @@ fn compile_lines(
                     vectorized: *vectorized,
                 });
             }
-
-            SimpleLine::FunctionRet { return_data } => {
-                if compiler.func_name == "main" {
-                    instructions.push(IntermediateInstruction::Jump {
-                        dest: IntermediateValue::label("@end_program".to_string()),
-                        updated_fp: None,
-                    });
-                } else {
-                    compile_function_ret(&mut instructions, return_data, compiler);
-                }
+            SimpleLine::DecomposeBits { var, to_decompose } => {
+                declared_vars.insert(var.clone());
+                instructions.push(IntermediateInstruction::DecomposeBits {
+                    res_offset: compiler.get_var_offset(var),
+                    to_decompose: IntermediateValue::from_var_or_const(to_decompose, compiler),
+                });
             }
-
-            SimpleLine::Panic => instructions.push(IntermediateInstruction::Panic),
-
             SimpleLine::Print { line_info, content } => {
                 instructions.push(IntermediateInstruction::Print {
                     line_info: line_info.clone(),
@@ -465,7 +468,8 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
         match line {
             SimpleLine::Assignment { var, .. }
             | SimpleLine::RawAccess { var, .. }
-            | SimpleLine::MAlloc { var, .. } => {
+            | SimpleLine::MAlloc { var, .. }
+            | SimpleLine::DecomposeBits { var, .. } => {
                 internal_vars.insert(var.clone());
             }
             SimpleLine::FunctionCall { return_data, .. } => {

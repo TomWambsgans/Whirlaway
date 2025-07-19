@@ -419,6 +419,16 @@ fn parse_function_call(
                 content: args,
             })
         }
+        "decompose_bits" => {
+            assert!(
+                args.len() == 1 && return_data.len() == 1,
+                "Invalid decompose_bits call"
+            );
+            Ok(Line::DecomposeBits {
+                var: return_data[0].clone(),
+                to_decompose: args[0].clone(),
+            })
+        }
         "panic" => {
             assert!(
                 return_data.is_empty() && args.is_empty(),

@@ -1,9 +1,9 @@
-use std::collections::BTreeMap;
-
 use crate::{
     F,
     bytecode::intermediate_bytecode::{HighLevelOperation, IntermediateValue},
 };
+use p3_field::PrimeCharacteristicRing;
+use std::collections::BTreeMap;
 
 pub type Label = String;
 
@@ -18,14 +18,14 @@ pub struct Bytecode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MemOrConstant {
-    Constant(usize),
+    Constant(F),
     MemoryAfterFp { shift: usize }, // m[fp + shift]
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MemOrFpOrConstant {
     MemoryAfterFp { shift: usize }, // m[fp + shift]
     Fp,
-    Constant(usize),
+    Constant(F),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -116,11 +116,24 @@ pub enum Hint {
         size: MemOrConstant, // the hint
         vectorized: bool,
     },
-
+    DecomposeBits {
+        res_offset: usize, // m[fp + res_offset] = a pointer to 31 field elements, containing the bits of "to_decompose"
+        to_decompose: MemOrConstant,
+    },
     Print {
         line_info: String,
         content: Vec<MemOrConstant>,
     },
+}
+
+impl MemOrConstant {
+    pub fn zero() -> Self {
+        MemOrConstant::Constant(F::ZERO)
+    }
+
+    pub fn one() -> Self {
+        MemOrConstant::Constant(F::ONE)
+    }
 }
 
 impl ToString for Bytecode {
@@ -234,6 +247,16 @@ impl ToString for Hint {
                     shift,
                     if *vectorized { "malloc_vec" } else { "malloc" },
                     size.to_string()
+                )
+            }
+            Self::DecomposeBits {
+                res_offset,
+                to_decompose,
+            } => {
+                format!(
+                    "m[fp + {}] = decompose_bits({})",
+                    res_offset,
+                    to_decompose.to_string()
                 )
             }
             Self::Print { line_info, content } => {

@@ -1,4 +1,4 @@
-use p3_field::PrimeField64;
+use p3_field::PrimeCharacteristicRing;
 use std::collections::BTreeMap;
 
 use crate::{
@@ -17,8 +17,11 @@ use crate::{
 };
 
 impl IntermediateInstruction {
-    fn is_meta(&self) -> bool {
-        matches!(self, Self::RequestMemory { .. } | Self::Print { .. })
+    fn is_hint(&self) -> bool {
+        matches!(
+            self,
+            Self::RequestMemory { .. } | Self::Print { .. } | Self::DecomposeBits { .. }
+        )
     }
 }
 
@@ -67,11 +70,11 @@ pub fn compile_to_low_level_bytecode(
         .ok_or("No main function found in the compiled program")?;
 
     let mut code_chunks = vec![(0, entrypoint.clone())];
-    let mut pc = entrypoint.iter().filter(|i| !i.is_meta()).count();
+    let mut pc = entrypoint.iter().filter(|i| !i.is_hint()).count();
     for (label, instructions) in &intermediate_bytecode.bytecode {
         label_to_pc.insert(label.clone(), pc);
         code_chunks.push((pc, instructions.clone()));
-        pc += instructions.iter().filter(|i| !i.is_meta()).count();
+        pc += instructions.iter().filter(|i| !i.is_hint()).count();
     }
 
     let ending_pc = label_to_pc.get("@end_program").cloned().unwrap();
@@ -120,16 +123,15 @@ pub fn compile_to_low_level_bytecode(
                         if let Some(arg_b_cst) = try_as_constant(&arg_b, &compiler) {
                             // res = constant +/x constant
 
-                            let op_res = operation
-                                .compute(F::new(arg_a_cst as u32), F::new(arg_b_cst as u32));
+                            let op_res = operation.compute(arg_a_cst, arg_b_cst);
 
                             let res: MemOrFp = res.try_into().unwrap();
 
                             low_level_bytecode.push(Instruction::Computation {
                                 operation: Operation::Add,
-                                arg_a: MemOrConstant::Constant(0),
+                                arg_a: MemOrConstant::zero(),
                                 arg_b: res,
-                                res: MemOrConstant::Constant(op_res.as_canonical_u64() as usize),
+                                res: MemOrConstant::Constant(op_res),
                             });
                             pc += 1;
                             continue;
@@ -151,9 +153,9 @@ pub fn compile_to_low_level_bytecode(
                     low_level_bytecode.push(Instruction::Computation {
                         // fp x 0 = 1 is impossible, so we can use it to panic
                         operation: Operation::Mul,
-                        arg_a: MemOrConstant::Constant(0),
+                        arg_a: MemOrConstant::zero(),
                         arg_b: MemOrFp::Fp,
-                        res: MemOrConstant::Constant(1),
+                        res: MemOrConstant::one(),
                     });
                 }
                 IntermediateInstruction::Deref {
@@ -193,7 +195,7 @@ pub fn compile_to_low_level_bytecode(
                 }
                 IntermediateInstruction::Jump { dest, updated_fp } => {
                     low_level_bytecode.push(Instruction::JumpIfNotZero {
-                        condition: MemOrConstant::Constant(1),
+                        condition: MemOrConstant::one(),
                         dest: try_as_mem_or_constant(&dest).unwrap(),
                         updated_fp: updated_fp
                             .map(|fp| try_as_mem_or_fp(&fp).unwrap())
@@ -206,20 +208,22 @@ pub fn compile_to_low_level_bytecode(
                 IntermediateInstruction::Poseidon2_24 { shift } => {
                     low_level_bytecode.push(Instruction::Poseidon2_24 { shift });
                 }
+                IntermediateInstruction::DecomposeBits {
+                    res_offset,
+                    to_decompose,
+                } => {
+                    let hint = Hint::DecomposeBits {
+                        res_offset,
+                        to_decompose: try_as_mem_or_constant(&to_decompose).unwrap(),
+                    };
+                    hints.entry(pc).or_insert_with(Vec::new).push(hint);
+                }
                 IntermediateInstruction::RequestMemory {
                     shift,
                     size,
                     vectorized,
                 } => {
-                    let size = match size {
-                        IntermediateValue::Constant(c) => {
-                            MemOrConstant::Constant(convert_constant_expression(&c, &compiler))
-                        }
-                        IntermediateValue::MemoryAfterFp { shift } => {
-                            MemOrConstant::MemoryAfterFp { shift }
-                        }
-                        IntermediateValue::Fp => unreachable!(),
-                    };
+                    let size = try_as_mem_or_constant(&size).unwrap();
                     let hint = Hint::RequestMemory {
                         shift,
                         vectorized,
@@ -239,7 +243,7 @@ pub fn compile_to_low_level_bytecode(
                 }
             }
 
-            if !instruction.is_meta() {
+            if !instruction.is_hint() {
                 pc += 1;
             }
         }
@@ -270,9 +274,9 @@ fn convert_constant_value(constant: &ConstantValue, compiler: &Compiler) -> usiz
     }
 }
 
-fn convert_constant_expression(constant: &ConstExpression, compiler: &Compiler) -> usize {
+fn convert_constant_expression(constant: &ConstExpression, compiler: &Compiler) -> F {
     match constant {
-        ConstExpression::Value(value) => convert_constant_value(value, compiler),
+        ConstExpression::Value(value) => F::from_usize(convert_constant_value(value, compiler)),
         ConstExpression::Binary {
             left,
             operator,
@@ -284,16 +288,13 @@ fn convert_constant_expression(constant: &ConstExpression, compiler: &Compiler) 
                 HighLevelOperation::Add => left + right,
                 HighLevelOperation::Sub => left - right,
                 HighLevelOperation::Mul => left * right,
-                HighLevelOperation::Div => {
-                    assert!(right != 0, "Division by zero in constant expression");
-                    left / right
-                }
+                HighLevelOperation::Div => left / right,
             }
         }
     }
 }
 
-fn try_as_constant(value: &IntermediateValue, compiler: &Compiler) -> Option<usize> {
+fn try_as_constant(value: &IntermediateValue, compiler: &Compiler) -> Option<F> {
     if let IntermediateValue::Constant(c) = value {
         Some(convert_constant_expression(c, compiler))
     } else {

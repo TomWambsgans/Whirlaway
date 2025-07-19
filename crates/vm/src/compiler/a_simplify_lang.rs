@@ -51,6 +51,12 @@ pub enum SimpleLine {
         args: [VarOrConstant; 3],
         res: [Var; 3],
     },
+    Panic,
+    // Hints
+    DecomposeBits {
+        var: Var, // a pointer to 31 field elements, containing the bits of "to_decompose"
+        to_decompose: VarOrConstant,
+    },
     Print {
         line_info: String,
         content: Vec<VarOrConstant>,
@@ -60,7 +66,6 @@ pub enum SimpleLine {
         size: VarOrConstant,
         vectorized: bool,
     },
-    Panic,
 }
 
 pub fn simplify_program(program: &Program) -> SimpleProgram {
@@ -341,6 +346,12 @@ fn simplify_lines(
                     content: simplified_content,
                 });
             }
+            Line::Break => {
+                assert!(in_a_loop, "Break statement outside of a loop");
+                res.push(SimpleLine::FunctionRet {
+                    return_data: vec![],
+                });
+            }
             Line::MAlloc {
                 var,
                 size,
@@ -353,10 +364,14 @@ fn simplify_lines(
                     vectorized: *vectorized,
                 });
             }
-            Line::Break => {
-                assert!(in_a_loop, "Break statement outside of a loop");
-                res.push(SimpleLine::FunctionRet {
-                    return_data: vec![],
+            Line::DecomposeBits {
+                var,
+                to_decompose,
+            } => {
+                let simplified_to_decompose = simplify_expr(&to_decompose, &mut res, counters);
+                res.push(SimpleLine::DecomposeBits {
+                    var: var.clone(),
+                    to_decompose: simplified_to_decompose,
                 });
             }
             Line::Panic => {
@@ -479,7 +494,8 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                     on_new_expr(ret, &internal_vars, &mut external_vars);
                 }
             }
-            Line::MAlloc { var, .. } => {
+            Line::MAlloc { var, size, .. } => {
+                on_new_expr(size, &internal_vars, &mut external_vars);
                 internal_vars.insert(var.clone());
             }
             Line::Poseidon16 { args, res } => {
@@ -502,6 +518,13 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                 for var in content {
                     on_new_expr(var, &internal_vars, &mut external_vars);
                 }
+            }
+            Line::DecomposeBits {
+                var,
+                to_decompose,
+            } => {
+                on_new_expr(&to_decompose, &internal_vars, &mut external_vars);
+                internal_vars.insert(var.clone());
             }
             Line::ForLoop {
                 iterator,
@@ -687,6 +710,16 @@ impl SimpleLine {
                     arg0.to_string(),
                     operation.to_string(),
                     arg1.to_string()
+                )
+            }
+            SimpleLine::DecomposeBits {
+                var: result,
+                to_decompose,
+            } => {
+                format!(
+                    "{} = decompose_bits({})",
+                    result.to_string(),
+                    to_decompose.to_string()
                 )
             }
             SimpleLine::RawAccess { var, index } => {
