@@ -65,7 +65,7 @@ pub fn run_whir_verif() {
         claimed_sums = malloc(FOLDING_FACTOR_0 + 1);
         claimed_sums[0] = claimed_sum;
 
-        randomness = malloc(FOLDING_FACTOR_0); // in reverse order
+        folding_randomness = malloc(FOLDING_FACTOR_0); // in reverse order. A vector of vectorized pointers, each pointing to 1 chunk of 8 field elements
 
         for sc_round in 0..FOLDING_FACTOR_0 {
             fs_state_5, poly = fs_receive(fs_states_a[sc_round], 3); // vectorized pointer of len 1
@@ -78,7 +78,7 @@ pub fn run_whir_verif() {
             fs_states_a[sc_round + 1] = fs_state_6;
             new_claimed_sum = degree_two_polynomial_eval(poly, rand);
             claimed_sums[sc_round + 1] = new_claimed_sum;
-            randomness[FOLDING_FACTOR_0 - 1 - sc_round] = rand;
+            folding_randomness[FOLDING_FACTOR_0 - 1 - sc_round] = rand;
         }
 
         fs_state_7 = fs_states_a[FOLDING_FACTOR_0];
@@ -145,8 +145,56 @@ pub fn run_whir_verif() {
             assert correct_root == 1;
         }
 
+        fs_state_11 = fs_states_c[NUM_QUERIES_0];
+
+        poly_eq_0 = poly_eq(folding_randomness, FOLDING_FACTOR_0);
+
 
         return;
+    }
+
+    fn poly_eq(point, n) -> 1 {
+        // point is a pointer to n vectorized pointers, each pointing to 1 chunk of 8 field elements
+        // return a vectorized pointer to 2^n extension field elements, corresponding to the "equality polynomial" at point
+        // Example: for n = 2: eq(x, y) = [(1 - x)(1 - y), (1 - x)y, x(1 - y), xy]
+
+        if n == 0 {
+            // base case
+            res = malloc_vec(1);
+            res_ptr = res * 8;
+            res_ptr[0] = 1;
+            res_ptr[1] = 0; res_ptr[2] = 0; res_ptr[3] = 0; res_ptr[4] = 0; res_ptr[5] = 0; res_ptr[6] = 0; res_ptr[7] = 0;
+            return res;
+        }
+
+        two_pow_n = pow(2, n);
+        res = malloc_vec(two_pow_n);
+
+        inner_res = poly_eq(point + 1, n - 1);
+
+        two_pow_n_minus_1 = two_pow_n / 2;
+
+        point_ptr = point[0] * 8;
+
+        for i in 0..two_pow_n_minus_1 {
+            inner_ptr = (inner_res + i) * 8;
+            left_ptr = (res + i) * 8; 
+            right_ptr = (res + two_pow_n_minus_1 + i) * 8; 
+            mul_extension(point_ptr, inner_ptr, right_ptr);
+            sub_extension(inner_ptr, right_ptr, left_ptr);
+        }
+        
+        return res;
+    }
+
+
+    fn pow(a, b) -> 1 {
+        if b == 0 {
+            return 1; // a^0 = 1
+        } else {
+            p = pow(a, b - 1);
+            return a * p;
+        }
     }
 
     fn sample_bits(fs_state, n) -> 2 {
@@ -411,6 +459,20 @@ pub fn run_whir_verif() {
         c[5] = a[5] + b[5];
         c[6] = a[6] + b[6];
         c[7] = a[7] + b[7];
+        return;
+    }
+
+    fn sub_extension(a, b, c) {
+        // a, b and c are pointers
+        // c = a - b
+        c[0] = a[0] - b[0];
+        c[1] = a[1] - b[1];
+        c[2] = a[2] - b[2];
+        c[3] = a[3] - b[3];
+        c[4] = a[4] - b[4];
+        c[5] = a[5] - b[5];
+        c[6] = a[6] - b[6];
+        c[7] = a[7] - b[7];
         return;
     }
 
