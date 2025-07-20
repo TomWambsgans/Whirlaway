@@ -291,7 +291,7 @@ fn parse_array_access(
 fn parse_binary_expr(
     pair: Pair<Rule>,
     constants: &BTreeMap<String, usize>,
-    operator: HighLevelOperation,
+    operation: HighLevelOperation,
 ) -> Result<Expression, ParseError> {
     let mut inner = pair.into_inner();
     let mut expr = parse_expression(inner.next().unwrap(), constants)?;
@@ -300,7 +300,7 @@ fn parse_binary_expr(
         let right_expr = parse_expression(right, constants)?;
         expr = Expression::Binary {
             left: Box::new(expr),
-            operator,
+            operation,
             right: Box::new(right_expr),
         };
     }
@@ -350,7 +350,7 @@ fn parse_function_call(
                         return_data = parse_var_list(res_item, constants)?
                             .into_iter()
                             .filter_map(|v| {
-                                if let VarOrConstant::Var(var) = v {
+                                if let SimpleExpr::Var(var) = v {
                                     Some(var)
                                 } else {
                                     None
@@ -494,7 +494,7 @@ fn parse_assert_not_eq(
 fn parse_var_or_constant(
     pair: Pair<Rule>,
     constants: &BTreeMap<String, usize>,
-) -> Result<VarOrConstant, ParseError> {
+) -> Result<SimpleExpr, ParseError> {
     let text = pair.as_str();
 
     match pair.as_rule() {
@@ -502,23 +502,23 @@ fn parse_var_or_constant(
             return parse_var_or_constant(pair.into_inner().next().unwrap(), constants);
         }
         Rule::identifier | Rule::constant_value => match text {
-            "public_input_start" => Ok(VarOrConstant::Constant(ConstExpression::Value(
+            "public_input_start" => Ok(SimpleExpr::Constant(ConstExpression::Value(
                 ConstantValue::PublicInputStart,
             ))),
-            "pointer_to_zero_vector" => Ok(VarOrConstant::Constant(ConstExpression::Value(
+            "pointer_to_zero_vector" => Ok(SimpleExpr::Constant(ConstExpression::Value(
                 ConstantValue::PointerToZeroVector,
             ))),
             _ => {
                 if let Some(value) = constants.get(text) {
-                    Ok(VarOrConstant::Constant(ConstExpression::Value(
+                    Ok(SimpleExpr::Constant(ConstExpression::Value(
                         ConstantValue::Scalar(*value),
                     )))
                 } else if let Ok(value) = text.parse::<usize>() {
-                    Ok(VarOrConstant::Constant(ConstExpression::Value(
+                    Ok(SimpleExpr::Constant(ConstExpression::Value(
                         ConstantValue::Scalar(value),
                     )))
                 } else {
-                    Ok(VarOrConstant::Var(text.to_string()))
+                    Ok(SimpleExpr::Var(text.to_string()))
                 }
             }
         },
@@ -531,7 +531,7 @@ fn parse_var_or_constant(
 fn parse_var_list(
     pair: Pair<Rule>,
     constants: &BTreeMap<String, usize>,
-) -> Result<Vec<VarOrConstant>, ParseError> {
+) -> Result<Vec<SimpleExpr>, ParseError> {
     pair.into_inner()
         .map(|item| parse_var_or_constant(item, constants))
         .collect()

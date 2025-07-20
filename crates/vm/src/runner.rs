@@ -383,6 +383,7 @@ pub fn execute_bytecode(
         }
     }
 
+    println!("Bytecode size: {}", bytecode.instructions.len());
     if poseidon16_calls + poseidon24_calls > 0 {
         println!(
             "\nExecuted {} instructions, Poseidon2_16 calls: {}, Poseidon2_24 calls: {} (1 poseidon per {} instructions)",

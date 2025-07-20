@@ -95,15 +95,17 @@ pub fn compile_to_low_level_bytecode(
             return Some(MemOrConstant::Constant(cst));
         }
         if let IntermediateValue::MemoryAfterFp { shift } = value {
-            return Some(MemOrConstant::MemoryAfterFp { shift: *shift });
+            return Some(MemOrConstant::MemoryAfterFp {
+                shift: eval_const_expression_usize(shift, &compiler),
+            });
         }
         return None;
     };
 
     let try_as_mem_or_fp = |value: &IntermediateValue| match value {
-        IntermediateValue::MemoryAfterFp { shift } => {
-            Some(MemOrFp::MemoryAfterFp { shift: *shift })
-        }
+        IntermediateValue::MemoryAfterFp { shift } => Some(MemOrFp::MemoryAfterFp {
+            shift: eval_const_expression_usize(shift, &compiler),
+        }),
         IntermediateValue::Fp => Some(MemOrFp::Fp),
         _ => None,
     };
@@ -126,7 +128,7 @@ pub fn compile_to_low_level_bytecode(
 
                             let op_res = operation.compute(arg_a_cst, arg_b_cst);
 
-                            let res: MemOrFp = res.try_into().unwrap();
+                            let res: MemOrFp = res.try_into_mem_or_fp(&compiler).unwrap();
 
                             low_level_bytecode.push(Instruction::Computation {
                                 operation: Operation::Add,
@@ -165,17 +167,19 @@ pub fn compile_to_low_level_bytecode(
                     res,
                 } => {
                     low_level_bytecode.push(Instruction::Deref {
-                        shift_0: eval_constant_expression(&shift_0, &compiler).as_canonical_u64()
+                        shift_0: eval_const_expression(&shift_0, &compiler).as_canonical_u64()
                             as usize,
-                        shift_1: eval_constant_expression(&shift_1, &compiler).as_canonical_u64()
+                        shift_1: eval_const_expression(&shift_1, &compiler).as_canonical_u64()
                             as usize,
                         res: match res {
                             IntermediaryMemOrFpOrConstant::MemoryAfterFp { shift } => {
-                                MemOrFpOrConstant::MemoryAfterFp { shift }
+                                MemOrFpOrConstant::MemoryAfterFp {
+                                    shift: eval_const_expression_usize(&shift, &compiler),
+                                }
                             }
                             IntermediaryMemOrFpOrConstant::Fp => MemOrFpOrConstant::Fp,
                             IntermediaryMemOrFpOrConstant::Constant(c) => {
-                                MemOrFpOrConstant::Constant(eval_constant_expression(&c, &compiler))
+                                MemOrFpOrConstant::Constant(eval_const_expression(&c, &compiler))
                             }
                         },
                     });
@@ -226,7 +230,7 @@ pub fn compile_to_low_level_bytecode(
                 } => {
                     let size = try_as_mem_or_constant(&size).unwrap();
                     let hint = Hint::RequestMemory {
-                        shift,
+                        shift: eval_const_expression_usize(&shift, &compiler),
                         vectorized,
                         size,
                     };
@@ -275,14 +279,32 @@ fn eval_constant_value(constant: &ConstantValue, compiler: &Compiler) -> usize {
     }
 }
 
-fn eval_constant_expression(constant: &ConstExpression, compiler: &Compiler) -> F {
-    constant.eval_with(&|cst| F::from_usize(eval_constant_value(cst, compiler)))
+fn eval_const_expression(constant: &ConstExpression, compiler: &Compiler) -> F {
+    constant
+        .eval_with(&|cst| Some(F::from_usize(eval_constant_value(cst, compiler))))
+        .unwrap()
+}
+
+fn eval_const_expression_usize(constant: &ConstExpression, compiler: &Compiler) -> usize {
+    eval_const_expression(constant, compiler).as_canonical_u64() as usize
 }
 
 fn try_as_constant(value: &IntermediateValue, compiler: &Compiler) -> Option<F> {
     if let IntermediateValue::Constant(c) = value {
-        Some(eval_constant_expression(c, compiler))
+        Some(eval_const_expression(c, compiler))
     } else {
         None
+    }
+}
+
+impl IntermediateValue {
+    fn try_into_mem_or_fp(&self, compiler: &Compiler) -> Result<MemOrFp, String> {
+        match self {
+            Self::MemoryAfterFp { shift } => Ok(MemOrFp::MemoryAfterFp {
+                shift: eval_const_expression_usize(&shift, compiler),
+            }),
+            Self::Fp => Ok(MemOrFp::Fp),
+            _ => Err(format!("Cannot convert {:?} to MemOrFp", self)),
+        }
     }
 }

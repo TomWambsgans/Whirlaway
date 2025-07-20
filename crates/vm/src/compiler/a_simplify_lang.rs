@@ -1,6 +1,8 @@
 use crate::{
     bytecode::intermediate_bytecode::HighLevelOperation,
-    lang::{Boolean, ConstExpression, Expression, Line, Program, Var, VarOrConstant},
+    lang::{
+        Boolean, ConstExpression, ConstMallocLabel, Expression, Line, Program, SimpleExpr, Var,
+    },
 };
 use p3_field::PrimeField64;
 use std::collections::{BTreeMap, BTreeSet};
@@ -19,53 +21,89 @@ pub struct SimpleFunction {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum VarOrConstMallocAccess {
+    Var(Var),
+    ConstMallocAccess {
+        malloc_label: ConstMallocLabel,
+        offset: ConstExpression,
+    },
+}
+
+impl From<VarOrConstMallocAccess> for SimpleExpr {
+    fn from(var_or_const: VarOrConstMallocAccess) -> Self {
+        match var_or_const {
+            VarOrConstMallocAccess::Var(var) => SimpleExpr::Var(var),
+            VarOrConstMallocAccess::ConstMallocAccess {
+                malloc_label,
+                offset,
+            } => SimpleExpr::ConstMallocAccess {
+                malloc_label,
+                offset,
+            },
+        }
+    }
+}
+
+impl From<Var> for VarOrConstMallocAccess {
+    fn from(var: Var) -> Self {
+        Self::Var(var)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SimpleLine {
     Assignment {
-        var: Var,
+        var: VarOrConstMallocAccess,
         operation: HighLevelOperation,
-        arg0: VarOrConstant,
-        arg1: VarOrConstant,
+        arg0: SimpleExpr,
+        arg1: SimpleExpr,
     },
     RawAccess {
-        res: VarOrConstant,
+        res: SimpleExpr,
         index: Var,
         shift: ConstExpression,
     }, // res = memory[index + shift]
     IfNotZero {
-        condition: VarOrConstant,
+        condition: SimpleExpr,
         then_branch: Vec<Self>,
         else_branch: Vec<Self>,
     },
     FunctionCall {
         function_name: String,
-        args: Vec<VarOrConstant>,
+        args: Vec<SimpleExpr>,
         return_data: Vec<Var>,
     },
     FunctionRet {
-        return_data: Vec<VarOrConstant>,
+        return_data: Vec<SimpleExpr>,
     },
     Poseidon16 {
-        args: [VarOrConstant; 2],
+        args: [SimpleExpr; 2],
         res: [Var; 2],
     },
     Poseidon24 {
-        args: [VarOrConstant; 3],
+        args: [SimpleExpr; 3],
         res: [Var; 3],
     },
     Panic,
     // Hints
     DecomposeBits {
         var: Var, // a pointer to 31 field elements, containing the bits of "to_decompose"
-        to_decompose: VarOrConstant,
+        to_decompose: SimpleExpr,
     },
     Print {
         line_info: String,
-        content: Vec<VarOrConstant>,
+        content: Vec<SimpleExpr>,
     },
-    MAlloc {
+    HintMAlloc {
         var: Var,
-        size: VarOrConstant,
+        size: SimpleExpr,
         vectorized: bool,
+    },
+    ConstMalloc {
+        // always not vectorized
+        var: Var,
+        size: ConstExpression,
+        label: ConstMallocLabel,
     },
 }
 
@@ -73,6 +111,7 @@ pub fn simplify_program(program: &Program) -> SimpleProgram {
     // println!("{}", program.to_string());
     let mut new_functions = BTreeMap::new();
     let mut counters = Counters::default();
+    let mut const_malloc = ConstMalloc::default();
     for (name, func) in &program.functions {
         let mut array_manager = ArrayManager::default();
         let simplified_instructions = simplify_lines(
@@ -81,6 +120,7 @@ pub fn simplify_program(program: &Program) -> SimpleProgram {
             &mut new_functions,
             false,
             &mut array_manager,
+            &mut const_malloc,
         );
         new_functions.insert(
             name.clone(),
@@ -91,6 +131,7 @@ pub fn simplify_program(program: &Program) -> SimpleProgram {
                 instructions: simplified_instructions,
             },
         );
+        const_malloc.map.clear();
     }
     SimpleProgram {
         functions: new_functions,
@@ -108,6 +149,13 @@ struct ArrayManager {
     counter: usize,
     aux_vars: BTreeMap<(Var, Expression), Var>, // (array, index) -> aux_var
     valid: BTreeSet<Var>,                       // currently valid aux vars
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ConstMalloc {
+    counter: usize,
+    map: BTreeMap<Var, ConstMallocLabel>,
+    if_else_branch: bool, // ware we in an if/else branch?
 }
 
 impl ArrayManager {
@@ -129,6 +177,7 @@ fn simplify_lines(
     new_functions: &mut BTreeMap<String, SimpleFunction>,
     in_a_loop: bool,
     array_manager: &mut ArrayManager,
+    const_malloc: &mut ConstMalloc,
 ) -> Vec<SimpleLine> {
     let mut res = Vec::new();
     for line in lines {
@@ -136,10 +185,10 @@ fn simplify_lines(
             Line::Assignment { var, value } => match value {
                 Expression::Value(value) => {
                     res.push(SimpleLine::Assignment {
-                        var: var.clone(),
+                        var: var.clone().into(),
                         operation: HighLevelOperation::Add,
                         arg0: value.clone(),
-                        arg1: VarOrConstant::zero(),
+                        arg1: SimpleExpr::zero(),
                     });
                 }
                 Expression::ArrayAccess { array, index } => {
@@ -150,18 +199,20 @@ fn simplify_lines(
                         index,
                         ArrayAccessType::VarIsAssigned(var.clone()),
                         array_manager,
+                        const_malloc,
                     );
                 }
                 Expression::Binary {
                     left,
-                    operator,
+                    operation,
                     right,
                 } => {
-                    let left = simplify_expr(left, &mut res, counters, array_manager);
-                    let right = simplify_expr(right, &mut res, counters, array_manager);
+                    let left = simplify_expr(left, &mut res, counters, array_manager, const_malloc);
+                    let right =
+                        simplify_expr(right, &mut res, counters, array_manager, const_malloc);
                     res.push(SimpleLine::Assignment {
-                        var: var.clone(),
-                        operation: *operator,
+                        var: var.clone().into(),
+                        operation: *operation,
                         arg0: left,
                         arg1: right,
                     });
@@ -179,16 +230,18 @@ fn simplify_lines(
                     index,
                     ArrayAccessType::ArrayIsAssigned(value.clone()),
                     array_manager,
+                    const_malloc,
                 );
             }
             Line::Assert(boolean) => match boolean {
                 Boolean::Different { left, right } => {
-                    let left = simplify_expr(left, &mut res, counters, array_manager);
-                    let right = simplify_expr(right, &mut res, counters, array_manager);
+                    let left = simplify_expr(left, &mut res, counters, array_manager, const_malloc);
+                    let right =
+                        simplify_expr(right, &mut res, counters, array_manager, const_malloc);
                     let diff_var = format!("@aux_var_{}", counters.aux_vars);
                     counters.aux_vars += 1;
                     res.push(SimpleLine::Assignment {
-                        var: diff_var.clone(),
+                        var: diff_var.clone().into(),
                         operation: HighLevelOperation::Sub,
                         arg0: left,
                         arg1: right,
@@ -200,20 +253,21 @@ fn simplify_lines(
                     });
                 }
                 Boolean::Equal { left, right } => {
-                    let left = simplify_expr(left, &mut res, counters, array_manager);
-                    let right = simplify_expr(right, &mut res, counters, array_manager);
-                    let (var, other) = if let VarOrConstant::Var(left) = left {
+                    let left = simplify_expr(left, &mut res, counters, array_manager, const_malloc);
+                    let right =
+                        simplify_expr(right, &mut res, counters, array_manager, const_malloc);
+                    let (var, other) = if let SimpleExpr::Var(left) = left {
                         (left, right)
-                    } else if let VarOrConstant::Var(right) = right {
+                    } else if let SimpleExpr::Var(right) = right {
                         (right, left)
                     } else {
                         unreachable!("Weird")
                     };
                     res.push(SimpleLine::Assignment {
-                        var: var.clone(),
+                        var: var.clone().into(),
                         operation: HighLevelOperation::Add,
                         arg0: other.into(),
-                        arg1: VarOrConstant::zero(),
+                        arg1: SimpleExpr::zero(),
                     });
                 }
             },
@@ -229,17 +283,24 @@ fn simplify_lines(
                     Boolean::Different { left, right } => (left, right, then_branch, else_branch),
                 };
 
-                let left_simplified = simplify_expr(left, &mut res, counters, array_manager);
-                let right_simplified = simplify_expr(right, &mut res, counters, array_manager);
+                let left_simplified =
+                    simplify_expr(left, &mut res, counters, array_manager, const_malloc);
+                let right_simplified =
+                    simplify_expr(right, &mut res, counters, array_manager, const_malloc);
 
                 let diff_var = format!("@diff_{}", counters.aux_vars);
                 counters.aux_vars += 1;
                 res.push(SimpleLine::Assignment {
-                    var: diff_var.clone(),
+                    var: diff_var.clone().into(),
                     operation: HighLevelOperation::Sub,
                     arg0: left_simplified,
                     arg1: right_simplified,
                 });
+
+                let mut then_const_malloc = const_malloc.clone();
+                let mut else_const_malloc = const_malloc.clone();
+                then_const_malloc.if_else_branch = true;
+                else_const_malloc.if_else_branch = true;
 
                 let mut array_manager_then = array_manager.clone();
                 let then_branch_simplified = simplify_lines(
@@ -248,6 +309,7 @@ fn simplify_lines(
                     new_functions,
                     in_a_loop,
                     &mut array_manager_then,
+                    &mut then_const_malloc,
                 );
                 let mut array_manager_else = array_manager_then.clone();
                 array_manager_else.valid = array_manager.valid.clone(); // Crucial: remove the access added in the IF branch
@@ -258,6 +320,7 @@ fn simplify_lines(
                     new_functions,
                     in_a_loop,
                     &mut array_manager_else,
+                    &mut else_const_malloc,
                 );
 
                 *array_manager = array_manager_else.clone();
@@ -284,26 +347,39 @@ fn simplify_lines(
                 if *unroll {
                     let (internal_variables, _) = find_variable_usage(&body);
                     let mut unrolled_lines = Vec::new();
-                    let start_evaluated = start.naive_eval().as_canonical_u64() as usize;
-                    let end_evaluated = end.naive_eval().as_canonical_u64() as usize;
+                    let start_evaluated = start.naive_eval().unwrap().as_canonical_u64() as usize;
+                    let end_evaluated = end.naive_eval().unwrap().as_canonical_u64() as usize;
 
                     for i in start_evaluated..end_evaluated {
                         let mut body_copy = body.clone();
                         replace_vars_for_unroll(&mut body_copy, iterator, i, &internal_variables);
+                        let mut loop_const_malloc = ConstMalloc::default(); // don't give access to current const_malloc segments
+                        loop_const_malloc.counter = const_malloc.counter;
                         unrolled_lines.extend(simplify_lines(
                             &body_copy,
                             counters,
                             new_functions,
                             in_a_loop,
                             array_manager,
+                            &mut loop_const_malloc,
                         ));
+                        const_malloc.counter = loop_const_malloc.counter;
                     }
                     res.extend(unrolled_lines);
                     continue;
                 }
 
-                let simplified_body =
-                    simplify_lines(body, counters, new_functions, true, array_manager);
+                let mut loop_const_malloc = ConstMalloc::default();
+                loop_const_malloc.counter = const_malloc.counter;
+                let simplified_body = simplify_lines(
+                    body,
+                    counters,
+                    new_functions,
+                    true,
+                    array_manager,
+                    &mut loop_const_malloc,
+                );
+                const_malloc.counter = loop_const_malloc.counter;
 
                 let func_name = format!("@loop_{}", counters.loops);
                 counters.loops += 1;
@@ -321,8 +397,10 @@ fn simplify_lines(
 
                 let mut external_vars: Vec<_> = external_vars.into_iter().collect();
 
-                let start_simplified = simplify_expr(start, &mut res, counters, array_manager);
-                let end_simplified = simplify_expr(end, &mut res, counters, array_manager);
+                let start_simplified =
+                    simplify_expr(start, &mut res, counters, array_manager, const_malloc);
+                let end_simplified =
+                    simplify_expr(end, &mut res, counters, array_manager, const_malloc);
 
                 for (simplified, original) in [
                     (start_simplified.clone(), start.clone()),
@@ -330,7 +408,7 @@ fn simplify_lines(
                 ] {
                     if !matches!(original, Expression::Value(_)) {
                         // the simplified var is auxiliary
-                        if let VarOrConstant::Var(var) = simplified {
+                        if let SimpleExpr::Var(var) = simplified {
                             external_vars.push(var);
                         }
                     }
@@ -368,7 +446,7 @@ fn simplify_lines(
             } => {
                 let simplified_args = args
                     .iter()
-                    .map(|arg| simplify_expr(arg, &mut res, counters, array_manager))
+                    .map(|arg| simplify_expr(arg, &mut res, counters, array_manager, const_malloc))
                     .collect::<Vec<_>>();
                 res.push(SimpleLine::FunctionCall {
                     function_name: function_name.clone(),
@@ -383,7 +461,7 @@ fn simplify_lines(
                 );
                 let simplified_return_data = return_data
                     .iter()
-                    .map(|ret| simplify_expr(ret, &mut res, counters, array_manager))
+                    .map(|ret| simplify_expr(ret, &mut res, counters, array_manager, const_malloc))
                     .collect::<Vec<_>>();
                 res.push(SimpleLine::FunctionRet {
                     return_data: simplified_return_data,
@@ -391,8 +469,8 @@ fn simplify_lines(
             }
             Line::Poseidon16 { args, res: ret } => {
                 let simplified_args = [
-                    simplify_expr(&args[0], &mut res, counters, array_manager),
-                    simplify_expr(&args[1], &mut res, counters, array_manager),
+                    simplify_expr(&args[0], &mut res, counters, array_manager, const_malloc),
+                    simplify_expr(&args[1], &mut res, counters, array_manager, const_malloc),
                 ];
                 res.push(SimpleLine::Poseidon16 {
                     args: simplified_args,
@@ -401,9 +479,9 @@ fn simplify_lines(
             }
             Line::Poseidon24 { args, res: ret } => {
                 let simplified_args = [
-                    simplify_expr(&args[0], &mut res, counters, array_manager),
-                    simplify_expr(&args[1], &mut res, counters, array_manager),
-                    simplify_expr(&args[2], &mut res, counters, array_manager),
+                    simplify_expr(&args[0], &mut res, counters, array_manager, const_malloc),
+                    simplify_expr(&args[1], &mut res, counters, array_manager, const_malloc),
+                    simplify_expr(&args[2], &mut res, counters, array_manager, const_malloc),
                 ];
                 res.push(SimpleLine::Poseidon24 {
                     args: simplified_args,
@@ -413,7 +491,7 @@ fn simplify_lines(
             Line::Print { line_info, content } => {
                 let simplified_content = content
                     .iter()
-                    .map(|var| simplify_expr(var, &mut res, counters, array_manager))
+                    .map(|var| simplify_expr(var, &mut res, counters, array_manager, const_malloc))
                     .collect::<Vec<_>>();
                 res.push(SimpleLine::Print {
                     line_info: line_info.clone(),
@@ -431,16 +509,39 @@ fn simplify_lines(
                 size,
                 vectorized,
             } => {
-                let simplified_size = simplify_expr(size, &mut res, counters, array_manager);
-                res.push(SimpleLine::MAlloc {
-                    var: var.clone(),
-                    size: simplified_size,
-                    vectorized: *vectorized,
-                });
+                let simplified_size =
+                    simplify_expr(size, &mut res, counters, array_manager, const_malloc);
+                match simplified_size {
+                    SimpleExpr::Constant(const_size)
+                        if !*vectorized && !const_malloc.if_else_branch =>
+                    {
+                        // TODO do this optimization even if we are in an if/else branch
+                        let label = const_malloc.counter;
+                        const_malloc.counter += 1;
+                        const_malloc.map.insert(var.clone(), label);
+                        res.push(SimpleLine::ConstMalloc {
+                            var: var.clone(),
+                            size: const_size,
+                            label,
+                        });
+                    }
+                    _ => {
+                        res.push(SimpleLine::HintMAlloc {
+                            var: var.clone(),
+                            size: simplified_size,
+                            vectorized: *vectorized,
+                        });
+                    }
+                }
             }
             Line::DecomposeBits { var, to_decompose } => {
-                let simplified_to_decompose =
-                    simplify_expr(&to_decompose, &mut res, counters, array_manager);
+                let simplified_to_decompose = simplify_expr(
+                    &to_decompose,
+                    &mut res,
+                    counters,
+                    array_manager,
+                    const_malloc,
+                );
                 res.push(SimpleLine::DecomposeBits {
                     var: var.clone(),
                     to_decompose: simplified_to_decompose,
@@ -460,14 +561,24 @@ fn simplify_expr(
     lines: &mut Vec<SimpleLine>,
     counters: &mut Counters,
     array_manager: &mut ArrayManager,
-) -> VarOrConstant {
+    const_malloc: &ConstMalloc,
+) -> SimpleExpr {
     match expr {
         Expression::Value(value) => return value.clone(),
         Expression::ArrayAccess { array, index } => {
+            if let Some(label) = const_malloc.map.get(array) {
+                if let Ok(offset) = ConstExpression::try_from(*index.clone()) {
+                    return SimpleExpr::ConstMallocAccess {
+                        malloc_label: *label,
+                        offset,
+                    };
+                }
+            }
+
             let aux_arr = array_manager.get_aux_var(array, index); // auxiliary var to store m[array + index]
 
             if !array_manager.valid.insert(aux_arr.clone()) {
-                return VarOrConstant::Var(aux_arr.clone());
+                return SimpleExpr::Var(aux_arr.clone());
             }
 
             handle_array_assignment(
@@ -477,23 +588,24 @@ fn simplify_expr(
                 index,
                 ArrayAccessType::VarIsAssigned(aux_arr.clone()),
                 array_manager,
+                const_malloc,
             );
-            return VarOrConstant::Var(aux_arr);
+            return SimpleExpr::Var(aux_arr);
         }
         Expression::Binary {
             left,
-            operator,
+            operation,
             right,
         } => {
-            let left_var = simplify_expr(left, lines, counters, array_manager);
-            let right_var = simplify_expr(right, lines, counters, array_manager);
+            let left_var = simplify_expr(left, lines, counters, array_manager, const_malloc);
+            let right_var = simplify_expr(right, lines, counters, array_manager, const_malloc);
 
-            if let (VarOrConstant::Constant(left_cst), VarOrConstant::Constant(right_cst)) =
+            if let (SimpleExpr::Constant(left_cst), SimpleExpr::Constant(right_cst)) =
                 (&left_var, &right_var)
             {
-                return VarOrConstant::Constant(ConstExpression::Binary {
+                return SimpleExpr::Constant(ConstExpression::Binary {
                     left: Box::new(left_cst.clone()),
-                    operator: *operator,
+                    operation: *operation,
                     right: Box::new(right_cst.clone()),
                 });
             }
@@ -501,12 +613,12 @@ fn simplify_expr(
             let aux_var = format!("@aux_var_{}", counters.aux_vars);
             counters.aux_vars += 1;
             lines.push(SimpleLine::Assignment {
-                var: aux_var.clone(),
-                operation: *operator,
+                var: aux_var.clone().into(),
+                operation: *operation,
                 arg0: left_var,
                 arg1: right_var,
             });
-            return VarOrConstant::Var(aux_var);
+            return SimpleExpr::Var(aux_var);
         }
     }
 }
@@ -635,7 +747,7 @@ fn vars_in_expression(expr: &Expression) -> BTreeSet<Var> {
     let mut vars = BTreeSet::new();
     match expr {
         Expression::Value(value) => {
-            if let VarOrConstant::Var(var) = value {
+            if let SimpleExpr::Var(var) = value {
                 vars.insert(var.clone());
             }
         }
@@ -664,68 +776,85 @@ fn handle_array_assignment(
     index: &Expression,
     access_type: ArrayAccessType,
     array_manager: &mut ArrayManager,
+    const_malloc: &ConstMalloc,
 ) {
+    let simplified_index = simplify_expr(index, res, counters, array_manager, const_malloc);
+
+    if let SimpleExpr::Constant(offset) = simplified_index.clone() {
+        if let Some(label) = const_malloc.map.get(&array) {
+            if let ArrayAccessType::ArrayIsAssigned(Expression::Binary {
+                left,
+                operation,
+                right,
+            }) = access_type
+            {
+                let arg0 = simplify_expr(&left, res, counters, array_manager, const_malloc);
+                let arg1 = simplify_expr(&right, res, counters, array_manager, const_malloc);
+                res.push(SimpleLine::Assignment {
+                    var: VarOrConstMallocAccess::ConstMallocAccess {
+                        malloc_label: label.clone(),
+                        offset,
+                    },
+                    operation,
+                    arg0,
+                    arg1,
+                });
+                return;
+            }
+        }
+    }
+
     let value_simplified = match access_type {
-        ArrayAccessType::VarIsAssigned(var) => VarOrConstant::Var(var.clone()),
+        ArrayAccessType::VarIsAssigned(var) => SimpleExpr::Var(var.clone()),
         ArrayAccessType::ArrayIsAssigned(expr) => {
-            simplify_expr(&expr, res, counters, array_manager)
+            simplify_expr(&expr, res, counters, array_manager, const_malloc)
         }
     };
 
-    let (index_var, shift) = match simplify_expr(index, res, counters, array_manager) {
-        VarOrConstant::Var(var) => {
+    // TODO opti: in some case we could use ConstMallocAccess
+
+    let (index_var, shift) = match simplified_index {
+        SimpleExpr::Constant(c) => (array, c),
+        _ => {
             // Create pointer variable: ptr = array + index
             let ptr_var = format!("@aux_var_{}", counters.aux_vars);
             counters.aux_vars += 1;
             res.push(SimpleLine::Assignment {
-                var: ptr_var.clone(),
+                var: ptr_var.clone().into(),
                 operation: HighLevelOperation::Add,
                 arg0: array.clone().into(),
-                arg1: var.into(),
+                arg1: simplified_index.into(),
             });
             (ptr_var, ConstExpression::zero())
         }
-        VarOrConstant::Constant(c) => (array, c),
     };
 
-    // Replace with raw access
-    match value_simplified {
-        VarOrConstant::Var(var) => {
-            res.push(SimpleLine::RawAccess {
-                res: var.into(),
-                index: index_var.into(),
-                shift,
-            });
-        }
-        VarOrConstant::Constant(cst) => {
-            res.push(SimpleLine::RawAccess {
-                res: VarOrConstant::Constant(cst),
-                index: index_var.into(),
-                shift,
-            });
-        }
-    }
+    res.push(SimpleLine::RawAccess {
+        res: value_simplified.into(),
+        index: index_var.into(),
+        shift,
+    });
 }
 
 fn create_recursive_function(
     name: String,
     args: Vec<Var>,
     iterator: Var,
-    end: VarOrConstant,
+    end: SimpleExpr,
     mut body: Vec<SimpleLine>,
     external_vars: &[Var],
 ) -> SimpleFunction {
     // Add iterator increment
     let next_iter = format!("@incremented_{}", iterator);
     body.push(SimpleLine::Assignment {
-        var: next_iter.clone(),
+        var: next_iter.clone().into(),
         operation: HighLevelOperation::Add,
         arg0: iterator.clone().into(),
-        arg1: VarOrConstant::one(),
+        arg1: SimpleExpr::one(),
     });
 
     // Add recursive call
-    let mut recursive_args: Vec<VarOrConstant> = vec![next_iter.into()];
+    let mut recursive_args: Vec<SimpleExpr> = vec![next_iter.into()];
     recursive_args.extend(external_vars.iter().map(|v| v.clone().into()));
 
     body.push(SimpleLine::FunctionCall {
@@ -741,7 +870,7 @@ fn create_recursive_function(
 
     let instructions = vec![
         SimpleLine::Assignment {
-            var: diff_var.clone(),
+            var: diff_var.clone().into(),
             operation: HighLevelOperation::Sub,
             arg0: iterator.into(),
             arg1: end,
@@ -771,17 +900,20 @@ fn replace_vars_for_unroll_in_expr(
 ) {
     match expr {
         Expression::Value(value_expr) => match value_expr {
-            VarOrConstant::Var(var) => {
+            SimpleExpr::Var(var) => {
                 if var == iterator {
-                    *value_expr = VarOrConstant::Constant(ConstExpression::from(iterator_value));
+                    *value_expr = SimpleExpr::Constant(ConstExpression::from(iterator_value));
                 } else if internal_vars.contains(var) {
                     *var = format!("@unrolled_{}_{}", iterator_value, var).into();
                 }
             }
-            VarOrConstant::Constant(_) => {}
+            SimpleExpr::Constant(_) | SimpleExpr::ConstMallocAccess { .. } => {}
         },
         Expression::ArrayAccess { array, index } => {
             assert!(array != iterator, "Weird");
+            if internal_vars.contains(array) {
+                *array = format!("@unrolled_{}_{}", iterator_value, array).into();
+            }
             replace_vars_for_unroll_in_expr(index, iterator, iterator_value, internal_vars);
         }
         Expression::Binary { left, right, .. } => {
@@ -811,6 +943,9 @@ fn replace_vars_for_unroll(
                 value,
             } => {
                 assert!(array != iterator, "Weird");
+                if internal_vars.contains(array) {
+                    *array = format!("@unrolled_{}_{}", iterator_value, array).into();
+                }
                 replace_vars_for_unroll_in_expr(index, iterator, iterator_value, internal_vars);
                 replace_vars_for_unroll_in_expr(value, iterator, iterator_value, internal_vars);
             }
@@ -911,6 +1046,24 @@ fn replace_vars_for_unroll(
 impl ToString for SimpleLine {
     fn to_string(&self) -> String {
         self.to_string_with_indent(0)
+    }
+}
+
+impl ToString for VarOrConstMallocAccess {
+    fn to_string(&self) -> String {
+        match self {
+            VarOrConstMallocAccess::Var(var) => var.to_string(),
+            VarOrConstMallocAccess::ConstMallocAccess {
+                malloc_label,
+                offset,
+            } => {
+                format!(
+                    "ConstMallocAccess({}, {})",
+                    malloc_label,
+                    offset.to_string()
+                )
+            }
+        }
     }
 }
 
@@ -1052,7 +1205,7 @@ impl SimpleLine {
                     .join(", ");
                 format!("print({})", content_str)
             }
-            SimpleLine::MAlloc {
+            SimpleLine::HintMAlloc {
                 var,
                 size,
                 vectorized,
@@ -1063,6 +1216,13 @@ impl SimpleLine {
                     "malloc"
                 };
                 format!("{} = {}({})", var.to_string(), alloc_type, size.to_string())
+            }
+            SimpleLine::ConstMalloc {
+                var,
+                size,
+                label: _,
+            } => {
+                format!("{} = malloc({})", var.to_string(), size.to_string())
             }
             SimpleLine::Panic => "panic".to_string(),
         };

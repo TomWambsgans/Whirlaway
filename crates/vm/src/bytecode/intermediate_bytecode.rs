@@ -16,7 +16,7 @@ pub struct IntermediateBytecode {
 pub enum IntermediateValue {
     Constant(ConstExpression),
     Fp,
-    MemoryAfterFp { shift: usize }, // m[fp + shift]
+    MemoryAfterFp { shift: ConstExpression }, // m[fp + shift]
 }
 
 impl From<ConstExpression> for IntermediateValue {
@@ -27,7 +27,7 @@ impl From<ConstExpression> for IntermediateValue {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum IntermediaryMemOrFpOrConstant {
-    MemoryAfterFp { shift: usize }, // m[fp + shift]
+    MemoryAfterFp { shift: ConstExpression }, // m[fp + shift]
     Fp,
     Constant(ConstExpression),
 }
@@ -43,6 +43,10 @@ impl IntermediateValue {
         } else {
             None
         }
+    }
+
+    pub fn zero() -> Self {
+        IntermediateValue::Constant(ConstExpression::zero())
     }
 
     pub fn is_constant(&self) -> bool {
@@ -112,7 +116,7 @@ pub enum IntermediateInstruction {
 
     // HINTS (does not appears in the final bytecode)
     RequestMemory {
-        shift: usize,            // m[fp + shift] where the hint will be stored
+        shift: ConstExpression,            // m[fp + shift] where the hint will be stored
         size: IntermediateValue, // the hint
         vectorized: bool, // if true, will be 8-alligned, and the returned pointer will be "divied" by 8 (i.e. everything is in chunks of 8 field elements)
     },
@@ -176,7 +180,7 @@ impl ToString for IntermediateValue {
         match self {
             IntermediateValue::Constant(value) => value.to_string(),
             IntermediateValue::Fp => "fp".to_string(),
-            IntermediateValue::MemoryAfterFp { shift } => format!("m[fp + {}]", shift),
+            IntermediateValue::MemoryAfterFp { shift } => format!("m[fp + {}]", shift.to_string()),
         }
     }
 }
@@ -184,7 +188,7 @@ impl ToString for IntermediateValue {
 impl ToString for IntermediaryMemOrFpOrConstant {
     fn to_string(&self) -> String {
         match self {
-            Self::MemoryAfterFp { shift } => format!("m[fp + {}]", shift),
+            Self::MemoryAfterFp { shift } => format!("m[fp + {}]", shift.to_string()),
             Self::Fp => "fp".to_string(),
             Self::Constant(c) => format!("{}", c.to_string()),
         }
@@ -270,7 +274,7 @@ impl ToString for IntermediateInstruction {
                 vectorized,
             } => format!(
                 "m[fp + {}] = {}({})",
-                shift,
+                shift.to_string(),
                 if *vectorized { "malloc_vec" } else { "malloc" },
                 size.to_string(),
             ),

@@ -20,14 +20,19 @@ pub struct Function {
 }
 
 pub type Var = String;
+pub type ConstMallocLabel = usize;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum VarOrConstant {
+pub enum SimpleExpr {
     Var(Var),
     Constant(ConstExpression),
+    ConstMallocAccess {
+        malloc_label: ConstMallocLabel,
+        offset: ConstExpression,
+    },
 }
 
-impl VarOrConstant {
+impl SimpleExpr {
     pub fn zero() -> Self {
         Self::scalar(0)
     }
@@ -39,38 +44,37 @@ impl VarOrConstant {
     pub fn scalar(scalar: usize) -> Self {
         Self::Constant(ConstantValue::Scalar(scalar).into())
     }
+
+    pub fn is_constant(&self) -> bool {
+        matches!(self, Self::Constant(_))
+    }
 }
 
-impl From<ConstantValue> for VarOrConstant {
+impl From<ConstantValue> for SimpleExpr {
     fn from(constant: ConstantValue) -> Self {
         Self::Constant(constant.into())
     }
 }
 
-impl From<ConstExpression> for VarOrConstant {
+impl From<ConstExpression> for SimpleExpr {
     fn from(constant: ConstExpression) -> Self {
         Self::Constant(constant)
     }
 }
 
-impl From<Var> for VarOrConstant {
+impl From<Var> for SimpleExpr {
     fn from(var: Var) -> Self {
         Self::Var(var)
     }
 }
 
-impl VarOrConstant {
-    pub fn as_var(&self) -> Option<Var> {
-        match self {
-            Self::Var(var) => Some(var.clone()),
-            Self::Constant(_) => None,
-        }
-    }
 
+impl SimpleExpr {
     pub fn as_constant(&self) -> Option<ConstExpression> {
         match self {
             Self::Var(_) => None,
             Self::Constant(constant) => Some(constant.clone()),
+            Self::ConstMallocAccess { .. } => None,
         }
     }
 }
@@ -95,7 +99,7 @@ pub enum ConstExpression {
     Value(ConstantValue),
     Binary {
         left: Box<Self>,
-        operator: HighLevelOperation,
+        operation: HighLevelOperation,
         right: Box<Self>,
     },
 }
@@ -103,6 +107,31 @@ pub enum ConstExpression {
 impl From<usize> for ConstExpression {
     fn from(value: usize) -> Self {
         ConstExpression::Value(ConstantValue::Scalar(value))
+    }
+}
+
+impl TryFrom<Expression> for ConstExpression {
+    type Error = ();
+
+    fn try_from(value: Expression) -> Result<Self, Self::Error> {
+        match value {
+            Expression::Value(SimpleExpr::Constant(const_expr)) => Ok(const_expr),
+            Expression::Value(_) => Err(()),
+            Expression::ArrayAccess { .. } => Err(()),
+            Expression::Binary {
+                left,
+                operation,
+                right,
+            } => {
+                let left_expr = ConstExpression::try_from(*left)?;
+                let right_expr = ConstExpression::try_from(*right)?;
+                Ok(ConstExpression::Binary {
+                    left: Box::new(left_expr),
+                    operation,
+                    right: Box::new(right_expr),
+                })
+            }
+        }
     }
 }
 
@@ -126,24 +155,24 @@ impl ConstExpression {
     pub fn function_size(function_name: Label) -> Self {
         Self::Value(ConstantValue::FunctionSize { function_name })
     }
-    pub fn eval_with<EvalFn>(&self, func: &EvalFn) -> F
+    pub fn eval_with<EvalFn>(&self, func: &EvalFn) -> Option<F>
     where
-        EvalFn: Fn(&ConstantValue) -> F,
+        EvalFn: Fn(&ConstantValue) -> Option<F>,
     {
         match self {
             Self::Value(value) => func(value),
             Self::Binary {
                 left,
-                operator,
+                operation,
                 right,
-            } => operator.eval(left.eval_with(func), right.eval_with(func)),
+            } => Some(operation.eval(left.eval_with(func)?, right.eval_with(func)?)),
         }
     }
 
-    pub fn naive_eval(&self) -> F {
+    pub fn naive_eval(&self) -> Option<F> {
         self.eval_with(&|value| match value {
-            ConstantValue::Scalar(scalar) => F::from_usize(*scalar),
-            _ => panic!("Naive evaluation only supports scalar constants"),
+            ConstantValue::Scalar(scalar) => Some(F::from_usize(*scalar)),
+            _ => None,
         })
     }
 }
@@ -156,20 +185,20 @@ impl From<ConstantValue> for ConstExpression {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Expression {
-    Value(VarOrConstant),
+    Value(SimpleExpr),
     ArrayAccess {
         array: Var,
         index: Box<Expression>,
     },
     Binary {
         left: Box<Self>,
-        operator: HighLevelOperation,
+        operation: HighLevelOperation,
         right: Box<Self>,
     },
 }
 
-impl From<VarOrConstant> for Expression {
-    fn from(value: VarOrConstant) -> Self {
+impl From<SimpleExpr> for Expression {
+    fn from(value: SimpleExpr) -> Self {
         Self::Value(value)
     }
 }
@@ -181,24 +210,15 @@ impl From<Var> for Expression {
 }
 
 impl Expression {
-    pub fn naive_eval(&self) -> F {
+    pub fn naive_eval(&self) -> Option<F> {
         match self {
-            Expression::Value(value) => value.as_constant().map_or_else(
-                || panic!("Naive evaluation only supports constant values"),
-                |const_expr| const_expr.naive_eval(),
-            ),
-            Expression::ArrayAccess { array, index } => {
-                panic!(
-                    "Naive evaluation does not support array access: {}[{}]",
-                    array,
-                    index.to_string()
-                );
-            }
+            Expression::Value(value) => value.as_constant()?.naive_eval(),
+            Expression::ArrayAccess { .. } => None,
             Expression::Binary {
                 left,
-                operator,
+                operation,
                 right,
-            } => operator.eval(left.naive_eval(), right.naive_eval()),
+            } => Some(operation.eval(left.naive_eval()?, right.naive_eval()?)),
         }
     }
 }
@@ -271,13 +291,13 @@ impl ToString for Expression {
             }
             Expression::Binary {
                 left,
-                operator,
+                operation,
                 right,
             } => {
                 format!(
                     "({} {} {})",
                     left.to_string(),
-                    operator.to_string(),
+                    operation.to_string(),
                     right.to_string()
                 )
             }
@@ -485,11 +505,17 @@ impl ToString for ConstantValue {
     }
 }
 
-impl ToString for VarOrConstant {
+impl ToString for SimpleExpr {
     fn to_string(&self) -> String {
         match self {
-            VarOrConstant::Var(var) => var.to_string(),
-            VarOrConstant::Constant(constant) => constant.to_string(),
+            SimpleExpr::Var(var) => var.to_string(),
+            SimpleExpr::Constant(constant) => constant.to_string(),
+            SimpleExpr::ConstMallocAccess {
+                malloc_label,
+                offset,
+            } => {
+                format!("malloc_access({}, {})", malloc_label, offset.to_string())
+            }
         }
     }
 }
@@ -500,13 +526,13 @@ impl ToString for ConstExpression {
             ConstExpression::Value(value) => value.to_string(),
             ConstExpression::Binary {
                 left,
-                operator,
+                operation,
                 right,
             } => {
                 format!(
                     "({} {} {})",
                     left.to_string(),
-                    operator.to_string(),
+                    operation.to_string(),
                     right.to_string()
                 )
             }

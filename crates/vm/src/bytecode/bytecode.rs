@@ -1,7 +1,4 @@
-use crate::{
-    F,
-    bytecode::intermediate_bytecode::{HighLevelOperation, IntermediateValue},
-};
+use crate::{F, bytecode::intermediate_bytecode::HighLevelOperation};
 use p3_field::PrimeCharacteristicRing;
 use std::collections::BTreeMap;
 
@@ -93,18 +90,6 @@ impl TryFrom<HighLevelOperation> for Operation {
             HighLevelOperation::Add => Ok(Operation::Add),
             HighLevelOperation::Mul => Ok(Operation::Mul),
             _ => Err(format!("Cannot convert {:?} to +/x", value)),
-        }
-    }
-}
-
-impl TryFrom<IntermediateValue> for MemOrFp {
-    type Error = String;
-
-    fn try_from(value: IntermediateValue) -> Result<Self, Self::Error> {
-        match value {
-            IntermediateValue::MemoryAfterFp { shift } => Ok(MemOrFp::MemoryAfterFp { shift }),
-            IntermediateValue::Fp => Ok(MemOrFp::Fp),
-            _ => Err(format!("Cannot convert {:?} to MemOrFp", value)),
         }
     }
 }

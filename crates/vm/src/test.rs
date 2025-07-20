@@ -982,7 +982,7 @@ fn test_fiat_shamir_complete() {
             if output_buffer_size - i == 0 {
                 break;
             }
-            res[i] = output_buffer_ptr[8 - i];
+            res[i] = output_buffer_ptr[7 - i];
         }
 
         finished = less_than_8(output_buffer_size - n);
@@ -1231,7 +1231,7 @@ fn test_fiat_shamir_simple() {
             if output_buffer_size - i == 0 {
                 break;
             }
-            res[i] = output_buffer_ptr[8 - i];
+            res[i] = output_buffer_ptr[7 - i];
         }
 
         finished = less_than_8(output_buffer_size - n);

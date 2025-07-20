@@ -1,11 +1,12 @@
 use crate::{
-    bytecode::intermediate_bytecode::*,
+    bytecode::{bytecode::Operation, intermediate_bytecode::*},
     compiler::{
         SimpleProgram,
-        a_simplify_lang::{SimpleFunction, SimpleLine},
+        a_simplify_lang::{SimpleFunction, SimpleLine, VarOrConstMallocAccess},
     },
     lang::*,
 };
+use p3_field::PrimeField64;
 use std::{
     borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
@@ -19,6 +20,7 @@ struct Compiler {
     var_positions: BTreeMap<Var, usize>, // var -> memory offset from fp
     args_count: usize,
     stack_size: usize,
+    const_mallocs: BTreeMap<ConstMallocLabel, usize>, // const_malloc_label -> start = memory offset from fp
 }
 
 impl Compiler {
@@ -31,31 +33,91 @@ impl Compiler {
             args_count: 0,
             if_counter: 0,
             call_counter: 0,
+            const_mallocs: BTreeMap::new(),
         }
     }
 
-    fn get_var_offset(&self, var: &Var) -> usize {
-        self.var_positions
-            .get(var)
-            .unwrap_or_else(|| panic!("Variable {} not in scope", var))
-            .clone()
+    fn get_offset(&self, var: &VarOrConstMallocAccess) -> ConstExpression {
+        match var {
+            VarOrConstMallocAccess::Var(var) => (*self
+                .var_positions
+                .get(var)
+                .unwrap_or_else(|| panic!("Variable {} not in scope", var)))
+            .into(),
+            VarOrConstMallocAccess::ConstMallocAccess {
+                malloc_label,
+                offset,
+            } => ConstExpression::Binary {
+                left: Box::new(
+                    self.const_mallocs
+                        .get(malloc_label)
+                        .copied()
+                        .unwrap_or_else(|| panic!("Const malloc {} not in scope", malloc_label))
+                        .into(),
+                ),
+                operation: HighLevelOperation::Add,
+                right: Box::new(offset.clone()),
+            },
+        }
+    }
+}
+
+impl SimpleExpr {
+    fn into_mem_after_fp_or_constant(&self, compiler: &Compiler) -> IntermediaryMemOrFpOrConstant {
+        match self {
+            SimpleExpr::Var(var) => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
+                shift: compiler.get_offset(&var.clone().into()),
+            },
+            SimpleExpr::Constant(c) => IntermediaryMemOrFpOrConstant::Constant(c.clone()),
+            SimpleExpr::ConstMallocAccess {
+                malloc_label,
+                offset,
+            } => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
+                shift: compiler.get_offset(&VarOrConstMallocAccess::ConstMallocAccess {
+                    malloc_label: malloc_label.clone(),
+                    offset: offset.clone(),
+                }),
+            },
+        }
     }
 }
 
 impl IntermediateValue {
-    fn from_var_or_const(var_or_const: &VarOrConstant, compiler: &Compiler) -> Self {
-        match var_or_const {
-            VarOrConstant::Var(var) => Self::MemoryAfterFp {
-                shift: compiler.get_var_offset(var),
+    fn from_simple_expr(expr: &SimpleExpr, compiler: &Compiler) -> Self {
+        match expr {
+            SimpleExpr::Var(var) => Self::MemoryAfterFp {
+                shift: compiler.get_offset(&var.clone().into()),
             },
-            VarOrConstant::Constant(c) => Self::Constant(c.clone()),
+            SimpleExpr::Constant(c) => Self::Constant(c.clone()),
+            SimpleExpr::ConstMallocAccess {
+                malloc_label,
+                offset,
+            } => Self::MemoryAfterFp {
+                shift: ConstExpression::Binary {
+                    left: Box::new(
+                        compiler
+                            .const_mallocs
+                            .get(malloc_label)
+                            .copied()
+                            .unwrap_or_else(|| panic!("Const malloc {} not in scope", malloc_label))
+                            .into(),
+                    ),
+                    operation: HighLevelOperation::Add,
+                    right: Box::new(offset.clone()),
+                },
+            },
         }
     }
 
     fn from_var(var: &Var, compiler: &Compiler) -> Self {
-        Self::MemoryAfterFp {
-            shift: compiler.get_var_offset(var),
-        }
+        Self::from_simple_expr(&var.clone().into(), compiler)
+    }
+
+    fn from_var_or_const_malloc_access(
+        var_or_const: &VarOrConstMallocAccess,
+        compiler: &Compiler,
+    ) -> Self {
+        Self::from_simple_expr(&var_or_const.clone().into(), compiler)
     }
 }
 
@@ -130,13 +192,15 @@ fn compile_lines(
             } => {
                 instructions.push(IntermediateInstruction::computation(
                     *operation,
-                    IntermediateValue::from_var_or_const(arg0, compiler),
-                    IntermediateValue::from_var_or_const(arg1, compiler),
-                    IntermediateValue::from_var(var, compiler),
+                    IntermediateValue::from_simple_expr(arg0, compiler),
+                    IntermediateValue::from_simple_expr(arg1, compiler),
+                    IntermediateValue::from_var_or_const_malloc_access(var, compiler),
                 ));
 
                 mark_vars_as_declared(&[arg0, arg1], declared_vars);
-                declared_vars.insert(var.clone());
+                if let VarOrConstMallocAccess::Var(var) = var {
+                    declared_vars.insert(var.clone());
+                }
             }
 
             SimpleLine::IfNotZero {
@@ -156,7 +220,7 @@ fn compile_lines(
                 );
 
                 instructions.push(IntermediateInstruction::JumpIfNotZero {
-                    condition: IntermediateValue::from_var_or_const(condition, compiler),
+                    condition: IntermediateValue::from_simple_expr(condition, compiler),
                     dest: IntermediateValue::label(if_label.clone()),
                     updated_fp: None,
                 });
@@ -203,21 +267,14 @@ fn compile_lines(
             }
 
             SimpleLine::RawAccess { res, index, shift } => {
-                validate_vars_declared(&[VarOrConstant::Var(index.clone())], declared_vars)?;
-                if let VarOrConstant::Var(var) = res {
+                validate_vars_declared(&[SimpleExpr::Var(index.clone())], declared_vars)?;
+                if let SimpleExpr::Var(var) = res {
                     declared_vars.insert(var.clone());
                 }
                 instructions.push(IntermediateInstruction::Deref {
-                    shift_0: compiler.get_var_offset(index).into(),
+                    shift_0: compiler.get_offset(&index.clone().into()),
                     shift_1: shift.clone(),
-                    res: match res {
-                        VarOrConstant::Var(var) => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
-                            shift: compiler.get_var_offset(var),
-                        },
-                        VarOrConstant::Constant(c) => {
-                            IntermediaryMemOrFpOrConstant::Constant(c.clone())
-                        }
-                    },
+                    res: res.into_mem_after_fp_or_constant(compiler),
                 });
             }
 
@@ -253,7 +310,7 @@ fn compile_lines(
                             shift_0: new_fp_pos.into(),
                             shift_1: (2 + args.len() + i).into(),
                             res: IntermediaryMemOrFpOrConstant::MemoryAfterFp {
-                                shift: compiler.get_var_offset(ret_var),
+                                shift: compiler.get_offset(&ret_var.clone().into()),
                             },
                         });
                     }
@@ -286,6 +343,7 @@ fn compile_lines(
                     shift: compiler.stack_size - 6,
                 });
             }
+
             SimpleLine::FunctionRet { return_data } => {
                 if compiler.func_name == "main" {
                     instructions.push(IntermediateInstruction::Jump {
@@ -297,23 +355,42 @@ fn compile_lines(
                 }
             }
             SimpleLine::Panic => instructions.push(IntermediateInstruction::Panic),
-            SimpleLine::MAlloc {
+            SimpleLine::HintMAlloc {
                 var,
                 size,
                 vectorized,
             } => {
                 declared_vars.insert(var.clone());
                 instructions.push(IntermediateInstruction::RequestMemory {
-                    shift: compiler.get_var_offset(var),
-                    size: IntermediateValue::from_var_or_const(size, compiler),
+                    shift: compiler.get_offset(&var.clone().into()),
+                    size: IntermediateValue::from_simple_expr(size, compiler),
                     vectorized: *vectorized,
                 });
+            }
+            SimpleLine::ConstMalloc { var, size, label } => {
+                declared_vars.insert(var.clone());
+                instructions.push(IntermediateInstruction::Computation {
+                    operation: Operation::Add,
+                    arg_a: IntermediateValue::Constant(compiler.stack_size.into()),
+                    arg_b: IntermediateValue::Fp,
+                    res: IntermediateValue::MemoryAfterFp {
+                        shift: compiler.get_offset(&var.clone().into()),
+                    },
+                });
+                compiler
+                    .const_mallocs
+                    .insert(label.clone(), compiler.stack_size);
+                compiler.stack_size += size.naive_eval().unwrap().as_canonical_u64() as usize; // TODO not very good
             }
             SimpleLine::DecomposeBits { var, to_decompose } => {
                 declared_vars.insert(var.clone());
                 instructions.push(IntermediateInstruction::DecomposeBits {
-                    res_offset: compiler.get_var_offset(var),
-                    to_decompose: IntermediateValue::from_var_or_const(to_decompose, compiler),
+                    res_offset: compiler
+                        .get_offset(&var.clone().into())
+                        .naive_eval()
+                        .unwrap()
+                        .as_canonical_u64() as usize, // TODO ugly
+                    to_decompose: IntermediateValue::from_simple_expr(to_decompose, compiler),
                 });
             }
             SimpleLine::Print { line_info, content } => {
@@ -321,7 +398,7 @@ fn compile_lines(
                     line_info: line_info.clone(),
                     content: content
                         .iter()
-                        .map(|c| IntermediateValue::from_var_or_const(c, compiler))
+                        .map(|c| IntermediateValue::from_simple_expr(c, compiler))
                         .collect(),
                 });
             }
@@ -339,20 +416,20 @@ fn compile_lines(
 }
 
 // Helper functions
-fn mark_vars_as_declared<VoC: Borrow<VarOrConstant>>(vocs: &[VoC], declared: &mut BTreeSet<Var>) {
+fn mark_vars_as_declared<VoC: Borrow<SimpleExpr>>(vocs: &[VoC], declared: &mut BTreeSet<Var>) {
     for voc in vocs {
-        if let VarOrConstant::Var(v) = voc.borrow() {
+        if let SimpleExpr::Var(v) = voc.borrow() {
             declared.insert(v.clone());
         }
     }
 }
 
-fn validate_vars_declared<VoC: Borrow<VarOrConstant>>(
+fn validate_vars_declared<VoC: Borrow<SimpleExpr>>(
     vocs: &[VoC],
     declared: &BTreeSet<Var>,
 ) -> Result<(), String> {
     for voc in vocs {
-        if let VarOrConstant::Var(v) = voc.borrow() {
+        if let SimpleExpr::Var(v) = voc.borrow() {
             if !declared.contains(v) {
                 return Err(format!("Variable {} not declared", v));
             }
@@ -363,14 +440,14 @@ fn validate_vars_declared<VoC: Borrow<VarOrConstant>>(
 
 fn setup_function_call(
     func_name: &str,
-    args: &[VarOrConstant],
+    args: &[SimpleExpr],
     new_fp_pos: usize,
     return_label: &str,
     compiler: &Compiler,
 ) -> Result<Vec<IntermediateInstruction>, String> {
     let mut instructions = vec![
         IntermediateInstruction::RequestMemory {
-            shift: new_fp_pos,
+            shift: new_fp_pos.into(),
             size: ConstExpression::function_size(func_name.to_string()).into(),
             vectorized: false,
         },
@@ -393,18 +470,15 @@ fn setup_function_call(
         instructions.push(IntermediateInstruction::Deref {
             shift_0: new_fp_pos.into(),
             shift_1: (2 + i).into(),
-            res: match arg {
-                VarOrConstant::Var(var) => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
-                    shift: compiler.get_var_offset(var),
-                },
-                VarOrConstant::Constant(c) => IntermediaryMemOrFpOrConstant::Constant(c.clone()),
-            },
+            res: arg.into_mem_after_fp_or_constant(compiler),
         });
     }
 
     instructions.push(IntermediateInstruction::Jump {
         dest: IntermediateValue::label(format!("@function_{}", func_name)),
-        updated_fp: Some(IntermediateValue::MemoryAfterFp { shift: new_fp_pos }),
+        updated_fp: Some(IntermediateValue::MemoryAfterFp {
+            shift: new_fp_pos.into(),
+        }),
     });
 
     Ok(instructions)
@@ -412,7 +486,7 @@ fn setup_function_call(
 
 fn compile_poseidon(
     instructions: &mut Vec<IntermediateInstruction>,
-    args: &[VarOrConstant],
+    args: &[SimpleExpr],
     results: &[Var],
     compiler: &mut Compiler,
     declared_vars: &mut BTreeSet<Var>,
@@ -421,7 +495,7 @@ fn compile_poseidon(
     for res_var in results {
         if declared_vars.insert((*res_var).clone()) {
             instructions.push(IntermediateInstruction::RequestMemory {
-                shift: compiler.get_var_offset(res_var),
+                shift: compiler.get_offset(&res_var.clone().into()),
                 size: ConstExpression::one().into(),
                 vectorized: true,
             });
@@ -431,9 +505,9 @@ fn compile_poseidon(
     for (i, arg) in args.iter().enumerate() {
         instructions.push(IntermediateInstruction::equality(
             IntermediateValue::MemoryAfterFp {
-                shift: compiler.stack_size + i,
+                shift: (compiler.stack_size + i).into(),
             },
-            IntermediateValue::from_var_or_const(arg, compiler),
+            IntermediateValue::from_simple_expr(arg, compiler),
         ));
     }
 
@@ -441,7 +515,7 @@ fn compile_poseidon(
         instructions.push(IntermediateInstruction::equality(
             IntermediateValue::from_var(res, compiler),
             IntermediateValue::MemoryAfterFp {
-                shift: compiler.stack_size + args.len() + i,
+                shift: (compiler.stack_size + args.len() + i).into(),
             },
         ));
     }
@@ -452,20 +526,20 @@ fn compile_poseidon(
 
 fn compile_function_ret(
     instructions: &mut Vec<IntermediateInstruction>,
-    return_data: &[VarOrConstant],
+    return_data: &[SimpleExpr],
     compiler: &Compiler,
 ) {
     for (i, ret_var) in return_data.iter().enumerate() {
         instructions.push(IntermediateInstruction::equality(
             IntermediateValue::MemoryAfterFp {
-                shift: 2 + compiler.args_count + i,
+                shift: (2 + compiler.args_count + i).into(),
             },
-            IntermediateValue::from_var_or_const(ret_var, compiler),
+            IntermediateValue::from_simple_expr(ret_var, compiler),
         ));
     }
     instructions.push(IntermediateInstruction::Jump {
-        dest: IntermediateValue::MemoryAfterFp { shift: 0 },
-        updated_fp: Some(IntermediateValue::MemoryAfterFp { shift: 1 }),
+        dest: IntermediateValue::MemoryAfterFp { shift: 0.into() },
+        updated_fp: Some(IntermediateValue::MemoryAfterFp { shift: 1.into() }),
     });
 }
 
@@ -473,13 +547,18 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
     let mut internal_vars = BTreeSet::new();
     for line in lines {
         match line {
-            SimpleLine::Assignment { var, .. }
-            | SimpleLine::MAlloc { var, .. }
+            SimpleLine::Assignment { var, .. } => {
+                if let VarOrConstMallocAccess::Var(var) = var {
+                    internal_vars.insert(var.clone());
+                }
+            }
+            SimpleLine::HintMAlloc { var, .. }
+            | SimpleLine::ConstMalloc { var, .. }
             | SimpleLine::DecomposeBits { var, .. } => {
                 internal_vars.insert(var.clone());
             }
             SimpleLine::RawAccess { res, .. } => {
-                if let VarOrConstant::Var(var) = res {
+                if let SimpleExpr::Var(var) = res {
                     internal_vars.insert(var.clone());
                 }
             }
