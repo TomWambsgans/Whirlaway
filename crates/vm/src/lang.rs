@@ -1,6 +1,10 @@
+use p3_field::PrimeCharacteristicRing;
 use std::collections::BTreeMap;
 
-use crate::bytecode::{bytecode::Label, intermediate_bytecode::HighLevelOperation};
+use crate::{
+    F,
+    bytecode::{bytecode::Label, intermediate_bytecode::HighLevelOperation},
+};
 
 #[derive(Debug, Clone)]
 pub struct Program {
@@ -122,6 +126,26 @@ impl ConstExpression {
     pub fn function_size(function_name: Label) -> Self {
         Self::Value(ConstantValue::FunctionSize { function_name })
     }
+    pub fn eval_with<EvalFn>(&self, func: &EvalFn) -> F
+    where
+        EvalFn: Fn(&ConstantValue) -> F,
+    {
+        match self {
+            Self::Value(value) => func(value),
+            Self::Binary {
+                left,
+                operator,
+                right,
+            } => operator.eval(left.eval_with(func), right.eval_with(func)),
+        }
+    }
+
+    pub fn naive_eval(&self) -> F {
+        self.eval_with(&|value| match value {
+            ConstantValue::Scalar(scalar) => F::from_usize(*scalar),
+            _ => panic!("Naive evaluation only supports scalar constants"),
+        })
+    }
 }
 
 impl From<ConstantValue> for ConstExpression {
@@ -156,6 +180,29 @@ impl From<Var> for Expression {
     }
 }
 
+impl Expression {
+    pub fn naive_eval(&self) -> F {
+        match self {
+            Expression::Value(value) => value.as_constant().map_or_else(
+                || panic!("Naive evaluation only supports constant values"),
+                |const_expr| const_expr.naive_eval(),
+            ),
+            Expression::ArrayAccess { array, index } => {
+                panic!(
+                    "Naive evaluation does not support array access: {}[{}]",
+                    array,
+                    index.to_string()
+                );
+            }
+            Expression::Binary {
+                left,
+                operator,
+                right,
+            } => operator.eval(left.naive_eval(), right.naive_eval()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Line {
     Assignment {
@@ -179,6 +226,7 @@ pub enum Line {
         start: Expression,
         end: Expression,
         body: Vec<Self>,
+        unroll: bool,
     },
     FunctionCall {
         function_name: String,
@@ -297,6 +345,7 @@ impl Line {
                 start,
                 end,
                 body,
+                unroll,
             } => {
                 let body_str = body
                     .iter()
@@ -304,10 +353,11 @@ impl Line {
                     .collect::<Vec<_>>()
                     .join("\n");
                 format!(
-                    "for {} in {}..{} {{\n{}\n{}}}",
+                    "for {} in {}..{} {}{{\n{}\n{}}}",
                     iterator.to_string(),
                     start.to_string(),
                     end.to_string(),
+                    if *unroll { "unroll " } else { "" },
                     body_str,
                     spaces
                 )
@@ -394,10 +444,7 @@ impl Line {
                     format!("{} = malloc({})", var.to_string(), size.to_string())
                 }
             }
-            Line::DecomposeBits {
-                var,
-                to_decompose,
-            } => {
+            Line::DecomposeBits { var, to_decompose } => {
                 format!(
                     "{} = decompose_bits({})",
                     var.to_string(),

@@ -10,8 +10,8 @@ use crate::{
             Operation,
         },
         intermediate_bytecode::{
-            HighLevelOperation, IntermediaryMemOrFpOrConstant, IntermediateBytecode,
-            IntermediateInstruction, IntermediateValue,
+            IntermediaryMemOrFpOrConstant, IntermediateBytecode, IntermediateInstruction,
+            IntermediateValue,
         },
     },
     lang::*,
@@ -276,23 +276,7 @@ fn eval_constant_value(constant: &ConstantValue, compiler: &Compiler) -> usize {
 }
 
 fn eval_constant_expression(constant: &ConstExpression, compiler: &Compiler) -> F {
-    match constant {
-        ConstExpression::Value(value) => F::from_usize(eval_constant_value(value, compiler)),
-        ConstExpression::Binary {
-            left,
-            operator,
-            right,
-        } => {
-            let left = eval_constant_expression(left, compiler);
-            let right = eval_constant_expression(right, compiler);
-            match operator {
-                HighLevelOperation::Add => left + right,
-                HighLevelOperation::Sub => left - right,
-                HighLevelOperation::Mul => left * right,
-                HighLevelOperation::Div => left / right,
-            }
-        }
-    }
+    constant.eval_with(&|cst| F::from_usize(eval_constant_value(cst, compiler)))
 }
 
 fn try_as_constant(value: &IntermediateValue, compiler: &Compiler) -> Option<F> {

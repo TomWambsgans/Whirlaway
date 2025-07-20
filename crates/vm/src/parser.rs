@@ -221,10 +221,18 @@ fn parse_for_statement(
     let start = parse_expression(inner.next().unwrap(), constants)?;
     let end = parse_expression(inner.next().unwrap(), constants)?;
 
+    let mut unroll = false;
     let mut body = Vec::new();
+    
     for item in inner {
-        if item.as_rule() == Rule::statement {
-            body.push(parse_statement(item, constants, trash_var_count)?);
+        match item.as_rule() {
+            Rule::unroll_clause => {
+                unroll = true;
+            }
+            Rule::statement => {
+                body.push(parse_statement(item, constants, trash_var_count)?);
+            }
+            _ => {}
         }
     }
 
@@ -233,6 +241,7 @@ fn parse_for_statement(
         start,
         end,
         body,
+        unroll,
     })
 }
 
@@ -250,6 +259,7 @@ fn parse_return_statement(
     }
     Ok(Line::FunctionRet { return_data })
 }
+
 fn parse_expression(
     pair: Pair<Rule>,
     constants: &BTreeMap<String, usize>,
@@ -321,6 +331,7 @@ fn parse_argument_list(
         .map(|item| parse_expression(item, constants))
         .collect()
 }
+
 fn parse_function_call(
     pair: Pair<Rule>,
     constants: &BTreeMap<String, usize>,
@@ -570,6 +581,10 @@ fn main() {
     k = public_input_start;
 
     for i in a..(b + 9) * ( 7 - 7 ) {
+        assert i != d;
+    }
+
+    for i in a..(b + 9) * ( 7 - 7 ) unroll {
         assert i != d;
     }
 

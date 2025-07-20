@@ -43,7 +43,8 @@ condition_diff = { expression ~ "!=" ~ expression }
 
 else_clause = { "else" ~ "{" ~ statement* ~ "}" }
 
-for_statement = { "for" ~ identifier ~ "in" ~ expression ~ ".." ~ expression ~ "{" ~ statement* ~ "}" }
+for_statement = { "for" ~ identifier ~ "in" ~ expression ~ ".." ~ expression ~ unroll_clause? ~ "{" ~ statement* ~ "}" }
+unroll_clause = { "unroll" }
 
 function_call = { function_res? ~ identifier ~ "(" ~ argument_list? ~ ")" ~ ";" }
 function_res = { var_list ~ "=" }

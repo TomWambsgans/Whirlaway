@@ -30,6 +30,23 @@ fn test_fibonacci_program() {
 }
 
 #[test]
+fn test_unroll() {
+    // a program to check the value of the 30th Fibonacci number (832040)
+    let program = r#"
+    fn main() {
+        for i in 0..5 unroll {
+            for j in i..2*i unroll {
+                print(i, j);
+            }
+        }
+        return;
+    }
+   "#;
+    compile_and_run(program, &[], &[]);
+}
+
+
+#[test]
 fn test_mini_program_0() {
     let program = r#"
     fn main() {

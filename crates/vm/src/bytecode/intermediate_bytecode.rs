@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use p3_field::Field;
+
 use crate::{bytecode::bytecode::Operation, lang::ConstExpression};
 
 pub type Label = String;
@@ -62,6 +64,17 @@ pub enum HighLevelOperation {
     Mul,
     Sub,
     Div, // in the end everything compiles to either Add or Mul
+}
+
+impl HighLevelOperation {
+    pub fn eval<F: Field>(&self, a: F, b: F) -> F {
+        match self {
+            HighLevelOperation::Add => a + b,
+            HighLevelOperation::Mul => a * b,
+            HighLevelOperation::Sub => a - b,
+            HighLevelOperation::Div => a / b,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -185,9 +198,21 @@ impl ToString for IntermediateInstruction {
                 shift_0,
                 shift_1,
                 res,
-            } => format!("{} = m[m[fp + {}] + {}]", res.to_string(), shift_0.to_string(), shift_1.to_string()),
-            IntermediateInstruction::DecomposeBits { res_offset, to_decompose } => {
-                format!("m[fp + {}] = decompose_bits({})", res_offset, to_decompose.to_string())
+            } => format!(
+                "{} = m[m[fp + {}] + {}]",
+                res.to_string(),
+                shift_0.to_string(),
+                shift_1.to_string()
+            ),
+            IntermediateInstruction::DecomposeBits {
+                res_offset,
+                to_decompose,
+            } => {
+                format!(
+                    "m[fp + {}] = decompose_bits({})",
+                    res_offset,
+                    to_decompose.to_string()
+                )
             }
             IntermediateInstruction::Computation {
                 operation,
