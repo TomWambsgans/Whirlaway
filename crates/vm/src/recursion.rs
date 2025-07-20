@@ -180,10 +180,51 @@ pub fn run_whir_verif() {
             stir_index_bits = stir_challenges_indexes[i];
             circle_value = unit_root_pow(folded_domain_size, stir_index_bits);
             circle_values[i] = circle_value;
-            print(circle_value);
         }
 
+        fs_state_12, combination_randomness_gen_1 = fs_sample_ef(fs_state_11);
+
+        combination_randomness_powers_1 = powers(combination_randomness_gen_1 * 8, NUM_QUERIES_0 + 1); // "+ 1" because of one OOD sample
+
+        claimed_sum_supplement_1_a = dot_product_extension(folds * 8, combination_randomness_powers_1 + 8, NUM_QUERIES_0);
+        claimed_sum_supplement_1 = malloc(8);
+        add_extension(claimed_sum_supplement_1_a, ood_eval_1 * 8, claimed_sum_supplement_1);
+
+        // print_chunk(claimed_sum_supplement_1); // 421728488 .. 1196767309
+
         return;
+    }
+
+    fn powers(alpha, n) -> 1 {
+        // alpha: (normal) pointer to one EF element (size: 8)
+        // n: F
+        // returns a (normal) pointer to n consecutive EF elements (size: 8n), equal to 1, alpha, alpha^2 ...
+
+        res = malloc(8*n);
+        res[0] = 1; for i in 1..8 unroll { res[i] = 0; }
+        for i in 0..n - 1 {
+            mul_extension(res + (8 * i), alpha, res + (8 * (i + 1)));
+        }
+        return res;
+    }
+
+    fn dot_product_extension(a, b, n) -> 1 {
+        // a: normal pointer to n EF elements (size: 8n)
+        // b: pointer to n EF elements (size: 8n)
+        // returns a (normal) pointer to 1 EF element (size: 8), equal to the dot product of a and b
+
+        prods = malloc(n * 8);
+        for i in 0..n {
+            mul_extension(a + (i * 8), b + (i * 8), prods + (i * 8));
+        }
+
+        sums = malloc(n * 8);
+        for i in 0..8 unroll { sums[i] = prods[i]; }
+        for i in 0..n - 1 {
+            add_extension(sums + (i * 8), prods + ((i + 1) * 8), sums + ((i + 1) * 8));
+        }
+
+        return sums + (n - 1) * 8;
     }
 
     fn unit_root_pow(domain_size, index_bits) -> 1 {
@@ -539,11 +580,14 @@ pub fn run_whir_verif() {
         return 1; // a == b
     }
 
-    fn print_chunk(vec) {
-        // vec is a vectorized pointer
-        ptr = vec * 8;
+    fn print_chunk_vec(a) {
+        print_chunk(a * 8);
+        return;
+    }
+
+    fn print_chunk(a) {
         for i in 0..8 {
-            print(ptr[i]);
+            print(a[i]);
         }
         return;
     }
