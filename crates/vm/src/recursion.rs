@@ -375,7 +375,7 @@ pub fn run_whir_verif() {
             if output_buffer_size - i == 0 {
                 break;
             }
-            res[i] = output_buffer_ptr[7 - i];
+            res[i] = output_buffer_ptr[output_buffer_size - 1 - i];
         }
 
         finished = less_than_8(output_buffer_size - n);
