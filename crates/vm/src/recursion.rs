@@ -102,10 +102,10 @@ pub fn run_whir_verif() {
             whir_round(fs_state_6, root_2, FOLDING_FACTOR_2, TWO_POW_FOLDING_FACTOR_2, 0, NUM_QUERIES_2, domain_size_2, claimed_sum_2);
 
         domain_size_3 = domain_size_2 - RS_REDUCTION_FACTOR_2;
-        fs_state_8, final_folding_randomness, final_claimed_sum = sumcheck(fs_state_7, FOLDING_FACTOR_3, claimed_sum_3);
+        fs_state_8, folding_randomness_4, final_claimed_sum = sumcheck(fs_state_7, FOLDING_FACTOR_3, claimed_sum_3);
         two_pow_final_vars = pow(2, FINAL_VARS);
         fs_state_9, final_coeffcients = fs_receive(fs_state_8, two_pow_final_vars);
-        fs_state_10, final_circle_values, final_folds = sample_stir_indexes_and_fold(fs_state_9, NUM_QUERIES_3, 0, FOLDING_FACTOR_3, TWO_POW_FOLDING_FACTOR_3, domain_size_3, root_3, final_folding_randomness);
+        fs_state_10, final_circle_values, final_folds = sample_stir_indexes_and_fold(fs_state_9, NUM_QUERIES_3, 0, FOLDING_FACTOR_3, TWO_POW_FOLDING_FACTOR_3, domain_size_3, root_3, folding_randomness_4);
 
         for i in 0..NUM_QUERIES_3 {
             powers_of_2_rev = powers_of_two_rev_base(final_circle_values[i], FINAL_VARS);
@@ -117,11 +117,76 @@ pub fn run_whir_verif() {
             assert correct_eval == 1;
         }
 
-        fs_state_11, final_sumcheck_coeffs, end_sum = sumcheck(fs_state_10, FINAL_VARS, final_claimed_sum);
+        fs_state_11, folding_randomness_5, end_sum = sumcheck(fs_state_10, FINAL_VARS, final_claimed_sum);
 
-        print_chunk(end_sum); // 2028856125..1654386597
+        // print_chunk(end_sum); // 2028856125..1654386597
+
+        folding_randomness_global = malloc(N_VARS * 8);
+
+        for i in 0..FINAL_VARS {
+            copy_chunk(folding_randomness_5 + (i * 8), folding_randomness_global + (i * 8));
+        }
+        for i in 0..FOLDING_FACTOR_3 {
+            copy_chunk(folding_randomness_4 + (i * 8), folding_randomness_global + ((i + FINAL_VARS) * 8));
+        }
+        for i in 0..FOLDING_FACTOR_2 {
+            copy_chunk(folding_randomness_3 + (i * 8), folding_randomness_global + ((i + FINAL_VARS + FOLDING_FACTOR_3) * 8));
+        }
+        for i in 0..FOLDING_FACTOR_1 {
+            copy_chunk(folding_randomness_2 + (i * 8), folding_randomness_global + ((i + FINAL_VARS + FOLDING_FACTOR_3 + FOLDING_FACTOR_2) * 8));
+        }
+        for i in 0..FOLDING_FACTOR_0 {
+            copy_chunk(folding_randomness_1 + (i * 8), folding_randomness_global + ((i + FINAL_VARS + FOLDING_FACTOR_3 + FOLDING_FACTOR_2 + FOLDING_FACTOR_1) * 8));
+        }
+        
+        // ------------------------------------------------------------------------------------------
+        ood_0_expanded_from_univariate = powers_of_two_rev_extension(ood_point_0 * 8, N_VARS);
+        s0 = eq_mle_extension(ood_0_expanded_from_univariate, folding_randomness_global, N_VARS);
+
+        s1 = eq_mle_extension(pcs_point * 8, folding_randomness_global, N_VARS);
+
+        s3 = malloc(8);
+        mul_extension(s1, combination_randomness_gen_0*8, s3);
+
+        s4 = malloc(8);
+        add_extension(s0, s3, s4);
+
+        // ------------------------------------------------------------------------------------------
+        
+        ood_1_expanded_from_univariate = powers_of_two_rev_extension(ood_point_1 * 8, N_VARS - FOLDING_FACTOR_0);
+        s5 = eq_mle_extension(ood_1_expanded_from_univariate, folding_randomness_global, N_VARS - FOLDING_FACTOR_0);
+
+        print_chunk(s5);
+
+
 
         return;
+    }
+
+    fn eq_mle_extension(a, b, n) -> 1 {
+        // normal pointers
+
+        buff = malloc(n * 8);
+
+        for i in 0..n {
+            ai = a + (i * 8);
+            bi = b + (i * 8);
+            buffi = buff + (i * 8);
+            ab = malloc(8);
+            mul_extension(ai, bi, ab);
+            buffi[0] = 1 + 2 * ab[0] - ai[0] - bi[0];
+            for j in 1..8 {
+                buffi[j] = 2 * ab[j] - ai[j] - bi[j];
+            }
+        }
+
+
+        prods = malloc(n * 8);
+        copy_chunk(buff, prods);
+        for i in 0..n - 1 {
+            mul_extension(prods + (i * 8), buff + ((i + 1) * 8), prods + ((i + 1) * 8));
+        }
+        return prods + (n - 1) * 8; // a normal pointer to 8 field elements
     }
 
     fn powers_of_two_rev_base(alpha, n) -> 1 {
@@ -132,6 +197,18 @@ pub fn run_whir_verif() {
         res[n - 1] = alpha;
         for i in 1..n {
             res[n - 1 - i] = res[n - i] * res[n - i];
+        }
+        return res;
+    }
+
+    fn powers_of_two_rev_extension(alpha, n) -> 1 {
+        // "expand_from_univariate"
+        // everything is normal pointers, in the extension field
+
+        res = malloc(n * 8);
+        copy_chunk(alpha, res + (n - 1) * 8);
+        for i in 1..n {
+            mul_extension(res + (n - i) * 8, res + (n - i) * 8, res + (n - 1 - i) * 8);
         }
         return res;
     }
