@@ -44,6 +44,8 @@ pub fn run_whir_verif() {
     const RS_REDUCTION_FACTOR_2 = 1;
 
     const NUM_QUERIES_0 = 138;
+    const NUM_QUERIES_1 = 44;
+    const NUM_QUERIES_2 = 22;
 
     const ROOT_19 = 339671193;
     const ROOT_18 = 1816824389;
@@ -78,20 +80,38 @@ pub fn run_whir_verif() {
         fs_state_4, combination_randomness_gen_0 = fs_sample_ef(fs_state_3);  // vectorized pointer of len 1
 
         claimed_sum_side = mul_extension_vec(combination_randomness_gen_0, pcs_eval);
-        claimed_sum = add_extension_vec(ood_eval_0, claimed_sum_side);
+        claimed_sum_0 = malloc(8);
+        add_extension(ood_eval_0 * 8, claimed_sum_side * 8, claimed_sum_0);
 
-        fs_states_a = malloc(FOLDING_FACTOR_0 + 1);
-        fs_states_a[0] = fs_state_4;
+        domain_size_0 = N_VARS + LOG_INV_RATE;
+        fs_state_5, folding_randomness_1, ood_point_1, root_1, circle_values_1, combination_randomness_powers_1, claimed_sum_1 = 
+            whir_round(fs_state_4, root_0, FOLDING_FACTOR_0, TWO_POW_FOLDING_FACTOR_0, 1, NUM_QUERIES_0, domain_size_0, claimed_sum_0);
 
-        claimed_sums = malloc(FOLDING_FACTOR_0 + 1);
+        domain_size_1 = domain_size_0 - RS_REDUCTION_FACTOR_0;
+        fs_state_6, folding_randomness_2, ood_point_2, root_2, circle_values_2, combination_randomness_powers_2, claimed_sum_2 = 
+            whir_round(fs_state_5, root_1, FOLDING_FACTOR_1, TWO_POW_FOLDING_FACTOR_1, 0, NUM_QUERIES_1, domain_size_1, claimed_sum_1);
+
+        domain_size_2 = domain_size_1 - RS_REDUCTION_FACTOR_1;
+        fs_state_7, folding_randomness_3, ood_point_3, root_3, circle_values_3, combination_randomness_powers_3, claimed_sum_3 = 
+            whir_round(fs_state_6, root_2, FOLDING_FACTOR_2, TWO_POW_FOLDING_FACTOR_2, 0, NUM_QUERIES_2, domain_size_2, claimed_sum_2);
+
+        return;
+    }
+
+    fn whir_round(fs_states, prev_root, folding_factor, two_pow_folding_factor, is_first_round, num_queries, domain_size, claimed_sum) -> 7 {
+
+        fs_states_a = malloc(folding_factor + 1);
+        fs_states_a[0] = fs_states;
+
+        claimed_sums = malloc(folding_factor + 1);
         claimed_sums[0] = claimed_sum;
 
-        folding_randomness = malloc(FOLDING_FACTOR_0); // in reverse order. A vector of vectorized pointers, each pointing to 1 chunk of 8 field elements
+        folding_randomness = malloc(folding_factor); // in reverse order. A vector of vectorized pointers, each pointing to 1 chunk of 8 field elements
 
-        for sc_round in 0..FOLDING_FACTOR_0 {
+        for sc_round in 0..folding_factor {
             fs_state_5, poly = fs_receive(fs_states_a[sc_round], 3); // vectorized pointer of len 1
             sum_over_boolean_hypercube = degree_two_polynomial_sum_at_0_and_1(poly);
-            consistent = eq_extension_vec(sum_over_boolean_hypercube, claimed_sums[sc_round]);
+            consistent = eq_extension(sum_over_boolean_hypercube, claimed_sums[sc_round]);
             if consistent == 0 {
                 panic();
             }
@@ -99,51 +119,60 @@ pub fn run_whir_verif() {
             fs_states_a[sc_round + 1] = fs_state_6;
             new_claimed_sum = degree_two_polynomial_eval(poly, rand);
             claimed_sums[sc_round + 1] = new_claimed_sum;
-            folding_randomness[FOLDING_FACTOR_0 - 1 - sc_round] = rand;
+            folding_randomness[folding_factor - 1 - sc_round] = rand;
         }
 
-        fs_state_7 = fs_states_a[FOLDING_FACTOR_0];
+        new_claimed_sum_a = claimed_sums[folding_factor];
 
-        fs_state_8, root_1, ood_point_1, ood_eval_1 = parse_commitment(fs_state_7);
+        fs_state_7 = fs_states_a[folding_factor];
 
-        fs_state_9, stir_challenges_indexes = sample_bits(fs_state_8, NUM_QUERIES_0);
+        fs_state_8, root, ood_point, ood_eval = parse_commitment(fs_state_7);
 
-        // fs_print_state(fs_state_9); // 614216178 .. 310158447
+        fs_state_9, stir_challenges_indexes = sample_bits(fs_state_8, num_queries);
 
-        answers = malloc(NUM_QUERIES_0); // a vector of vectorized pointers, each pointing to TWO_POW_FOLDING_FACTOR_0 base field elements
-        fs_states_b = malloc(NUM_QUERIES_0 + 1);
+        // fs_print_state(fs_state_9);
+
+        answers = malloc(num_queries); // a vector of vectorized pointers, each pointing to `two_pow_folding_factor` field elements (base if first rounds, extension otherwise)
+        fs_states_b = malloc(num_queries + 1);
         fs_states_b[0] = fs_state_9;
+        
+        // the number of chunk of 8 field elements per merkle leaf opened
+        if is_first_round == 1 {
+            n_chuncks_per_answer = two_pow_folding_factor / 8; // "/ 8" because initial merkle leaves are in the basefield
+        } else {
+            n_chuncks_per_answer = two_pow_folding_factor;
+        }
 
-        for i in 0..NUM_QUERIES_0 {
-            new_fs_state, answer = fs_hint(fs_states_b[i], TWO_POW_FOLDING_FACTOR_0 / 8); // "/ 8" because initial merkle leaves are in the basefield
+        for i in 0..num_queries {
+            new_fs_state, answer = fs_hint(fs_states_b[i], n_chuncks_per_answer); 
             fs_states_b[i + 1] = new_fs_state;
             answers[i] = answer;
         }
-        fs_state_10 = fs_states_b[NUM_QUERIES_0];
+        fs_state_10 = fs_states_b[num_queries];
 
-        leaf_hashes = malloc(NUM_QUERIES_0); // a vector of vectorized pointers, each pointing to 1 chunk of 8 field elements
-        for i in 0..NUM_QUERIES_0 {
+        leaf_hashes = malloc(num_queries); // a vector of vectorized pointers, each pointing to 1 chunk of 8 field elements
+        for i in 0..num_queries {
             answer = answers[i];
-            internal_states = malloc(1 + ((TWO_POW_FOLDING_FACTOR_0 / 8) / 2)); // "/ 2" because with poseidon24 we hash 2 chuncks of 8 field elements at each permutation
+            internal_states = malloc(1 + (n_chuncks_per_answer / 2)); // "/ 2" because with poseidon24 we hash 2 chuncks of 8 field elements at each permutation
             internal_states[0] = pointer_to_zero_vector; // initial state
-            for j in 0..(TWO_POW_FOLDING_FACTOR_0 / 8) / 2 {
+            for j in 0..n_chuncks_per_answer / 2 {
                 new_state_0, _, new_state_2 = poseidon24(answer + (2*j), answer + (2*j) + 1, internal_states[j]);
-                if j == ((TWO_POW_FOLDING_FACTOR_0 / 8) / 2) - 1 {
+                if j == (n_chuncks_per_answer / 2) - 1 {
                     // last step
                     internal_states[j + 1] = new_state_0;
                 } else {
                     internal_states[j + 1] = new_state_2;
                 }
             }
-            leaf_hashes[i] = internal_states[(TWO_POW_FOLDING_FACTOR_0 / 8) / 2];
+            leaf_hashes[i] = internal_states[n_chuncks_per_answer / 2];
         }
 
-        folded_domain_size = N_VARS + LOG_INV_RATE - FOLDING_FACTOR_0;
+        folded_domain_size = domain_size - folding_factor;
 
-        fs_states_c = malloc(NUM_QUERIES_0 + 1);
+        fs_states_c = malloc(num_queries + 1);
         fs_states_c[0] = fs_state_10;
 
-        for i in 0..NUM_QUERIES_0 {
+        for i in 0..num_queries {
             fs_state_11, merkle_path = fs_hint(fs_states_c[i], folded_domain_size);
             fs_states_c[i + 1] = fs_state_11;
 
@@ -162,36 +191,50 @@ pub fn run_whir_verif() {
                 state_j_plus_1, _ = poseidon16(left, right);
                 states[j + 1] = state_j_plus_1;
             }
-            correct_root = eq_extension_vec(states[folded_domain_size], root_0);
+            correct_root = eq_extension_vec(states[folded_domain_size], prev_root);
             assert correct_root == 1;
         }
 
-        fs_state_11 = fs_states_c[NUM_QUERIES_0];
+        fs_state_11 = fs_states_c[num_queries];
 
-        poly_eq_0 = poly_eq(folding_randomness, FOLDING_FACTOR_0, TWO_POW_FOLDING_FACTOR_0);
+        poly_eq = poly_eq(folding_randomness, folding_factor, two_pow_folding_factor);
 
-        folds = malloc_vec(NUM_QUERIES_0);
-        for i in 0..NUM_QUERIES_0 {
-            dot_product_base_extension(answers[i] * 8, poly_eq_0, folds + i);
+        folds = malloc_vec(num_queries);
+        if is_first_round == 1 {
+            for i in 0..num_queries {
+                dot_product_base_extension(answers[i] * 8, poly_eq, folds + i);
+            }
+        } else {
+            for i in 0..num_queries {
+                temp = dot_product_extension(answers[i] * 8, poly_eq * 8, two_pow_folding_factor);
+                copy_chunk(temp, (folds + i) * 8);
+            }
         }
 
-        circle_values = malloc(NUM_QUERIES_0); // ROOT^each_stir_index
-        for i in 0..NUM_QUERIES_0 {
+        circle_values = malloc(num_queries); // ROOT^each_stir_index
+        for i in 0..num_queries {
             stir_index_bits = stir_challenges_indexes[i];
             circle_value = unit_root_pow(folded_domain_size, stir_index_bits);
             circle_values[i] = circle_value;
         }
 
-        fs_state_12, combination_randomness_gen_1 = fs_sample_ef(fs_state_11);
+        fs_state_12, combination_randomness_gen = fs_sample_ef(fs_state_11);
 
-        combination_randomness_powers_1 = powers(combination_randomness_gen_1 * 8, NUM_QUERIES_0 + 1); // "+ 1" because of one OOD sample
+        combination_randomness_powers = powers(combination_randomness_gen * 8, num_queries + 1); // "+ 1" because of one OOD sample
 
-        claimed_sum_supplement_1_a = dot_product_extension(folds * 8, combination_randomness_powers_1 + 8, NUM_QUERIES_0);
-        claimed_sum_supplement_1 = malloc(8);
-        add_extension(claimed_sum_supplement_1_a, ood_eval_1 * 8, claimed_sum_supplement_1);
+        claimed_sum_supplement_side = dot_product_extension(folds * 8, combination_randomness_powers + 8, num_queries);
+        claimed_sum_supplement = malloc(8);
+        add_extension(claimed_sum_supplement_side, ood_eval * 8, claimed_sum_supplement);
+        new_claimed_sum_b = malloc(8);
+        add_extension(claimed_sum_supplement, new_claimed_sum_a, new_claimed_sum_b);
 
-        // print_chunk(claimed_sum_supplement_1); // 421728488 .. 1196767309
+        return fs_state_12, folding_randomness, ood_point, root, circle_values, combination_randomness_powers, new_claimed_sum_b;
+    }
 
+    fn copy_chunk(src, dst) {
+        // src: pointer to 8 F
+        // dst: pointer to 8 F
+        for i in 0..8 unroll { dst[i] = src[i]; }
         return;
     }
 
@@ -234,7 +277,17 @@ pub fn run_whir_verif() {
             return ((index_bits[0] * ROOT_19) + (1 - index_bits[0])) * ((index_bits[1] * ROOT_18) + (1 - index_bits[1])) * ((index_bits[2] * ROOT_17) + (1 - index_bits[2])) * ((index_bits[3] * ROOT_16) + (1 - index_bits[3])) * ((index_bits[4] * ROOT_15) + (1 - index_bits[4])) * ((index_bits[5] * ROOT_14) + (1 - index_bits[5])) * ((index_bits[6] * ROOT_13) + (1 - index_bits[6])) * ((index_bits[7] * ROOT_12) + (1 - index_bits[7])) * ((index_bits[8] * ROOT_11) + (1 - index_bits[8])) * ((index_bits[9] * ROOT_10) + (1 - index_bits[9])) * ((index_bits[10] * ROOT_9) + (1 - index_bits[10])) * ((index_bits[11] * ROOT_8) + (1 - index_bits[11])) * ((index_bits[12] * ROOT_7) + (1 - index_bits[12])) * ((index_bits[13] * ROOT_6) + (1 - index_bits[13])) * ((index_bits[14] * ROOT_5) + (1 - index_bits[14])) * ((index_bits[15] * ROOT_4) + (1 - index_bits[15])) * ((index_bits[16] * ROOT_3) + (1 - index_bits[16])) * ((index_bits[17] * ROOT_2) + (1 - index_bits[17])) * ((index_bits[18] * ROOT_1) + (1 - index_bits[18]));
         }
 
-        panic(); // unimplemented
+        if domain_size == 17 {
+            return ((index_bits[0] * ROOT_17) + (1 - index_bits[0])) * ((index_bits[1] * ROOT_16) + (1 - index_bits[1])) * ((index_bits[2] * ROOT_15) + (1 - index_bits[2])) * ((index_bits[3] * ROOT_14) + (1 - index_bits[3])) * ((index_bits[4] * ROOT_13) + (1 - index_bits[4])) * ((index_bits[5] * ROOT_12) + (1 - index_bits[5])) * ((index_bits[6] * ROOT_11) + (1 - index_bits[6])) * ((index_bits[7] * ROOT_10) + (1 - index_bits[7])) * ((index_bits[8] * ROOT_9) + (1 - index_bits[8])) * ((index_bits[9] * ROOT_8) + (1 - index_bits[9])) * ((index_bits[10] * ROOT_7) + (1 - index_bits[10])) * ((index_bits[11] * ROOT_6) + (1 - index_bits[11])) * ((index_bits[12] * ROOT_5) + (1 - index_bits[12])) * ((index_bits[13] * ROOT_4) + (1 - index_bits[13])) * ((index_bits[14] * ROOT_3) + (1 - index_bits[14])) * ((index_bits[15] * ROOT_2) + (1 - index_bits[15])) * ((index_bits[16] * ROOT_1) + (1 - index_bits[16]));
+        }
+
+        if domain_size == 16 {
+            return ((index_bits[0] * ROOT_16) + (1 - index_bits[0])) * ((index_bits[1] * ROOT_15) + (1 - index_bits[1])) * ((index_bits[2] * ROOT_14) + (1 - index_bits[2])) * ((index_bits[3] * ROOT_13) + (1 - index_bits[3])) * ((index_bits[4] * ROOT_12) + (1 - index_bits[4])) * ((index_bits[5] * ROOT_11) + (1 - index_bits[5])) * ((index_bits[6] * ROOT_10) + (1 - index_bits[6])) * ((index_bits[7] * ROOT_9) + (1 - index_bits[7])) * ((index_bits[8] * ROOT_8) + (1 - index_bits[8])) * ((index_bits[9] * ROOT_7) + (1 - index_bits[9])) * ((index_bits[10] * ROOT_6) + (1 - index_bits[10])) * ((index_bits[11] * ROOT_5) + (1 - index_bits[11])) * ((index_bits[12] * ROOT_4) + (1 - index_bits[12])) * ((index_bits[13] * ROOT_3) + (1 - index_bits[13])) * ((index_bits[14] * ROOT_2) + (1 - index_bits[14])) * ((index_bits[15] * ROOT_1) + (1 - index_bits[15]));
+        }
+
+        UNIMPLEMENTED = 0;
+        print(UNIMPLEMENTED);
+        panic();
     }
 
     fn dot_product_base_extension(a, b, res) {
@@ -345,7 +398,7 @@ pub fn run_whir_verif() {
         a = add_extension_vec(coeffs, coeffs);
         b = add_extension_vec(a, coeffs + 1);
         c = add_extension_vec(b, coeffs + 2);
-        return c;
+        return c * 8;
     }
 
     fn degree_two_polynomial_eval(coeffs, point) -> 1 {
@@ -356,7 +409,7 @@ pub fn run_whir_verif() {
         c = coeffs;
         res_0 = add_extension_vec(a_xx, b_x);
         res_1 = add_extension_vec(res_0, c);
-        return res_1;
+        return res_1 * 8;
     }
 
     fn parse_commitment(fs_state) -> 4 {
