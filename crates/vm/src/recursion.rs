@@ -156,9 +156,74 @@ pub fn run_whir_verif() {
         ood_1_expanded_from_univariate = powers_of_two_rev_extension(ood_point_1 * 8, N_VARS - FOLDING_FACTOR_0);
         s5 = eq_mle_extension(ood_1_expanded_from_univariate, folding_randomness_global, N_VARS - FOLDING_FACTOR_0);
 
-        print_chunk(s5);
+
+        s6s = malloc(8 * (NUM_QUERIES_0 + 1));
+        copy_chunk(s5, s6s);
+        for i in 0..NUM_QUERIES_0 {
+            expanded_from_univariate = powers_of_two_rev_base(circle_values_1[i], N_VARS - FOLDING_FACTOR_0);
+            temp = eq_mle_extension_base(expanded_from_univariate, folding_randomness_global, N_VARS - FOLDING_FACTOR_0);
+            copy_chunk(temp, s6s + (8 * (i + 1)));
+        }
+
+        s7 = dot_product_extension(s6s, combination_randomness_powers_1, NUM_QUERIES_0 + 1);
+
+        s9 = malloc(8);
+        add_extension(s4, s7, s9);
+
+        // ------------------------------------------------------------------------------------------
+        
+        ood_2_expanded_from_univariate = powers_of_two_rev_extension(ood_point_2 * 8, N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1);
+        s10 = eq_mle_extension(ood_2_expanded_from_univariate, folding_randomness_global, N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1);
 
 
+        s11s = malloc(8 * (NUM_QUERIES_1 + 1));
+        copy_chunk(s10, s11s);
+        for i in 0..NUM_QUERIES_1 {
+            expanded_from_univariate = powers_of_two_rev_base(circle_values_2[i], N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1);
+            temp = eq_mle_extension_base(expanded_from_univariate, folding_randomness_global, N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1);
+            copy_chunk(temp, s11s + (8 * (i + 1)));
+        }
+
+        s12 = dot_product_extension(s11s, combination_randomness_powers_2, NUM_QUERIES_1 + 1);
+
+        s13 = malloc(8);
+        add_extension(s9, s12, s13);
+
+         // ------------------------------------------------------------------------------------------
+        
+        ood_3_expanded_from_univariate = powers_of_two_rev_extension(ood_point_3 * 8, N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1 - FOLDING_FACTOR_2);
+        s14 = eq_mle_extension(ood_3_expanded_from_univariate, folding_randomness_global, N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1 - FOLDING_FACTOR_2);
+
+
+        s15s = malloc(8 * (NUM_QUERIES_2 + 1));
+        copy_chunk(s14, s15s);
+        for i in 0..NUM_QUERIES_2 {
+            expanded_from_univariate = powers_of_two_rev_base(circle_values_3[i], N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1 - FOLDING_FACTOR_2);
+            temp = eq_mle_extension_base(expanded_from_univariate, folding_randomness_global, N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1 - FOLDING_FACTOR_2);
+            copy_chunk(temp, s15s + (8 * (i + 1)));
+        }
+
+        s16 = dot_product_extension(s15s, combination_randomness_powers_3, NUM_QUERIES_2 + 1);
+
+        s17 = malloc(8);
+        add_extension(s13, s16, s17);
+
+        // ------------------------------------------------------------------------------------------
+
+        evaluation_of_weights = s17;
+
+        poly_eq_final = poly_eq_extension(folding_randomness_5, FINAL_VARS, two_pow_final_vars);
+        final_value = dot_product_extension(poly_eq_final, final_coeffcients * 8, two_pow_final_vars);
+
+
+        // claimed_sum == evaluation_of_weights * final_value
+
+        evaluation_of_weights_times_final_value = malloc(8);
+        mul_extension(evaluation_of_weights, final_value, evaluation_of_weights_times_final_value);
+        
+        final_check = eq_extension(evaluation_of_weights_times_final_value, end_sum);
+
+        assert final_check == 1;
 
         return;
     }
@@ -177,6 +242,32 @@ pub fn run_whir_verif() {
             buffi[0] = 1 + 2 * ab[0] - ai[0] - bi[0];
             for j in 1..8 {
                 buffi[j] = 2 * ab[j] - ai[j] - bi[j];
+            }
+        }
+
+
+        prods = malloc(n * 8);
+        copy_chunk(buff, prods);
+        for i in 0..n - 1 {
+            mul_extension(prods + (i * 8), buff + ((i + 1) * 8), prods + ((i + 1) * 8));
+        }
+        return prods + (n - 1) * 8; // a normal pointer to 8 field elements
+    }
+
+    fn eq_mle_extension_base(a, b, n) -> 1 {
+        // normal pointers
+        // a: base
+        // b: extension
+
+        buff = malloc(n * 8);
+
+        for i in 0..n {
+            ai = a[i];
+            bi = b + (i * 8);
+            buffi = buff + (i * 8);
+            buffi[0] = 1 + 2 * ai * bi[0] - ai - bi[0];
+            for j in 1..8 {
+                buffi[j] = 2 * ai * bi[j] - bi[j];
             }
         }
 
@@ -378,7 +469,7 @@ pub fn run_whir_verif() {
 
     fn dot_product_extension(a, b, n) -> 1 {
         // a: normal pointer to n EF elements (size: 8n)
-        // b: pointer to n EF elements (size: 8n)
+        // b: normal pointer to n EF elements (size: 8n)
         // returns a (normal) pointer to 1 EF element (size: 8), equal to the dot product of a and b
 
         prods = malloc(n * 8);
@@ -466,6 +557,7 @@ pub fn run_whir_verif() {
     }
 
     fn poly_eq_extension(point, n, two_pow_n) -> 1 {
+        // point: normal pointer to 2^n extension field elements (size: 8 * 2^n)
         // return a (normal) pointer to 2^n extension field elements, corresponding to the "equality polynomial" at point
         // Example: for n = 2: eq(x, y) = [(1 - x)(1 - y), (1 - x)y, x(1 - y), xy]
 
