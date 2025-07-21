@@ -795,16 +795,10 @@ fn test_product_extension_field() {
     fn main() {
         a = public_input_start;
         b = public_input_start + 8;
-        sum = add_extension(a, b);
-        prod = mul_extension(a, b);
-
-        for i in 0..8 {
-            print(sum[i]);
-        }
-
-        for i in 0..8 {
-            print(prod[i]);
-        }
+        sum = malloc(8);
+        prod = malloc(8);
+        add_extension(a, b, sum);
+        mul_extension(a, b, prod);
 
         real_sum = public_input_start + 16;
         real_prod = public_input_start + 24;
@@ -817,60 +811,29 @@ fn test_product_extension_field() {
         return;
     }
 
-    fn mul_extension(a, b) -> 1 {
+    fn mul_extension(a, b, c) {
         // a, b and c are pointers
+        // c = a * b
 
-        a0 = a[0];
-        a1 = a[1];
-        a2 = a[2];
-        a3 = a[3];
-        a4 = a[4];
-        a5 = a[5];
-        a6 = a[6];
-        a7 = a[7];
+        c[0] = (a[0] * b[0]) + W * ((a[1] * b[7]) + (a[2] * b[6]) + (a[3] * b[5]) + (a[4] * b[4]) + (a[5] * b[3]) + (a[6] * b[2]) + (a[7] * b[1]));
+        c[1] = (a[1] * b[0]) + (a[0] * b[1]) + W * ((a[2] * b[7]) + (a[3] * b[6]) + (a[4] * b[5]) + (a[5] * b[4]) + (a[6] * b[3]) + (a[7] * b[2]));
+        c[2] = (a[2] * b[0]) + (a[1] * b[1]) + (a[0] * b[2]) + W * ((a[3] * b[7]) + (a[4] * b[6]) + (a[5] * b[5]) + (a[6] * b[4]) + (a[7] * b[3]));
+        c[3] = (a[3] * b[0]) + (a[2] * b[1]) + (a[1] * b[2]) + (a[0] * b[3]) + W * ((a[4] * b[7]) + (a[5] * b[6]) + (a[6] * b[5]) + (a[7] * b[4]));
+        c[4] = (a[4] * b[0]) + (a[3] * b[1]) + (a[2] * b[2]) + (a[1] * b[3]) + (a[0] * b[4]) + W * ((a[5] * b[7]) + (a[6] * b[6]) + (a[7] * b[5]));
+        c[5] = (a[5] * b[0]) + (a[4] * b[1]) + (a[3] * b[2]) + (a[2] * b[3]) + (a[1] * b[4]) + (a[0] * b[5]) + W * ((a[6] * b[7]) + (a[7] * b[6]));
+        c[6] = (a[6] * b[0]) + (a[5] * b[1]) + (a[4] * b[2]) + (a[3] * b[3]) + (a[2] * b[4]) + (a[1] * b[5]) + (a[0] * b[6]) + W * (a[7] * b[7]);
+        c[7] = (a[7] * b[0]) + (a[6] * b[1]) + (a[5] * b[2]) + (a[4] * b[3]) + (a[3] * b[4]) + (a[2] * b[5]) + (a[1] * b[6]) + (a[0] * b[7]);
 
-        b0 = b[0];
-        b1 = b[1];
-        b2 = b[2];
-        b3 = b[3];
-        b4 = b[4];
-        b5 = b[5];
-        b6 = b[6];
-        b7 = b[7];
-
-        c0 = (a0 * b0) + W * ((a1 * b7) + (a2 * b6) + (a3 * b5) + (a4 * b4) + (a5 * b3) + (a6 * b2) + (a7 * b1));
-        c1 = (a1 * b0) + (a0 * b1) + W * ((a2 * b7) + (a3 * b6) + (a4 * b5) + (a5 * b4) + (a6 * b3) + (a7 * b2));
-        c2 = (a2 * b0) + (a1 * b1) + (a0 * b2) + W * ((a3 * b7) + (a4 * b6) + (a5 * b5) + (a6 * b4) + (a7 * b3));
-        c3 = (a3 * b0) + (a2 * b1) + (a1 * b2) + (a0 * b3) + W * ((a4 * b7) + (a5 * b6) + (a6 * b5) + (a7 * b4));
-        c4 = (a4 * b0) + (a3 * b1) + (a2 * b2) + (a1 * b3) + (a0 * b4) + W * ((a5 * b7) + (a6 * b6) + (a7 * b5));
-        c5 = (a5 * b0) + (a4 * b1) + (a3 * b2) + (a2 * b3) + (a1 * b4) + (a0 * b5) + W * ((a6 * b7) + (a7 * b6));
-        c6 = (a6 * b0) + (a5 * b1) + (a4 * b2) + (a3 * b3) + (a2 * b4) + (a1 * b5) + (a0 * b6) + W * (a7 * b7);
-        c7 = (a7 * b0) + (a6 * b1) + (a5 * b2) + (a4 * b3) + (a3 * b4) + (a2 * b5) + (a1 * b6) + (a0 * b7);
-
-        res = malloc(8);
-        res[0] = c0;
-        res[1] = c1;
-        res[2] = c2;
-        res[3] = c3;
-        res[4] = c4;
-        res[5] = c5;
-        res[6] = c6;
-        res[7] = c7;
-
-        return res;
+        return;
     }
 
-    fn add_extension(a, b) -> 1 {
-        res = malloc(8);
-        res[0] = a[0] + b[0];
-        res[1] = a[1] + b[1];
-        res[2] = a[2] + b[2];
-        res[3] = a[3] + b[3];
-        res[4] = a[4] + b[4];
-        res[5] = a[5] + b[5];
-        res[6] = a[6] + b[6];
-        res[7] = a[7] + b[7];
-        return res;
+    fn add_extension(a, b, c) {
+        // a, b and c are pointers
+        // c = a + b
+        for i in 0..8 unroll {
+            c[i] = a[i] + b[i];
+        }
+        return;
     }
    "#;
 
@@ -885,9 +848,6 @@ fn test_product_extension_field() {
     public_input.extend((a * b).as_basis_coefficients_slice());
 
     compile_and_run(program, &public_input, &[]);
-
-    dbg!(a + b);
-    dbg!(a * b);
 }
 
 #[test]

@@ -384,17 +384,21 @@ pub fn execute_bytecode(
     }
 
     println!("\nBytecode size: {}", bytecode.instructions.len());
+    println!("Public input size: {}", public_input.len());
+    println!("Executed {} instructions", instructions_run);
+    println!(
+        "Runtime memory used: {}",
+        memory.data.len() - (bytecode.public_input_start + public_input.len())
+    );
     if poseidon16_calls + poseidon24_calls > 0 {
         println!(
-            "Executed {} instructions, Poseidon2_16 calls: {}, Poseidon2_24 calls: {} (1 poseidon per {} instructions)",
-            instructions_run,
+            "Poseidon2_16 calls: {}, Poseidon2_24 calls: {} (1 poseidon per {} instructions)",
             poseidon16_calls,
             poseidon24_calls,
             instructions_run / (poseidon16_calls + poseidon24_calls)
         );
         println!(
-            "Final memory size: {} ({} cells per poseidon)",
-            memory.data.len(),
+            "{} memory cells per poseidon",
             memory.data.len() / (poseidon16_calls + poseidon24_calls)
         );
     }
