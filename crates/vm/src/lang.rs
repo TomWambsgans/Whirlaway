@@ -68,7 +68,6 @@ impl From<Var> for SimpleExpr {
     }
 }
 
-
 impl SimpleExpr {
     pub fn as_constant(&self) -> Option<ConstExpression> {
         match self {
@@ -211,14 +210,28 @@ impl From<Var> for Expression {
 
 impl Expression {
     pub fn naive_eval(&self) -> Option<F> {
+        self.eval_with(
+            &|value: &SimpleExpr| value.as_constant()?.naive_eval(),
+            &|_, _| None,
+        )
+    }
+
+    pub fn eval_with<ValueFn, ArrayFn>(&self, value_fn: &ValueFn, array_fn: &ArrayFn) -> Option<F>
+    where
+        ValueFn: Fn(&SimpleExpr) -> Option<F>,
+        ArrayFn: Fn(&Var, &Expression) -> Option<F>,
+    {
         match self {
-            Expression::Value(value) => value.as_constant()?.naive_eval(),
-            Expression::ArrayAccess { .. } => None,
+            Expression::Value(value) => value_fn(value),
+            Expression::ArrayAccess { array, index } => array_fn(array, index),
             Expression::Binary {
                 left,
                 operation,
                 right,
-            } => Some(operation.eval(left.naive_eval()?, right.naive_eval()?)),
+            } => Some(operation.eval(
+                left.eval_with(value_fn, array_fn)?,
+                right.eval_with(value_fn, array_fn)?,
+            )),
         }
     }
 }

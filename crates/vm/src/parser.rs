@@ -1,10 +1,11 @@
+use crate::bytecode::intermediate_bytecode::*;
+use crate::{F, lang::*};
+use p3_field::PrimeCharacteristicRing;
+use p3_field::PrimeField64;
 use pest::Parser;
 use pest::iterators::Pair;
 use pest_derive::Parser;
 use std::collections::BTreeMap;
-
-use crate::bytecode::intermediate_bytecode::*;
-use crate::lang::*;
 
 #[derive(Parser)]
 #[grammar = "grammar.pest"]
@@ -45,7 +46,7 @@ pub fn parse_program(input: &str) -> Result<Program, ParseError> {
     for pair in program_pair.into_inner() {
         match pair.as_rule() {
             Rule::constant_declaration => {
-                let (name, value) = parse_constant_declaration(pair)?;
+                let (name, value) = parse_constant_declaration(pair, &constants)?;
                 constants.insert(name, value);
             }
             Rule::function => {
@@ -74,15 +75,24 @@ fn remove_comments(input: &str) -> String {
         .join("\n")
 }
 
-fn parse_constant_declaration(pair: Pair<Rule>) -> Result<(String, usize), ParseError> {
+fn parse_constant_declaration(
+    pair: Pair<Rule>,
+    constants: &BTreeMap<String, usize>,
+) -> Result<(String, usize), ParseError> {
     let mut inner = pair.into_inner();
     let name = inner.next().unwrap().as_str().to_string();
-    let value = inner
-        .next()
-        .unwrap()
-        .as_str()
-        .parse()
-        .map_err(|_| ParseError::SemanticError("Invalid constant value".to_string()))?;
+    let value = parse_expression(inner.next().unwrap(), constants)?;
+    let value = value
+        .eval_with(
+            &|simple_expr| match simple_expr {
+                SimpleExpr::Constant(cst) => cst.naive_eval(),
+                SimpleExpr::Var(var) => constants.get(var).map(|f| F::from_usize(*f)),
+                SimpleExpr::ConstMallocAccess { .. } => unreachable!(),
+            },
+            &|_, _| None,
+        )
+        .unwrap_or_else(|| panic!("Failed to evaluate constant: {}", name))
+        .as_canonical_u64() as usize;
     Ok((name, value))
 }
 
@@ -223,7 +233,7 @@ fn parse_for_statement(
 
     let mut unroll = false;
     let mut body = Vec::new();
-    
+
     for item in inner {
         match item.as_rule() {
             Rule::unroll_clause => {

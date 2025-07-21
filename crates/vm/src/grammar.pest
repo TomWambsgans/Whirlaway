@@ -4,7 +4,7 @@ WHITESPACE = _{ " " | "\t" | "\n" | "\r" }
 program = { SOI ~ constant_declaration* ~ function+ ~ EOI }
 
 // Constants
-constant_declaration = { "const" ~ identifier ~ "=" ~ number ~ ";" }
+constant_declaration = { "const" ~ identifier ~ "=" ~ expression ~ ";" }
 
 // Functions
 function = { "fn" ~ identifier ~ "(" ~ parameter_list? ~ ")" ~ return_count? ~ "{" ~ statement* ~ "}" }

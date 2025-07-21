@@ -34,18 +34,24 @@ pub fn run_whir_verif() {
     const FOLDING_FACTOR_0 = 7;
     const FOLDING_FACTOR_1 = 4;
     const FOLDING_FACTOR_2 = 4;
+    const FOLDING_FACTOR_3 = 4;
+
+    const FINAL_VARS = N_VARS - (FOLDING_FACTOR_0 + FOLDING_FACTOR_1 + FOLDING_FACTOR_2 + FOLDING_FACTOR_3);
 
     const TWO_POW_FOLDING_FACTOR_0 = 128;
     const TWO_POW_FOLDING_FACTOR_1 = 16;
     const TWO_POW_FOLDING_FACTOR_2 = 16;
+    const TWO_POW_FOLDING_FACTOR_3 = 16;
 
     const RS_REDUCTION_FACTOR_0 = 5;
     const RS_REDUCTION_FACTOR_1 = 1;
     const RS_REDUCTION_FACTOR_2 = 1;
+    const RS_REDUCTION_FACTOR_3 = 1;
 
     const NUM_QUERIES_0 = 138;
     const NUM_QUERIES_1 = 44;
     const NUM_QUERIES_2 = 22;
+    const NUM_QUERIES_3 = 15;
 
     const ROOT_19 = 339671193;
     const ROOT_18 = 1816824389;
@@ -95,20 +101,24 @@ pub fn run_whir_verif() {
         fs_state_7, folding_randomness_3, ood_point_3, root_3, circle_values_3, combination_randomness_powers_3, claimed_sum_3 = 
             whir_round(fs_state_6, root_2, FOLDING_FACTOR_2, TWO_POW_FOLDING_FACTOR_2, 0, NUM_QUERIES_2, domain_size_2, claimed_sum_2);
 
+        fs_state_8, final_folding_randomness, final_claimed_sum = sumcheck(fs_state_7, FOLDING_FACTOR_3, claimed_sum_3);
+
+        two_pow_final_vars = pow(2, FINAL_VARS);
+        fs_state_9, final_coeffcients = fs_receive(fs_state_8, two_pow_final_vars);
+
         return;
     }
 
-    fn whir_round(fs_states, prev_root, folding_factor, two_pow_folding_factor, is_first_round, num_queries, domain_size, claimed_sum) -> 7 {
-
-        fs_states_a = malloc(folding_factor + 1);
+    fn sumcheck(fs_states, n_steps, claimed_sum) -> 3 {
+        fs_states_a = malloc(n_steps + 1);
         fs_states_a[0] = fs_states;
 
-        claimed_sums = malloc(folding_factor + 1);
+        claimed_sums = malloc(n_steps + 1);
         claimed_sums[0] = claimed_sum;
 
-        folding_randomness = malloc(folding_factor); // in reverse order. A vector of vectorized pointers, each pointing to 1 chunk of 8 field elements
+        folding_randomness = malloc(n_steps); // in reverse order. A vector of vectorized pointers, each pointing to 1 chunk of 8 field elements
 
-        for sc_round in 0..folding_factor {
+        for sc_round in 0..n_steps {
             fs_state_5, poly = fs_receive(fs_states_a[sc_round], 3); // vectorized pointer of len 1
             sum_over_boolean_hypercube = degree_two_polynomial_sum_at_0_and_1(poly);
             consistent = eq_extension(sum_over_boolean_hypercube, claimed_sums[sc_round]);
@@ -119,12 +129,16 @@ pub fn run_whir_verif() {
             fs_states_a[sc_round + 1] = fs_state_6;
             new_claimed_sum = degree_two_polynomial_eval(poly, rand);
             claimed_sums[sc_round + 1] = new_claimed_sum;
-            folding_randomness[folding_factor - 1 - sc_round] = rand;
+            folding_randomness[n_steps - 1 - sc_round] = rand;
         }
+        new_state = fs_states_a[n_steps];
+        new_claimed_sum = claimed_sums[n_steps];
 
-        new_claimed_sum_a = claimed_sums[folding_factor];
+        return new_state, folding_randomness, new_claimed_sum;
+    }
 
-        fs_state_7 = fs_states_a[folding_factor];
+    fn whir_round(fs_state, prev_root, folding_factor, two_pow_folding_factor, is_first_round, num_queries, domain_size, claimed_sum) -> 7 {
+        fs_state_7, folding_randomness, new_claimed_sum_a = sumcheck(fs_state, folding_factor, claimed_sum);
 
         fs_state_8, root, ood_point, ood_eval = parse_commitment(fs_state_7);
 
