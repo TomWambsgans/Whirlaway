@@ -44,6 +44,24 @@ impl From<VarOrConstMallocAccess> for SimpleExpr {
     }
 }
 
+impl TryInto<VarOrConstMallocAccess> for SimpleExpr {
+    type Error = ();
+
+    fn try_into(self) -> Result<VarOrConstMallocAccess, Self::Error> {
+        match self {
+            SimpleExpr::Var(var) => Ok(VarOrConstMallocAccess::Var(var)),
+            SimpleExpr::ConstMallocAccess {
+                malloc_label,
+                offset,
+            } => Ok(VarOrConstMallocAccess::ConstMallocAccess {
+                malloc_label,
+                offset,
+            }),
+            _ => Err(()),
+        }
+    }
+}
+
 impl From<Var> for VarOrConstMallocAccess {
     fn from(var: Var) -> Self {
         Self::Var(var)
@@ -83,6 +101,9 @@ pub enum SimpleLine {
     Poseidon24 {
         args: [SimpleExpr; 3],
         res: [Var; 3],
+    },
+    ExtensionMul {
+        args: [SimpleExpr; 3],
     },
     Panic,
     // Hints
@@ -491,6 +512,16 @@ fn simplify_lines(
                     res: ret.clone(),
                 });
             }
+            Line::ExtensionMul { args } => {
+                let simplified_args = [
+                    simplify_expr(&args[0], &mut res, counters, array_manager, const_malloc),
+                    simplify_expr(&args[1], &mut res, counters, array_manager, const_malloc),
+                    simplify_expr(&args[2], &mut res, counters, array_manager, const_malloc),
+                ];
+                res.push(SimpleLine::ExtensionMul {
+                    args: simplified_args,
+                });
+            }
             Line::Print { line_info, content } => {
                 let simplified_content = content
                     .iter()
@@ -705,6 +736,11 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                 }
                 for r in res {
                     internal_vars.insert(r.clone());
+                }
+            }
+            Line::ExtensionMul { args } => {
+                for arg in args {
+                    on_new_expr(arg, &internal_vars, &mut external_vars);
                 }
             }
             Line::Print { content, .. } => {
@@ -1013,6 +1049,11 @@ fn replace_vars_for_unroll(
                     *r = format!("@unrolled_{}_{}", iterator_value, r).into();
                 }
             }
+            Line::ExtensionMul { args } => {
+                for arg in args {
+                    replace_vars_for_unroll_in_expr(arg, iterator, iterator_value, internal_vars);
+                }
+            }
             Line::Break => {}
             Line::Panic => {}
             Line::Print { line_info, content } => {
@@ -1192,6 +1233,16 @@ impl SimpleLine {
                     res0.to_string(),
                     res1.to_string(),
                     res2.to_string(),
+                    arg0.to_string(),
+                    arg1.to_string(),
+                    arg2.to_string()
+                )
+            }
+            SimpleLine::ExtensionMul {
+                args: [arg0, arg1, arg2],
+            } => {
+                format!(
+                    "extension_mul({}, {}, {})",
                     arg0.to_string(),
                     arg1.to_string(),
                     arg2.to_string()

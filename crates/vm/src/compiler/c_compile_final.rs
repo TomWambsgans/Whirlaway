@@ -213,6 +213,15 @@ pub fn compile_to_low_level_bytecode(
                 IntermediateInstruction::Poseidon2_24 { shift } => {
                     low_level_bytecode.push(Instruction::Poseidon2_24 { shift });
                 }
+                IntermediateInstruction::ExtensionMul { args } => {
+                    let args = args
+                        .iter()
+                        .map(|arg| eval_const_expression_usize(arg, &compiler))
+                        .collect::<Vec<_>>()
+                        .try_into()
+                        .unwrap();
+                    low_level_bytecode.push(Instruction::ExtensionMul { args });
+                }
                 IntermediateInstruction::DecomposeBits {
                     res_offset,
                     to_decompose,

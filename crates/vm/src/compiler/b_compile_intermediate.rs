@@ -343,6 +343,15 @@ fn compile_lines(
                     shift: compiler.stack_size - 6,
                 });
             }
+            SimpleLine::ExtensionMul { args } => {
+                let args = args
+                    .iter()
+                    .map(|arg| compiler.get_offset(&arg.clone().try_into().unwrap()))
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .unwrap();
+                instructions.push(IntermediateInstruction::ExtensionMul { args });
+            }
 
             SimpleLine::FunctionRet { return_data } => {
                 if compiler.func_name == "main" {
@@ -579,7 +588,10 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
                 internal_vars.extend(find_internal_vars(then_branch));
                 internal_vars.extend(find_internal_vars(else_branch));
             }
-            SimpleLine::Panic | SimpleLine::Print { .. } | SimpleLine::FunctionRet { .. } => {}
+            SimpleLine::Panic
+            | SimpleLine::Print { .. }
+            | SimpleLine::FunctionRet { .. }
+            | SimpleLine::ExtensionMul { .. } => {}
         }
     }
     internal_vars

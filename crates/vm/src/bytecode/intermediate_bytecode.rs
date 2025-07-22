@@ -113,7 +113,9 @@ pub enum IntermediateInstruction {
     Poseidon2_24 {
         shift: usize,
     }, // same as above, but with 24 field elements
-
+    ExtensionMul {
+        args: [ConstExpression; 3], // offset after fp
+    },
     // HINTS (does not appears in the final bytecode)
     RequestMemory {
         shift: ConstExpression,            // m[fp + shift] where the hint will be stored
@@ -198,7 +200,7 @@ impl ToString for IntermediaryMemOrFpOrConstant {
 impl ToString for IntermediateInstruction {
     fn to_string(&self) -> String {
         match self {
-            IntermediateInstruction::Deref {
+            Self::Deref {
                 shift_0,
                 shift_1,
                 res,
@@ -208,7 +210,15 @@ impl ToString for IntermediateInstruction {
                 shift_0.to_string(),
                 shift_1.to_string()
             ),
-            IntermediateInstruction::DecomposeBits {
+            Self::ExtensionMul { args } => {
+                format!(
+                    "extension_mul(m[fp + {}], m[fp + {}], m[fp + {}])",
+                    args[0].to_string(),
+                    args[1].to_string(),
+                    args[2].to_string()
+                )
+            },
+            Self::DecomposeBits {
                 res_offset,
                 to_decompose,
             } => {
@@ -218,7 +228,7 @@ impl ToString for IntermediateInstruction {
                     to_decompose.to_string()
                 )
             }
-            IntermediateInstruction::Computation {
+            Self::Computation {
                 operation,
                 arg_a,
                 arg_b,
@@ -232,15 +242,15 @@ impl ToString for IntermediateInstruction {
                     arg_b.to_string()
                 )
             }
-            IntermediateInstruction::Panic => "panic".to_string(),
-            IntermediateInstruction::Jump { dest, updated_fp } => {
+            Self::Panic => "panic".to_string(),
+            Self::Jump { dest, updated_fp } => {
                 if let Some(fp) = updated_fp {
                     format!("jump {} with fp = {}", dest.to_string(), fp.to_string())
                 } else {
                     format!("jump {}", dest.to_string())
                 }
             }
-            IntermediateInstruction::JumpIfNotZero {
+            Self::JumpIfNotZero {
                 condition,
                 dest,
                 updated_fp,
@@ -260,15 +270,15 @@ impl ToString for IntermediateInstruction {
                     )
                 }
             }
-            IntermediateInstruction::Poseidon2_16 { shift } => format!(
+            Self::Poseidon2_16 { shift } => format!(
                 "poseidon2_16 m[8 * m[fp + {}] .. 8 * (1 + m[fp + {}])] | m[8 * m[fp + {} + 1]] .. 8 * (1 + m[fp + {} + 1])]",
                 shift, shift, shift, shift
             ),
-            IntermediateInstruction::Poseidon2_24 { shift } => format!(
+            Self::Poseidon2_24 { shift } => format!(
                 "poseidon2_24 m[8 * m[fp + {}] .. 8 * (1 + m[fp + {}])] | m[8 * m[fp + {} + 1]] .. 8 * (1 + m[fp + {} + 1])]",
                 shift, shift, shift, shift
             ),
-            IntermediateInstruction::RequestMemory {
+            Self::RequestMemory {
                 shift,
                 size,
                 vectorized,
@@ -278,7 +288,7 @@ impl ToString for IntermediateInstruction {
                 if *vectorized { "malloc_vec" } else { "malloc" },
                 size.to_string(),
             ),
-            IntermediateInstruction::Print { line_info, content } => format!(
+            Self::Print { line_info, content } => format!(
                 "print {}: {}",
                 line_info,
                 content

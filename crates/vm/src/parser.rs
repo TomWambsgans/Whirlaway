@@ -1,5 +1,5 @@
 use crate::bytecode::intermediate_bytecode::*;
-use crate::{F, lang::*};
+use crate::{ENABLE_MUL_PRECOMPILE, F, lang::*};
 use p3_field::PrimeCharacteristicRing;
 use p3_field::PrimeField64;
 use pest::Parser;
@@ -456,6 +456,15 @@ fn parse_function_call(
                 "Panic has no args and returns no values"
             );
             Ok(Line::Panic)
+        }
+        "mul_extension" if ENABLE_MUL_PRECOMPILE => {
+            assert!(
+                args.len() == 3 && return_data.is_empty(),
+                "Invalid mul_extension call"
+            );
+            Ok(Line::ExtensionMul {
+                args: args.try_into().unwrap(),
+            })
         }
         _ => Ok(Line::FunctionCall {
             function_name,

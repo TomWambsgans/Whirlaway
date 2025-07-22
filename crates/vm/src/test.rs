@@ -816,8 +816,8 @@ fn test_product_extension_field() {
         b = public_input_start + 8;
         sum = malloc(8);
         prod = malloc(8);
-        add_extension(a, b, sum);
-        mul_extension(a, b, prod);
+        custom_add_extension(a, b, sum);
+        custom_mul_extension(a, b, prod);
 
         real_sum = public_input_start + 16;
         real_prod = public_input_start + 24;
@@ -830,7 +830,7 @@ fn test_product_extension_field() {
         return;
     }
 
-    fn mul_extension(a, b, c) {
+    fn custom_mul_extension(a, b, c) {
         // a, b and c are pointers
         // c = a * b
 
@@ -846,7 +846,7 @@ fn test_product_extension_field() {
         return;
     }
 
-    fn add_extension(a, b, c) {
+    fn custom_add_extension(a, b, c) {
         // a, b and c are pointers
         // c = a + b
         for i in 0..8 unroll {

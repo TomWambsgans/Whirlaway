@@ -37,6 +37,7 @@ pub fn run_whir_verif() {
     const FOLDING_FACTOR_3 = 4;
 
     const FINAL_VARS = N_VARS - (FOLDING_FACTOR_0 + FOLDING_FACTOR_1 + FOLDING_FACTOR_2 + FOLDING_FACTOR_3);
+    const TWO_POW_FINAL_VARS = 64;
 
     const TWO_POW_FOLDING_FACTOR_0 = 128;
     const TWO_POW_FOLDING_FACTOR_1 = 16;
@@ -102,16 +103,15 @@ pub fn run_whir_verif() {
 
         domain_size_3 = domain_size_2 - RS_REDUCTION_FACTOR_2;
         fs_state_8, folding_randomness_4, final_claimed_sum = sumcheck(fs_state_7, FOLDING_FACTOR_3, claimed_sum_3);
-        two_pow_final_vars = pow(2, FINAL_VARS);
-        fs_state_9, final_coeffcients = fs_receive(fs_state_8, two_pow_final_vars);
+        fs_state_9, final_coeffcients = fs_receive(fs_state_8, TWO_POW_FINAL_VARS);
         fs_state_10, final_circle_values, final_folds = sample_stir_indexes_and_fold(fs_state_9, NUM_QUERIES_3, 0, FOLDING_FACTOR_3, TWO_POW_FOLDING_FACTOR_3, domain_size_3, root_3, folding_randomness_4);
 
+        // 68711 cycles
         for i in 0..NUM_QUERIES_3 {
             powers_of_2_rev = powers_of_two_rev_base(final_circle_values[i], FINAL_VARS);
-
-            poly_eq = poly_eq_base(powers_of_2_rev, FINAL_VARS, two_pow_final_vars);
+            poly_eq = poly_eq_base(powers_of_2_rev, FINAL_VARS, TWO_POW_FINAL_VARS);
             final_pol_evaluated_on_circle = malloc_vec(1);
-            dot_product_base_extension(poly_eq, final_coeffcients, final_pol_evaluated_on_circle, two_pow_final_vars);
+            dot_product_base_extension(poly_eq, final_coeffcients, final_pol_evaluated_on_circle, TWO_POW_FINAL_VARS);
             correct_eval = eq_extension(final_pol_evaluated_on_circle, final_folds + i);
             assert correct_eval == 1;
         }
@@ -151,24 +151,24 @@ pub fn run_whir_verif() {
         combination_randomness_powers = malloc(N_ROUNDS); combination_randomness_powers[0] = combination_randomness_powers_1; combination_randomness_powers[1] = combination_randomness_powers_2; combination_randomness_powers[2] = combination_randomness_powers_3;
 
         for i in 0..N_ROUNDS {
-            ood_expanded_from_univariate = powers_of_two_rev_extension(ood_points[i + 1], N_VARS - ffs_sums[i]);
-            s5 = eq_mle_extension(ood_expanded_from_univariate, folding_randomness_global, N_VARS - ffs_sums[i]);
+            ood_expanded_from_univariate = powers_of_two_rev_extension(ood_points[i + 1], N_VARS - ffs_sums[i]); // 456 cycles
+            s5 = eq_mle_extension(ood_expanded_from_univariate, folding_randomness_global, N_VARS - ffs_sums[i]); // 2248 cycles
             s6s = malloc_vec(num_queries[i] + 1);
             copy_chunk_vec(s5, s6s);
             circle_value_i = circle_values[i];
             for j in 0..num_queries[i] {
-                expanded_from_univariate = powers_of_two_rev_base(circle_value_i[j], N_VARS - ffs_sums[i]);
-                temp = eq_mle_extension_base(expanded_from_univariate, folding_randomness_global, N_VARS - ffs_sums[i]);
+                expanded_from_univariate = powers_of_two_rev_base(circle_value_i[j], N_VARS - ffs_sums[i]); // 302 cycles
+                temp = eq_mle_extension_base(expanded_from_univariate, folding_randomness_global, N_VARS - ffs_sums[i]); // 1415 cycles
                 copy_chunk_vec(temp, s6s + j + 1);
             }
-            s7 = dot_product_extension(s6s, combination_randomness_powers[i], num_queries[i] + 1);
+            s7 = dot_product_extension(s6s, combination_randomness_powers[i], num_queries[i] + 1);  // 10720 cycles
             wsum = add_extension_ret(weight_sums[i], s7);
             weight_sums[i+1] = wsum;
         }
 
         evaluation_of_weights = weight_sums[N_ROUNDS];
-        poly_eq_final = poly_eq_extension(folding_randomness_5, FINAL_VARS, two_pow_final_vars);
-        final_value = dot_product_extension(poly_eq_final, final_coeffcients, two_pow_final_vars);
+        poly_eq_final = poly_eq_extension(folding_randomness_5, FINAL_VARS, TWO_POW_FINAL_VARS);
+        final_value = dot_product_extension(poly_eq_final, final_coeffcients, TWO_POW_FINAL_VARS);
         evaluation_of_weights_times_final_value = mul_extension_ret(evaluation_of_weights, final_value);
         final_check = eq_extension(evaluation_of_weights_times_final_value, end_sum);
         assert final_check == 1;
@@ -205,7 +205,6 @@ pub fn run_whir_verif() {
     }
 
     fn eq_mle_extension_base(a, b, n) -> 1 {
-        // normal pointers
         // a: base
         // b: extension
 
@@ -215,9 +214,10 @@ pub fn run_whir_verif() {
             ai = a[i];
             bi = (b + i) * 8;
             buffi = (buff + i) * 8;
-            buffi[0] = 1 + 2 * ai * bi[0] - ai - bi[0];
-            for j in 1..8 {
-                buffi[j] = 2 * ai * bi[j] - bi[j];
+            ai_double = ai * 2;
+            buffi[0] = 1 + ai_double * bi[0] - ai - bi[0];
+            for j in 1..8 unroll {
+                buffi[j] = ai_double * bi[j] - bi[j];
             }
         }
 
@@ -467,6 +467,23 @@ pub fn run_whir_verif() {
         b_ptr = b * 8;
         res_ptr = res * 8;
 
+        
+        // prods = malloc(n * 8);
+        // for i in 0..n {
+        //     for j in 0..8 {
+        //         prods[i * 8 + j] = a[i] * b_ptr[i * 8 + j];
+        //     }
+        // }
+
+        // for i in 0..8 {
+        //     my_buff = malloc(n);
+        //     my_buff[0] = prods[i];
+        //     for j in 0..n - 1  {
+        //         my_buff[j + 1] = my_buff[j] + prods[i + ((j + 1) * 8)];
+        //     }
+        //     res_ptr[i] = my_buff[n - 1];
+        // }
+
         if n == TWO_POW_FOLDING_FACTOR_0 {
            
             // OPTIMIZED VERSION
@@ -486,24 +503,38 @@ pub fn run_whir_verif() {
             res_ptr[5] = prods[5] + prods[13] + prods[21] + prods[29] + prods[37] + prods[45] + prods[53] + prods[61] + prods[69] + prods[77] + prods[85] + prods[93] + prods[101] + prods[109] + prods[117] + prods[125] + prods[133] + prods[141] + prods[149] + prods[157] + prods[165] + prods[173] + prods[181] + prods[189] + prods[197] + prods[205] + prods[213] + prods[221] + prods[229] + prods[237] + prods[245] + prods[253] + prods[261] + prods[269] + prods[277] + prods[285] + prods[293] + prods[301] + prods[309] + prods[317] + prods[325] + prods[333] + prods[341] + prods[349] + prods[357] + prods[365] + prods[373] + prods[381] + prods[389] + prods[397] + prods[405] + prods[413] + prods[421] + prods[429] + prods[437] + prods[445] + prods[453] + prods[461] + prods[469] + prods[477] + prods[485] + prods[493] + prods[501] + prods[509] + prods[517] + prods[525] + prods[533] + prods[541] + prods[549] + prods[557] + prods[565] + prods[573] + prods[581] + prods[589] + prods[597] + prods[605] + prods[613] + prods[621] + prods[629] + prods[637] + prods[645] + prods[653] + prods[661] + prods[669] + prods[677] + prods[685] + prods[693] + prods[701] + prods[709] + prods[717] + prods[725] + prods[733] + prods[741] + prods[749] + prods[757] + prods[765] + prods[773] + prods[781] + prods[789] + prods[797] + prods[805] + prods[813] + prods[821] + prods[829] + prods[837] + prods[845] + prods[853] + prods[861] + prods[869] + prods[877] + prods[885] + prods[893] + prods[901] + prods[909] + prods[917] + prods[925] + prods[933] + prods[941] + prods[949] + prods[957] + prods[965] + prods[973] + prods[981] + prods[989] + prods[997] + prods[1005] + prods[1013] + prods[1021];
             res_ptr[6] = prods[6] + prods[14] + prods[22] + prods[30] + prods[38] + prods[46] + prods[54] + prods[62] + prods[70] + prods[78] + prods[86] + prods[94] + prods[102] + prods[110] + prods[118] + prods[126] + prods[134] + prods[142] + prods[150] + prods[158] + prods[166] + prods[174] + prods[182] + prods[190] + prods[198] + prods[206] + prods[214] + prods[222] + prods[230] + prods[238] + prods[246] + prods[254] + prods[262] + prods[270] + prods[278] + prods[286] + prods[294] + prods[302] + prods[310] + prods[318] + prods[326] + prods[334] + prods[342] + prods[350] + prods[358] + prods[366] + prods[374] + prods[382] + prods[390] + prods[398] + prods[406] + prods[414] + prods[422] + prods[430] + prods[438] + prods[446] + prods[454] + prods[462] + prods[470] + prods[478] + prods[486] + prods[494] + prods[502] + prods[510] + prods[518] + prods[526] + prods[534] + prods[542] + prods[550] + prods[558] + prods[566] + prods[574] + prods[582] + prods[590] + prods[598] + prods[606] + prods[614] + prods[622] + prods[630] + prods[638] + prods[646] + prods[654] + prods[662] + prods[670] + prods[678] + prods[686] + prods[694] + prods[702] + prods[710] + prods[718] + prods[726] + prods[734] + prods[742] + prods[750] + prods[758] + prods[766] + prods[774] + prods[782] + prods[790] + prods[798] + prods[806] + prods[814] + prods[822] + prods[830] + prods[838] + prods[846] + prods[854] + prods[862] + prods[870] + prods[878] + prods[886] + prods[894] + prods[902] + prods[910] + prods[918] + prods[926] + prods[934] + prods[942] + prods[950] + prods[958] + prods[966] + prods[974] + prods[982] + prods[990] + prods[998] + prods[1006] + prods[1014] + prods[1022];
             res_ptr[7] = prods[7] + prods[15] + prods[23] + prods[31] + prods[39] + prods[47] + prods[55] + prods[63] + prods[71] + prods[79] + prods[87] + prods[95] + prods[103] + prods[111] + prods[119] + prods[127] + prods[135] + prods[143] + prods[151] + prods[159] + prods[167] + prods[175] + prods[183] + prods[191] + prods[199] + prods[207] + prods[215] + prods[223] + prods[231] + prods[239] + prods[247] + prods[255] + prods[263] + prods[271] + prods[279] + prods[287] + prods[295] + prods[303] + prods[311] + prods[319] + prods[327] + prods[335] + prods[343] + prods[351] + prods[359] + prods[367] + prods[375] + prods[383] + prods[391] + prods[399] + prods[407] + prods[415] + prods[423] + prods[431] + prods[439] + prods[447] + prods[455] + prods[463] + prods[471] + prods[479] + prods[487] + prods[495] + prods[503] + prods[511] + prods[519] + prods[527] + prods[535] + prods[543] + prods[551] + prods[559] + prods[567] + prods[575] + prods[583] + prods[591] + prods[599] + prods[607] + prods[615] + prods[623] + prods[631] + prods[639] + prods[647] + prods[655] + prods[663] + prods[671] + prods[679] + prods[687] + prods[695] + prods[703] + prods[711] + prods[719] + prods[727] + prods[735] + prods[743] + prods[751] + prods[759] + prods[767] + prods[775] + prods[783] + prods[791] + prods[799] + prods[807] + prods[815] + prods[823] + prods[831] + prods[839] + prods[847] + prods[855] + prods[863] + prods[871] + prods[879] + prods[887] + prods[895] + prods[903] + prods[911] + prods[919] + prods[927] + prods[935] + prods[943] + prods[951] + prods[959] + prods[967] + prods[975] + prods[983] + prods[991] + prods[999] + prods[1007] + prods[1015] + prods[1023];
-        } else {
 
-            prods = malloc(n * 8);
-            for i in 0..n {
-                for j in 0..8 {
+            return;
+
+        }
+
+        if n == TWO_POW_FINAL_VARS {
+           
+            // OPTIMIZED VERSION
+
+            prods = malloc(TWO_POW_FINAL_VARS * 8);
+            for i in 0..TWO_POW_FINAL_VARS unroll {
+                for j in 0..8 unroll {
                     prods[i * 8 + j] = a[i] * b_ptr[i * 8 + j];
                 }
             }
 
-            for i in 0..8 {
-                my_buff = malloc(n);
-                my_buff[0] = prods[i];
-                for j in 0..n - 1  {
-                    my_buff[j + 1] = my_buff[j] + prods[i + ((j + 1) * 8)];
-                }
-                res_ptr[i] = my_buff[n - 1];
-            }
+            res_ptr[0] = prods[0] + prods[8] + prods[16] + prods[24] + prods[32] + prods[40] + prods[48] + prods[56] + prods[64] + prods[72] + prods[80] + prods[88] + prods[96] + prods[104] + prods[112] + prods[120] + prods[128] + prods[136] + prods[144] + prods[152] + prods[160] + prods[168] + prods[176] + prods[184] + prods[192] + prods[200] + prods[208] + prods[216] + prods[224] + prods[232] + prods[240] + prods[248] + prods[256] + prods[264] + prods[272] + prods[280] + prods[288] + prods[296] + prods[304] + prods[312] + prods[320] + prods[328] + prods[336] + prods[344] + prods[352] + prods[360] + prods[368] + prods[376] + prods[384] + prods[392] + prods[400] + prods[408] + prods[416] + prods[424] + prods[432] + prods[440] + prods[448] + prods[456] + prods[464] + prods[472] + prods[480] + prods[488] + prods[496] + prods[504];
+            res_ptr[1] = prods[1] + prods[9] + prods[17] + prods[25] + prods[33] + prods[41] + prods[49] + prods[57] + prods[65] + prods[73] + prods[81] + prods[89] + prods[97] + prods[105] + prods[113] + prods[121] + prods[129] + prods[137] + prods[145] + prods[153] + prods[161] + prods[169] + prods[177] + prods[185] + prods[193] + prods[201] + prods[209] + prods[217] + prods[225] + prods[233] + prods[241] + prods[249] + prods[257] + prods[265] + prods[273] + prods[281] + prods[289] + prods[297] + prods[305] + prods[313] + prods[321] + prods[329] + prods[337] + prods[345] + prods[353] + prods[361] + prods[369] + prods[377] + prods[385] + prods[393] + prods[401] + prods[409] + prods[417] + prods[425] + prods[433] + prods[441] + prods[449] + prods[457] + prods[465] + prods[473] + prods[481] + prods[489] + prods[497] + prods[505];
+            res_ptr[2] = prods[2] + prods[10] + prods[18] + prods[26] + prods[34] + prods[42] + prods[50] + prods[58] + prods[66] + prods[74] + prods[82] + prods[90] + prods[98] + prods[106] + prods[114] + prods[122] + prods[130] + prods[138] + prods[146] + prods[154] + prods[162] + prods[170] + prods[178] + prods[186] + prods[194] + prods[202] + prods[210] + prods[218] + prods[226] + prods[234] + prods[242] + prods[250] + prods[258] + prods[266] + prods[274] + prods[282] + prods[290] + prods[298] + prods[306] + prods[314] + prods[322] + prods[330] + prods[338] + prods[346] + prods[354] + prods[362] + prods[370] + prods[378] + prods[386] + prods[394] + prods[402] + prods[410] + prods[418] + prods[426] + prods[434] + prods[442] + prods[450] + prods[458] + prods[466] + prods[474] + prods[482] + prods[490] + prods[498] + prods[506];
+            res_ptr[3] = prods[3] + prods[11] + prods[19] + prods[27] + prods[35] + prods[43] + prods[51] + prods[59] + prods[67] + prods[75] + prods[83] + prods[91] + prods[99] + prods[107] + prods[115] + prods[123] + prods[131] + prods[139] + prods[147] + prods[155] + prods[163] + prods[171] + prods[179] + prods[187] + prods[195] + prods[203] + prods[211] + prods[219] + prods[227] + prods[235] + prods[243] + prods[251] + prods[259] + prods[267] + prods[275] + prods[283] + prods[291] + prods[299] + prods[307] + prods[315] + prods[323] + prods[331] + prods[339] + prods[347] + prods[355] + prods[363] + prods[371] + prods[379] + prods[387] + prods[395] + prods[403] + prods[411] + prods[419] + prods[427] + prods[435] + prods[443] + prods[451] + prods[459] + prods[467] + prods[475] + prods[483] + prods[491] + prods[499] + prods[507];
+            res_ptr[4] = prods[4] + prods[12] + prods[20] + prods[28] + prods[36] + prods[44] + prods[52] + prods[60] + prods[68] + prods[76] + prods[84] + prods[92] + prods[100] + prods[108] + prods[116] + prods[124] + prods[132] + prods[140] + prods[148] + prods[156] + prods[164] + prods[172] + prods[180] + prods[188] + prods[196] + prods[204] + prods[212] + prods[220] + prods[228] + prods[236] + prods[244] + prods[252] + prods[260] + prods[268] + prods[276] + prods[284] + prods[292] + prods[300] + prods[308] + prods[316] + prods[324] + prods[332] + prods[340] + prods[348] + prods[356] + prods[364] + prods[372] + prods[380] + prods[388] + prods[396] + prods[404] + prods[412] + prods[420] + prods[428] + prods[436] + prods[444] + prods[452] + prods[460] + prods[468] + prods[476] + prods[484] + prods[492] + prods[500] + prods[508];
+            res_ptr[5] = prods[5] + prods[13] + prods[21] + prods[29] + prods[37] + prods[45] + prods[53] + prods[61] + prods[69] + prods[77] + prods[85] + prods[93] + prods[101] + prods[109] + prods[117] + prods[125] + prods[133] + prods[141] + prods[149] + prods[157] + prods[165] + prods[173] + prods[181] + prods[189] + prods[197] + prods[205] + prods[213] + prods[221] + prods[229] + prods[237] + prods[245] + prods[253] + prods[261] + prods[269] + prods[277] + prods[285] + prods[293] + prods[301] + prods[309] + prods[317] + prods[325] + prods[333] + prods[341] + prods[349] + prods[357] + prods[365] + prods[373] + prods[381] + prods[389] + prods[397] + prods[405] + prods[413] + prods[421] + prods[429] + prods[437] + prods[445] + prods[453] + prods[461] + prods[469] + prods[477] + prods[485] + prods[493] + prods[501] + prods[509];
+            res_ptr[6] = prods[6] + prods[14] + prods[22] + prods[30] + prods[38] + prods[46] + prods[54] + prods[62] + prods[70] + prods[78] + prods[86] + prods[94] + prods[102] + prods[110] + prods[118] + prods[126] + prods[134] + prods[142] + prods[150] + prods[158] + prods[166] + prods[174] + prods[182] + prods[190] + prods[198] + prods[206] + prods[214] + prods[222] + prods[230] + prods[238] + prods[246] + prods[254] + prods[262] + prods[270] + prods[278] + prods[286] + prods[294] + prods[302] + prods[310] + prods[318] + prods[326] + prods[334] + prods[342] + prods[350] + prods[358] + prods[366] + prods[374] + prods[382] + prods[390] + prods[398] + prods[406] + prods[414] + prods[422] + prods[430] + prods[438] + prods[446] + prods[454] + prods[462] + prods[470] + prods[478] + prods[486] + prods[494] + prods[502] + prods[510];
+            res_ptr[7] = prods[7] + prods[15] + prods[23] + prods[31] + prods[39] + prods[47] + prods[55] + prods[63] + prods[71] + prods[79] + prods[87] + prods[95] + prods[103] + prods[111] + prods[119] + prods[127] + prods[135] + prods[143] + prods[151] + prods[159] + prods[167] + prods[175] + prods[183] + prods[191] + prods[199] + prods[207] + prods[215] + prods[223] + prods[231] + prods[239] + prods[247] + prods[255] + prods[263] + prods[271] + prods[279] + prods[287] + prods[295] + prods[303] + prods[311] + prods[319] + prods[327] + prods[335] + prods[343] + prods[351] + prods[359] + prods[367] + prods[375] + prods[383] + prods[391] + prods[399] + prods[407] + prods[415] + prods[423] + prods[431] + prods[439] + prods[447] + prods[455] + prods[463] + prods[471] + prods[479] + prods[487] + prods[495] + prods[503] + prods[511];
+
+            return;
+
         }
+
+
+        UNIMPLEMENTED = 1;
+        print(UNIMPLEMENTED, n);
 
         return;
     }
@@ -746,14 +777,6 @@ pub fn run_whir_verif() {
         right = fs_state[2] * 8;
         for i in 0..8 {
             print(right[i]);
-        }
-        return;
-    }
-
-    fn print_chunck(vec_ptr) {
-        ptr = vec_ptr * 8;
-        for i in 0..8 {
-            print(ptr[i]);
         }
         return;
     }

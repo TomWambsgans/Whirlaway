@@ -23,7 +23,8 @@ type MyChallenger = p3_challenger::DuplexChallenger<F, Poseidon16, 16, 8>;
 type MerkleHash = p3_symmetric::PaddingFreeSponge<Poseidon24, 24, 16, 8>; // leaf hashing
 type MerkleCompress = p3_symmetric::TruncatedPermutation<Poseidon16, 2, 8, 16>; // 2-to-1 compression
 
-const FIELD_ELEMENTS_PER_OPCODE: usize = 13;
+const ENABLE_MUL_PRECOMPILE: bool = true;
+const FIELD_ELEMENTS_PER_OPCODE: usize = 13 + ENABLE_MUL_PRECOMPILE as usize;
 
 pub fn compile_and_run(program: &str, public_input: &[F], private_input: &[F]) {
     let bytecode = compile_program(program);

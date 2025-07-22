@@ -277,6 +277,9 @@ pub enum Line {
         args: [Expression; 3],
         res: [Var; 3],
     },
+    ExtensionMul {
+        args: [Expression; 3],
+    },
     Break,
     Panic,
     // Hints:
@@ -449,6 +452,14 @@ impl Line {
                     arg0.to_string(),
                     arg1.to_string(),
                     arg2.to_string()
+                )
+            }
+            Line::ExtensionMul { args } => {
+                format!(
+                    "mul_extension({}, {}, {})",
+                    args[0].to_string(),
+                    args[1].to_string(),
+                    args[2].to_string()
                 )
             }
             Line::Print {
