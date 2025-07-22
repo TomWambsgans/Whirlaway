@@ -204,7 +204,10 @@ pub fn execute_bytecode(
 
     let mut poseidon16_calls = 0;
     let mut poseidon24_calls = 0;
-    let mut instructions_run = 0;
+    let mut cpu_cycles = 0;
+
+    let mut last_checkpoint_cpu_cycles = 0;
+    let mut last_checkpoint_memory_size = public_input.len() + private_input.len();
 
     while pc != bytecode.ending_pc {
         if pc >= bytecode.instructions.len() {
@@ -215,9 +218,7 @@ pub fn execute_bytecode(
             );
         }
 
-        // dbg!(pc, fp);
-
-        instructions_run += 1;
+        cpu_cycles += 1;
 
         for hint in bytecode.hints.get(&pc).unwrap_or(&vec![]) {
             match hint {
@@ -251,10 +252,28 @@ pub fn execute_bytecode(
                     let values = content
                         .iter()
                         .map(|value| value.read_value(&memory, fp).to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ");
+                        .collect::<Vec<_>>();
+                    // Logs for performance analysis:
+                    if values[0] == "123456789" {
+                        if values.len() == 1 {
+                            println!("[CHECKPOINT]",);
+                        } else {
+                            assert_eq!(values.len(), 2);
+                            println!(
+                                "[CHECKPOINT {}] new CPU cycles: {}, new runtime memory: {}",
+                                values[1],
+                                cpu_cycles - last_checkpoint_cpu_cycles,
+                                memory.data.len() - last_checkpoint_memory_size
+                            );
+                        }
+
+                        last_checkpoint_cpu_cycles = cpu_cycles;
+                        last_checkpoint_memory_size = memory.data.len();
+                        continue;
+                    }
+
                     let line_info = line_info.replace(";", "");
-                    println!("\"{}\" -> {}", line_info, values);
+                    println!("\"{}\" -> {}", line_info, values.join(", "));
                     // does not increase PC
                 }
             }
@@ -385,7 +404,7 @@ pub fn execute_bytecode(
 
     println!("\nBytecode size: {}", bytecode.instructions.len());
     println!("Public input size: {}", public_input.len());
-    println!("Executed {} instructions", instructions_run);
+    println!("Executed {} instructions", cpu_cycles);
     println!(
         "Runtime memory used: {}",
         memory.data.len() - (bytecode.public_input_start + public_input.len())
@@ -395,7 +414,7 @@ pub fn execute_bytecode(
             "Poseidon2_16 calls: {}, Poseidon2_24 calls: {} (1 poseidon per {} instructions)",
             poseidon16_calls,
             poseidon24_calls,
-            instructions_run / (poseidon16_calls + poseidon24_calls)
+            cpu_cycles / (poseidon16_calls + poseidon24_calls)
         );
         println!(
             "{} memory cells per poseidon",
