@@ -406,7 +406,7 @@ pub fn execute_bytecode(
     println!("Public input size: {}", public_input.len());
     println!("Executed {} instructions", cpu_cycles);
     println!(
-        "Runtime memory used: {}",
+        "Runtime memory: {}",
         memory.data.len() - (bytecode.public_input_start + public_input.len())
     );
     if poseidon16_calls + poseidon24_calls > 0 {

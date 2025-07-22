@@ -120,100 +120,57 @@ pub fn run_whir_verif() {
 
         folding_randomness_global = malloc_vec(N_VARS);
 
-        for i in 0..FINAL_VARS {
-            copy_chunk_vec(folding_randomness_5 + i, folding_randomness_global + i);
+        ffs = malloc(N_ROUNDS + 2);
+        ffs[0] = FOLDING_FACTOR_0; ffs[1] = FOLDING_FACTOR_1; ffs[2] = FOLDING_FACTOR_2; ffs[3] = FOLDING_FACTOR_3; ffs[4] = FINAL_VARS;
+        frs = malloc(N_ROUNDS + 2);
+        frs[0] = folding_randomness_5; frs[1] = folding_randomness_4; frs[2] = folding_randomness_3; frs[3] = folding_randomness_2; frs[4] = folding_randomness_1;
+        ffs_sums = malloc(N_ROUNDS + 2);
+        ffs_sums[0] = FOLDING_FACTOR_0;
+        for i in 0..N_ROUNDS + 1 {
+            ffs_sums[i + 1] = ffs_sums[i] + ffs[i + 1];
         }
-        for i in 0..FOLDING_FACTOR_3 {
-            copy_chunk_vec(folding_randomness_4 + i, folding_randomness_global + i + FINAL_VARS);
+        for i in 0..N_ROUNDS + 2 {
+            start = folding_randomness_global + N_VARS - ffs_sums[N_ROUNDS + 1 - i];
+            for j in 0..ffs[N_ROUNDS + 1 - i] {
+                copy_chunk_vec(frs[i] + j, start + j);
+            }
         }
-        for i in 0..FOLDING_FACTOR_2 {
-            copy_chunk_vec(folding_randomness_3 + i, folding_randomness_global + i + FINAL_VARS + FOLDING_FACTOR_3);
-        }
-        for i in 0..FOLDING_FACTOR_1 {
-            copy_chunk_vec(folding_randomness_2 + i, folding_randomness_global + i + FINAL_VARS + FOLDING_FACTOR_3 + FOLDING_FACTOR_2);
-        }
-        for i in 0..FOLDING_FACTOR_0 {
-            copy_chunk_vec(folding_randomness_1 + i, folding_randomness_global + i + FINAL_VARS + FOLDING_FACTOR_3 + FOLDING_FACTOR_2 + FOLDING_FACTOR_1);
-        }
-        
-        // ------------------------------------------------------------------------------------------
+
         ood_0_expanded_from_univariate = powers_of_two_rev_extension(ood_point_0, N_VARS);
         s0 = eq_mle_extension(ood_0_expanded_from_univariate, folding_randomness_global, N_VARS);
-
         s1 = eq_mle_extension(pcs_point, folding_randomness_global, N_VARS);
-
         s3 = mul_extension_ret(s1, combination_randomness_gen_0);
-
         s4 = add_extension_ret(s0, s3);
 
-        // ------------------------------------------------------------------------------------------
-        
-        ood_1_expanded_from_univariate = powers_of_two_rev_extension(ood_point_1, N_VARS - FOLDING_FACTOR_0);
-        s5 = eq_mle_extension(ood_1_expanded_from_univariate, folding_randomness_global, N_VARS - FOLDING_FACTOR_0);
+        weight_sums = malloc(N_ROUNDS + 1);
+        weight_sums[0] = s4;
 
+        ood_points = malloc(N_ROUNDS + 1); ood_points[0] = ood_point_0; ood_points[1] = ood_point_1; ood_points[2] = ood_point_2; ood_points[3] = ood_point_3;
+        num_queries = malloc(N_ROUNDS + 1); num_queries[0] = NUM_QUERIES_0; num_queries[1] = NUM_QUERIES_1; num_queries[2] = NUM_QUERIES_2; num_queries[3] = NUM_QUERIES_3;
+        circle_values = malloc(N_ROUNDS + 1); circle_values[0] = circle_values_1; circle_values[1] = circle_values_2; circle_values[2] = circle_values_3; circle_values[3] = final_circle_values;
+        combination_randomness_powers = malloc(N_ROUNDS); combination_randomness_powers[0] = combination_randomness_powers_1; combination_randomness_powers[1] = combination_randomness_powers_2; combination_randomness_powers[2] = combination_randomness_powers_3;
 
-        s6s = malloc_vec(NUM_QUERIES_0 + 1);
-        copy_chunk_vec(s5, s6s);
-        for i in 0..NUM_QUERIES_0 {
-            expanded_from_univariate = powers_of_two_rev_base(circle_values_1[i], N_VARS - FOLDING_FACTOR_0);
-            temp = eq_mle_extension_base(expanded_from_univariate, folding_randomness_global, N_VARS - FOLDING_FACTOR_0);
-            copy_chunk_vec(temp, s6s + i + 1);
+        for i in 0..N_ROUNDS {
+            ood_expanded_from_univariate = powers_of_two_rev_extension(ood_points[i + 1], N_VARS - ffs_sums[i]);
+            s5 = eq_mle_extension(ood_expanded_from_univariate, folding_randomness_global, N_VARS - ffs_sums[i]);
+            s6s = malloc_vec(num_queries[i] + 1);
+            copy_chunk_vec(s5, s6s);
+            circle_value_i = circle_values[i];
+            for j in 0..num_queries[i] {
+                expanded_from_univariate = powers_of_two_rev_base(circle_value_i[j], N_VARS - ffs_sums[i]);
+                temp = eq_mle_extension_base(expanded_from_univariate, folding_randomness_global, N_VARS - ffs_sums[i]);
+                copy_chunk_vec(temp, s6s + j + 1);
+            }
+            s7 = dot_product_extension(s6s, combination_randomness_powers[i], num_queries[i] + 1);
+            wsum = add_extension_ret(weight_sums[i], s7);
+            weight_sums[i+1] = wsum;
         }
 
-        s7 = dot_product_extension(s6s, combination_randomness_powers_1, NUM_QUERIES_0 + 1);
-
-        s9 = add_extension_ret(s4, s7);
-
-        // ------------------------------------------------------------------------------------------
-        
-        ood_2_expanded_from_univariate = powers_of_two_rev_extension(ood_point_2, N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1);
-        s10 = eq_mle_extension(ood_2_expanded_from_univariate, folding_randomness_global, N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1);
-
-
-        s11s = malloc_vec(NUM_QUERIES_1 + 1);
-        copy_chunk_vec(s10, s11s);
-        for i in 0..NUM_QUERIES_1 {
-            expanded_from_univariate = powers_of_two_rev_base(circle_values_2[i], N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1);
-            temp = eq_mle_extension_base(expanded_from_univariate, folding_randomness_global, N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1);
-            copy_chunk_vec(temp, s11s + i + 1);
-        }
-
-        s12 = dot_product_extension(s11s, combination_randomness_powers_2, NUM_QUERIES_1 + 1);
-
-        s13 = add_extension_ret(s9, s12);
-
-        // ------------------------------------------------------------------------------------------
-        
-        ood_3_expanded_from_univariate = powers_of_two_rev_extension(ood_point_3, N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1 - FOLDING_FACTOR_2);
-        s14 = eq_mle_extension(ood_3_expanded_from_univariate, folding_randomness_global, N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1 - FOLDING_FACTOR_2);
-
-
-        s15s = malloc_vec(NUM_QUERIES_2 + 1);
-        copy_chunk_vec(s14, s15s);
-        for i in 0..NUM_QUERIES_2 {
-            expanded_from_univariate = powers_of_two_rev_base(circle_values_3[i], N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1 - FOLDING_FACTOR_2);
-            temp = eq_mle_extension_base(expanded_from_univariate, folding_randomness_global, N_VARS - FOLDING_FACTOR_0 - FOLDING_FACTOR_1 - FOLDING_FACTOR_2);
-            copy_chunk_vec(temp, s15s + i + 1);
-        }
-
-        s16 = dot_product_extension(s15s, combination_randomness_powers_3, NUM_QUERIES_2 + 1);
-
-        s17 = add_extension_ret(s13, s16);
-
-        // ------------------------------------------------------------------------------------------
-
-        evaluation_of_weights = s17;
-
+        evaluation_of_weights = weight_sums[N_ROUNDS];
         poly_eq_final = poly_eq_extension(folding_randomness_5, FINAL_VARS, two_pow_final_vars);
         final_value = dot_product_extension(poly_eq_final, final_coeffcients, two_pow_final_vars);
-
-
-        // claimed_sum == evaluation_of_weights * final_value
-
         evaluation_of_weights_times_final_value = mul_extension_ret(evaluation_of_weights, final_value);
-        
         final_check = eq_extension(evaluation_of_weights_times_final_value, end_sum);
-
         assert final_check == 1;
 
         return;
@@ -883,6 +840,13 @@ pub fn run_whir_verif() {
         return;
     }
 
+   fn print_chunk(a) {
+        a_ptr = a * 8;
+        for i in 0..8 {
+            print(a_ptr[i]);
+        }
+        return;
+    }
 
    "#;
 
