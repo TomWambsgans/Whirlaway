@@ -808,12 +808,7 @@ pub fn run_whir_verif() {
 
     fn add_extension_ret(a, b) -> 1 {
         c = malloc_vec(1);
-        a_ptr = a * 8;
-        b_ptr = b * 8;
-        c_ptr = c * 8;
-        for i in 0..8 unroll {
-            c_ptr[i] = a_ptr[i] + b_ptr[i];
-        }
+        add_extension(a, b, c);
         return c;
     }
 

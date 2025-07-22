@@ -421,13 +421,12 @@ pub fn execute_bytecode(
         }
     }
 
+    let runtime_memory_size =
+        memory.data.len() - (bytecode.public_input_start + public_input.len());
     println!("\nBytecode size: {}", bytecode.instructions.len());
     println!("Public input size: {}", public_input.len());
     println!("Executed {} instructions", cpu_cycles);
-    println!(
-        "Runtime memory: {}",
-        memory.data.len() - (bytecode.public_input_start + public_input.len())
-    );
+    println!("Runtime memory: {}", runtime_memory_size);
     if poseidon16_calls + poseidon24_calls > 0 {
         println!(
             "Poseidon2_16 calls: {}, Poseidon2_24 calls: {} (1 poseidon per {} instructions)",
@@ -439,7 +438,16 @@ pub fn execute_bytecode(
     if extension_mul_calls > 0 {
         println!("ExtensionMul calls: {}", extension_mul_calls,);
     }
-    // TODO fill the bytecode into memory
+    let used_memory_cells = memory
+        .data
+        .iter()
+        .skip(bytecode.public_input_start + public_input.len())
+        .filter(|&&x| x.is_some())
+        .count();
+    println!(
+        "Memory usage: {:.1}%",
+        used_memory_cells as f64 / runtime_memory_size as f64 * 100.0
+    );
 }
 
 fn malloc(
