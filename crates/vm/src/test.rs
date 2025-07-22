@@ -30,6 +30,25 @@ fn test_fibonacci_program() {
 }
 
 #[test]
+fn test_edge_case_0() {
+    let program = r#"
+    fn main() {
+        a = malloc(1);
+        a[0] = 0;
+        for i in 0..1 {
+            x = 1 + a[i];
+        }
+        for i in 0..1 {
+            y = 1 + a[i];
+        }
+        return;
+    }
+   "#;
+    compile_and_run(program, &[], &[]);
+}
+
+
+#[test]
 fn test_unroll() {
     // a program to check the value of the 30th Fibonacci number (832040)
     let program = r#"

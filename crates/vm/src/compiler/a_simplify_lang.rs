@@ -371,6 +371,8 @@ fn simplify_lines(
 
                 let mut loop_const_malloc = ConstMalloc::default();
                 loop_const_malloc.counter = const_malloc.counter;
+                let valid_aux_vars_in_array_manager_before = array_manager.valid.clone();
+                array_manager.valid.clear();
                 let simplified_body = simplify_lines(
                     body,
                     counters,
@@ -380,6 +382,7 @@ fn simplify_lines(
                     &mut loop_const_malloc,
                 );
                 const_malloc.counter = loop_const_malloc.counter;
+                array_manager.valid = valid_aux_vars_in_array_manager_before; // restore the valid aux vars
 
                 let func_name = format!("@loop_{}", counters.loops);
                 counters.loops += 1;
