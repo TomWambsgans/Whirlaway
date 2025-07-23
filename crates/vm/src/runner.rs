@@ -1,5 +1,6 @@
 use p3_field::BasedVectorSpace;
 use p3_field::PrimeCharacteristicRing;
+use utils::pretty_integer;
 
 use crate::ENABLE_MUL_PRECOMPILE;
 use crate::FIELD_ELEMENTS_PER_OPCODE;
@@ -240,7 +241,8 @@ fn execute_bytecode_helper(
     let mut cpu_cycles = 0;
 
     let mut last_checkpoint_cpu_cycles = 0;
-    let mut last_checkpoint_memory_size = public_input.len() + private_input.len();
+    let mut checkpoint_ap = initial_ap;
+    let mut checkpoint_ap_vec = ap_vec;
 
     while pc != bytecode.ending_pc {
         if pc >= bytecode.instructions.len() {
@@ -311,16 +313,21 @@ fn execute_bytecode_helper(
                             println!("[CHECKPOINT]",);
                         } else {
                             assert_eq!(values.len(), 2);
+                            let new_no_vec_memory = ap - checkpoint_ap;
+                            let new_vec_memory = (ap_vec - checkpoint_ap_vec) * DIMENSION;
                             println!(
-                                "[CHECKPOINT {}] new CPU cycles: {}, new runtime memory: {}",
+                                "[CHECKPOINT {}] new CPU cycles: {}, new runtime memory: {} ({:.1}% vec) ",
                                 values[1],
-                                cpu_cycles - last_checkpoint_cpu_cycles,
-                                memory.data.len() - last_checkpoint_memory_size
+                                pretty_integer(cpu_cycles - last_checkpoint_cpu_cycles),
+                                pretty_integer(new_no_vec_memory + new_vec_memory),
+                                new_vec_memory as f64 / (new_no_vec_memory + new_vec_memory) as f64
+                                    * 100.0
                             );
                         }
 
                         last_checkpoint_cpu_cycles = cpu_cycles;
-                        last_checkpoint_memory_size = memory.data.len();
+                        checkpoint_ap = ap;
+                        checkpoint_ap_vec = ap_vec;
                         continue;
                     }
 
@@ -473,21 +480,30 @@ fn execute_bytecode_helper(
     if final_execution {
         let runtime_memory_size =
             memory.data.len() - (bytecode.public_input_start + public_input.len());
-        println!("\nBytecode size: {}", bytecode.instructions.len());
-        println!("Public input size: {}", public_input.len());
-        println!("Private input size: {}", private_input.len());
-        println!("Executed {} instructions", cpu_cycles);
-        println!("Runtime memory: {}", runtime_memory_size);
+        println!(
+            "\nBytecode size: {}",
+            pretty_integer(bytecode.instructions.len())
+        );
+        println!("Public input size: {}", pretty_integer(public_input.len()));
+        println!(
+            "Private input size: {}",
+            pretty_integer(private_input.len())
+        );
+        println!("Executed {} instructions", pretty_integer(cpu_cycles));
+        println!("Runtime memory: {}", pretty_integer(runtime_memory_size));
         if poseidon16_calls + poseidon24_calls > 0 {
             println!(
                 "Poseidon2_16 calls: {}, Poseidon2_24 calls: {} (1 poseidon per {} instructions)",
-                poseidon16_calls,
-                poseidon24_calls,
+                pretty_integer(poseidon16_calls),
+                pretty_integer(poseidon24_calls),
                 cpu_cycles / (poseidon16_calls + poseidon24_calls)
             );
         }
         if extension_mul_calls > 0 {
-            println!("ExtensionMul calls: {}", extension_mul_calls,);
+            println!(
+                "ExtensionMul calls: {}",
+                pretty_integer(extension_mul_calls)
+            );
         }
         let used_memory_cells = memory
             .data
