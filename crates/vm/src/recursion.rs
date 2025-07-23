@@ -44,10 +44,15 @@ pub fn run_whir_verif() {
     const RS_REDUCTION_FACTOR_2 = 1;
     const RS_REDUCTION_FACTOR_3 = 1;
 
-    const NUM_QUERIES_0 = 138;
-    const NUM_QUERIES_1 = 44;
-    const NUM_QUERIES_2 = 22;
-    const NUM_QUERIES_3 = 15;
+    const NUM_QUERIES_0 = 120;
+    const NUM_QUERIES_1 = 38;
+    const NUM_QUERIES_2 = 19;
+    const NUM_QUERIES_3 = 13;
+
+    const GRINDING_BITS_0 = 16;
+    const GRINDING_BITS_1 = 16;
+    const GRINDING_BITS_2 = 15;
+    const GRINDING_BITS_3 = 11;
 
     const TWO_ADICITY = 24;
     const ROOT = 1791270792; // of order 2^TWO_ADICITY
@@ -68,20 +73,21 @@ pub fn run_whir_verif() {
 
         domain_size_0 = N_VARS + LOG_INV_RATE;
         fs_state_5, folding_randomness_1, ood_point_1, root_1, circle_values_1, combination_randomness_powers_1, claimed_sum_1 = 
-            whir_round(fs_state_4, root_0, FOLDING_FACTOR_0, 2**FOLDING_FACTOR_0, 1, NUM_QUERIES_0, domain_size_0, claimed_sum_0);
+            whir_round(fs_state_4, root_0, FOLDING_FACTOR_0, 2**FOLDING_FACTOR_0, 1, NUM_QUERIES_0, domain_size_0, claimed_sum_0, GRINDING_BITS_0);
 
         domain_size_1 = domain_size_0 - RS_REDUCTION_FACTOR_0;
         fs_state_6, folding_randomness_2, ood_point_2, root_2, circle_values_2, combination_randomness_powers_2, claimed_sum_2 = 
-            whir_round(fs_state_5, root_1, FOLDING_FACTOR_1, 2**FOLDING_FACTOR_1, 0, NUM_QUERIES_1, domain_size_1, claimed_sum_1);
+            whir_round(fs_state_5, root_1, FOLDING_FACTOR_1, 2**FOLDING_FACTOR_1, 0, NUM_QUERIES_1, domain_size_1, claimed_sum_1, GRINDING_BITS_1);
 
         domain_size_2 = domain_size_1 - RS_REDUCTION_FACTOR_1;
         fs_state_7, folding_randomness_3, ood_point_3, root_3, circle_values_3, combination_randomness_powers_3, claimed_sum_3 = 
-            whir_round(fs_state_6, root_2, FOLDING_FACTOR_2, 2**FOLDING_FACTOR_2, 0, NUM_QUERIES_2, domain_size_2, claimed_sum_2);
+            whir_round(fs_state_6, root_2, FOLDING_FACTOR_2, 2**FOLDING_FACTOR_2, 0, NUM_QUERIES_2, domain_size_2, claimed_sum_2, GRINDING_BITS_2);
 
         domain_size_3 = domain_size_2 - RS_REDUCTION_FACTOR_2;
         fs_state_8, folding_randomness_4, final_claimed_sum = sumcheck(fs_state_7, FOLDING_FACTOR_3, claimed_sum_3);
         fs_state_9, final_coeffcients = fs_receive(fs_state_8, 2**FINAL_VARS);
-        fs_state_10, final_circle_values, final_folds = sample_stir_indexes_and_fold(fs_state_9, NUM_QUERIES_3, 0, FOLDING_FACTOR_3, 2**FOLDING_FACTOR_3, domain_size_3, root_3, folding_randomness_4);
+        fs_state_10, final_circle_values, final_folds =
+            sample_stir_indexes_and_fold(fs_state_9, NUM_QUERIES_3, 0, FOLDING_FACTOR_3, 2**FOLDING_FACTOR_3, domain_size_3, root_3, folding_randomness_4, GRINDING_BITS_3);
 
         // 68711 cycles
         for i in 0..NUM_QUERIES_3 {
@@ -258,9 +264,10 @@ pub fn run_whir_verif() {
         return new_state, folding_randomness, new_claimed_sum;
     }
 
-    fn sample_stir_indexes_and_fold(fs_state, num_queries, is_first_round, folding_factor, two_pow_folding_factor, domain_size, prev_root, folding_randomness) -> 3 {
+    fn sample_stir_indexes_and_fold(fs_state, num_queries, is_first_round, folding_factor, two_pow_folding_factor, domain_size, prev_root, folding_randomness, grinding_bits) -> 3 {
 
-        fs_state_9, stir_challenges_indexes = sample_bits(fs_state, num_queries);
+        fs_state_8 = fs_grinding(fs_state, grinding_bits);
+        fs_state_9, stir_challenges_indexes = sample_bits(fs_state_8, num_queries);
 
         answers = malloc(num_queries); // a vector of vectorized pointers, each pointing to `two_pow_folding_factor` field elements (base if first rounds, extension otherwise)
         fs_states_b = malloc(num_queries + 1);
@@ -352,13 +359,13 @@ pub fn run_whir_verif() {
     }
 
 
-    fn whir_round(fs_state, prev_root, folding_factor, two_pow_folding_factor, is_first_round, num_queries, domain_size, claimed_sum) -> 7 {
+    fn whir_round(fs_state, prev_root, folding_factor, two_pow_folding_factor, is_first_round, num_queries, domain_size, claimed_sum, grinding_bits) -> 7 {
         fs_state_7, folding_randomness, new_claimed_sum_a = sumcheck(fs_state, folding_factor, claimed_sum);
 
         fs_state_8, root, ood_point, ood_eval = parse_commitment(fs_state_7);
    
         fs_state_11, circle_values, folds = 
-            sample_stir_indexes_and_fold(fs_state_8, num_queries, is_first_round, folding_factor, two_pow_folding_factor, domain_size, prev_root, folding_randomness);
+            sample_stir_indexes_and_fold(fs_state_8, num_queries, is_first_round, folding_factor, two_pow_folding_factor, domain_size, prev_root, folding_randomness, grinding_bits);
 
         fs_state_12, combination_randomness_gen = fs_sample_ef(fs_state_11);
 
@@ -603,6 +610,39 @@ pub fn run_whir_verif() {
         return fs_state;
     }
 
+     fn fs_grinding(fs_state, bits) -> 1 {
+        // WARNING: should not be called 2 times in a row without duplexing in between
+
+        if bits == 0 {
+            return fs_state; // no grinding
+        }
+
+        transcript_ptr = fs_state[0] * 8;
+        l_ptr = fs_state[1] * 8;
+        
+        new_l = malloc_vec(1);
+        new_l_ptr = new_l * 8;
+        new_l_ptr[0] = transcript_ptr[0];
+        for i in 1..8 unroll {
+            new_l_ptr[i] = l_ptr[i];
+        }
+
+        l_updated, r_updated = poseidon16(new_l, fs_state[2]);
+        new_fs_state = malloc(4);
+        new_fs_state[0] = fs_state[0] + 1; // read one 1 chunk of 8 field elements (7 are useless)
+        new_fs_state[1] = l_updated;
+        new_fs_state[2] = r_updated;
+        new_fs_state[3] = 7; // output_buffer_size
+
+        l_updated_ptr = l_updated* 8;
+        sampled = l_updated_ptr[7];
+        sampled_bits = checked_decompose_bits(sampled);
+        for i in 0..bits {
+            assert sampled_bits[i] == 0;
+        }
+        return new_fs_state;
+    }
+
     fn less_than_8(a) -> 1 {
         if a * (a - 1) * (a - 2) * (a - 3) * (a - 4) * (a - 5) * (a - 6) * (a - 7) == 0 {
             return 1; // a < 8
@@ -815,7 +855,7 @@ pub fn run_whir_verif() {
     let whir_params = ProtocolParameters {
         initial_statement: true,
         security_level: 128,
-        pow_bits: 0,
+        pow_bits: 17,
         folding_factor: FoldingFactor::ConstantFromSecondRound(7, 4),
         merkle_hash,
         merkle_compress,
@@ -832,6 +872,7 @@ pub fn run_whir_verif() {
     let params =
         WhirConfig::<EF, F, MerkleHash, MerkleCompress, MyChallenger>::new(mv_params, whir_params);
     assert_eq!(params.committment_ood_samples, 1);
+    // println!("Whir parameters: {}", params.to_string());
 
     let mut rng = StdRng::seed_from_u64(0);
     let polynomial =

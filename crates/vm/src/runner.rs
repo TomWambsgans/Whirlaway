@@ -24,9 +24,23 @@ enum RunnerError {
     MemoryAlreadySet,
     NotAPointer,
     DivByZero,
-    NotEqual,
+    NotEqual(F, F),
     UndefinedMemory,
     PCOutOfBounds,
+}
+
+impl ToString for RunnerError {
+    fn to_string(&self) -> String {
+        match self {
+            RunnerError::OutOfMemory => "Out of memory".to_string(),
+            RunnerError::MemoryAlreadySet => "Memory already set".to_string(),
+            RunnerError::NotAPointer => "Not a pointer".to_string(),
+            RunnerError::DivByZero => "Division by zero".to_string(),
+            RunnerError::NotEqual(expected, actual) => format!("Computation Invalid: {} != {}", expected, actual),
+            RunnerError::UndefinedMemory => "Undefined memory access".to_string(),
+            RunnerError::PCOutOfBounds => "Program counter out of bounds".to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -166,7 +180,7 @@ pub fn execute_bytecode(
             if !std_out.is_empty() {
                 print!("{}", std_out);
             }
-            panic!("Error during bytecode execution: {:?}", err);
+            panic!("Error during bytecode execution: {}", err.to_string());
         }
     };
     execute_bytecode_helper(
@@ -345,8 +359,9 @@ fn execute_bytecode_helper(
                     let a_value = arg_a.read_value(&memory, fp)?;
                     let b_value = arg_b.read_value(&memory, fp)?;
                     let res_value = res.read_value(&memory, fp)?;
-                    if res_value != operation.compute(a_value, b_value) {
-                        return Err(RunnerError::NotEqual);
+                    let computed_value = operation.compute(a_value, b_value);
+                    if res_value != computed_value {
+                        return Err(RunnerError::NotEqual(computed_value, res_value));
                     }
                 }
 

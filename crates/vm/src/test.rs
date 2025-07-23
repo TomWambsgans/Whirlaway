@@ -3,7 +3,9 @@ use p3_symmetric::Permutation;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::poseidon16_kb;
 
-use whir_p3::fiat_shamir::{domain_separator::DomainSeparator, verifier::VerifierState};
+use whir_p3::fiat_shamir::{
+    domain_separator::DomainSeparator, prover::ProverState, verifier::VerifierState,
+};
 use xmss::{WotsSecretKey, XMSS_MERKLE_HEIGHT, XmssSecretKey, random_message};
 
 use crate::{EF, F, MyChallenger, Poseidon16, Poseidon24, compile_and_run};
@@ -47,7 +49,6 @@ fn test_edge_case_0() {
     compile_and_run(program, &[], &[]);
 }
 
-
 #[test]
 fn test_unroll() {
     // a program to check the value of the 30th Fibonacci number (832040)
@@ -63,7 +64,6 @@ fn test_unroll() {
    "#;
     compile_and_run(program, &[], &[]);
 }
-
 
 #[test]
 fn test_mini_program_0() {
@@ -227,7 +227,6 @@ fn test_mini_program_4() {
     poseidon_24.permute_mut(&mut public_input);
     dbg!(public_input);
 }
-
 
 #[test]
 fn test_verify_merkle_path() {
@@ -1103,25 +1102,30 @@ fn test_fiat_shamir_complete() {
 fn test_fiat_shamir_simple() {
     let program = r#"
 
+    const F_BITS = 31;
+
     fn main() {
         start = public_input_start;
         n = start[0]; // n is assumed to be a multiple of 8 for padding
 
-        fs_state = fs_new((start + (2 * n) + 8) / 8);
+        fs_state = fs_new((start + (3 * n) + 8) / 8);
 
         all_states = malloc(n + 1);
         all_states[0] = fs_state;
 
         for i in 0..n {
-            is_sample = start[(2 * i) + 1];
-            n_elements = start[(2 * i) + 2];
+            is_sample = start[(3 * i) + 1];
+            n_elements = start[(3 * i) + 2];
+            pow_bits = start[(3 * i) + 3];
             fs_state = all_states[i];
             if is_sample == 1 {
-                new_fs_state, _ = fs_sample(fs_state, n_elements);
+                fs_state_2, _ = fs_sample(fs_state, n_elements);
             } else {
-                new_fs_state, _ = fs_receive(fs_state, n_elements);
+                fs_state_2, _ = fs_receive(fs_state, n_elements);
             }
-            all_states[i + 1] = new_fs_state;
+            print(pow_bits);
+            fs_state_3 = fs_grinding(fs_state_2, pow_bits);
+            all_states[i + 1] = fs_state_3;
         }
 
         final_state = all_states[n];
@@ -1159,6 +1163,50 @@ fn test_fiat_shamir_simple() {
         return fs_state;
     }
 
+    fn fs_grinding(fs_state, bits) -> 1 {
+        // WARNING: should not be called 2 times in a row without duplexing in between
+        transcript_ptr = fs_state[0] * 8;
+        l_ptr = fs_state[1] * 8;
+        
+        new_l = malloc_vec(1);
+        new_l_ptr = new_l * 8;
+        new_l_ptr[0] = transcript_ptr[0];
+        for i in 1..8 unroll {
+            new_l_ptr[i] = l_ptr[i];
+        }
+
+        l_updated, r_updated = poseidon16(new_l, fs_state[2]);
+        new_fs_state = malloc(4);
+        new_fs_state[0] = fs_state[0] + 1; // read one 1 chunk of 8 field elements (7 are useless)
+        new_fs_state[1] = l_updated;
+        new_fs_state[2] = r_updated;
+        new_fs_state[3] = 7; // output_buffer_size
+
+        l_updated_ptr = l_updated* 8;
+        sampled = l_updated_ptr[7];
+        sampled_bits = checked_decompose_bits(sampled);
+        for i in 0..bits {
+            assert sampled_bits[i] == 0;
+        }
+        return new_fs_state;
+    }
+
+    fn checked_decompose_bits(a) -> 1 {
+        // return a pointer to bits of a
+        bits = decompose_bits(a); // hint
+
+        for i in 0..F_BITS unroll {
+            assert bits[i] * (1 - bits[i]) == 0;
+        }
+        sums = malloc(F_BITS);
+        sums[0] = bits[0];
+        for i in 1..F_BITS unroll {
+            sums[i] = sums[i - 1] + bits[i] * 2**i;
+        }
+        assert a == sums[F_BITS - 1];
+        return bits;
+    }
+
     fn less_than_8(a) -> 1 {
         if a * (a - 1) * (a - 2) * (a - 3) * (a - 4) * (a - 5) * (a - 6) * (a - 7) == 0 {
             return 1; // a < 8
@@ -1178,13 +1226,13 @@ fn test_fiat_shamir_simple() {
         // fill res with n field elements
 
         output_buffer_size = fs_state[3];
-        output_buffer_ptr = fs_state[2] * 8;
+        output_buffer_ptr = fs_state[1] * 8;
 
         for i in 0..n {
             if output_buffer_size - i == 0 {
                 break;
             }
-            res[i] = output_buffer_ptr[7 - i];
+            res[i] = output_buffer_ptr[output_buffer_size - 1 - i];
         }
 
         finished = less_than_8(output_buffer_size - n);
@@ -1216,7 +1264,18 @@ fn test_fiat_shamir_simple() {
         return final_res;
 
     }
-    
+
+    fn fs_hint(fs_state, n) -> 2 {
+        // return the updated fs_state, and a vectorized pointer to n chunk of 8 field elements
+
+        res = fs_state[0];
+        new_fs_state = malloc(4);
+        new_fs_state[0] = res + n;
+        new_fs_state[1] = fs_state[1];
+        new_fs_state[2] = fs_state[2];
+        new_fs_state[3] = fs_state[3];
+        return new_fs_state, res; 
+    }
 
     fn fs_receive(fs_state, n) -> 2 {
         // return the updated fs_state, and a vectorized pointer to n chunk of 8 field elements
@@ -1257,34 +1316,43 @@ fn test_fiat_shamir_simple() {
         return;
     }
    "#;
-    let n = 8 * 100; // must be a multiple of 8 for padding
+    let n = 8 * 1; // must be a multiple of 8 for padding
 
     let poseidon16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
     let mut rng = StdRng::seed_from_u64(0);
     let challenger = MyChallenger::new(poseidon16);
+    let domain_separator = DomainSeparator::<EF, F>::new(vec![]);
 
-    let mut public_input = vec![F::from_usize(n)];
-    let mut proof_data = vec![];
+    let mut public_input = vec![];
     let mut is_samples = vec![];
     let mut sizes = vec![];
+    let mut grinding_bits = vec![];
+
+    let mut prover_state = ProverState::new(&domain_separator, challenger.clone());
 
     for _ in 0..n {
         let is_sample: bool = rng.random();
-        let size = rng.random_range(1..20);
+        let size = rng.random_range(1..18);
         is_samples.push(is_sample);
         sizes.push(size);
-        if !is_sample {
-            proof_data.extend((0..size * 8).map(|_| rng.random()).collect::<Vec<F>>());
+        if is_sample {
+            for _ in 0..size {
+                let _ = prover_state.sample_bits(1);
+            }
+        } else {
+            let random_data = (0..size * 8).map(|_| rng.random()).collect::<Vec<F>>();
+            let _ = prover_state.add_base_scalars(&random_data);
         }
+        let pow_bits = rng.random_range(1..10);
+        grinding_bits.push(pow_bits);
+        prover_state.pow_grinding(pow_bits);
     }
 
-    let mut verifier_state = VerifierState::new(
-        &DomainSeparator::<EF, F>::new(vec![]),
-        proof_data.clone(),
-        challenger,
-    );
+    let proof_data = prover_state.proof_data().to_vec();
 
-    for (is_sample, size) in is_samples.iter().zip(&sizes) {
+    let mut verifier_state = VerifierState::new(&domain_separator, proof_data.clone(), challenger);
+
+    for ((is_sample, size), pow_bits) in is_samples.iter().zip(&sizes).zip(&grinding_bits) {
         if *is_sample {
             for _ in 0..*size {
                 let _ = verifier_state.sample_bits(1);
@@ -1292,15 +1360,19 @@ fn test_fiat_shamir_simple() {
         } else {
             let _ = verifier_state.next_base_scalars_vec(*size * 8);
         }
+        verifier_state.check_pow_grinding(*pow_bits).unwrap();
     }
 
-    // public_input.extend(sizes.iter().map(|&x| F::from_usize(x)));
-    public_input.extend(
-        is_samples
-            .iter()
-            .zip(&sizes)
-            .flat_map(|(&is_sample, &size)| vec![F::from_bool(is_sample), F::from_usize(size)]),
-    );
+    public_input.push(F::from_usize(n));
+    public_input.extend(is_samples.iter().zip(&sizes).zip(&grinding_bits).flat_map(
+        |((&is_sample, &size), &pow_bits)| {
+            vec![
+                F::from_bool(is_sample),
+                F::from_usize(size),
+                F::from_usize(pow_bits),
+            ]
+        },
+    ));
     public_input.extend(vec![F::ZERO; 7]); // padding
     public_input.extend(proof_data.clone());
     public_input.extend(verifier_state.challenger().sponge_state.to_vec());
