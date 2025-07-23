@@ -8,7 +8,9 @@ constant_declaration = { "const" ~ identifier ~ "=" ~ expression ~ ";" }
 
 // Functions
 function = { "fn" ~ identifier ~ "(" ~ parameter_list? ~ ")" ~ return_count? ~ "{" ~ statement* ~ "}" }
-parameter_list = { identifier ~ ("," ~ identifier)* }
+parameter_list = { parameter ~ ("," ~ parameter)* }
+parameter = { (const_keyword)? ~ identifier }
+const_keyword = { "const" }
 return_count = { "->" ~ number }
 
 // Statements

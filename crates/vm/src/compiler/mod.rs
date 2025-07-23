@@ -17,7 +17,7 @@ use a_simplify_lang::SimpleProgram;
 pub fn compile_program(program: &str) -> Bytecode {
     let parsed_program = parse_program(program).unwrap();
     // println!("Parsed program: {}", parsed_program.to_string());
-    let simple_program = simplify_program(&parsed_program);
+    let simple_program = simplify_program(parsed_program);
     // println!("Simplified program: {}", simple_program.to_string());
     let intermediate_bytecode = compile_to_intermediate_bytecode(simple_program).unwrap();
     // println!("Intermediate Bytecode:\n\n{}", intermediate_bytecode.to_string());

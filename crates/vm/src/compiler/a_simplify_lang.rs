@@ -1,7 +1,9 @@
 use crate::{
+    F,
     bytecode::intermediate_bytecode::HighLevelOperation,
     lang::{
-        Boolean, ConstExpression, ConstMallocLabel, Expression, Line, Program, SimpleExpr, Var,
+        Boolean, ConstExpression, ConstMallocLabel, Expression, Function, Line, Program,
+        SimpleExpr, Var,
     },
 };
 use p3_field::PrimeField64;
@@ -128,26 +130,34 @@ pub enum SimpleLine {
     },
 }
 
-pub fn simplify_program(program: &Program) -> SimpleProgram {
-    // println!("{}", program.to_string());
+pub fn simplify_program(mut program: Program) -> SimpleProgram {
+    handle_const_arguments(&mut program);
     let mut new_functions = BTreeMap::new();
     let mut counters = Counters::default();
     let mut const_malloc = ConstMalloc::default();
     for (name, func) in &program.functions {
         let mut array_manager = ArrayManager::default();
         let simplified_instructions = simplify_lines(
-            &func.instructions,
+            &func.body,
             &mut counters,
             &mut new_functions,
             false,
             &mut array_manager,
             &mut const_malloc,
         );
+        let arguments = func
+            .arguments
+            .iter()
+            .map(|(v, is_const)| {
+                assert!(!is_const,);
+                v.clone()
+            })
+            .collect::<Vec<_>>();
         new_functions.insert(
             name.clone(),
             SimpleFunction {
                 name: name.clone(),
-                arguments: func.arguments.clone(),
+                arguments,
                 n_returned_vars: func.n_returned_vars,
                 instructions: simplified_instructions,
             },
@@ -1096,6 +1106,242 @@ fn replace_vars_for_unroll(
                     internal_vars,
                 );
             }
+        }
+    }
+}
+
+fn handle_const_arguments(program: &mut Program) {
+    // TODO this doesnt suupport const functions calling other const functions
+    let mut new_functions = BTreeMap::<String, Function>::new();
+    let constant_functions = program
+        .functions
+        .iter()
+        .filter(|(_, func)| func.has_const_arguments())
+        .map(|(name, func)| (name.clone(), func.clone()))
+        .collect::<BTreeMap<_, _>>();
+
+    for func in program.functions.values_mut() {
+        handle_const_arguments_helper(&mut func.body, &constant_functions, &mut new_functions);
+    }
+    for (name, func) in new_functions {
+        assert!(!program.functions.contains_key(&name),);
+        program.functions.insert(name, func);
+    }
+    for const_func in constant_functions.keys() {
+        program.functions.remove(const_func);
+    }
+}
+
+fn handle_const_arguments_helper(
+    lines: &mut [Line],
+    constant_functions: &BTreeMap<String, Function>,
+    new_functions: &mut BTreeMap<String, Function>,
+) {
+    for line in lines {
+        match line {
+            Line::FunctionCall {
+                function_name,
+                args,
+                return_data: _,
+            } => {
+                if let Some(func) = constant_functions.get(function_name) {
+                    // If the function has constant arguments, we need to handle them
+                    let mut const_evals = Vec::new();
+                    for (arg_expr, (arg_var, is_constant)) in args.iter().zip(&func.arguments) {
+                        if *is_constant {
+                            let const_eval = arg_expr.naive_eval().unwrap_or_else(|| {
+                                panic!(
+                                    "Failed to evaluate constant argument: {}",
+                                    arg_expr.to_string()
+                                )
+                            });
+                            const_evals.push((arg_var.clone(), const_eval));
+                        }
+                    }
+                    let const_funct_name = format!(
+                        "{function_name}_{}",
+                        const_evals
+                            .iter()
+                            .map(|(arg_var, const_eval)| { format!("{}={}", arg_var, const_eval) })
+                            .collect::<Vec<_>>()
+                            .join("_")
+                    );
+
+                    *function_name = const_funct_name.clone(); // change the name of the function called
+                    // ... and remove constant arguments
+                    *args = args
+                        .iter()
+                        .zip(&func.arguments)
+                        .filter(|(_, (_, is_constant))| !is_constant)
+                        .filter(|(_, (_, is_const))| !is_const)
+                        .map(|(arg_expr, _)| arg_expr.clone())
+                        .collect();
+
+                    if new_functions.contains_key(&const_funct_name) {
+                        continue;
+                    }
+
+                    let mut new_body = func.body.clone();
+                    replace_vars_by_const_in_lines(
+                        &mut new_body,
+                        &const_evals.iter().cloned().collect(),
+                    );
+                    new_functions.insert(
+                        const_funct_name.clone(),
+                        Function {
+                            name: const_funct_name,
+                            arguments: func
+                                .arguments
+                                .iter()
+                                .filter(|(_, is_const)| !is_const)
+                                .cloned()
+                                .collect(),
+                            body: new_body,
+                            n_returned_vars: func.n_returned_vars,
+                        },
+                    );
+                }
+            }
+            Line::IfCondition {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                handle_const_arguments_helper(then_branch, constant_functions, new_functions);
+                handle_const_arguments_helper(else_branch, constant_functions, new_functions);
+            }
+            Line::ForLoop {
+                body, unroll: _, ..
+            } => {
+                // TODO we should unroll before const arguments handling
+                handle_const_arguments_helper(body, constant_functions, new_functions);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) {
+    match expr {
+        Expression::Value(value) => match &value {
+            SimpleExpr::Var(var) => {
+                if let Some(const_value) = map.get(var) {
+                    *value = SimpleExpr::scalar(const_value.as_canonical_u64() as usize);
+                }
+            }
+            SimpleExpr::ConstMallocAccess { .. } => {
+                unreachable!()
+            }
+            SimpleExpr::Constant(_) => {}
+        },
+        Expression::ArrayAccess { array, index } => {
+            assert!(!map.contains_key(array), "Array {} is a constant", array);
+            replace_vars_by_const_in_expr(index, map);
+        }
+        Expression::Binary { left, right, .. } => {
+            replace_vars_by_const_in_expr(left, map);
+            replace_vars_by_const_in_expr(right, map);
+        }
+    }
+}
+
+fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
+    for line in lines {
+        match line {
+            Line::Assignment { var, value } => {
+                assert!(!map.contains_key(var), "Variable {} is a constant", var);
+                replace_vars_by_const_in_expr(value, map);
+            }
+            Line::ArrayAssign {
+                array,
+                index,
+                value,
+            } => {
+                assert!(!map.contains_key(array), "Array {} is a constant", array);
+                replace_vars_by_const_in_expr(index, map);
+                replace_vars_by_const_in_expr(value, map);
+            }
+            Line::FunctionCall {
+                args, return_data, ..
+            } => {
+                for arg in args {
+                    replace_vars_by_const_in_expr(arg, map);
+                }
+                for ret in return_data {
+                    assert!(
+                        !map.contains_key(ret),
+                        "Return variable {} is a constant",
+                        ret
+                    );
+                }
+            }
+            Line::IfCondition {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                match condition {
+                    Boolean::Equal { left, right } | Boolean::Different { left, right } => {
+                        replace_vars_by_const_in_expr(left, map);
+                        replace_vars_by_const_in_expr(right, map);
+                    }
+                }
+                replace_vars_by_const_in_lines(then_branch, map);
+                replace_vars_by_const_in_lines(else_branch, map);
+            }
+            Line::ForLoop {
+                body, start, end, ..
+            } => {
+                replace_vars_by_const_in_expr(start, map);
+                replace_vars_by_const_in_expr(end, map);
+                replace_vars_by_const_in_lines(body, map);
+            }
+            Line::Assert(condition) => match condition {
+                Boolean::Equal { left, right } | Boolean::Different { left, right } => {
+                    replace_vars_by_const_in_expr(left, map);
+                    replace_vars_by_const_in_expr(right, map);
+                }
+            },
+            Line::FunctionRet { return_data } => {
+                for ret in return_data {
+                    replace_vars_by_const_in_expr(ret, map);
+                }
+            }
+            Line::Poseidon16 { args, res } => {
+                for arg in args {
+                    replace_vars_by_const_in_expr(arg, map);
+                }
+                for r in res {
+                    assert!(!map.contains_key(r), "Return variable {} is a constant", r);
+                }
+            }
+            Line::Poseidon24 { args, res } => {
+                for arg in args {
+                    replace_vars_by_const_in_expr(arg, map);
+                }
+                for r in res {
+                    assert!(!map.contains_key(r), "Return variable {} is a constant", r);
+                }
+            }
+            Line::ExtensionMul { args } => {
+                for arg in args {
+                    replace_vars_by_const_in_expr(arg, map);
+                }
+            }
+            Line::Print { content, .. } => {
+                for var in content {
+                    replace_vars_by_const_in_expr(var, map);
+                }
+            }
+            Line::DecomposeBits { var, to_decompose } => {
+                assert!(!map.contains_key(var), "Variable {} is a constant", var);
+                replace_vars_by_const_in_expr(to_decompose, map);
+            }
+            Line::MAlloc { var, size, .. } => {
+                assert!(!map.contains_key(var), "Variable {} is a constant", var);
+                replace_vars_by_const_in_expr(size, map);
+            }
+            Line::Panic | Line::Break => {}
         }
     }
 }

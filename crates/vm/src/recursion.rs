@@ -460,61 +460,27 @@ pub fn run_whir_verif() {
         panic();
     }
 
-    fn dot_product_base_extension(a, b, res, n) {
+    fn dot_product_base_extension(a, b, res, const n) {
         // a is a pointer to n base field elements
         // b is a pointer to n extension field elements
 
         b_ptr = b * 8;
         res_ptr = res * 8;
-
-        
-        if n == TWO_POW_FOLDING_FACTOR_0 {
            
-            // OPTIMIZED VERSION
-            prods = malloc(TWO_POW_FOLDING_FACTOR_0 * 8);
-            for i in 0..TWO_POW_FOLDING_FACTOR_0 unroll {
-                for j in 0..8 unroll {
-                    prods[i * 8 + j] = a[i] * b_ptr[i * 8 + j];
-                }
+        prods = malloc(n * 8);
+        for i in 0..n unroll {
+            for j in 0..8 unroll {
+                prods[i * 8 + j] = a[i] * b_ptr[i * 8 + j];
             }
-            my_buff = malloc(TWO_POW_FOLDING_FACTOR_0 * 8);
-            for i in 0..8 unroll {
-                my_buff[TWO_POW_FOLDING_FACTOR_0 * i] = prods[i];
-                for j in 0..TWO_POW_FOLDING_FACTOR_0 - 1 unroll {
-                    my_buff[(TWO_POW_FOLDING_FACTOR_0 * i) + j + 1] = my_buff[(TWO_POW_FOLDING_FACTOR_0 * i) + j] + prods[i + ((j + 1) * 8)];
-                }
-                res_ptr[i] = my_buff[(TWO_POW_FOLDING_FACTOR_0 * i) + TWO_POW_FOLDING_FACTOR_0 - 1];
-            }
-
-            return;
-
         }
-
-        if n == TWO_POW_FINAL_VARS {
-           
-            // OPTIMIZED VERSION
-            prods = malloc(TWO_POW_FINAL_VARS * 8);
-            for i in 0..TWO_POW_FINAL_VARS unroll {
-                for j in 0..8 unroll {
-                    prods[i * 8 + j] = a[i] * b_ptr[i * 8 + j];
-                }
+        my_buff = malloc(n * 8);
+        for i in 0..8 unroll {
+            my_buff[n * i] = prods[i];
+            for j in 0..n - 1 unroll {
+                my_buff[(n * i) + j + 1] = my_buff[(n * i) + j] + prods[i + ((j + 1) * 8)];
             }
-            my_buff = malloc(TWO_POW_FINAL_VARS * 8);
-            for i in 0..8 unroll {
-                my_buff[TWO_POW_FINAL_VARS * i] = prods[i];
-                for j in 0..TWO_POW_FINAL_VARS - 1 unroll {
-                    my_buff[(TWO_POW_FINAL_VARS * i) + j + 1] = my_buff[(TWO_POW_FINAL_VARS * i) + j] + prods[i + ((j + 1) * 8)];
-                }
-                res_ptr[i] = my_buff[(TWO_POW_FINAL_VARS * i) + TWO_POW_FINAL_VARS - 1];
-            }
-
-            return;
-
+            res_ptr[i] = my_buff[(n * i) + n - 1];
         }
-
-
-        UNIMPLEMENTED = 1;
-        print(UNIMPLEMENTED, n);
 
         return;
     }

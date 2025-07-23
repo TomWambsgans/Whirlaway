@@ -106,14 +106,15 @@ fn parse_function(
 
     let mut arguments = Vec::new();
     let mut n_returned_vars = 0;
-    let mut instructions = Vec::new();
+    let mut body = Vec::new();
 
     for pair in inner {
         match pair.as_rule() {
             Rule::parameter_list => {
                 for param in pair.into_inner() {
-                    if param.as_rule() == Rule::identifier {
-                        arguments.push(param.as_str().to_string());
+                    if param.as_rule() == Rule::parameter {
+                        let parameter_name = parse_parameter(param)?;
+                        arguments.push(parameter_name);
                     }
                 }
             }
@@ -126,7 +127,7 @@ fn parse_function(
                     .ok_or_else(|| ParseError::SemanticError("Invalid return count".to_string()))?;
             }
             Rule::statement => {
-                instructions.push(parse_statement(pair, constants, trash_var_count)?);
+                body.push(parse_statement(pair, constants, trash_var_count)?);
             }
             _ => {}
         }
@@ -136,8 +137,23 @@ fn parse_function(
         name,
         arguments,
         n_returned_vars,
-        instructions,
+        body,
     })
+}
+
+fn parse_parameter(pair: Pair<Rule>) -> Result<(String, bool), ParseError> {
+    let mut inner = pair.into_inner();
+    let first = inner.next().unwrap();
+
+    if let Rule::const_keyword = first.as_rule() {
+        // If the first token is "const", the next one should be the identifier
+        let identifier = inner.next().ok_or_else(|| {
+            ParseError::SemanticError("Expected identifier after 'const'".to_string())
+        })?;
+        return Ok((identifier.as_str().to_string(), true));
+    }
+    
+    Ok((first.as_str().to_string(), false))
 }
 
 fn parse_statement(
@@ -610,7 +626,7 @@ fn main() {
     i, j, k = my_function1(b, b, a);
 }
 
-fn my_function1(a, b, c) -> 2 {
+fn my_function1(a, const b, c) -> 2 {
     d = a + b;
     e = b + c;
     if e == e {
@@ -621,6 +637,19 @@ fn my_function1(a, b, c) -> 2 {
     } else {
         return e, d;
     }
+}
+    "#;
+
+        let parsed = parse_program(program).unwrap();
+        println!("{}", parsed.to_string());
+    }
+
+    #[test]
+    fn test_const_parameters() {
+        let program = r#"
+fn test_func(const a, b, const c) -> 1 {
+    d = a + b + c;
+    return d;
 }
     "#;
 

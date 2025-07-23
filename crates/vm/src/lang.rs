@@ -14,9 +14,15 @@ pub struct Program {
 #[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
-    pub arguments: Vec<Var>,
+    pub arguments: Vec<(Var, bool)>, // (name, is_const)
     pub n_returned_vars: usize,
-    pub instructions: Vec<Line>,
+    pub body: Vec<Line>,
+}
+
+impl Function {
+    pub fn has_const_arguments(&self) -> bool {
+        self.arguments.iter().any(|(_, is_const)| *is_const)
+    }
 }
 
 pub type Var = String;
@@ -108,6 +114,7 @@ impl From<usize> for ConstExpression {
         ConstExpression::Value(ConstantValue::Scalar(value))
     }
 }
+
 
 impl TryFrom<Expression> for ConstExpression {
     type Error = ();
@@ -588,18 +595,21 @@ impl ToString for Function {
         let args_str = self
             .arguments
             .iter()
-            .map(|arg| arg.to_string())
+            .map(|arg| match arg {
+                (name, true) => format!("const {}", name),
+                (name, false) => name.to_string(),
+            })
             .collect::<Vec<_>>()
             .join(", ");
 
         let instructions_str = self
-            .instructions
+            .body
             .iter()
             .map(|line| line.to_string_with_indent(1))
             .collect::<Vec<_>>()
             .join("\n");
 
-        if self.instructions.is_empty() {
+        if self.body.is_empty() {
             format!(
                 "fn {}({}) -> {} {{}}",
                 self.name, args_str, self.n_returned_vars
