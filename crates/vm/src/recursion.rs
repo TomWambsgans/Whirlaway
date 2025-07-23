@@ -26,6 +26,7 @@ pub fn run_whir_verif() {
     // 1 OOD QUERY PER ROUND, 0 GRINDING
 
     const W = 3; // in the extension field, X^8 = 3
+    const F_BITS = 31; // koala-bear = 31 bits
 
     const N_VARS = 25;
     const LOG_INV_RATE = 1; 
@@ -559,9 +560,11 @@ pub fn run_whir_verif() {
     fn checked_decompose_bits(a) -> 1 {
         // return a pointer to bits of a
         bits = decompose_bits(a); // hint
-        bit0 = bits[0]; bit1 = bits[1]; bit2 = bits[2]; bit3 = bits[3]; bit4 = bits[4]; bit5 = bits[5]; bit6 = bits[6]; bit7 = bits[7]; bit8 = bits[8]; bit9 = bits[9]; bit10 = bits[10]; bit11 = bits[11]; bit12 = bits[12]; bit13 = bits[13]; bit14 = bits[14]; bit15 = bits[15]; bit16 = bits[16]; bit17 = bits[17]; bit18 = bits[18]; bit19 = bits[19]; bit20 = bits[20]; bit21 = bits[21]; bit22 = bits[22]; bit23 = bits[23]; bit24 = bits[24]; bit25 = bits[25]; bit26 = bits[26]; bit27 = bits[27]; bit28 = bits[28]; bit29 = bits[29]; bit30 = bits[30];
-        assert bit0 * (1 - bit0) == 0; assert bit1 * (1 - bit1) == 0; assert bit2 * (1 - bit2) == 0; assert bit3 * (1 - bit3) == 0; assert bit4 * (1 - bit4) == 0; assert bit5 * (1 - bit5) == 0; assert bit6 * (1 - bit6) == 0; assert bit7 * (1 - bit7) == 0; assert bit8 * (1 - bit8) == 0; assert bit9 * (1 - bit9) == 0; assert bit10 * (1 - bit10) == 0; assert bit11 * (1 - bit11) == 0; assert bit12 * (1 - bit12) == 0; assert bit13 * (1 - bit13) == 0; assert bit14 * (1 - bit14) == 0; assert bit15 * (1 - bit15) == 0; assert bit16 * (1 - bit16) == 0; assert bit17 * (1 - bit17) == 0; assert bit18 * (1 - bit18) == 0; assert bit19 * (1 - bit19) == 0; assert bit20 * (1 - bit20) == 0; assert bit21 * (1 - bit21) == 0; assert bit22 * (1 - bit22) == 0; assert bit23 * (1 - bit23) == 0; assert bit24 * (1 - bit24) == 0; assert bit25 * (1 - bit25) == 0; assert bit26 * (1 - bit26) == 0; assert bit27 * (1 - bit27) == 0; assert bit28 * (1 - bit28) == 0; assert bit29 * (1 - bit29) == 0; assert bit30 * (1 - bit30) == 0;
-        assert a == bit0 + (2 * bit1) + (4 * bit2) + (8 * bit3) + (16 * bit4) + (32 * bit5) + (64 * bit6) + (128 * bit7) + (256 * bit8) + (512 * bit9) + (1024 * bit10) + (2048 * bit11) + (4096 * bit12) + (8192 * bit13) + (16384 * bit14) + (32768 * bit15) + (65536 * bit16) + (131072 * bit17) + (262144 * bit18) + (524288 * bit19) + (1048576 * bit20) + (2097152 * bit21) + (4194304 * bit22) + (8388608 * bit23) + (16777216 * bit24) + (33554432 * bit25) + (67108864 * bit26) + (134217728 * bit27) + (268435456 * bit28) + (536870912 * bit29) + (1073741824 * bit30);
+
+        for i in 0..F_BITS unroll {
+            assert bits[i] * (1 - bits[i]) == 0;
+        }
+        assert a == bits[0] + (2 * bits[1]) + (4 * bits[2]) + 8 * bits[3] + (16 * bits[4]) + (32 * bits[5]) + (64 * bits[6]) + (128 * bits[7]) + (256 * bits[8]) + (512 * bits[9]) + (1024 * bits[10]) + (2048 * bits[11]) + (4096 * bits[12]) + (8192 * bits[13]) + (16384 * bits[14]) + (32768 * bits[15]) + (65536 * bits[16]) + (131072 * bits[17]) + (262144 * bits[18]) + (524288 * bits[19]) + (1048576 * bits[20]) + (2097152 * bits[21]) + (4194304 * bits[22]) + (8388608 * bits[23]) + (16777216 * bits[24]) + (33554432 * bits[25]) + (67108864 * bits[26]) + (134217728 * bits[27]) + (268435456 * bits[28]) + (536870912 * bits[29]) + (1073741824 * bits[30]);
         return bits; // a pointer to 31 bits
     }
 

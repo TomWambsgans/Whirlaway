@@ -123,7 +123,7 @@ pub enum IntermediateInstruction {
         vectorized: bool, // if true, will be 8-alligned, and the returned pointer will be "divied" by 8 (i.e. everything is in chunks of 8 field elements)
     },
     DecomposeBits {
-        res_offset: usize, // m[fp + res_offset] = a pointer to 31 field elements, containing the bits of "to_decompose"
+        res_offset: usize, // m[fp + res_offset..fp + res_offset + 31] will contain the decomposed bits
         to_decompose: IntermediateValue,
     },
     Print {
@@ -223,7 +223,7 @@ impl ToString for IntermediateInstruction {
                 to_decompose,
             } => {
                 format!(
-                    "m[fp + {}] = decompose_bits({})",
+                    "m[fp + {}..] = decompose_bits({})",
                     res_offset,
                     to_decompose.to_string()
                 )

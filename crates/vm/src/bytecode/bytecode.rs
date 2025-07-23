@@ -105,7 +105,7 @@ pub enum Hint {
         vectorized: bool,
     },
     DecomposeBits {
-        res_offset: usize, // m[fp + res_offset] = a pointer to 31 field elements, containing the bits of "to_decompose"
+        res_offset: usize, // m[fp + res_offset..fp + res_offset + 31] will contain the decomposed bits
         to_decompose: MemOrConstant,
     },
     Print {

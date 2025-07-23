@@ -1,4 +1,5 @@
 use crate::{
+    F,
     bytecode::{bytecode::Operation, intermediate_bytecode::*},
     compiler::{
         SimpleProgram,
@@ -6,6 +7,7 @@ use crate::{
     },
     lang::*,
 };
+use p3_field::Field;
 use p3_field::PrimeField64;
 use std::{
     borrow::Borrow,
@@ -377,30 +379,27 @@ fn compile_lines(
                 });
             }
             SimpleLine::ConstMalloc { var, size, label } => {
-                declared_vars.insert(var.clone());
-                instructions.push(IntermediateInstruction::Computation {
-                    operation: Operation::Add,
-                    arg_a: IntermediateValue::Constant(compiler.stack_size.into()),
-                    arg_b: IntermediateValue::Fp,
-                    res: IntermediateValue::MemoryAfterFp {
-                        shift: compiler.get_offset(&var.clone().into()),
-                    },
-                });
-                compiler
-                    .const_mallocs
-                    .insert(label.clone(), compiler.stack_size);
-                compiler.stack_size += size.naive_eval().unwrap().as_canonical_u64() as usize; // TODO not very good
+                let size = size.naive_eval().unwrap().as_canonical_u64() as usize; // TODO not very good;
+                handle_const_malloc(declared_vars, &mut instructions, compiler, var, size, label);
             }
-            SimpleLine::DecomposeBits { var, to_decompose } => {
-                declared_vars.insert(var.clone());
+            SimpleLine::DecomposeBits {
+                var,
+                to_decompose,
+                label,
+            } => {
                 instructions.push(IntermediateInstruction::DecomposeBits {
-                    res_offset: compiler
-                        .get_offset(&var.clone().into())
-                        .naive_eval()
-                        .unwrap()
-                        .as_canonical_u64() as usize, // TODO ugly
+                    res_offset: compiler.stack_size,
                     to_decompose: IntermediateValue::from_simple_expr(to_decompose, compiler),
                 });
+
+                handle_const_malloc(
+                    declared_vars,
+                    &mut instructions,
+                    compiler,
+                    var,
+                    F::bits(),
+                    label,
+                );
             }
             SimpleLine::Print { line_info, content } => {
                 instructions.push(IntermediateInstruction::Print {
@@ -422,6 +421,29 @@ fn compile_lines(
     }
 
     Ok(instructions)
+}
+
+fn handle_const_malloc(
+    declared_vars: &mut BTreeSet<Var>,
+    instructions: &mut Vec<IntermediateInstruction>,
+    compiler: &mut Compiler,
+    var: &Var,
+    size: usize,
+    label: &ConstMallocLabel,
+) {
+    declared_vars.insert(var.clone());
+    instructions.push(IntermediateInstruction::Computation {
+        operation: Operation::Add,
+        arg_a: IntermediateValue::Constant(compiler.stack_size.into()),
+        arg_b: IntermediateValue::Fp,
+        res: IntermediateValue::MemoryAfterFp {
+            shift: compiler.get_offset(&var.clone().into()),
+        },
+    });
+    compiler
+        .const_mallocs
+        .insert(label.clone(), compiler.stack_size);
+    compiler.stack_size += size;
 }
 
 // Helper functions

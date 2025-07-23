@@ -274,20 +274,9 @@ fn execute_bytecode_helper(
                     // does not increase PC
                 }
                 Hint::DecomposeBits {
-                    res_offset: result_offset,
+                    res_offset,
                     to_decompose,
                 } => {
-                    let size = MemOrConstant::Constant(F::from_usize(F::bits())); // 31 for KoalaBear
-                    malloc(
-                        &mut memory,
-                        &mut ap,
-                        &mut ap_vec,
-                        fp,
-                        *result_offset,
-                        size,
-                        false,
-                    );
-                    let start = memory.get(fp + *result_offset).as_canonical_u64() as usize;
                     let to_decompose_value =
                         to_decompose.read_value(&memory, fp).as_canonical_u64();
                     for i in 0..F::bits() {
@@ -296,7 +285,7 @@ fn execute_bytecode_helper(
                         } else {
                             F::ZERO
                         };
-                        memory.set(start + i, bit);
+                        memory.set(fp + *res_offset + i, bit);
                     }
                 }
                 Hint::Print { line_info, content } => {

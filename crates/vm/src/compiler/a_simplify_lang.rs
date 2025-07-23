@@ -112,6 +112,7 @@ pub enum SimpleLine {
     DecomposeBits {
         var: Var, // a pointer to 31 field elements, containing the bits of "to_decompose"
         to_decompose: SimpleExpr,
+        label: ConstMallocLabel,
     },
     Print {
         line_info: String,
@@ -592,6 +593,7 @@ fn simplify_lines(
                 }
             }
             Line::DecomposeBits { var, to_decompose } => {
+                assert!(!const_malloc.forbidden_vars.contains(var), "TODO");
                 let simplified_to_decompose = simplify_expr(
                     &to_decompose,
                     &mut res,
@@ -599,9 +601,13 @@ fn simplify_lines(
                     array_manager,
                     const_malloc,
                 );
+                let label = const_malloc.counter;
+                const_malloc.counter += 1;
+                const_malloc.map.insert(var.clone(), label);
                 res.push(SimpleLine::DecomposeBits {
                     var: var.clone(),
                     to_decompose: simplified_to_decompose,
+                    label,
                 });
             }
             Line::Panic => {
@@ -1391,6 +1397,7 @@ impl SimpleLine {
             SimpleLine::DecomposeBits {
                 var: result,
                 to_decompose,
+                label: _,
             } => {
                 format!(
                     "{} = decompose_bits({})",
