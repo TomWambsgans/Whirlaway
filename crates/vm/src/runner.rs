@@ -15,7 +15,7 @@ use p3_field::Field;
 use p3_field::PrimeField64;
 use p3_symmetric::Permutation;
 
-const MAX_MEMORY_SIZE: usize = 1 << 25;
+const MAX_MEMORY_SIZE: usize = 1 << 26;
 
 #[derive(Debug, Clone, Default)]
 struct Memory {
@@ -169,9 +169,38 @@ pub fn execute_bytecode(
     bytecode: &Bytecode,
     public_input: &[F],
     private_input: &[F],
-    poseidon_16: Poseidon16,
-    poseidon_24: Poseidon24,
+    poseidon_16: &Poseidon16,
+    poseidon_24: &Poseidon24,
 ) {
+    let no_vec_runtime_memory = execute_bytecode_helper(
+        bytecode,
+        public_input,
+        private_input,
+        poseidon_16,
+        poseidon_24,
+        MAX_MEMORY_SIZE / 2,
+        false,
+    );
+    execute_bytecode_helper(
+        bytecode,
+        public_input,
+        private_input,
+        poseidon_16,
+        poseidon_24,
+        no_vec_runtime_memory,
+        true,
+    );
+}
+
+fn execute_bytecode_helper(
+    bytecode: &Bytecode,
+    public_input: &[F],
+    private_input: &[F],
+    poseidon_16: &Poseidon16,
+    poseidon_24: &Poseidon24,
+    no_vec_runtime_memory: usize,
+    final_execution: bool,
+) -> usize {
     let mut memory = Memory::default();
 
     // TODO place the bytecode into memory
@@ -197,12 +226,13 @@ pub fn execute_bytecode(
         memory.set(fp + i, *value);
     }
     fp += private_input.len();
-    if fp % 8 != 0 {
-        fp += 8 - (fp % 8); // Align to 8 field elements
-    }
+    fp = fp.next_multiple_of(DIMENSION);
+
+    let initial_ap = fp + bytecode.starting_frame_memory;
 
     let mut pc = 0;
-    let mut ap = fp + bytecode.starting_frame_memory;
+    let mut ap = initial_ap;
+    let mut ap_vec = (initial_ap + no_vec_runtime_memory).next_multiple_of(DIMENSION) / DIMENSION;
 
     let mut poseidon16_calls = 0;
     let mut poseidon24_calls = 0;
@@ -230,7 +260,15 @@ pub fn execute_bytecode(
                     size,
                     vectorized,
                 } => {
-                    malloc(&mut memory, &mut ap, fp, *shift, *size, *vectorized);
+                    malloc(
+                        &mut memory,
+                        &mut ap,
+                        &mut ap_vec,
+                        fp,
+                        *shift,
+                        *size,
+                        *vectorized,
+                    );
                     // does not increase PC
                 }
                 Hint::DecomposeBits {
@@ -238,7 +276,15 @@ pub fn execute_bytecode(
                     to_decompose,
                 } => {
                     let size = MemOrConstant::Constant(F::from_usize(F::bits())); // 31 for KoalaBear
-                    malloc(&mut memory, &mut ap, fp, *result_offset, size, false);
+                    malloc(
+                        &mut memory,
+                        &mut ap,
+                        &mut ap_vec,
+                        fp,
+                        *result_offset,
+                        size,
+                        false,
+                    );
                     let start = memory.get(fp + *result_offset).as_canonical_u64() as usize;
                     let to_decompose_value =
                         to_decompose.read_value(&memory, fp).as_canonical_u64();
@@ -252,6 +298,9 @@ pub fn execute_bytecode(
                     }
                 }
                 Hint::Print { line_info, content } => {
+                    if !final_execution {
+                        continue;
+                    }
                     let values = content
                         .iter()
                         .map(|value| value.read_value(&memory, fp).to_string())
@@ -421,52 +470,55 @@ pub fn execute_bytecode(
         }
     }
 
-    let runtime_memory_size =
-        memory.data.len() - (bytecode.public_input_start + public_input.len());
-    println!("\nBytecode size: {}", bytecode.instructions.len());
-    println!("Public input size: {}", public_input.len());
-    println!("Executed {} instructions", cpu_cycles);
-    println!("Runtime memory: {}", runtime_memory_size);
-    if poseidon16_calls + poseidon24_calls > 0 {
+    if final_execution {
+        let runtime_memory_size =
+            memory.data.len() - (bytecode.public_input_start + public_input.len());
+        println!("\nBytecode size: {}", bytecode.instructions.len());
+        println!("Public input size: {}", public_input.len());
+        println!("Private input size: {}", private_input.len());
+        println!("Executed {} instructions", cpu_cycles);
+        println!("Runtime memory: {}", runtime_memory_size);
+        if poseidon16_calls + poseidon24_calls > 0 {
+            println!(
+                "Poseidon2_16 calls: {}, Poseidon2_24 calls: {} (1 poseidon per {} instructions)",
+                poseidon16_calls,
+                poseidon24_calls,
+                cpu_cycles / (poseidon16_calls + poseidon24_calls)
+            );
+        }
+        if extension_mul_calls > 0 {
+            println!("ExtensionMul calls: {}", extension_mul_calls,);
+        }
+        let used_memory_cells = memory
+            .data
+            .iter()
+            .skip(bytecode.public_input_start + public_input.len())
+            .filter(|&&x| x.is_some())
+            .count();
         println!(
-            "Poseidon2_16 calls: {}, Poseidon2_24 calls: {} (1 poseidon per {} instructions)",
-            poseidon16_calls,
-            poseidon24_calls,
-            cpu_cycles / (poseidon16_calls + poseidon24_calls)
+            "Memory usage: {:.1}%",
+            used_memory_cells as f64 / runtime_memory_size as f64 * 100.0
         );
     }
-    if extension_mul_calls > 0 {
-        println!("ExtensionMul calls: {}", extension_mul_calls,);
-    }
-    let used_memory_cells = memory
-        .data
-        .iter()
-        .skip(bytecode.public_input_start + public_input.len())
-        .filter(|&&x| x.is_some())
-        .count();
-    println!(
-        "Memory usage: {:.1}%",
-        used_memory_cells as f64 / runtime_memory_size as f64 * 100.0
-    );
+
+    ap - initial_ap
 }
 
 fn malloc(
     memory: &mut Memory,
     ap: &mut usize,
+    ap_vec: &mut usize,
     fp: usize,
     res_offset: usize,
     size: MemOrConstant,
     vectorized: bool,
 ) {
-    // TODO avoid memory fragmentation (easy perf boost in perspective)
-
     let size = size.read_value(&memory, fp).as_canonical_u64() as usize;
 
     if vectorized {
         // find the next multiple of 8
-        let ap_next_multiple_of_8 = (*ap + 7) / 8 * 8;
-        memory.set(fp + res_offset, F::from_usize(ap_next_multiple_of_8 / 8));
-        *ap = ap_next_multiple_of_8 + size * 8;
+        memory.set(fp + res_offset, F::from_usize(*ap_vec));
+        *ap_vec += size;
     } else {
         memory.set(fp + res_offset, F::from_usize(*ap));
         *ap += size;

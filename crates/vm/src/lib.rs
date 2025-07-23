@@ -36,7 +36,7 @@ pub fn compile_and_run(program: &str, public_input: &[F], private_input: &[F]) {
         &bytecode,
         &public_input,
         private_input,
-        poseidon_16,
-        poseidon_24,
+        &poseidon_16,
+        &poseidon_24,
     );
 }
