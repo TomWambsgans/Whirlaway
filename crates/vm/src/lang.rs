@@ -115,7 +115,6 @@ impl From<usize> for ConstExpression {
     }
 }
 
-
 impl TryFrom<Expression> for ConstExpression {
     type Error = ();
 
@@ -226,11 +225,13 @@ impl Expression {
     pub fn eval_with<ValueFn, ArrayFn>(&self, value_fn: &ValueFn, array_fn: &ArrayFn) -> Option<F>
     where
         ValueFn: Fn(&SimpleExpr) -> Option<F>,
-        ArrayFn: Fn(&Var, &Expression) -> Option<F>,
+        ArrayFn: Fn(&Var, F) -> Option<F>,
     {
         match self {
             Expression::Value(value) => value_fn(value),
-            Expression::ArrayAccess { array, index } => array_fn(array, index),
+            Expression::ArrayAccess { array, index } => {
+                array_fn(array, index.eval_with(value_fn, array_fn)?)
+            }
             Expression::Binary {
                 left,
                 operation,

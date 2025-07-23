@@ -28,7 +28,6 @@ statement = {
 }
 
 return_statement = { "return" ~ (tuple_expression)? ~ ";" }
-tuple_expression = { expression ~ ("," ~ expression)* }
 
 break_statement = { "break" ~ ";" }
 continue_statement = { "continue" ~ ";" }
@@ -48,15 +47,15 @@ else_clause = { "else" ~ "{" ~ statement* ~ "}" }
 for_statement = { "for" ~ identifier ~ "in" ~ expression ~ ".." ~ expression ~ unroll_clause? ~ "{" ~ statement* ~ "}" }
 unroll_clause = { "unroll" }
 
-function_call = { function_res? ~ identifier ~ "(" ~ argument_list? ~ ")" ~ ";" }
+function_call = { function_res? ~ identifier ~ "(" ~ tuple_expression? ~ ")" ~ ";" }
 function_res = { var_list ~ "=" }
 var_list = { identifier ~ ("," ~ identifier)* }
-argument_list = { expression ~ ("," ~ expression)* }
 
 assert_eq_statement = { "assert" ~ expression ~ "==" ~ expression ~ ";" }
 assert_not_eq_statement = { "assert" ~ expression ~ "!=" ~ expression ~ ";" }
 
 // Expressions
+tuple_expression = { expression ~ ("," ~ expression)* }
 expression = { add_expr }
 add_expr = { sub_expr ~ ("+" ~ sub_expr)* }
 sub_expr = { mul_expr ~ ("-" ~ mul_expr)* }
@@ -66,7 +65,7 @@ exp_expr = { primary ~ ("**" ~ primary)* }
 primary = { 
     "(" ~ expression ~ ")" | 
     array_access_expr |
-    var_or_constant 
+    var_or_constant
 }
 array_access_expr = { identifier ~ "[" ~ expression ~ "]" }
 

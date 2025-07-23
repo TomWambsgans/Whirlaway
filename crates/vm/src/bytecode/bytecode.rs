@@ -77,10 +77,16 @@ impl Operation {
         }
     }
 
-    pub fn inverse_compute(&self, a: F, b: F) -> F {
+    pub fn inverse_compute(&self, a: F, b: F) -> Option<F> {
         match self {
-            Operation::Add => a - b,
-            Operation::Mul => a / b,
+            Operation::Add => Some(a - b),
+            Operation::Mul => {
+                if b == F::ZERO {
+                    None
+                } else {
+                    Some(a / b)
+                }
+            }
         }
     }
 }
@@ -207,7 +213,7 @@ impl ToString for Instruction {
                     args[1].to_string(),
                     args[2].to_string()
                 )
-            },
+            }
             Self::JumpIfNotZero {
                 condition,
                 dest,

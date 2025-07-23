@@ -278,9 +278,7 @@ fn parse_return_statement(
     let mut return_data = Vec::new();
     for item in pair.into_inner() {
         if item.as_rule() == Rule::tuple_expression {
-            for tuple_item in item.into_inner() {
-                return_data.push(parse_expression(tuple_item, constants)?);
-            }
+            return_data = parse_tuple_expression(item, constants)?;
         }
     }
     Ok(Line::FunctionRet { return_data })
@@ -350,7 +348,7 @@ fn parse_primary(
     }
 }
 
-fn parse_argument_list(
+fn parse_tuple_expression(
     pair: Pair<Rule>,
     constants: &BTreeMap<String, usize>,
 ) -> Result<Vec<Expression>, ParseError> {
@@ -388,7 +386,7 @@ fn parse_function_call(
                 }
             }
             Rule::identifier => function_name = item.as_str().to_string(),
-            Rule::argument_list => args = parse_argument_list(item, constants)?,
+            Rule::tuple_expression => args = parse_tuple_expression(item, constants)?,
             _ => {}
         }
     }
