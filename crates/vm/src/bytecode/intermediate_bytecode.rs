@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 
-use p3_field::Field;
+use p3_field::PrimeCharacteristicRing;
+use p3_field::PrimeField64;
 
-use crate::{bytecode::bytecode::Operation, lang::ConstExpression};
+use crate::{F, bytecode::bytecode::Operation, lang::ConstExpression};
 
 pub type Label = String;
 
@@ -68,15 +69,17 @@ pub enum HighLevelOperation {
     Mul,
     Sub,
     Div, // in the end everything compiles to either Add or Mul
+    Exp, // Exponentiation, only for const expressions
 }
 
 impl HighLevelOperation {
-    pub fn eval<F: Field>(&self, a: F, b: F) -> F {
+    pub fn eval(&self, a: F, b: F) -> F {
         match self {
             HighLevelOperation::Add => a + b,
             HighLevelOperation::Mul => a * b,
             HighLevelOperation::Sub => a - b,
             HighLevelOperation::Div => a / b,
+            HighLevelOperation::Exp => a.exp_u64(b.as_canonical_u64()),
         }
     }
 }
@@ -118,7 +121,7 @@ pub enum IntermediateInstruction {
     },
     // HINTS (does not appears in the final bytecode)
     RequestMemory {
-        shift: ConstExpression,            // m[fp + shift] where the hint will be stored
+        shift: ConstExpression,  // m[fp + shift] where the hint will be stored
         size: IntermediateValue, // the hint
         vectorized: bool, // if true, will be 8-alligned, and the returned pointer will be "divied" by 8 (i.e. everything is in chunks of 8 field elements)
     },
@@ -164,6 +167,7 @@ impl IntermediateInstruction {
                 arg_b: arg_b,
                 res: arg_a,
             },
+            HighLevelOperation::Exp => unreachable!(),
         }
     }
 
@@ -217,7 +221,7 @@ impl ToString for IntermediateInstruction {
                     args[1].to_string(),
                     args[2].to_string()
                 )
-            },
+            }
             Self::DecomposeBits {
                 res_offset,
                 to_decompose,
@@ -308,6 +312,7 @@ impl ToString for HighLevelOperation {
             HighLevelOperation::Mul => "*".to_string(),
             HighLevelOperation::Sub => "-".to_string(),
             HighLevelOperation::Div => "/".to_string(),
+            HighLevelOperation::Exp => "**".to_string(),
         }
     }
 }

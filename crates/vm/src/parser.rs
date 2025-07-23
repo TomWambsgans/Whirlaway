@@ -296,6 +296,7 @@ fn parse_expression(
         Rule::sub_expr => parse_binary_expr(pair, constants, HighLevelOperation::Sub),
         Rule::mul_expr => parse_binary_expr(pair, constants, HighLevelOperation::Mul),
         Rule::div_expr => parse_binary_expr(pair, constants, HighLevelOperation::Div),
+        Rule::exp_expr => parse_binary_expr(pair, constants, HighLevelOperation::Exp),
         Rule::primary => parse_primary(pair, constants),
         _ => Err(ParseError::SemanticError("Invalid expression".to_string())),
     }
@@ -650,6 +651,22 @@ fn my_function1(a, const b, c) -> 2 {
 fn test_func(const a, b, const c) -> 1 {
     d = a + b + c;
     return d;
+}
+    "#;
+
+        let parsed = parse_program(program).unwrap();
+        println!("{}", parsed.to_string());
+    }
+
+    #[test]
+    fn test_exponent_operation() {
+        let program = r#"
+fn test_exp() -> 1 {
+    a = 2 ** 3;
+    b = x ** y ** z;  // Should parse as x ** (y ** z)
+    c = (a + b) ** 2;
+    d = a ** 2 * b;   // Should parse as (a ** 2) * b
+    return a;
 }
     "#;
 

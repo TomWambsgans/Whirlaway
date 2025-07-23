@@ -61,7 +61,8 @@ expression = { add_expr }
 add_expr = { sub_expr ~ ("+" ~ sub_expr)* }
 sub_expr = { mul_expr ~ ("-" ~ mul_expr)* }
 mul_expr = { div_expr ~ ("*" ~ div_expr)* }
-div_expr = { primary ~ ("/" ~ primary)* }
+div_expr = { exp_expr ~ ("/" ~ exp_expr)* }
+exp_expr = { primary ~ ("**" ~ primary)* }
 primary = { 
     "(" ~ expression ~ ")" | 
     array_access_expr |

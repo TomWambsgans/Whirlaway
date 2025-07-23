@@ -38,12 +38,6 @@ pub fn run_whir_verif() {
     const FOLDING_FACTOR_3 = 4;
 
     const FINAL_VARS = N_VARS - (FOLDING_FACTOR_0 + FOLDING_FACTOR_1 + FOLDING_FACTOR_2 + FOLDING_FACTOR_3);
-    const TWO_POW_FINAL_VARS = 64;
-
-    const TWO_POW_FOLDING_FACTOR_0 = 128;
-    const TWO_POW_FOLDING_FACTOR_1 = 16;
-    const TWO_POW_FOLDING_FACTOR_2 = 16;
-    const TWO_POW_FOLDING_FACTOR_3 = 16;
 
     const RS_REDUCTION_FACTOR_0 = 5;
     const RS_REDUCTION_FACTOR_1 = 1;
@@ -55,26 +49,8 @@ pub fn run_whir_verif() {
     const NUM_QUERIES_2 = 22;
     const NUM_QUERIES_3 = 15;
 
-    const ROOT_19 = 339671193;
-    const ROOT_18 = 1816824389;
-    const ROOT_17 = 373019801;
-    const ROOT_16 = 1848593786;
-    const ROOT_15 = 1168510561;
-    const ROOT_14 = 1047035213;
-    const ROOT_13 = 809067698;
-    const ROOT_12 = 1989134074;
-    const ROOT_11 = 2000983452;
-    const ROOT_10 = 860702919;
-    const ROOT_9 = 665670555;
-    const ROOT_8 = 392596362;
-    const ROOT_7 = 699882112;
-    const ROOT_6 = 1548376985;
-    const ROOT_5 = 170455089;
-    const ROOT_4 = 148625052;
-    const ROOT_3 = 1748172362;
-    const ROOT_2 = 2113994754;
-    const ROOT_1 = 2130706432;
-    const ROOT_0 = 1;
+    const TWO_ADICITY = 24;
+    const ROOT = 1791270792; // of order 2^TWO_ADICITY
 
     fn main() {
         transcript_start = public_input_start / 8;
@@ -92,27 +68,27 @@ pub fn run_whir_verif() {
 
         domain_size_0 = N_VARS + LOG_INV_RATE;
         fs_state_5, folding_randomness_1, ood_point_1, root_1, circle_values_1, combination_randomness_powers_1, claimed_sum_1 = 
-            whir_round(fs_state_4, root_0, FOLDING_FACTOR_0, TWO_POW_FOLDING_FACTOR_0, 1, NUM_QUERIES_0, domain_size_0, claimed_sum_0);
+            whir_round(fs_state_4, root_0, FOLDING_FACTOR_0, 2**FOLDING_FACTOR_0, 1, NUM_QUERIES_0, domain_size_0, claimed_sum_0);
 
         domain_size_1 = domain_size_0 - RS_REDUCTION_FACTOR_0;
         fs_state_6, folding_randomness_2, ood_point_2, root_2, circle_values_2, combination_randomness_powers_2, claimed_sum_2 = 
-            whir_round(fs_state_5, root_1, FOLDING_FACTOR_1, TWO_POW_FOLDING_FACTOR_1, 0, NUM_QUERIES_1, domain_size_1, claimed_sum_1);
+            whir_round(fs_state_5, root_1, FOLDING_FACTOR_1, 2**FOLDING_FACTOR_1, 0, NUM_QUERIES_1, domain_size_1, claimed_sum_1);
 
         domain_size_2 = domain_size_1 - RS_REDUCTION_FACTOR_1;
         fs_state_7, folding_randomness_3, ood_point_3, root_3, circle_values_3, combination_randomness_powers_3, claimed_sum_3 = 
-            whir_round(fs_state_6, root_2, FOLDING_FACTOR_2, TWO_POW_FOLDING_FACTOR_2, 0, NUM_QUERIES_2, domain_size_2, claimed_sum_2);
+            whir_round(fs_state_6, root_2, FOLDING_FACTOR_2, 2**FOLDING_FACTOR_2, 0, NUM_QUERIES_2, domain_size_2, claimed_sum_2);
 
         domain_size_3 = domain_size_2 - RS_REDUCTION_FACTOR_2;
         fs_state_8, folding_randomness_4, final_claimed_sum = sumcheck(fs_state_7, FOLDING_FACTOR_3, claimed_sum_3);
-        fs_state_9, final_coeffcients = fs_receive(fs_state_8, TWO_POW_FINAL_VARS);
-        fs_state_10, final_circle_values, final_folds = sample_stir_indexes_and_fold(fs_state_9, NUM_QUERIES_3, 0, FOLDING_FACTOR_3, TWO_POW_FOLDING_FACTOR_3, domain_size_3, root_3, folding_randomness_4);
+        fs_state_9, final_coeffcients = fs_receive(fs_state_8, 2**FINAL_VARS);
+        fs_state_10, final_circle_values, final_folds = sample_stir_indexes_and_fold(fs_state_9, NUM_QUERIES_3, 0, FOLDING_FACTOR_3, 2**FOLDING_FACTOR_3, domain_size_3, root_3, folding_randomness_4);
 
         // 68711 cycles
         for i in 0..NUM_QUERIES_3 {
             powers_of_2_rev = powers_of_two_rev_base(final_circle_values[i], FINAL_VARS);
-            poly_eq = poly_eq_base(powers_of_2_rev, FINAL_VARS, TWO_POW_FINAL_VARS);
+            poly_eq = poly_eq_base(powers_of_2_rev, FINAL_VARS, 2**FINAL_VARS);
             final_pol_evaluated_on_circle = malloc_vec(1);
-            dot_product_base_extension(poly_eq, final_coeffcients, final_pol_evaluated_on_circle, TWO_POW_FINAL_VARS);
+            dot_product_base_extension(poly_eq, final_coeffcients, final_pol_evaluated_on_circle, 2**FINAL_VARS);
             correct_eval = eq_extension(final_pol_evaluated_on_circle, final_folds + i);
             assert correct_eval == 1;
         }
@@ -168,8 +144,8 @@ pub fn run_whir_verif() {
         }
 
         evaluation_of_weights = weight_sums[N_ROUNDS];
-        poly_eq_final = poly_eq_extension(folding_randomness_5, FINAL_VARS, TWO_POW_FINAL_VARS);
-        final_value = dot_product_extension(poly_eq_final, final_coeffcients, TWO_POW_FINAL_VARS);
+        poly_eq_final = poly_eq_extension(folding_randomness_5, FINAL_VARS, 2**FINAL_VARS);
+        final_value = dot_product_extension(poly_eq_final, final_coeffcients, 2**FINAL_VARS);
         evaluation_of_weights_times_final_value = mul_extension_ret(evaluation_of_weights, final_value);
         final_check = eq_extension(evaluation_of_weights_times_final_value, end_sum);
         assert final_check == 1;
@@ -356,7 +332,7 @@ pub fn run_whir_verif() {
         folds = malloc_vec(num_queries);
         if is_first_round == 1 {
             for i in 0..num_queries {
-                dot_product_base_extension(answers[i] * 8, poly_eq, folds + i, TWO_POW_FOLDING_FACTOR_0);
+                dot_product_base_extension(answers[i] * 8, poly_eq, folds + i, 2**FOLDING_FACTOR_0);
             }
         } else {
             for i in 0..num_queries {
@@ -439,26 +415,34 @@ pub fn run_whir_verif() {
 
     fn unit_root_pow(domain_size, index_bits) -> 1 {
         // index_bits is a pointer to domain_size bits
-
         if domain_size == 19 {
-            return ((index_bits[0] * ROOT_19) + (1 - index_bits[0])) * ((index_bits[1] * ROOT_18) + (1 - index_bits[1])) * ((index_bits[2] * ROOT_17) + (1 - index_bits[2])) * ((index_bits[3] * ROOT_16) + (1 - index_bits[3])) * ((index_bits[4] * ROOT_15) + (1 - index_bits[4])) * ((index_bits[5] * ROOT_14) + (1 - index_bits[5])) * ((index_bits[6] * ROOT_13) + (1 - index_bits[6])) * ((index_bits[7] * ROOT_12) + (1 - index_bits[7])) * ((index_bits[8] * ROOT_11) + (1 - index_bits[8])) * ((index_bits[9] * ROOT_10) + (1 - index_bits[9])) * ((index_bits[10] * ROOT_9) + (1 - index_bits[10])) * ((index_bits[11] * ROOT_8) + (1 - index_bits[11])) * ((index_bits[12] * ROOT_7) + (1 - index_bits[12])) * ((index_bits[13] * ROOT_6) + (1 - index_bits[13])) * ((index_bits[14] * ROOT_5) + (1 - index_bits[14])) * ((index_bits[15] * ROOT_4) + (1 - index_bits[15])) * ((index_bits[16] * ROOT_3) + (1 - index_bits[16])) * ((index_bits[17] * ROOT_2) + (1 - index_bits[17])) * ((index_bits[18] * ROOT_1) + (1 - index_bits[18]));
+            res = unit_root_pow_const(19, index_bits);
+            return res;
         }
-
         if domain_size == 17 {
-            return ((index_bits[0] * ROOT_17) + (1 - index_bits[0])) * ((index_bits[1] * ROOT_16) + (1 - index_bits[1])) * ((index_bits[2] * ROOT_15) + (1 - index_bits[2])) * ((index_bits[3] * ROOT_14) + (1 - index_bits[3])) * ((index_bits[4] * ROOT_13) + (1 - index_bits[4])) * ((index_bits[5] * ROOT_12) + (1 - index_bits[5])) * ((index_bits[6] * ROOT_11) + (1 - index_bits[6])) * ((index_bits[7] * ROOT_10) + (1 - index_bits[7])) * ((index_bits[8] * ROOT_9) + (1 - index_bits[8])) * ((index_bits[9] * ROOT_8) + (1 - index_bits[9])) * ((index_bits[10] * ROOT_7) + (1 - index_bits[10])) * ((index_bits[11] * ROOT_6) + (1 - index_bits[11])) * ((index_bits[12] * ROOT_5) + (1 - index_bits[12])) * ((index_bits[13] * ROOT_4) + (1 - index_bits[13])) * ((index_bits[14] * ROOT_3) + (1 - index_bits[14])) * ((index_bits[15] * ROOT_2) + (1 - index_bits[15])) * ((index_bits[16] * ROOT_1) + (1 - index_bits[16]));
+            res = unit_root_pow_const(17, index_bits);
+            return res;
         }
-
         if domain_size == 16 {
-            return ((index_bits[0] * ROOT_16) + (1 - index_bits[0])) * ((index_bits[1] * ROOT_15) + (1 - index_bits[1])) * ((index_bits[2] * ROOT_14) + (1 - index_bits[2])) * ((index_bits[3] * ROOT_13) + (1 - index_bits[3])) * ((index_bits[4] * ROOT_12) + (1 - index_bits[4])) * ((index_bits[5] * ROOT_11) + (1 - index_bits[5])) * ((index_bits[6] * ROOT_10) + (1 - index_bits[6])) * ((index_bits[7] * ROOT_9) + (1 - index_bits[7])) * ((index_bits[8] * ROOT_8) + (1 - index_bits[8])) * ((index_bits[9] * ROOT_7) + (1 - index_bits[9])) * ((index_bits[10] * ROOT_6) + (1 - index_bits[10])) * ((index_bits[11] * ROOT_5) + (1 - index_bits[11])) * ((index_bits[12] * ROOT_4) + (1 - index_bits[12])) * ((index_bits[13] * ROOT_3) + (1 - index_bits[13])) * ((index_bits[14] * ROOT_2) + (1 - index_bits[14])) * ((index_bits[15] * ROOT_1) + (1 - index_bits[15]));
+            res = unit_root_pow_const(16, index_bits);
+            return res;
         }
-
         if domain_size == 15 {
-            return ((index_bits[0] * ROOT_15) + (1 - index_bits[0])) * ((index_bits[1] * ROOT_14) + (1 - index_bits[1])) * ((index_bits[2] * ROOT_13) + (1 - index_bits[2])) * ((index_bits[3] * ROOT_12) + (1 - index_bits[3])) * ((index_bits[4] * ROOT_11) + (1 - index_bits[4])) * ((index_bits[5] * ROOT_10) + (1 - index_bits[5])) * ((index_bits[6] * ROOT_9) + (1 - index_bits[6])) * ((index_bits[7] * ROOT_8) + (1 - index_bits[7])) * ((index_bits[8] * ROOT_7) + (1 - index_bits[8])) * ((index_bits[9] * ROOT_6) + (1 - index_bits[9])) * ((index_bits[10] * ROOT_5) + (1 - index_bits[10])) * ((index_bits[11] * ROOT_4) + (1 - index_bits[11])) * ((index_bits[12] * ROOT_3) + (1 - index_bits[12])) * ((index_bits[13] * ROOT_2) + (1 - index_bits[13])) * ((index_bits[14] * ROOT_1) + (1 - index_bits[14]));
+            res = unit_root_pow_const(15, index_bits);
+            return res;
         }
-
         UNIMPLEMENTED = 0;
         print(UNIMPLEMENTED, domain_size);
         panic();
+    }
+
+    fn unit_root_pow_const(const domain_size, index_bits) -> 1 {
+        prods = malloc(domain_size);
+        prods[0] = ((index_bits[0] * ROOT**(2**(TWO_ADICITY - domain_size))) + (1 - index_bits[0]));
+        for i in 1..domain_size unroll {
+            prods[i] = prods[i - 1] * ((index_bits[i] * ROOT**(2**(TWO_ADICITY - domain_size + i))) + (1 - index_bits[i]));
+        }
+        return prods[domain_size - 1];
     }
 
     fn dot_product_base_extension(a, b, res, const n) {
@@ -564,8 +548,13 @@ pub fn run_whir_verif() {
         for i in 0..F_BITS unroll {
             assert bits[i] * (1 - bits[i]) == 0;
         }
-        assert a == bits[0] + (2 * bits[1]) + (4 * bits[2]) + 8 * bits[3] + (16 * bits[4]) + (32 * bits[5]) + (64 * bits[6]) + (128 * bits[7]) + (256 * bits[8]) + (512 * bits[9]) + (1024 * bits[10]) + (2048 * bits[11]) + (4096 * bits[12]) + (8192 * bits[13]) + (16384 * bits[14]) + (32768 * bits[15]) + (65536 * bits[16]) + (131072 * bits[17]) + (262144 * bits[18]) + (524288 * bits[19]) + (1048576 * bits[20]) + (2097152 * bits[21]) + (4194304 * bits[22]) + (8388608 * bits[23]) + (16777216 * bits[24]) + (33554432 * bits[25]) + (67108864 * bits[26]) + (134217728 * bits[27]) + (268435456 * bits[28]) + (536870912 * bits[29]) + (1073741824 * bits[30]);
-        return bits; // a pointer to 31 bits
+        sums = malloc(F_BITS);
+        sums[0] = bits[0];
+        for i in 1..F_BITS unroll {
+            sums[i] = sums[i - 1] + bits[i] * 2**i;
+        }
+        assert a == sums[F_BITS - 1];
+        return bits;
     }
 
     fn degree_two_polynomial_sum_at_0_and_1(coeffs) -> 1 {
