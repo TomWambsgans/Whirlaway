@@ -374,17 +374,14 @@ fn simplify_lines(
                     for i in start_evaluated..end_evaluated {
                         let mut body_copy = body.clone();
                         replace_vars_for_unroll(&mut body_copy, iterator, i, &internal_variables);
-                        let mut loop_const_malloc = ConstMalloc::default(); // don't give access to current const_malloc segments
-                        loop_const_malloc.counter = const_malloc.counter;
                         unrolled_lines.extend(simplify_lines(
                             &body_copy,
                             counters,
                             new_functions,
                             in_a_loop,
                             array_manager,
-                            &mut loop_const_malloc,
+                            const_malloc,
                         ));
-                        const_malloc.counter = loop_const_malloc.counter;
                     }
                     res.extend(unrolled_lines);
                     continue;
@@ -545,6 +542,9 @@ fn simplify_lines(
             } => {
                 let simplified_size =
                     simplify_expr(size, &mut res, counters, array_manager, const_malloc);
+                if simplified_size.is_constant() && !*vectorized && const_malloc.if_else_branch {
+                    println!("Optimization opportunity 0");
+                }
                 match simplified_size {
                     SimpleExpr::Constant(const_size)
                         if !*vectorized && !const_malloc.if_else_branch =>
