@@ -176,7 +176,7 @@ struct ArrayManager {
 pub struct ConstMalloc {
     counter: usize,
     map: BTreeMap<Var, ConstMallocLabel>,
-    if_else_branch: bool, // ware we in an if/else branch?
+    forbidden_vars: BTreeSet<Var>, // vars shared between branches of an if/else
 }
 
 impl ArrayManager {
@@ -318,10 +318,16 @@ fn simplify_lines(
                     arg1: right_simplified,
                 });
 
-                let mut then_const_malloc = const_malloc.clone();
-                let mut else_const_malloc = const_malloc.clone();
-                then_const_malloc.if_else_branch = true;
-                else_const_malloc.if_else_branch = true;
+                let forbidden_vars_before = const_malloc.forbidden_vars.clone();
+
+                let then_internal_vars = find_variable_usage(then_branch).0;
+                let else_internal_vars = find_variable_usage(else_branch).0;
+                let new_forbidden_vars = then_internal_vars
+                    .intersection(&else_internal_vars)
+                    .cloned()
+                    .collect::<BTreeSet<_>>();
+
+                const_malloc.forbidden_vars.extend(new_forbidden_vars);
 
                 let mut array_manager_then = array_manager.clone();
                 let then_branch_simplified = simplify_lines(
@@ -330,7 +336,7 @@ fn simplify_lines(
                     new_functions,
                     in_a_loop,
                     &mut array_manager_then,
-                    &mut then_const_malloc,
+                    const_malloc,
                 );
                 let mut array_manager_else = array_manager_then.clone();
                 array_manager_else.valid = array_manager.valid.clone(); // Crucial: remove the access added in the IF branch
@@ -341,8 +347,10 @@ fn simplify_lines(
                     new_functions,
                     in_a_loop,
                     &mut array_manager_else,
-                    &mut else_const_malloc,
+                    const_malloc,
                 );
+
+                const_malloc.forbidden_vars = forbidden_vars_before;
 
                 *array_manager = array_manager_else.clone();
                 // keep the intersection both branches
@@ -542,12 +550,17 @@ fn simplify_lines(
             } => {
                 let simplified_size =
                     simplify_expr(size, &mut res, counters, array_manager, const_malloc);
-                if simplified_size.is_constant() && !*vectorized && const_malloc.if_else_branch {
-                    println!("Optimization opportunity 0");
+                if simplified_size.is_constant()
+                    && !*vectorized
+                    && const_malloc.forbidden_vars.contains(var)
+                {
+                    println!(
+                        "TODO: Optimization missed: Requires to align const malloc in if/else branches"
+                    );
                 }
                 match simplified_size {
                     SimpleExpr::Constant(const_size)
-                        if !*vectorized && !const_malloc.if_else_branch =>
+                        if !*vectorized && !const_malloc.forbidden_vars.contains(var) =>
                     {
                         // TODO do this optimization even if we are in an if/else branch
                         let label = const_malloc.counter;

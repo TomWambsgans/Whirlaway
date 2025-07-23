@@ -228,32 +228,6 @@ fn test_mini_program_4() {
     dbg!(public_input);
 }
 
-// #[test]
-// fn test_mini_program_5() {
-//     let program = r#"
-//     fn main() {
-//         const N = 10;
-
-//         for i in 0..N {
-//             ef = public_input_start + 1;
-//             a = public_input_start + i;
-//             b = a + 1;
-//             assert_ext b = a * ef; // TODO
-//         }
-
-//     }
-//    "#;
-
-//     let mut rng = StdRng::seed_from_u64(0);
-//     let ef: EF = rng.random();
-//     let mut public_input = Vec::new();
-//     for pow in 0..10 {
-//         let exp = ef.exp_u64(pow);
-//         public_input.extend_from_slice(exp.as_basis_coefficients_slice());
-//     }
-
-//     compile_and_run(program, &public_input);
-// }
 
 #[test]
 fn test_verify_merkle_path() {
