@@ -2,7 +2,6 @@ use p3_air::Air;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Packable, TwoAdicField, cyclic_subgroup_known_order, dot_product};
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
-use rand::distr::{Distribution, StandardUniform};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use sumcheck::{SumcheckComputation, SumcheckError, SumcheckGrinding};
@@ -63,8 +62,7 @@ impl<
         log_length: usize,
     ) -> Result<(), AirVerifError>
     where
-        StandardUniform: Distribution<EF> + Distribution<F>,
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F> + Debug + ChallengerState,
+        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
         C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
         [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,

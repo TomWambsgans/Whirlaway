@@ -9,7 +9,6 @@ workspace = true
 [dependencies]
 p3-field.workspace = true
 tracing.workspace = true
-rand.workspace = true
 utils.workspace = true
 rayon.workspace = true
 p3-air.workspace = true

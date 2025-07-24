@@ -12,7 +12,6 @@ tracing.workspace = true
 sumcheck.workspace = true
 utils.workspace = true
 whir-p3.workspace = true
-rand.workspace = true
 rayon.workspace = true
 p3-symmetric.workspace = true
 p3-air.workspace = true
