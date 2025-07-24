@@ -5,7 +5,6 @@ use p3_field::{
 };
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use p3_util::log2_strict_usize;
-use rand::distr::{Distribution, StandardUniform};
 use serde::{Deserialize, Serialize};
 use sumcheck::{SumcheckComputation, SumcheckComputationPacked, SumcheckGrinding};
 use tracing::{Level, info_span, instrument, span};
@@ -55,7 +54,6 @@ where
         prover_state: &mut ProverState<F, EF, Challenger>,
         witness: Vec<EvaluationsList<F>>,
     ) where
-        StandardUniform: Distribution<EF> + Distribution<F>,
         Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
         H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
             + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>

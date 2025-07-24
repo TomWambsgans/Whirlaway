@@ -3,7 +3,6 @@ use std::{any::TypeId, borrow::Borrow};
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{BasedVectorSpace, PackedValue};
 use p3_field::{ExtensionField, Field, TwoAdicField};
-use rand::distr::{Distribution, StandardUniform};
 use rayon::prelude::*;
 use tracing::instrument;
 use utils::{
@@ -42,7 +41,6 @@ where
     SC: SumcheckComputation<F, NF, EF>
         + SumcheckComputation<F, EF, EF>
         + SumcheckComputationPacked<F, EF>,
-    StandardUniform: Distribution<EF>,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     let multilinears = multilinears.iter().map(|m| m.borrow()).collect::<Vec<_>>();
@@ -117,7 +115,6 @@ where
     NF: ExtensionField<F>,
     EF: ExtensionField<NF> + ExtensionField<F> + TwoAdicField,
     SC: SumcheckComputation<F, NF, EF> + SumcheckComputationPacked<F, EF>,
-    StandardUniform: Distribution<EF>,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     let eq_mle = eq_factor.map(|eq_factor| EvaluationsList::eval_eq(&eq_factor[1 + round..]));

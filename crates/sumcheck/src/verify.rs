@@ -1,6 +1,5 @@
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, TwoAdicField};
-use rand::distr::{Distribution, StandardUniform};
 use utils::Evaluation;
 use whir_p3::{
     fiat_shamir::{errors::ProofError, verifier::VerifierState},
@@ -30,7 +29,6 @@ pub fn verify<F, EF, Challenger>(
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
-    StandardUniform: Distribution<EF>,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     let sumation_sets = vec![(0..2).map(|i| EF::from_usize(i)).collect::<Vec<_>>(); n_vars];
@@ -53,7 +51,6 @@ pub fn verify_with_univariate_skip<F, EF, Challenger>(
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
-    StandardUniform: Distribution<EF>,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     let mut max_degree_per_vars = vec![degree * ((1 << skips) - 1)];
@@ -80,7 +77,6 @@ fn verify_core<EF, F, Challenger>(
 where
     F: TwoAdicField,
     EF: ExtensionField<F> + TwoAdicField,
-    StandardUniform: Distribution<EF>,
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     assert_eq!(max_degree_per_vars.len(), sumation_sets.len(),);
