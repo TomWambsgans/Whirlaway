@@ -3,7 +3,7 @@ use p3_field::BasedVectorSpace;
 use rand::{Rng, rngs::StdRng};
 use whir_p3::{
     dft::*,
-    fiat_shamir::domain_separator::*,
+    fiat_shamir::{prover::ProverState, verifier::VerifierState},
     parameters::{errors::*, *},
     poly::{evals::*, multilinear::*},
     whir::{
@@ -28,31 +28,31 @@ pub fn run_whir_verif() {
     const W = 3; // in the extension field, X^8 = 3
     const F_BITS = 31; // koala-bear = 31 bits
 
-    const N_VARS = 25;
+    const N_VARS = 22;
     const LOG_INV_RATE = 1; 
     const N_ROUNDS = 3;
 
-    const FOLDING_FACTOR_0 = 7;
+    const FOLDING_FACTOR_0 = 4;
     const FOLDING_FACTOR_1 = 4;
     const FOLDING_FACTOR_2 = 4;
     const FOLDING_FACTOR_3 = 4;
 
     const FINAL_VARS = N_VARS - (FOLDING_FACTOR_0 + FOLDING_FACTOR_1 + FOLDING_FACTOR_2 + FOLDING_FACTOR_3);
 
-    const RS_REDUCTION_FACTOR_0 = 5;
+    const RS_REDUCTION_FACTOR_0 = 1;
     const RS_REDUCTION_FACTOR_1 = 1;
     const RS_REDUCTION_FACTOR_2 = 1;
     const RS_REDUCTION_FACTOR_3 = 1;
 
     const NUM_QUERIES_0 = 120;
-    const NUM_QUERIES_1 = 38;
-    const NUM_QUERIES_2 = 19;
-    const NUM_QUERIES_3 = 13;
+    const NUM_QUERIES_1 = 29;
+    const NUM_QUERIES_2 = 17;
+    const NUM_QUERIES_3 = 12;
 
     const GRINDING_BITS_0 = 16;
-    const GRINDING_BITS_1 = 16;
-    const GRINDING_BITS_2 = 15;
-    const GRINDING_BITS_3 = 11;
+    const GRINDING_BITS_1 = 14;
+    const GRINDING_BITS_2 = 10;
+    const GRINDING_BITS_3 = 8;
 
     const TWO_ADICITY = 24;
     const ROOT = 1791270792; // of order 2^TWO_ADICITY
@@ -70,10 +70,9 @@ pub fn run_whir_verif() {
 
         claimed_sum_side = mul_extension_ret(combination_randomness_gen_0, pcs_eval);
         claimed_sum_0 = add_extension_ret(ood_eval_0, claimed_sum_side);
-
         domain_size_0 = N_VARS + LOG_INV_RATE;
         fs_state_5, folding_randomness_1, ood_point_1, root_1, circle_values_1, combination_randomness_powers_1, claimed_sum_1 = 
-            whir_round(fs_state_4, root_0, FOLDING_FACTOR_0, 2**FOLDING_FACTOR_0, 1, NUM_QUERIES_0, domain_size_0, claimed_sum_0, GRINDING_BITS_0);
+            whir_round(fs_state_4, root_0, FOLDING_FACTOR_0, 2**FOLDING_FACTOR_0, 0, NUM_QUERIES_0, domain_size_0, claimed_sum_0, GRINDING_BITS_0);
 
         domain_size_1 = domain_size_0 - RS_REDUCTION_FACTOR_0;
         fs_state_6, folding_randomness_2, ood_point_2, root_2, circle_values_2, combination_randomness_powers_2, claimed_sum_2 = 
@@ -89,7 +88,7 @@ pub fn run_whir_verif() {
         fs_state_10, final_circle_values, final_folds =
             sample_stir_indexes_and_fold(fs_state_9, NUM_QUERIES_3, 0, FOLDING_FACTOR_3, 2**FOLDING_FACTOR_3, domain_size_3, root_3, folding_randomness_4, GRINDING_BITS_3);
 
-        // 68711 cycles
+        
         for i in 0..NUM_QUERIES_3 {
             powers_of_2_rev = powers_of_two_rev_base(final_circle_values[i], FINAL_VARS);
             poly_eq = poly_eq_base(powers_of_2_rev, FINAL_VARS, 2**FINAL_VARS);
@@ -424,6 +423,10 @@ pub fn run_whir_verif() {
         // index_bits is a pointer to domain_size bits
         if domain_size == 19 {
             res = unit_root_pow_const(19, index_bits);
+            return res;
+        }
+        if domain_size == 18 {
+            res = unit_root_pow_const(18, index_bits);
             return res;
         }
         if domain_size == 17 {
@@ -856,27 +859,27 @@ pub fn run_whir_verif() {
         initial_statement: true,
         security_level: 128,
         pow_bits: 17,
-        folding_factor: FoldingFactor::ConstantFromSecondRound(7, 4),
+        folding_factor: FoldingFactor::ConstantFromSecondRound(4, 4),
         merkle_hash,
         merkle_compress,
         soundness_type: SecurityAssumption::CapacityBound,
         starting_log_inv_rate: 1,
-        rs_domain_initial_reduction_factor: 5,
+        rs_domain_initial_reduction_factor: 1,
         univariate_skip: false,
     };
 
-    let num_variables = 25;
+    let num_variables = 22;
 
     let mv_params = MultivariateParameters::<EF>::new(num_variables);
 
     let params =
-        WhirConfig::<EF, F, MerkleHash, MerkleCompress, MyChallenger>::new(mv_params, whir_params);
+        WhirConfig::<EF, EF, MerkleHash, MerkleCompress, MyChallenger>::new(mv_params, whir_params);
     assert_eq!(params.committment_ood_samples, 1);
     // println!("Whir parameters: {}", params.to_string());
 
     let mut rng = StdRng::seed_from_u64(0);
     let polynomial =
-        EvaluationsList::<F>::new((0..1 << num_variables).map(|_| rng.random()).collect());
+        EvaluationsList::<EF>::new((0..1 << num_variables).map(|_| rng.random()).collect());
 
     let point = MultilinearPoint::<EF>::rand(&mut rng, num_variables);
 
@@ -886,9 +889,8 @@ pub fn run_whir_verif() {
     statement.add_constraint(weights, eval);
 
     let challenger = MyChallenger::new(poseidon16);
-    let domainsep = DomainSeparator::new(vec![]);
 
-    let mut prover_state = domainsep.to_prover_state(challenger.clone());
+    let mut prover_state = ProverState::new(challenger.clone());
 
     // Commit to the polynomial and produce a witness
     let committer = CommitmentWriter::new(&params);
@@ -924,7 +926,7 @@ pub fn run_whir_verif() {
 
     // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
     let mut verifier_state =
-        domainsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
+        VerifierState::<F, EF, _>::new(prover_state.proof_data().to_vec(), challenger.clone());
 
     // Parse the commitment
     let parsed_commitment = commitment_reader

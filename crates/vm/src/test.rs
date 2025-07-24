@@ -3,9 +3,7 @@ use p3_symmetric::Permutation;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::poseidon16_kb;
 
-use whir_p3::fiat_shamir::{
-    domain_separator::DomainSeparator, prover::ProverState, verifier::VerifierState,
-};
+use whir_p3::fiat_shamir::{prover::ProverState, verifier::VerifierState};
 use xmss::{WotsSecretKey, XMSS_MERKLE_HEIGHT, XmssSecretKey, random_message};
 
 use crate::{EF, F, MyChallenger, Poseidon16, Poseidon24, compile_and_run};
@@ -1067,11 +1065,7 @@ fn test_fiat_shamir_complete() {
         }
     }
 
-    let mut verifier_state = VerifierState::new(
-        &DomainSeparator::<EF, F>::new(vec![]),
-        proof_data.clone(),
-        challenger,
-    );
+    let mut verifier_state = VerifierState::<F, EF, _>::new(proof_data.clone(), challenger);
 
     for (is_sample, size) in is_samples.iter().zip(&sizes) {
         if *is_sample {
@@ -1321,14 +1315,13 @@ fn test_fiat_shamir_simple() {
     let poseidon16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
     let mut rng = StdRng::seed_from_u64(0);
     let challenger = MyChallenger::new(poseidon16);
-    let domain_separator = DomainSeparator::<EF, F>::new(vec![]);
 
     let mut public_input = vec![];
     let mut is_samples = vec![];
     let mut sizes = vec![];
     let mut grinding_bits = vec![];
 
-    let mut prover_state = ProverState::new(&domain_separator, challenger.clone());
+    let mut prover_state = ProverState::<F, EF, _>::new(challenger.clone());
 
     for _ in 0..n {
         let is_sample: bool = rng.random();
@@ -1350,7 +1343,7 @@ fn test_fiat_shamir_simple() {
 
     let proof_data = prover_state.proof_data().to_vec();
 
-    let mut verifier_state = VerifierState::new(&domain_separator, proof_data.clone(), challenger);
+    let mut verifier_state = VerifierState::<F, EF, _>::new(proof_data.clone(), challenger);
 
     for ((is_sample, size), pow_bits) in is_samples.iter().zip(&sizes).zip(&grinding_bits) {
         if *is_sample {
