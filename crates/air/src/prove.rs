@@ -1,7 +1,7 @@
 use p3_air::Air;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{
-    BasedVectorSpace, ExtensionField, Field, Packable, TwoAdicField, cyclic_subgroup_known_order,
+    BasedVectorSpace, ExtensionField, Field, TwoAdicField, cyclic_subgroup_known_order,
 };
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use p3_util::log2_strict_usize;
@@ -12,6 +12,8 @@ use utils::{
     ConstraintFolder, ConstraintFolderPacked, add_multilinears, multilinears_linear_combination,
     packed_multilinear,
 };
+use utils::{PF, PFPacking};
+use whir_p3::fiat_shamir::verifier::ChallengerState;
 use whir_p3::{
     dft::EvalsDft,
     fiat_shamir::prover::ProverState,
@@ -37,13 +39,12 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 
 */
 
-impl<F, EF, A> AirTable<F, EF, A>
+impl<EF, A> AirTable<EF, A>
 where
-    F: TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField,
-    A: for<'a> Air<ConstraintFolder<'a, F, F, EF>>
-        + for<'a> Air<ConstraintFolder<'a, F, EF, EF>>
-        + for<'a> Air<ConstraintFolderPacked<'a, F, EF>>,
+    EF: TwoAdicField + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    A: for<'a> Air<ConstraintFolder<'a, PF<EF>, PF<EF>, EF>>
+        + for<'a> Air<ConstraintFolder<'a, PF<EF>, EF, EF>>
+        + for<'a> Air<ConstraintFolderPacked<'a, PF<EF>, EF>>,
 {
     #[instrument(name = "air: prove", skip_all)]
     pub fn prove<H, C, Challenger, const DIGEST_ELEMS: usize>(
@@ -51,18 +52,20 @@ where
         settings: &AirSettings,
         merkle_hash: H,
         merkle_compress: C,
-        prover_state: &mut ProverState<F, EF, Challenger>,
-        witness: Vec<EvaluationsList<F>>,
+        prover_state: &mut ProverState<PF<PF<EF>>, EF, Challenger>,
+        witness: Vec<EvaluationsList<PF<EF>>>,
     ) where
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]>
-            + CryptographicHasher<F::Packing, [F::Packing; DIGEST_ELEMS]>
+        Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>> + ChallengerState,
+        H: CryptographicHasher<PFPacking<PF<EF>>, [PFPacking<PF<EF>>; DIGEST_ELEMS]>
+            + CryptographicHasher<PF<PF<EF>>, [PF<PF<EF>>; DIGEST_ELEMS]>
             + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[F::Packing; DIGEST_ELEMS], 2>
+        C: PseudoCompressionFunction<[PFPacking<PF<EF>>; DIGEST_ELEMS], 2>
+            + PseudoCompressionFunction<[PF<PF<EF>>; DIGEST_ELEMS], 2>
             + Sync,
-        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        F: Eq + Packable,
+        [PF<PF<EF>>; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        PF<EF>: TwoAdicField,
+        PF<EF>: ExtensionField<PF<PF<EF>>>,
+        PF<PF<EF>>: TwoAdicField,
     {
         assert!(
             settings.univariate_skips < self.log_length,
@@ -81,7 +84,7 @@ where
 
         let committer = CommitmentWriter::new(&whir_params);
 
-        let ext_dim = <EF as BasedVectorSpace<F>>::DIMENSION;
+        let ext_dim = <EF as BasedVectorSpace<PF<EF>>>::DIMENSION;
         assert!(ext_dim.is_power_of_two());
         let dft = EvalsDft::new(
             1 << (self.log_n_witness_columns() + self.log_length + settings.whir_log_inv_rate
@@ -112,7 +115,7 @@ where
             .chain(&witness)
             .collect::<Vec<_>>();
         let (zerocheck_challenges, all_inner_sums, _) = info_span!("zerocheck").in_scope(|| {
-            sumcheck::prove(
+            sumcheck::prove::<PF<EF>, PF<EF>, EF, _, _, _>(
                 settings.univariate_skips,
                 &columns_up_and_down(&preprocessed_and_witness),
                 &self.air,
@@ -190,7 +193,7 @@ where
         let inner_sum = info_span!("inner sum evaluation")
             .in_scope(|| batched_column_mixed.evaluate(&MultilinearPoint(point.clone())));
 
-        let (inner_challenges, inner_evals, _) = sumcheck::prove(
+        let (inner_challenges, inner_evals, _) = sumcheck::prove::<EF, EF, EF, _, _, _>(
             1,
             &mles_for_inner_sumcheck,
             &InnerSumcheckCircuit,

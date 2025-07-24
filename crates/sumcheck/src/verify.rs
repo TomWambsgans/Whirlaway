@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, TwoAdicField};
-use utils::Evaluation;
+use utils::{Evaluation, PF};
 use whir_p3::{
     fiat_shamir::{errors::ProofError, verifier::VerifierState},
     poly::dense::WhirDensePolynomial,
@@ -22,16 +22,15 @@ impl From<ProofError> for SumcheckError {
     }
 }
 
-pub fn verify<F, EF, Challenger>(
-    verifier_state: &mut VerifierState<F, EF, Challenger>,
+pub fn verify<EF, Challenger>(
+    verifier_state: &mut VerifierState<PF<PF<EF>>, EF, Challenger>,
     n_vars: usize,
     degree: usize,
     grinding: SumcheckGrinding,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
-    F: TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    EF: TwoAdicField + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
 {
     let sumation_sets = vec![(0..2).map(|i| EF::from_usize(i)).collect::<Vec<_>>(); n_vars];
     let max_degree_per_vars = vec![degree; n_vars];
@@ -43,17 +42,16 @@ where
     )
 }
 
-pub fn verify_with_univariate_skip<F, EF, Challenger>(
-    verifier_state: &mut VerifierState<F, EF, Challenger>,
+pub fn verify_with_univariate_skip<EF, Challenger>(
+    verifier_state: &mut VerifierState<PF<PF<EF>>, EF, Challenger>,
     degree: usize,
     n_vars: usize,
     skips: usize,
     grinding: SumcheckGrinding,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
-    F: TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    EF: TwoAdicField + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
 {
     let mut max_degree_per_vars = vec![degree * ((1 << skips) - 1)];
     max_degree_per_vars.extend(vec![degree; n_vars - skips]);
@@ -70,16 +68,15 @@ where
     )
 }
 
-fn verify_core<EF, F, Challenger>(
-    verifier_state: &mut VerifierState<F, EF, Challenger>,
+fn verify_core<EF, Challenger>(
+    verifier_state: &mut VerifierState<PF<PF<EF>>, EF, Challenger>,
     max_degree_per_vars: &[usize],
     sumation_sets: Vec<Vec<EF>>,
     grinding: SumcheckGrinding,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
-    F: TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    EF: TwoAdicField + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
 {
     assert_eq!(max_degree_per_vars.len(), sumation_sets.len(),);
     let mut challenges = Vec::new();

@@ -8,15 +8,14 @@ use p3_matrix::Matrix;
 use p3_poseidon2_air::{Poseidon2Air, RoundConstants, generate_trace_rows};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{Rng, SeedableRng, rngs::StdRng};
+use whir_p3::fiat_shamir::verifier::VerifierState;
 use std::fmt;
 use std::time::{Duration, Instant};
 use tracing::level_filters::LevelFilter;
 use tracing_forest::ForestLayer;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
-use whir_p3::{
-    fiat_shamir::domain_separator::DomainSeparator, parameters::FoldingFactor,
-    whir::parameters::WhirConfig,
-};
+use whir_p3::fiat_shamir::prover::ProverState;
+use whir_p3::{parameters::FoldingFactor};
 
 // Koalabear
 type Poseidon16 = Poseidon2KoalaBear<16>;
@@ -137,7 +136,7 @@ pub fn prove_poseidon2(
 
     let preprocessed_columns = witness.drain(..n_preprocessed_columns).collect::<Vec<_>>();
 
-    let table = AirTable::<F, EF, _>::new(
+    let table = AirTable::<EF, _>::new(
         poseidon_air,
         log_n_rows,
         settings.univariate_skips,
@@ -152,15 +151,9 @@ pub fn prove_poseidon2(
 
     let t = Instant::now();
 
-    let whir_params: WhirConfig<_, _, _, _, MyChallenger> =
-        table.build_whir_params(&settings, merkle_hash.clone(), merkle_compress.clone());
-    let mut domainsep: DomainSeparator<EF, F> = DomainSeparator::new(vec![]);
-    domainsep.commit_statement::<_, _, _, 8>(&whir_params);
-    domainsep.add_whir_proof::<_, _, _, 8>(&whir_params);
-
     let challenger = MyChallenger::new(poseidon16);
 
-    let mut prover_state = domainsep.to_prover_state(challenger.clone());
+    let mut prover_state = ProverState::new(challenger.clone());
 
     table.prove(
         &settings,
@@ -175,7 +168,7 @@ pub fn prove_poseidon2(
     let time = Instant::now();
 
     let mut verifier_state =
-        domainsep.to_verifier_state(prover_state.proof_data().to_vec(), challenger);
+        VerifierState::new(prover_state.proof_data().to_vec(), challenger);
 
     table
         .verify(

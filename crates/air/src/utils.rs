@@ -1,13 +1,6 @@
-use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::Field;
 use rayon::prelude::*;
-use utils::log2_up;
-use whir_p3::{
-    fiat_shamir::{errors::ProofError, prover::ProverState},
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-};
-
-use crate::{AirSettings, table::AirTable};
+use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
 pub(crate) fn matrix_up_lde<F: Field>(point: &[F]) -> F {
     /*
@@ -157,57 +150,4 @@ pub(crate) fn column_down<F: Field>(column: &EvaluationsList<F>) -> EvaluationsL
     let mut down = column.evals()[1..].to_vec();
     down.push(*down.last().unwrap());
     EvaluationsList::new(down)
-}
-
-impl<F: TwoAdicField, EF: ExtensionField<F> + TwoAdicField, A> AirTable<F, EF, A> {
-    pub(crate) fn constraints_batching_pow<Challenger>(
-        &self,
-        prover_state: &mut ProverState<F, EF, Challenger>,
-        settings: &AirSettings,
-    ) -> Result<(), ProofError>
-    where
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-    {
-        prover_state.pow_grinding(
-            settings
-                .security_bits
-                .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_constraints))),
-        );
-
-        Ok(())
-    }
-
-    pub(crate) fn zerocheck_pow<Challenger>(
-        &self,
-        prover_state: &mut ProverState<F, EF, Challenger>,
-        settings: &AirSettings,
-    ) -> Result<(), ProofError>
-    where
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-    {
-        prover_state.pow_grinding(
-            settings
-                .security_bits
-                .saturating_sub(EF::bits().saturating_sub(self.log_length)),
-        );
-
-        Ok(())
-    }
-
-    pub(crate) fn secondary_sumchecks_batching_pow<Challenger>(
-        &self,
-        prover_state: &mut ProverState<F, EF, Challenger>,
-        settings: &AirSettings,
-    ) -> Result<(), ProofError>
-    where
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-    {
-        prover_state.pow_grinding(
-            settings
-                .security_bits
-                .saturating_sub(EF::bits().saturating_sub(self.log_n_witness_columns())),
-        );
-
-        Ok(())
-    }
 }

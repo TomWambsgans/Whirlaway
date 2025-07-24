@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 mod point;
+use p3_field::{Field, PrimeCharacteristicRing};
 pub use point::*;
 
 mod misc;
@@ -23,3 +24,7 @@ pub use packed_constraints_folder::*;
 
 mod display;
 pub use display::*;
+
+pub type PF<F> = <F as PrimeCharacteristicRing>::PrimeSubfield;
+pub type PFPacking<F> = <PF<F> as Field>::Packing;
+

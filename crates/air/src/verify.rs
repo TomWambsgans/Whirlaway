@@ -1,18 +1,22 @@
 use p3_air::Air;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, Packable, TwoAdicField, cyclic_subgroup_known_order, dot_product};
+use p3_field::{ExtensionField, TwoAdicField, cyclic_subgroup_known_order, dot_product};
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use sumcheck::{SumcheckComputation, SumcheckError, SumcheckGrinding};
 use tracing::instrument;
+use utils::PF;
 use utils::{ConstraintFolder, fold_multilinear_in_large_field, log2_up};
 use whir_p3::{
-    fiat_shamir::{errors::ProofError, verifier::{ChallengerState, VerifierState}},
+    fiat_shamir::{
+        errors::ProofError,
+        verifier::{ChallengerState, VerifierState},
+    },
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::reader::CommitmentReader,
-        statement::{weights::Weights, Statement},
+        statement::{Statement, weights::Weights},
         verifier::Verifier,
     },
 };
@@ -47,10 +51,9 @@ impl From<SumcheckError> for AirVerifError {
 }
 
 impl<
-    F: TwoAdicField,
-    EF: ExtensionField<F> + TwoAdicField,
-    A: for<'a> Air<ConstraintFolder<'a, F, EF, EF>>,
-> AirTable<F, EF, A>
+    EF: TwoAdicField + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    A: for<'a> Air<ConstraintFolder<'a, PF<EF>, EF, EF>>,
+> AirTable<EF, A>
 {
     #[instrument(name = "air table: verify", skip_all)]
     pub fn verify<H, C, Challenger, const DIGEST_ELEMS: usize>(
@@ -58,15 +61,18 @@ impl<
         settings: &AirSettings,
         merkle_hash: H,
         merkle_compress: C,
-        verifier_state: &mut VerifierState<F, EF, Challenger>,
+        verifier_state: &mut VerifierState<PF<PF<EF>>, EF, Challenger>,
         log_length: usize,
     ) -> Result<(), AirVerifError>
     where
-        Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
-        H: CryptographicHasher<F, [F; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[F; DIGEST_ELEMS], 2> + Sync,
-        [F; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        F: Eq + Packable,
+        Challenger: FieldChallenger<PF<PF<EF>>>
+            + GrindingChallenger<Witness = PF<PF<EF>>>
+            + ChallengerState,
+        H: CryptographicHasher<PF<PF<EF>>, [PF<PF<EF>>; DIGEST_ELEMS]> + Sync,
+        C: PseudoCompressionFunction<[PF<PF<EF>>; DIGEST_ELEMS], 2> + Sync,
+        [PF<PF<EF>>; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        PF<EF>: TwoAdicField + ExtensionField<PF<PF<EF>>>,
+        PF<PF<EF>>: TwoAdicField,
     {
         let whir_params = self.build_whir_params(settings, merkle_hash, merkle_compress);
 
@@ -96,7 +102,7 @@ impl<
         }
 
         let (sc_sum, outer_sumcheck_challenge) =
-            sumcheck::verify_with_univariate_skip::<F, EF, Challenger>(
+            sumcheck::verify_with_univariate_skip::<EF, Challenger>(
                 verifier_state,
                 self.constraint_degree + 1,
                 log_length,
@@ -205,7 +211,7 @@ impl<
             *challenge = verifier_state.sample();
         }
 
-        let (batched_inner_sum, inner_sumcheck_challenge) = sumcheck::verify::<F, EF, Challenger>(
+        let (batched_inner_sum, inner_sumcheck_challenge) = sumcheck::verify::<EF, Challenger>(
             verifier_state,
             log_length,
             2,

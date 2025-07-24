@@ -7,7 +7,7 @@ use rayon::prelude::*;
 use tracing::instrument;
 use utils::{
     batch_fold_multilinear_in_large_field, batch_fold_multilinear_in_small_field,
-    univariate_selectors,
+    univariate_selectors, PF,
 };
 use whir_p3::{
     fiat_shamir::prover::ProverState,
@@ -27,7 +27,7 @@ pub fn prove<F, NF, EF, M, SC, Challenger>(
     batching_scalars: &[EF],
     eq_factor: Option<&[EF]>,
     is_zerofier: bool,
-    fs_prover: &mut ProverState<F, EF, Challenger>,
+    fs_prover: &mut ProverState<PF<PF<EF>>, EF, Challenger>,
     mut sum: EF,
     n_rounds: Option<usize>,
     grinding: SumcheckGrinding,
@@ -36,12 +36,12 @@ pub fn prove<F, NF, EF, M, SC, Challenger>(
 where
     F: TwoAdicField,
     NF: ExtensionField<F>,
-    EF: ExtensionField<NF> + ExtensionField<F> + TwoAdicField,
+    EF: ExtensionField<NF> + ExtensionField<F> + ExtensionField<PF<PF<EF>>>+ TwoAdicField,
     M: Borrow<EvaluationsList<NF>>,
     SC: SumcheckComputation<F, NF, EF>
         + SumcheckComputation<F, EF, EF>
         + SumcheckComputationPacked<F, EF>,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
 {
     let multilinears = multilinears.iter().map(|m| m.borrow()).collect::<Vec<_>>();
     let mut n_vars = multilinears[0].num_variables();
@@ -102,7 +102,7 @@ pub fn sc_round<F, NF, EF, SC, Challenger>(
     eq_factor: Option<&[EF]>,
     batching_scalars: &[EF],
     is_zerofier: bool,
-    fs_prover: &mut ProverState<F, EF, Challenger>,
+    fs_prover: &mut ProverState<PF<PF<EF>>, EF, Challenger>,
     comp_degree: usize,
     sum: &mut EF,
     grinding: SumcheckGrinding,
@@ -113,9 +113,9 @@ pub fn sc_round<F, NF, EF, SC, Challenger>(
 where
     F: TwoAdicField,
     NF: ExtensionField<F>,
-    EF: ExtensionField<NF> + ExtensionField<F> + TwoAdicField,
+    EF: ExtensionField<NF> + ExtensionField<F> + ExtensionField<PF<PF<EF>>> + TwoAdicField,
     SC: SumcheckComputation<F, NF, EF> + SumcheckComputationPacked<F, EF>,
-    Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
+    Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
 {
     let eq_mle = eq_factor.map(|eq_factor| EvaluationsList::eval_eq(&eq_factor[1 + round..]));
 
