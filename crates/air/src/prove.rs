@@ -193,7 +193,7 @@ where
         let inner_sum = info_span!("inner sum evaluation")
             .in_scope(|| batched_column_mixed.evaluate(&MultilinearPoint(point.clone())));
 
-        let (inner_challenges, inner_evals, _) = sumcheck::prove::<EF, EF, EF, _, _, _>(
+        let (inner_challenges, inner_evals, _) = sumcheck::prove::<PF<EF>, EF, EF, _, _, _>(
             1,
             &mles_for_inner_sumcheck,
             &InnerSumcheckCircuit,
