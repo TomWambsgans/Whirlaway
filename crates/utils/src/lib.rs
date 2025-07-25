@@ -27,4 +27,3 @@ pub use display::*;
 
 pub type PF<F> = <F as PrimeCharacteristicRing>::PrimeSubfield;
 pub type PFPacking<F> = <PF<F> as Field>::Packing;
-

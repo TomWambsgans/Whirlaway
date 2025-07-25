@@ -137,11 +137,11 @@ where
 
         let inner_sums_up = all_inner_sums[self.n_preprocessed_columns()..self.n_columns]
             .iter()
-            .map(|s| s.evaluate::<EF>(&MultilinearPoint(vec![])))
+            .map(|s| s.as_constant())
             .collect::<Vec<_>>();
         let inner_sums_down = all_inner_sums[self.n_columns + self.n_preprocessed_columns()..]
             .iter()
-            .map(|s| s.evaluate::<EF>(&MultilinearPoint(vec![])))
+            .map(|s| s.as_constant())
             .collect::<Vec<_>>();
 
         prover_state.add_extension_scalars(&inner_sums_up);
@@ -210,9 +210,9 @@ where
             None,
         );
 
-        let final_point = [columns_batching_scalars.clone(), inner_challenges].concat();
+        let final_point = [columns_batching_scalars.clone(), inner_challenges.0].concat();
 
-        let packed_value = inner_evals[1].evaluate(&MultilinearPoint(vec![]));
+        let packed_value = inner_evals[1].as_constant();
 
         std::mem::drop(_span);
 

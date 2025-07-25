@@ -152,7 +152,7 @@ fn parse_parameter(pair: Pair<Rule>) -> Result<(String, bool), ParseError> {
         })?;
         return Ok((identifier.as_str().to_string(), true));
     }
-    
+
     Ok((first.as_str().to_string(), false))
 }
 

@@ -3,9 +3,12 @@ use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use p3_uni_stark::{SymbolicAirBuilder, get_symbolic_constraints};
-use utils::{log2_up, univariate_selectors, PF};
+use utils::{PF, log2_up, univariate_selectors};
 use whir_p3::{
-    fiat_shamir::{errors::ProofError, prover::ProverState}, parameters::{MultivariateParameters, ProtocolParameters}, poly::{dense::WhirDensePolynomial, evals::EvaluationsList}, whir::parameters::WhirConfig
+    fiat_shamir::{errors::ProofError, prover::ProverState},
+    parameters::{MultivariateParameters, ProtocolParameters},
+    poly::{dense::WhirDensePolynomial, evals::EvaluationsList},
+    whir::parameters::WhirConfig,
 };
 
 use crate::{AirSettings, WHIR_POW_BITS};
@@ -25,7 +28,7 @@ pub struct AirTable<EF: Field, A> {
 impl<EF, A> AirTable<EF, A>
 where
     EF: ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>> + TwoAdicField,
-    PF<EF>: TwoAdicField
+    PF<EF>: TwoAdicField,
 {
     pub fn new(
         air: A,

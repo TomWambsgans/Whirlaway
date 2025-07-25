@@ -17,6 +17,8 @@ use whir_p3::fiat_shamir::verifier::VerifierState;
 use whir_p3::poly::evals::EvaluationsList;
 use whir_p3::poly::multilinear::MultilinearPoint;
 
+pub mod gkr;
+
 pub fn prove_logup_star<
     EF: Field,
     Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
@@ -42,6 +44,7 @@ pub fn prove_logup_star<
     let table_embedded =
         EvaluationsList::new(table.evals().par_iter().map(|&x| EF::from(x)).collect()); // TODO avoid embedding
 
+    let time = std::time::Instant::now();
     let (_sc_point, inner_evals, prod) = sumcheck::prove::<PF<EF>, EF, EF, _, _, _>(
         1,
         &[&table_embedded, &pushforward],
@@ -56,6 +59,7 @@ pub fn prove_logup_star<
         SumcheckGrinding::None,
         None,
     );
+    dbg!("Sumcheck took {:?}", time.elapsed());
 
     // open table at sc_point
     let table_eval = inner_evals[0].evaluate(&Default::default());
@@ -100,8 +104,8 @@ where
         return Err(ProofError::InvalidProof);
     }
 
-    let table_eval = table.evaluate(&MultilinearPoint(postponed.point.clone())); // should be done by opening a commitment
-    let pushforward_eval = pushforward.evaluate(&MultilinearPoint(postponed.point)); // should be done by opening a commitment
+    let table_eval = table.evaluate(&postponed.point); // should be done by opening a commitment
+    let pushforward_eval = pushforward.evaluate(&postponed.point); // should be done by opening a commitment
 
     if table_eval * pushforward_eval != postponed.value {
         return Err(ProofError::InvalidProof);
@@ -144,10 +148,10 @@ mod tests {
     type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
     #[test]
     fn test_logup_star() {
-        let log_table_length = 10;
+        let log_table_length = 20;
         let table_length = 1 << log_table_length;
 
-        let log_n_indexes = 20;
+        let log_n_indexes = log_table_length + 3;
         let n_indexes = 1 << log_n_indexes;
 
         let mut rng = StdRng::seed_from_u64(0);

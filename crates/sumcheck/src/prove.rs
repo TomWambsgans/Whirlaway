@@ -9,6 +9,7 @@ use utils::{
     PF, batch_fold_multilinear_in_large_field, batch_fold_multilinear_in_small_field,
     univariate_selectors,
 };
+use whir_p3::poly::multilinear::MultilinearPoint;
 use whir_p3::{
     fiat_shamir::prover::ProverState,
     poly::{dense::WhirDensePolynomial, evals::EvaluationsList},
@@ -32,7 +33,7 @@ pub fn prove<F, NF, EF, M, SC, Challenger>(
     n_rounds: Option<usize>,
     grinding: SumcheckGrinding,
     mut missing_mul_factor: Option<EF>,
-) -> (Vec<EF>, Vec<EvaluationsList<EF>>, EF)
+) -> (MultilinearPoint<EF>, Vec<EvaluationsList<EF>>, EF)
 where
     F: Field,
     NF: ExtensionField<F>,
@@ -89,7 +90,7 @@ where
         );
     }
 
-    (challenges, folded_multilinears, sum)
+    (MultilinearPoint(challenges), folded_multilinears, sum)
 }
 
 #[instrument(name = "sumcheck_round", skip_all, fields(round))]

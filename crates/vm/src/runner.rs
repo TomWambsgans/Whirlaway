@@ -36,7 +36,9 @@ impl ToString for RunnerError {
             RunnerError::MemoryAlreadySet => "Memory already set".to_string(),
             RunnerError::NotAPointer => "Not a pointer".to_string(),
             RunnerError::DivByZero => "Division by zero".to_string(),
-            RunnerError::NotEqual(expected, actual) => format!("Computation Invalid: {} != {}", expected, actual),
+            RunnerError::NotEqual(expected, actual) => {
+                format!("Computation Invalid: {} != {}", expected, actual)
+            }
             RunnerError::UndefinedMemory => "Undefined memory access".to_string(),
             RunnerError::PCOutOfBounds => "Program counter out of bounds".to_string(),
         }

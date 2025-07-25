@@ -5,7 +5,7 @@ use p3_field::{ExtensionField, Field};
 use utils::{Evaluation, PF};
 use whir_p3::{
     fiat_shamir::{errors::ProofError, verifier::VerifierState},
-    poly::dense::WhirDensePolynomial,
+    poly::{dense::WhirDensePolynomial, multilinear::MultilinearPoint},
 };
 
 use crate::SumcheckGrinding;
@@ -105,7 +105,7 @@ where
     Ok((
         sum,
         Evaluation {
-            point: challenges,
+            point: MultilinearPoint(challenges),
             value: target,
         },
     ))

@@ -229,7 +229,7 @@ impl<
         let matrix_lde_point = [
             epsilons.clone(),
             outer_sumcheck_challenge.point[1..].to_vec(),
-            inner_sumcheck_challenge.point.clone(),
+            inner_sumcheck_challenge.point.0.clone(),
         ]
         .concat();
         let up = matrix_up_lde(&matrix_lde_point);
@@ -239,7 +239,7 @@ impl<
 
         let final_point = [
             columns_batching_scalars.clone(),
-            inner_sumcheck_challenge.point,
+            inner_sumcheck_challenge.point.0,
         ]
         .concat();
 

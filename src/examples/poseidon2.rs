@@ -8,14 +8,14 @@ use p3_matrix::Matrix;
 use p3_poseidon2_air::{Poseidon2Air, RoundConstants, generate_trace_rows};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use whir_p3::fiat_shamir::verifier::VerifierState;
 use std::fmt;
 use std::time::{Duration, Instant};
 use tracing::level_filters::LevelFilter;
 use tracing_forest::ForestLayer;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use whir_p3::fiat_shamir::prover::ProverState;
-use whir_p3::{parameters::FoldingFactor};
+use whir_p3::fiat_shamir::verifier::VerifierState;
+use whir_p3::parameters::FoldingFactor;
 
 // Koalabear
 type Poseidon16 = Poseidon2KoalaBear<16>;
@@ -167,8 +167,7 @@ pub fn prove_poseidon2(
     let prover_time = t.elapsed();
     let time = Instant::now();
 
-    let mut verifier_state =
-        VerifierState::new(prover_state.proof_data().to_vec(), challenger);
+    let mut verifier_state = VerifierState::new(prover_state.proof_data().to_vec(), challenger);
 
     table
         .verify(
