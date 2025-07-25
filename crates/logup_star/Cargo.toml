@@ -1,0 +1,20 @@
+[package]
+name = "logup_star"
+version.workspace = true
+edition.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+utils.workspace = true
+p3-field.workspace = true
+p3-koala-bear.workspace = true
+rand.workspace = true
+rayon.workspace = true
+sumcheck.workspace = true
+whir-p3.workspace = true
+p3-challenger.workspace = true
+
+[dev-dependencies]
+p3-challenger.workspace = true

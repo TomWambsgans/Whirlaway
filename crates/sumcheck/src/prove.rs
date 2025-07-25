@@ -2,12 +2,12 @@ use std::{any::TypeId, borrow::Borrow};
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{BasedVectorSpace, PackedValue};
-use p3_field::{ExtensionField, Field, TwoAdicField};
+use p3_field::{ExtensionField, Field};
 use rayon::prelude::*;
 use tracing::instrument;
 use utils::{
-    batch_fold_multilinear_in_large_field, batch_fold_multilinear_in_small_field,
-    univariate_selectors, PF,
+    PF, batch_fold_multilinear_in_large_field, batch_fold_multilinear_in_small_field,
+    univariate_selectors,
 };
 use whir_p3::{
     fiat_shamir::prover::ProverState,
@@ -34,9 +34,9 @@ pub fn prove<F, NF, EF, M, SC, Challenger>(
     mut missing_mul_factor: Option<EF>,
 ) -> (Vec<EF>, Vec<EvaluationsList<EF>>, EF)
 where
-    F: TwoAdicField,
+    F: Field,
     NF: ExtensionField<F>,
-    EF: ExtensionField<NF> + ExtensionField<F> + ExtensionField<PF<PF<EF>>>+ TwoAdicField,
+    EF: ExtensionField<NF> + ExtensionField<F> + ExtensionField<PF<PF<EF>>>,
     M: Borrow<EvaluationsList<NF>>,
     SC: SumcheckComputation<F, NF, EF>
         + SumcheckComputation<F, EF, EF>
@@ -111,9 +111,9 @@ pub fn sc_round<F, NF, EF, SC, Challenger>(
     missing_mul_factor: &mut Option<EF>,
 ) -> Vec<EvaluationsList<EF>>
 where
-    F: TwoAdicField,
+    F: Field,
     NF: ExtensionField<F>,
-    EF: ExtensionField<NF> + ExtensionField<F> + ExtensionField<PF<PF<EF>>> + TwoAdicField,
+    EF: ExtensionField<NF> + ExtensionField<F> + ExtensionField<PF<PF<EF>>>,
     SC: SumcheckComputation<F, NF, EF> + SumcheckComputationPacked<F, EF>,
     Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
 {

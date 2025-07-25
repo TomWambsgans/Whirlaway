@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{ExtensionField, TwoAdicField};
+use p3_field::{ExtensionField, Field};
 use utils::{Evaluation, PF};
 use whir_p3::{
     fiat_shamir::{errors::ProofError, verifier::VerifierState},
@@ -29,7 +29,7 @@ pub fn verify<EF, Challenger>(
     grinding: SumcheckGrinding,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
-    EF: TwoAdicField + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
     Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
 {
     let sumation_sets = vec![(0..2).map(|i| EF::from_usize(i)).collect::<Vec<_>>(); n_vars];
@@ -50,7 +50,7 @@ pub fn verify_with_univariate_skip<EF, Challenger>(
     grinding: SumcheckGrinding,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
-    EF: TwoAdicField + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
     Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
 {
     let mut max_degree_per_vars = vec![degree * ((1 << skips) - 1)];
@@ -75,7 +75,7 @@ fn verify_core<EF, Challenger>(
     grinding: SumcheckGrinding,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
-    EF: TwoAdicField + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
     Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
 {
     assert_eq!(max_degree_per_vars.len(), sumation_sets.len(),);

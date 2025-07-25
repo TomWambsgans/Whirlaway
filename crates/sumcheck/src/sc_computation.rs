@@ -79,3 +79,23 @@ where
         })
     }
 }
+
+pub struct ProductComputation;
+
+impl<F: Field, EF: ExtensionField<F>> SumcheckComputation<F, EF, EF> for ProductComputation {
+    fn eval(&self, point: &[EF], _: &[EF]) -> EF {
+        point[0] * point[1]
+    }
+}
+
+impl<F: Field, EF: ExtensionField<F>> SumcheckComputationPacked<F, EF> for ProductComputation {
+    fn eval_packed(
+        &self,
+        _: &[<F as Field>::Packing],
+        _: &[EF],
+        _: &[Vec<F>],
+    ) -> impl Iterator<Item = EF> + Send + Sync {
+        // Unreachable
+        std::iter::once(EF::ZERO)
+    }
+}

@@ -1,12 +1,10 @@
 use p3_air::Air;
 use p3_challenger::{FieldChallenger, GrindingChallenger};
-use p3_field::{
-    BasedVectorSpace, ExtensionField, Field, TwoAdicField, cyclic_subgroup_known_order,
-};
+use p3_field::{BasedVectorSpace, ExtensionField, TwoAdicField, cyclic_subgroup_known_order};
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use p3_util::log2_strict_usize;
 use serde::{Deserialize, Serialize};
-use sumcheck::{SumcheckComputation, SumcheckComputationPacked, SumcheckGrinding};
+use sumcheck::{ProductComputation, SumcheckGrinding};
 use tracing::{Level, info_span, instrument, span};
 use utils::{
     ConstraintFolder, ConstraintFolderPacked, add_multilinears, multilinears_linear_combination,
@@ -55,7 +53,9 @@ where
         prover_state: &mut ProverState<PF<PF<EF>>, EF, Challenger>,
         witness: Vec<EvaluationsList<PF<EF>>>,
     ) where
-        Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>> + ChallengerState,
+        Challenger: FieldChallenger<PF<PF<EF>>>
+            + GrindingChallenger<Witness = PF<PF<EF>>>
+            + ChallengerState,
         H: CryptographicHasher<PFPacking<PF<EF>>, [PFPacking<PF<EF>>; DIGEST_ELEMS]>
             + CryptographicHasher<PF<PF<EF>>, [PF<PF<EF>>; DIGEST_ELEMS]>
             + Sync,
@@ -196,7 +196,7 @@ where
         let (inner_challenges, inner_evals, _) = sumcheck::prove::<PF<EF>, EF, EF, _, _, _>(
             1,
             &mles_for_inner_sumcheck,
-            &InnerSumcheckCircuit,
+            &ProductComputation,
             2,
             &[EF::ONE],
             None,
@@ -226,25 +226,5 @@ where
         prover
             .prove(&dft, prover_state, statement, packed_witness)
             .unwrap();
-    }
-}
-
-pub struct InnerSumcheckCircuit;
-
-impl<F: Field, EF: ExtensionField<F>> SumcheckComputation<F, EF, EF> for InnerSumcheckCircuit {
-    fn eval(&self, point: &[EF], _: &[EF]) -> EF {
-        point[0] * point[1]
-    }
-}
-
-impl<F: Field, EF: ExtensionField<F>> SumcheckComputationPacked<F, EF> for InnerSumcheckCircuit {
-    fn eval_packed(
-        &self,
-        _: &[<F as Field>::Packing],
-        _: &[EF],
-        _: &[Vec<F>],
-    ) -> impl Iterator<Item = EF> + Send + Sync {
-        // Unreachable
-        std::iter::once(EF::ZERO)
     }
 }
