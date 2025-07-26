@@ -16,10 +16,8 @@ name = "air"
 version = "0.1.0"
 dependencies = [
  "p3-air",
- "p3-challenger",
  "p3-field",
  "p3-koala-bear",
- "p3-symmetric",
  "p3-uni-stark",
  "p3-util",
  "rand",
@@ -867,7 +865,6 @@ name = "sumcheck"
 version = "0.1.0"
 dependencies = [
  "p3-air",
- "p3-challenger",
  "p3-field",
  "p3-koala-bear",
  "p3-matrix",
@@ -1051,6 +1048,7 @@ name = "utils"
 version = "0.1.0"
 dependencies = [
  "p3-air",
+ "p3-challenger",
  "p3-field",
  "p3-koala-bear",
  "p3-matrix",

@@ -7,15 +7,12 @@ with custom GKR
 
 */
 
-use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, PrimeField64, dot_product};
 use rayon::prelude::*;
 
 use sumcheck::{SumcheckComputation, SumcheckComputationPacked, SumcheckGrinding};
-use utils::{Evaluation, PF};
+use utils::{Evaluation, FSChallenger, FSProver, FSVerifier, PF};
 use whir_p3::fiat_shamir::errors::ProofError;
-use whir_p3::fiat_shamir::prover::ProverState;
-use whir_p3::fiat_shamir::verifier::VerifierState;
 use whir_p3::poly::evals::EvaluationsList;
 use whir_p3::poly::multilinear::MultilinearPoint;
 
@@ -40,11 +37,8 @@ with: U0 = AB(0 --- 0)
 
 */
 
-pub fn prove_gkr_step<
-    EF: Field,
-    Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
->(
-    prover_state: &mut ProverState<PF<PF<EF>>, EF, Challenger>,
+pub fn prove_gkr_step<EF: Field>(
+    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     up_layer: &EvaluationsList<EF>,
     point: &MultilinearPoint<EF>,
     eval: EF,
@@ -99,7 +93,7 @@ where
         EvaluationsList::new(u5),
     );
 
-    let (sc_point, inner_evals, _) = sumcheck::prove::<PF<EF>, EF, EF, _, _, _>(
+    let (sc_point, inner_evals, _) = sumcheck::prove::<PF<EF>, EF, EF, _, _>(
         1,
         &[&u0, &u1, &u2, &u3, &u4, &u5],
         &GKRQuotientComputation,
@@ -141,9 +135,8 @@ where
 
 pub fn verify_gkr_step<
     EF: Field,
-    Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
 >(
-    verifier_state: &mut VerifierState<PF<PF<EF>>, EF, Challenger>,
+    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     current_layer_log_len: usize,
     point: &MultilinearPoint<EF>,
     eval: EF,
@@ -259,14 +252,11 @@ mod tests {
 
         let poseidon16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
         let challenger = MyChallenger::new(poseidon16);
-        let mut prover_state = ProverState::<F, EF, _>::new(challenger.clone());
+        let mut prover_state = FSProver::new(challenger.clone());
 
         prove_gkr_step(&mut prover_state, &big, &point, eval);
 
-        let mut verifier_state = VerifierState::<F, EF, MyChallenger>::new(
-            prover_state.proof_data().to_vec(),
-            challenger,
-        );
+        let mut verifier_state = FSVerifier::new(prover_state.proof_data().to_vec(), challenger);
 
         let postponed = verify_gkr_step(&mut verifier_state, log_n - 1, &point, eval).unwrap();
         assert_eq!(big.evaluate(&postponed.point), postponed.value);

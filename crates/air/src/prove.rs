@@ -1,20 +1,16 @@
 use p3_air::Air;
-use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{BasedVectorSpace, ExtensionField, TwoAdicField, cyclic_subgroup_known_order};
-use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use p3_util::log2_strict_usize;
 use serde::{Deserialize, Serialize};
 use sumcheck::{ProductComputation, SumcheckGrinding};
 use tracing::{Level, info_span, instrument, span};
+use utils::PF;
 use utils::{
-    ConstraintFolder, ConstraintFolderPacked, add_multilinears, multilinears_linear_combination,
-    packed_multilinear,
+    ConstraintFolder, ConstraintFolderPacked, FSChallenger, FSProver, MerkleCompress, MerkleHasher,
+    add_multilinears, multilinears_linear_combination, packed_multilinear,
 };
-use utils::{PF, PFPacking};
-use whir_p3::fiat_shamir::verifier::ChallengerState;
 use whir_p3::{
     dft::EvalsDft,
-    fiat_shamir::prover::ProverState,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::writer::CommitmentWriter,
@@ -45,26 +41,16 @@ where
         + for<'a> Air<ConstraintFolderPacked<'a, PF<EF>, EF>>,
 {
     #[instrument(name = "air: prove", skip_all)]
-    pub fn prove<H, C, Challenger, const DIGEST_ELEMS: usize>(
+    pub fn prove<const DIGEST_ELEMS: usize>(
         &self,
         settings: &AirSettings,
-        merkle_hash: H,
-        merkle_compress: C,
-        prover_state: &mut ProverState<PF<PF<EF>>, EF, Challenger>,
+        merkle_hash: impl MerkleHasher<EF, DIGEST_ELEMS>,
+        merkle_compress: impl MerkleCompress<EF, DIGEST_ELEMS>,
+        prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         witness: Vec<EvaluationsList<PF<EF>>>,
     ) where
-        Challenger: FieldChallenger<PF<PF<EF>>>
-            + GrindingChallenger<Witness = PF<PF<EF>>>
-            + ChallengerState,
-        H: CryptographicHasher<PFPacking<PF<EF>>, [PFPacking<PF<EF>>; DIGEST_ELEMS]>
-            + CryptographicHasher<PF<PF<EF>>, [PF<PF<EF>>; DIGEST_ELEMS]>
-            + Sync,
-        C: PseudoCompressionFunction<[PFPacking<PF<EF>>; DIGEST_ELEMS], 2>
-            + PseudoCompressionFunction<[PF<PF<EF>>; DIGEST_ELEMS], 2>
-            + Sync,
         [PF<PF<EF>>; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        PF<EF>: TwoAdicField,
-        PF<EF>: ExtensionField<PF<PF<EF>>>,
+        PF<EF>: TwoAdicField + ExtensionField<PF<PF<EF>>>,
         PF<PF<EF>>: TwoAdicField,
     {
         assert!(
@@ -115,7 +101,7 @@ where
             .chain(&witness)
             .collect::<Vec<_>>();
         let (zerocheck_challenges, all_inner_sums, _) = info_span!("zerocheck").in_scope(|| {
-            sumcheck::prove::<PF<EF>, PF<EF>, EF, _, _, _>(
+            sumcheck::prove::<PF<EF>, PF<EF>, EF, _, _>(
                 settings.univariate_skips,
                 &columns_up_and_down(&preprocessed_and_witness),
                 &self.air,
@@ -193,7 +179,7 @@ where
         let inner_sum = info_span!("inner sum evaluation")
             .in_scope(|| batched_column_mixed.evaluate(&MultilinearPoint(point.clone())));
 
-        let (inner_challenges, inner_evals, _) = sumcheck::prove::<PF<EF>, EF, EF, _, _, _>(
+        let (inner_challenges, inner_evals, _) = sumcheck::prove::<PF<EF>, EF, EF, _, _>(
             1,
             &mles_for_inner_sumcheck,
             &ProductComputation,

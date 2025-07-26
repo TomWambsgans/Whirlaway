@@ -1,10 +1,9 @@
 use std::fmt::Debug;
 
-use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field};
-use utils::{Evaluation, PF};
+use utils::{Evaluation, FSChallenger, FSVerifier, PF};
 use whir_p3::{
-    fiat_shamir::{errors::ProofError, verifier::VerifierState},
+    fiat_shamir::errors::ProofError,
     poly::{dense::WhirDensePolynomial, multilinear::MultilinearPoint},
 };
 
@@ -22,15 +21,14 @@ impl From<ProofError> for SumcheckError {
     }
 }
 
-pub fn verify<EF, Challenger>(
-    verifier_state: &mut VerifierState<PF<PF<EF>>, EF, Challenger>,
+pub fn verify<EF>(
+    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     n_vars: usize,
     degree: usize,
     grinding: SumcheckGrinding,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
     EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
-    Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
 {
     let sumation_sets = vec![(0..2).map(|i| EF::from_usize(i)).collect::<Vec<_>>(); n_vars];
     let max_degree_per_vars = vec![degree; n_vars];
@@ -42,8 +40,8 @@ where
     )
 }
 
-pub fn verify_with_univariate_skip<EF, Challenger>(
-    verifier_state: &mut VerifierState<PF<PF<EF>>, EF, Challenger>,
+pub fn verify_with_univariate_skip<EF>(
+    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     degree: usize,
     n_vars: usize,
     skips: usize,
@@ -51,7 +49,6 @@ pub fn verify_with_univariate_skip<EF, Challenger>(
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
     EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
-    Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
 {
     let mut max_degree_per_vars = vec![degree * ((1 << skips) - 1)];
     max_degree_per_vars.extend(vec![degree; n_vars - skips]);
@@ -68,15 +65,14 @@ where
     )
 }
 
-fn verify_core<EF, Challenger>(
-    verifier_state: &mut VerifierState<PF<PF<EF>>, EF, Challenger>,
+fn verify_core<EF>(
+    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     max_degree_per_vars: &[usize],
     sumation_sets: Vec<Vec<EF>>,
     grinding: SumcheckGrinding,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
     EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
-    Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
 {
     assert_eq!(max_degree_per_vars.len(), sumation_sets.len(),);
     let mut challenges = Vec::new();

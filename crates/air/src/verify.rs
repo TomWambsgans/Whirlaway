@@ -1,18 +1,16 @@
 use p3_air::Air;
-use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, TwoAdicField, cyclic_subgroup_known_order, dot_product};
-use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use sumcheck::{SumcheckComputation, SumcheckError, SumcheckGrinding};
 use tracing::instrument;
-use utils::PF;
-use utils::{ConstraintFolder, fold_multilinear_in_large_field, log2_up};
+use utils::MerkleHasher;
+use utils::{
+    ConstraintFolder, FSChallenger, MerkleCompress, fold_multilinear_in_large_field, log2_up,
+};
+use utils::{FSVerifier, PF};
 use whir_p3::{
-    fiat_shamir::{
-        errors::ProofError,
-        verifier::{ChallengerState, VerifierState},
-    },
+    fiat_shamir::errors::ProofError,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
     whir::{
         committer::reader::CommitmentReader,
@@ -56,20 +54,15 @@ impl<
 > AirTable<EF, A>
 {
     #[instrument(name = "air table: verify", skip_all)]
-    pub fn verify<H, C, Challenger, const DIGEST_ELEMS: usize>(
+    pub fn verify<const DIGEST_ELEMS: usize>(
         &self,
         settings: &AirSettings,
-        merkle_hash: H,
-        merkle_compress: C,
-        verifier_state: &mut VerifierState<PF<PF<EF>>, EF, Challenger>,
+        merkle_hash: impl MerkleHasher<EF, DIGEST_ELEMS>,
+        merkle_compress: impl MerkleCompress<EF, DIGEST_ELEMS>,
+        verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
         log_length: usize,
     ) -> Result<(), AirVerifError>
     where
-        Challenger: FieldChallenger<PF<PF<EF>>>
-            + GrindingChallenger<Witness = PF<PF<EF>>>
-            + ChallengerState,
-        H: CryptographicHasher<PF<PF<EF>>, [PF<PF<EF>>; DIGEST_ELEMS]> + Sync,
-        C: PseudoCompressionFunction<[PF<PF<EF>>; DIGEST_ELEMS], 2> + Sync,
         [PF<PF<EF>>; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         PF<EF>: TwoAdicField + ExtensionField<PF<PF<EF>>>,
         PF<PF<EF>>: TwoAdicField,
@@ -101,16 +94,15 @@ impl<
             *challenge = verifier_state.sample();
         }
 
-        let (sc_sum, outer_sumcheck_challenge) =
-            sumcheck::verify_with_univariate_skip::<EF, Challenger>(
-                verifier_state,
-                self.constraint_degree + 1,
-                log_length,
-                settings.univariate_skips,
-                SumcheckGrinding::Auto {
-                    security_bits: settings.security_bits,
-                },
-            )?;
+        let (sc_sum, outer_sumcheck_challenge) = sumcheck::verify_with_univariate_skip::<EF>(
+            verifier_state,
+            self.constraint_degree + 1,
+            log_length,
+            settings.univariate_skips,
+            SumcheckGrinding::Auto {
+                security_bits: settings.security_bits,
+            },
+        )?;
         if sc_sum != EF::ZERO {
             return Err(AirVerifError::SumMismatch);
         }
@@ -211,7 +203,7 @@ impl<
             *challenge = verifier_state.sample();
         }
 
-        let (batched_inner_sum, inner_sumcheck_challenge) = sumcheck::verify::<EF, Challenger>(
+        let (batched_inner_sum, inner_sumcheck_challenge) = sumcheck::verify::<EF>(
             verifier_state,
             log_length,
             2,

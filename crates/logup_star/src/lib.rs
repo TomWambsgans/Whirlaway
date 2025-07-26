@@ -5,25 +5,19 @@ https://eprint.iacr.org/2025/946.pdf
 
 */
 
-use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, PrimeField64};
 use rayon::prelude::*;
 
 use sumcheck::{ProductComputation, SumcheckGrinding};
-use utils::PF;
+use utils::{FSChallenger, FSProver, FSVerifier, PF};
 use whir_p3::fiat_shamir::errors::ProofError;
-use whir_p3::fiat_shamir::prover::ProverState;
-use whir_p3::fiat_shamir::verifier::VerifierState;
 use whir_p3::poly::evals::EvaluationsList;
 use whir_p3::poly::multilinear::MultilinearPoint;
 
 pub mod gkr;
 
-pub fn prove_logup_star<
-    EF: Field,
-    Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
->(
-    prover_state: &mut ProverState<PF<PF<EF>>, EF, Challenger>,
+pub fn prove_logup_star<EF: Field>(
+    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     table: &EvaluationsList<PF<EF>>,
     indexes: &EvaluationsList<PF<EF>>,
     values: &EvaluationsList<PF<EF>>,
@@ -45,7 +39,7 @@ pub fn prove_logup_star<
         EvaluationsList::new(table.evals().par_iter().map(|&x| EF::from(x)).collect()); // TODO avoid embedding
 
     let time = std::time::Instant::now();
-    let (_sc_point, inner_evals, prod) = sumcheck::prove::<PF<EF>, EF, EF, _, _, _>(
+    let (_sc_point, inner_evals, prod) = sumcheck::prove::<PF<EF>, EF, EF, _, _>(
         1,
         &[&table_embedded, &pushforward],
         &ProductComputation,
@@ -75,11 +69,8 @@ pub fn prove_logup_star<
     let random_challenge = prover_state.sample();
 }
 
-pub fn verify_logup_star<
-    EF: Field,
-    Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
->(
-    verifier_state: &mut VerifierState<PF<PF<EF>>, EF, Challenger>,
+pub fn verify_logup_star<EF: Field>(
+    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     table: &EvaluationsList<PF<EF>>,
     indexes: &EvaluationsList<PF<EF>>,
     point: &MultilinearPoint<EF>,
@@ -184,7 +175,7 @@ mod tests {
                 .collect::<Vec<EF>>(),
         );
 
-        let mut prover_state = ProverState::<F, EF, _>::new(challenger.clone());
+        let mut prover_state = FSProver::new(challenger.clone());
 
         prove_logup_star(
             &mut prover_state,
@@ -194,10 +185,7 @@ mod tests {
             &point,
         );
 
-        let mut verifier_state = VerifierState::<F, EF, MyChallenger>::new(
-            prover_state.proof_data().to_vec(),
-            challenger,
-        );
+        let mut verifier_state = FSVerifier::new(prover_state.proof_data().to_vec(), challenger);
         let result = verify_logup_star(
             &mut verifier_state,
             &commited_table,

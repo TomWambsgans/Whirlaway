@@ -1,26 +1,22 @@
 use std::{any::TypeId, borrow::Borrow};
 
-use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{BasedVectorSpace, PackedValue};
 use p3_field::{ExtensionField, Field};
 use rayon::prelude::*;
 use tracing::instrument;
 use utils::{
-    PF, batch_fold_multilinear_in_large_field, batch_fold_multilinear_in_small_field,
-    univariate_selectors,
+    FSChallenger, FSProver, PF, batch_fold_multilinear_in_large_field,
+    batch_fold_multilinear_in_small_field, univariate_selectors,
 };
 use whir_p3::poly::multilinear::MultilinearPoint;
-use whir_p3::{
-    fiat_shamir::prover::ProverState,
-    poly::{dense::WhirDensePolynomial, evals::EvaluationsList},
-};
+use whir_p3::poly::{dense::WhirDensePolynomial, evals::EvaluationsList};
 
 use crate::{SumcheckComputation, SumcheckComputationPacked, SumcheckGrinding};
 
 pub const MIN_VARS_FOR_GPU: usize = 0; // When there are a small number of variables, it's not worth using GPU
 
 #[allow(clippy::too_many_arguments)]
-pub fn prove<F, NF, EF, M, SC, Challenger>(
+pub fn prove<F, NF, EF, M, SC>(
     skips: usize, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
     multilinears: &[M],
     computation: &SC,
@@ -28,7 +24,7 @@ pub fn prove<F, NF, EF, M, SC, Challenger>(
     batching_scalars: &[EF],
     eq_factor: Option<&[EF]>,
     is_zerofier: bool,
-    fs_prover: &mut ProverState<PF<PF<EF>>, EF, Challenger>,
+    fs_prover: &mut FSProver<EF, impl FSChallenger<EF>>,
     mut sum: EF,
     n_rounds: Option<usize>,
     grinding: SumcheckGrinding,
@@ -42,7 +38,6 @@ where
     SC: SumcheckComputation<F, NF, EF>
         + SumcheckComputation<F, EF, EF>
         + SumcheckComputationPacked<F, EF>,
-    Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
 {
     let multilinears = multilinears.iter().map(|m| m.borrow()).collect::<Vec<_>>();
     let mut n_vars = multilinears[0].num_variables();
@@ -95,7 +90,7 @@ where
 
 #[instrument(name = "sumcheck_round", skip_all, fields(round))]
 #[allow(clippy::too_many_arguments)]
-pub fn sc_round<F, NF, EF, SC, Challenger>(
+pub fn sc_round<F, NF, EF, SC>(
     skips: usize, // the first round will fold 2^skips (instead of 2 in the basic sumcheck)
     multilinears: &[&EvaluationsList<NF>],
     n_vars: &mut usize,
@@ -103,7 +98,7 @@ pub fn sc_round<F, NF, EF, SC, Challenger>(
     eq_factor: Option<&[EF]>,
     batching_scalars: &[EF],
     is_zerofier: bool,
-    fs_prover: &mut ProverState<PF<PF<EF>>, EF, Challenger>,
+    fs_prover: &mut FSProver<EF, impl FSChallenger<EF>>,
     comp_degree: usize,
     sum: &mut EF,
     grinding: SumcheckGrinding,
@@ -116,7 +111,6 @@ where
     NF: ExtensionField<F>,
     EF: ExtensionField<NF> + ExtensionField<F> + ExtensionField<PF<PF<EF>>>,
     SC: SumcheckComputation<F, NF, EF> + SumcheckComputationPacked<F, EF>,
-    Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
 {
     let eq_mle = eq_factor.map(|eq_factor| EvaluationsList::eval_eq(&eq_factor[1 + round..]));
 

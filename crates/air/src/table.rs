@@ -1,11 +1,10 @@
 use p3_air::Air;
-use p3_challenger::{FieldChallenger, GrindingChallenger};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use p3_uni_stark::{SymbolicAirBuilder, get_symbolic_constraints};
-use utils::{PF, log2_up, univariate_selectors};
+use utils::{FSChallenger, FSProver, PF, log2_up, univariate_selectors};
 use whir_p3::{
-    fiat_shamir::{errors::ProofError, prover::ProverState},
+    fiat_shamir::errors::ProofError,
     parameters::{MultivariateParameters, ProtocolParameters},
     poly::{dense::WhirDensePolynomial, evals::EvaluationsList},
     whir::parameters::WhirConfig,
@@ -70,15 +69,12 @@ where
         self.preprocessed_columns.len()
     }
 
-    pub fn build_whir_params<H, C, Challenger>(
+    pub fn build_whir_params<H, C, Challenger: FSChallenger<EF>>(
         &self,
         settings: &AirSettings,
         merkle_hash: H,
         merkle_compress: C,
-    ) -> WhirConfig<EF, PF<EF>, H, C, Challenger>
-    where
-        Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
-    {
+    ) -> WhirConfig<EF, PF<EF>, H, C, Challenger> {
         let num_variables = self.log_length + self.log_n_witness_columns();
         let mv_params = MultivariateParameters::new(num_variables);
 
@@ -98,14 +94,11 @@ where
         WhirConfig::new(mv_params, whir_params)
     }
 
-    pub(crate) fn constraints_batching_pow<Challenger>(
+    pub(crate) fn constraints_batching_pow(
         &self,
-        prover_state: &mut ProverState<PF<PF<EF>>, EF, Challenger>,
+        prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         settings: &AirSettings,
-    ) -> Result<(), ProofError>
-    where
-        Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
-    {
+    ) -> Result<(), ProofError> {
         prover_state.pow_grinding(
             settings
                 .security_bits
@@ -115,14 +108,11 @@ where
         Ok(())
     }
 
-    pub(crate) fn zerocheck_pow<Challenger>(
+    pub(crate) fn zerocheck_pow(
         &self,
-        prover_state: &mut ProverState<PF<PF<EF>>, EF, Challenger>,
+        prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         settings: &AirSettings,
-    ) -> Result<(), ProofError>
-    where
-        Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
-    {
+    ) -> Result<(), ProofError> {
         prover_state.pow_grinding(
             settings
                 .security_bits
@@ -132,14 +122,11 @@ where
         Ok(())
     }
 
-    pub(crate) fn secondary_sumchecks_batching_pow<Challenger>(
+    pub(crate) fn secondary_sumchecks_batching_pow(
         &self,
-        prover_state: &mut ProverState<PF<PF<EF>>, EF, Challenger>,
+        prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         settings: &AirSettings,
-    ) -> Result<(), ProofError>
-    where
-        Challenger: FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>>,
-    {
+    ) -> Result<(), ProofError> {
         prover_state.pow_grinding(
             settings
                 .security_bits
