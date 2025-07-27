@@ -215,14 +215,14 @@ mod tests {
     type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
     #[test]
     fn test_logup_star() {
-        // let env_filter = EnvFilter::builder()
-        //     .with_default_directive(LevelFilter::INFO.into())
-        //     .from_env_lossy();
+        let env_filter = EnvFilter::builder()
+            .with_default_directive(LevelFilter::INFO.into())
+            .from_env_lossy();
 
-        // Registry::default()
-        //     .with(env_filter)
-        //     .with(ForestLayer::default())
-        //     .init();
+        Registry::default()
+            .with(env_filter)
+            .with(ForestLayer::default())
+            .init();
 
         let log_table_len = 19;
         let table_len = 1 << log_table_len;
@@ -261,6 +261,7 @@ mod tests {
 
         let mut prover_state = FSProver::new(challenger.clone());
 
+        let time = std::time::Instant::now();
         prove_logup_star(
             &mut prover_state,
             &commited_table,
@@ -268,6 +269,7 @@ mod tests {
             &values,
             &point,
         );
+        println!("Proving logup_star took {} ms", time.elapsed().as_millis());
 
         let mut verifier_state = FSVerifier::new(prover_state.proof_data().to_vec(), challenger);
         let result =

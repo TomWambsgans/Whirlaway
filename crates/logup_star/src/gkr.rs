@@ -14,6 +14,7 @@ use sumcheck::{SumcheckComputation, SumcheckComputationPacked, SumcheckGrinding}
 use tracing::{info_span, instrument};
 use utils::{Evaluation, FSChallenger, FSProver, FSVerifier, PF};
 use whir_p3::fiat_shamir::errors::ProofError;
+use whir_p3::poly::dense::WhirDensePolynomial;
 use whir_p3::poly::evals::EvaluationsList;
 use whir_p3::poly::multilinear::MultilinearPoint;
 
@@ -109,68 +110,114 @@ where
     PF<EF>: PrimeField64,
 {
     assert_eq!(up_layer.num_variables() - 1, point.0.len());
-
     let len = up_layer.num_evals();
-    assert!(len >= 4);
+
+    let up_layer = up_layer.evals();
+
+    let eq_poly = EvaluationsList::eval_eq(&point.0[1..]);
+
+    let mut sums_x = EF::zero_vec(up_layer.len() / 4);
+    let mut sums_one_minus_x = EF::zero_vec(up_layer.len() / 4);
+
+    sums_x
+        .par_iter_mut()
+        .zip(sums_one_minus_x.par_iter_mut())
+        .enumerate()
+        .for_each(|(i, (x, one_minus_x))| {
+            let eq_eval = eq_poly.evals()[i];
+            let u0 = up_layer[2 * i];
+            let u1 = up_layer[2 * i + 1];
+            let u2 = up_layer[up_layer.len() / 2 + 2 * i];
+            let u3 = up_layer[up_layer.len() / 2 + 2 * i + 1];
+            *x = eq_eval * u2 * u3;
+            *one_minus_x = eq_eval * (u0 * u3 + u1 * u2);
+        });
+
+    let sum_x = sums_x.into_par_iter().sum::<EF>();
+    let sum_one_minus_x = sums_one_minus_x.into_par_iter().sum::<EF>();
+
+    let first_sumcheck_polynomial = &WhirDensePolynomial::from_coefficients_vec(vec![
+        EF::ONE - point[0],
+        point[0].double() - EF::ONE,
+    ]) * &WhirDensePolynomial::from_coefficients_vec(vec![
+        sum_one_minus_x,
+        sum_x - sum_one_minus_x,
+    ]);
+
+    // sanity check
+    assert_eq!(
+        first_sumcheck_polynomial.evaluate(EF::ZERO) + first_sumcheck_polynomial.evaluate(EF::ONE),
+        eval
+    );
+
+    prover_state.add_extension_scalars(&first_sumcheck_polynomial.coeffs);
+
+    let first_sumcheck_challenge = prover_state.sample();
+
+    let next_sum = first_sumcheck_polynomial.evaluate(first_sumcheck_challenge);
+
     let mid_len = len / 2;
     let quarter_len = mid_len / 2;
-    let (u0, u1, u2, u3) = (
-        EF::zero_vec(mid_len),
-        EF::zero_vec(mid_len),
-        EF::zero_vec(mid_len),
-        EF::zero_vec(mid_len),
+    let (u0_folded, u1_folded, u2_folded, u3_folded) = (
+        EF::zero_vec(quarter_len),
+        EF::zero_vec(quarter_len),
+        EF::zero_vec(quarter_len),
+        EF::zero_vec(quarter_len),
     );
-    up_layer.evals()[..mid_len]
+    up_layer[..mid_len]
         .par_chunks_exact(2)
         .enumerate()
         .for_each(|(i, chunk)| unsafe {
-            *(u0.as_ptr() as *mut EF).add(i) = chunk[0];
-            *(u0.as_ptr() as *mut EF).add(i + quarter_len) = chunk[0];
-            *(u1.as_ptr() as *mut EF).add(i) = chunk[1];
-            *(u1.as_ptr() as *mut EF).add(i + quarter_len) = chunk[1];
+            *(u0_folded.as_ptr() as *mut EF).add(i) = chunk[0];
+            *(u1_folded.as_ptr() as *mut EF).add(i) = chunk[1];
         });
 
-    up_layer.evals()[mid_len..]
+    up_layer[mid_len..]
         .par_chunks_exact(2)
         .enumerate()
         .for_each(|(i, chunk)| unsafe {
-            *(u2.as_ptr() as *mut EF).add(i) = chunk[0];
-            *(u2.as_ptr() as *mut EF).add(i + quarter_len) = chunk[0];
-            *(u3.as_ptr() as *mut EF).add(i) = chunk[1];
-            *(u3.as_ptr() as *mut EF).add(i + quarter_len) = chunk[1];
+            *(u2_folded.as_ptr() as *mut EF).add(i) = chunk[0];
+            *(u3_folded.as_ptr() as *mut EF).add(i) = chunk[1];
         });
 
-    let mut u4 = EF::zero_vec(quarter_len); // i1 ...
-    u4.extend(vec![EF::ONE; quarter_len]);
-    let mut u5 = vec![EF::ONE; quarter_len]; // (1 - i1) ...
-    u5.extend(EF::zero_vec(quarter_len));
-
-    let (u0, u1, u2, u3, u4, u5) = (
-        EvaluationsList::new(u0),
-        EvaluationsList::new(u1),
-        EvaluationsList::new(u2),
-        EvaluationsList::new(u3),
-        EvaluationsList::new(u4),
-        EvaluationsList::new(u5),
+    let (u0_folded, u1_folded, u2_folded, u3_folded) = (
+        EvaluationsList::new(u0_folded),
+        EvaluationsList::new(u1_folded),
+        EvaluationsList::new(u2_folded),
+        EvaluationsList::new(u3_folded),
     );
 
-    let (sc_point, inner_evals, _) = info_span!("sumcheck").in_scope(|| {
-        sumcheck::prove::<PF<EF>, EF, EF, _, _>(
-            1,
-            &[&u0, &u1, &u2, &u3, &u4, &u5],
-            &GKRQuotientComputation,
-            3,
-            &[EF::ONE],
-            Some(&point.0),
-            false,
-            prover_state,
-            eval,
-            None,
-            SumcheckGrinding::None,
-            None,
-            false,
+    let u4_const = first_sumcheck_challenge;
+    let u5_const = EF::ONE - first_sumcheck_challenge;
+    let missing_mul_factor = first_sumcheck_challenge * point[0]
+        + (EF::ONE - first_sumcheck_challenge) * (EF::ONE - point[0]);
+
+    let (sc_point, inner_evals) = if up_layer.len() == 4 {
+        (
+            MultilinearPoint(vec![first_sumcheck_challenge]),
+            vec![u0_folded, u1_folded, u2_folded, u3_folded].into(),
         )
-    });
+    } else {
+        let (mut sc_point, inner_evals, _) = info_span!("sumcheck").in_scope(|| {
+            sumcheck::prove::<PF<EF>, EF, EF, _, _>(
+                1,
+                &[&u0_folded, &u1_folded, &u2_folded, &u3_folded],
+                &GKRQuotientComputation { u4_const, u5_const },
+                2,
+                &[EF::ONE],
+                Some(&point.0[1..]),
+                false,
+                prover_state,
+                next_sum,
+                None,
+                SumcheckGrinding::None,
+                Some(missing_mul_factor),
+                false,
+            )
+        });
+        sc_point.insert(0, first_sumcheck_challenge);
+        (sc_point, inner_evals)
+    };
 
     let quarter_evals = inner_evals[..4]
         .iter()
@@ -207,10 +254,11 @@ where
     EF: ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
     PF<EF>: PrimeField64,
 {
-    let (sc_eval, postponed) = sumcheck::verify(
+    let (sc_eval, postponed) = sumcheck::verify_with_custom_degree_at_first_round(
         verifier_state,
         current_layer_log_len,
-        4,
+        2,
+        3,
         SumcheckGrinding::None,
     )
     .map_err(|_| ProofError::InvalidProof)?;
@@ -245,16 +293,24 @@ where
     Ok((next_point, next_claim).into())
 }
 
-pub struct GKRQuotientComputation;
+pub struct GKRQuotientComputation<EF> {
+    u4_const: EF,
+    u5_const: EF,
+}
 
-impl<F: Field, EF: ExtensionField<F>> SumcheckComputation<F, EF, EF> for GKRQuotientComputation {
+impl<F: Field, EF: ExtensionField<F>> SumcheckComputation<F, EF, EF>
+    for GKRQuotientComputation<EF>
+{
     fn eval(&self, point: &[EF], _: &[EF]) -> EF {
         // U4.U2.U3 + U5.[U0.U3 + U1.U2]
-        point[4] * point[2] * point[3] + point[5] * (point[0] * point[3] + point[1] * point[2])
+        self.u4_const * point[2] * point[3]
+            + self.u5_const * (point[0] * point[3] + point[1] * point[2])
     }
 }
 
-impl<F: Field, EF: ExtensionField<F>> SumcheckComputationPacked<F, EF> for GKRQuotientComputation {
+impl<F: Field, EF: ExtensionField<F>> SumcheckComputationPacked<F, EF>
+    for GKRQuotientComputation<EF>
+{
     fn eval_packed(
         &self,
         _: &[<F as Field>::Packing],
