@@ -236,10 +236,12 @@ fn execute_bytecode_helper(
     fp = fp.next_multiple_of(DIMENSION);
 
     let initial_ap = fp + bytecode.starting_frame_memory;
+    let initial_ap_vec =
+        (initial_ap + no_vec_runtime_memory).next_multiple_of(DIMENSION) / DIMENSION;
 
     let mut pc = 0;
     let mut ap = initial_ap;
-    let mut ap_vec = (initial_ap + no_vec_runtime_memory).next_multiple_of(DIMENSION) / DIMENSION;
+    let mut ap_vec = initial_ap_vec;
 
     let mut poseidon16_calls = 0;
     let mut poseidon24_calls = 0;
@@ -489,7 +491,11 @@ fn execute_bytecode_helper(
             pretty_integer(private_input.len())
         );
         println!("Executed {} instructions", pretty_integer(cpu_cycles));
-        println!("Runtime memory: {}", pretty_integer(runtime_memory_size));
+        println!(
+            "Runtime memory: {} ({:.2}% vec)",
+            pretty_integer(runtime_memory_size),
+            (DIMENSION * (ap_vec - initial_ap_vec)) as f64 / runtime_memory_size as f64 * 100.0
+        );
         if poseidon16_calls + poseidon24_calls > 0 {
             println!(
                 "Poseidon2_16 calls: {}, Poseidon2_24 calls: {} (1 poseidon per {} instructions)",

@@ -114,7 +114,9 @@ where
 
     let up_layer = up_layer.evals();
 
-    let eq_poly = EvaluationsList::eval_eq(&point.0[1..]);
+    let _first_sumcheck_round_span = info_span!("first_sumcheck_round").entered();
+
+    let eq_poly = info_span!("eq_poly").in_scope(|| EvaluationsList::eval_eq(&point.0[1..]));
 
     let mut sums_x = EF::zero_vec(up_layer.len() / 4);
     let mut sums_one_minus_x = EF::zero_vec(up_layer.len() / 4);
@@ -192,13 +194,15 @@ where
     let missing_mul_factor = first_sumcheck_challenge * point[0]
         + (EF::ONE - first_sumcheck_challenge) * (EF::ONE - point[0]);
 
+    std::mem::drop(_first_sumcheck_round_span);
+
     let (sc_point, inner_evals) = if up_layer.len() == 4 {
         (
             MultilinearPoint(vec![first_sumcheck_challenge]),
             vec![u0_folded, u1_folded, u2_folded, u3_folded].into(),
         )
     } else {
-        let (mut sc_point, inner_evals, _) = info_span!("sumcheck").in_scope(|| {
+        let (mut sc_point, inner_evals, _) = info_span!("remaining sumcheck rounds").in_scope(|| {
             sumcheck::prove::<PF<EF>, EF, EF, _, _>(
                 1,
                 &[&u0_folded, &u1_folded, &u2_folded, &u3_folded],
