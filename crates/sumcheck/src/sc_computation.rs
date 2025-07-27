@@ -84,10 +84,7 @@ pub struct ProductComputation;
 
 impl<F: Field, EF: ExtensionField<F>> SumcheckComputation<F, EF, EF> for ProductComputation {
     fn eval(&self, point: &[EF], _: &[EF]) -> EF {
-        unsafe {
-            *point.get_unchecked(0) * *point.get_unchecked(1)
-                
-        }
+        unsafe { *point.get_unchecked(0) * *point.get_unchecked(1) }
     }
 }
 

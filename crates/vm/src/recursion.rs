@@ -7,7 +7,11 @@ use whir_p3::{
     parameters::{errors::*, *},
     poly::{evals::*, multilinear::*},
     whir::{
-        committer::{reader::*, writer::*}, parameters::*, prover::*, statement::Statement, verifier::*
+        committer::{reader::*, writer::*},
+        parameters::*,
+        prover::*,
+        statement::Statement,
+        verifier::*,
     },
 };
 
@@ -25,7 +29,7 @@ pub fn run_whir_verif() {
     const F_BITS = 31; // koala-bear = 31 bits
 
     const N_VARS = 22;
-    const LOG_INV_RATE = 1; 
+    const LOG_INV_RATE = 2; 
     const N_ROUNDS = 3;
 
     const FOLDING_FACTOR_0 = 4;
@@ -40,15 +44,15 @@ pub fn run_whir_verif() {
     const RS_REDUCTION_FACTOR_2 = 1;
     const RS_REDUCTION_FACTOR_3 = 1;
 
-    const NUM_QUERIES_0 = 120;
-    const NUM_QUERIES_1 = 29;
-    const NUM_QUERIES_2 = 17;
-    const NUM_QUERIES_3 = 12;
+    const NUM_QUERIES_0 = 58;
+    const NUM_QUERIES_1 = 23;
+    const NUM_QUERIES_2 = 14;
+    const NUM_QUERIES_3 = 11;
 
     const GRINDING_BITS_0 = 16;
     const GRINDING_BITS_1 = 14;
-    const GRINDING_BITS_2 = 10;
-    const GRINDING_BITS_3 = 8;
+    const GRINDING_BITS_2 = 16;
+    const GRINDING_BITS_3 = 7;
 
     const TWO_ADICITY = 24;
     const ROOT = 1791270792; // of order 2^TWO_ADICITY
@@ -435,6 +439,10 @@ pub fn run_whir_verif() {
         }
         if domain_size == 15 {
             res = unit_root_pow_const(15, index_bits);
+            return res;
+        }
+        if domain_size == 20 {
+            res = unit_root_pow_const(20, index_bits);
             return res;
         }
         UNIMPLEMENTED = 0;
@@ -858,7 +866,7 @@ pub fn run_whir_verif() {
         merkle_hash,
         merkle_compress,
         soundness_type: SecurityAssumption::CapacityBound,
-        starting_log_inv_rate: 1,
+        starting_log_inv_rate: 2,
         rs_domain_initial_reduction_factor: 1,
     };
 
@@ -870,6 +878,16 @@ pub fn run_whir_verif() {
         WhirConfig::<EF, EF, MerkleHash, MerkleCompress, MyChallenger>::new(mv_params, whir_params);
     assert_eq!(params.committment_ood_samples, 1);
     // println!("Whir parameters: {}", params.to_string());
+    for (i, round) in params.round_parameters.iter().enumerate() {
+        println!(
+            "Round {}: {} queries, pow: {} bits",
+            i, round.num_queries, round.pow_bits
+        );
+    }
+    println!(
+        "Final round: {} queries, pow: {} bits",
+        params.final_queries, params.final_pow_bits
+    );
 
     let mut rng = StdRng::seed_from_u64(0);
     let polynomial =

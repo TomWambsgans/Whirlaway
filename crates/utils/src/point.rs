@@ -14,7 +14,7 @@ impl<F> Into<(MultilinearPoint<F>, F)> for Evaluation<F> {
     }
 }
 
-impl <F> From<(MultilinearPoint<F>, F)> for Evaluation<F> {
+impl<F> From<(MultilinearPoint<F>, F)> for Evaluation<F> {
     fn from((point, value): (MultilinearPoint<F>, F)) -> Self {
         Self { point, value }
     }

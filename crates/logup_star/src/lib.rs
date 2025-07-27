@@ -60,7 +60,7 @@ pub fn prove_logup_star<EF: Field>(
                 None,
                 SumcheckGrinding::None,
                 None,
-                false
+                false,
             )
         });
 
@@ -182,10 +182,10 @@ mod tests {
             .with(ForestLayer::default())
             .init();
 
-        let log_table_length = 20;
+        let log_table_length = 19;
         let table_length = 1 << log_table_length;
 
-        let log_n_indexes = log_table_length + 1;
+        let log_n_indexes = log_table_length + 2;
         let n_indexes = 1 << log_n_indexes;
 
         let mut rng = StdRng::seed_from_u64(0);

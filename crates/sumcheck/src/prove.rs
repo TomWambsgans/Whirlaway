@@ -3,7 +3,7 @@ use std::{any::TypeId, borrow::Borrow};
 use p3_field::{BasedVectorSpace, PackedValue};
 use p3_field::{ExtensionField, Field};
 use rayon::prelude::*;
-use tracing::{info_span, instrument};
+use tracing::info_span;
 use utils::{
     FSChallenger, FSProver, PF, batch_fold_multilinear_in_large_field,
     batch_fold_multilinear_in_small_field, univariate_selectors,
