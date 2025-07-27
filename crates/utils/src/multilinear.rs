@@ -33,10 +33,22 @@ pub fn fold_multilinear_packed<F: Field>(n_evals: usize, m: &[F], scalars: &[F])
     assert!(scalars.len().is_power_of_two() && scalars.len() <= n_evals);
     let new_size = n_evals / scalars.len();
 
+    if new_size < F::Packing::WIDTH {
+        return (0..new_size)
+            .into_par_iter()
+            .map(|i| {
+                scalars
+                    .iter()
+                    .enumerate()
+                    .map(|(j, s)| *s * m[i + j * new_size])
+                    .sum()
+            })
+            .collect();
+    }
+
     let inners = (0..scalars.len())
         .map(|i| &m[i * new_size..(i + 1) * new_size])
         .collect::<Vec<_>>();
-
     let inners_packed = inners
         .iter()
         .map(|inner| F::Packing::pack_slice(inner))
