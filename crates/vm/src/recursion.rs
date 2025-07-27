@@ -7,11 +7,7 @@ use whir_p3::{
     parameters::{errors::*, *},
     poly::{evals::*, multilinear::*},
     whir::{
-        committer::{reader::*, writer::*},
-        parameters::*,
-        prover::*,
-        statement::{weights::*, *},
-        verifier::*,
+        committer::{reader::*, writer::*}, parameters::*, prover::*, statement::Statement, verifier::*
     },
 };
 
@@ -856,7 +852,6 @@ pub fn run_whir_verif() {
     let merkle_compress = MerkleCompress::new(poseidon16.clone());
 
     let whir_params = ProtocolParameters {
-        initial_statement: true,
         security_level: 128,
         pow_bits: 17,
         folding_factor: FoldingFactor::ConstantFromSecondRound(4, 4),
@@ -865,7 +860,6 @@ pub fn run_whir_verif() {
         soundness_type: SecurityAssumption::CapacityBound,
         starting_log_inv_rate: 1,
         rs_domain_initial_reduction_factor: 1,
-        univariate_skip: false,
     };
 
     let num_variables = 22;
@@ -885,8 +879,7 @@ pub fn run_whir_verif() {
 
     let mut statement = Statement::<EF>::new(num_variables);
     let eval = polynomial.evaluate(&point);
-    let weights = Weights::evaluation(point.clone());
-    statement.add_constraint(weights, eval);
+    statement.add_constraint(point.clone(), eval);
 
     let challenger = MyChallenger::new(poseidon16);
 

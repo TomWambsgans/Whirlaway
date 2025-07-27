@@ -3,7 +3,7 @@ use std::{any::TypeId, borrow::Borrow};
 use p3_field::{BasedVectorSpace, PackedValue};
 use p3_field::{ExtensionField, Field};
 use rayon::prelude::*;
-use tracing::instrument;
+use tracing::{info_span, instrument};
 use utils::{
     FSChallenger, FSProver, PF, batch_fold_multilinear_in_large_field,
     batch_fold_multilinear_in_small_field, univariate_selectors,
@@ -29,6 +29,7 @@ pub fn prove<F, NF, EF, M, SC>(
     n_rounds: Option<usize>,
     grinding: SumcheckGrinding,
     mut missing_mul_factor: Option<EF>,
+    log: bool,
 ) -> (MultilinearPoint<EF>, Vec<EvaluationsList<EF>>, EF)
 where
     F: Field,
@@ -64,6 +65,7 @@ where
         &mut challenges,
         0,
         &mut missing_mul_factor,
+        log,
     );
 
     for i in 1..n_rounds {
@@ -82,13 +84,13 @@ where
             &mut challenges,
             i,
             &mut missing_mul_factor,
+            log,
         );
     }
 
     (MultilinearPoint(challenges), folded_multilinears, sum)
 }
 
-#[instrument(name = "sumcheck_round", skip_all, fields(round))]
 #[allow(clippy::too_many_arguments)]
 pub fn sc_round<F, NF, EF, SC>(
     skips: usize, // the first round will fold 2^skips (instead of 2 in the basic sumcheck)
@@ -105,6 +107,7 @@ pub fn sc_round<F, NF, EF, SC>(
     challenges: &mut Vec<EF>,
     round: usize,
     missing_mul_factor: &mut Option<EF>,
+    log: bool,
 ) -> Vec<EvaluationsList<EF>>
 where
     F: Field,
@@ -112,6 +115,7 @@ where
     EF: ExtensionField<NF> + ExtensionField<F> + ExtensionField<PF<PF<EF>>>,
     SC: SumcheckComputation<F, NF, EF> + SumcheckComputationPacked<F, EF>,
 {
+    let _info_span = log.then(|| info_span!("sumcheck round", round,));
     let eq_mle = eq_factor.map(|eq_factor| EvaluationsList::eval_eq(&eq_factor[1 + round..]));
 
     let selectors = univariate_selectors::<F>(skips);

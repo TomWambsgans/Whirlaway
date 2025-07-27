@@ -8,14 +8,20 @@ https://eprint.iacr.org/2025/946.pdf
 use p3_field::{ExtensionField, Field, PrimeField64};
 use rayon::prelude::*;
 
+use p3_field::PrimeCharacteristicRing;
 use sumcheck::{ProductComputation, SumcheckGrinding};
+use tracing::{info_span, instrument};
 use utils::{FSChallenger, FSProver, FSVerifier, PF};
 use whir_p3::fiat_shamir::errors::ProofError;
 use whir_p3::poly::evals::EvaluationsList;
 use whir_p3::poly::multilinear::MultilinearPoint;
+use whir_p3::utils::parallel_clone;
+
+use crate::gkr::prove_gkr;
 
 pub mod gkr;
 
+#[instrument(skip_all)]
 pub fn prove_logup_star<EF: Field>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     table: &EvaluationsList<PF<EF>>,
@@ -27,6 +33,7 @@ pub fn prove_logup_star<EF: Field>(
     PF<EF>: PrimeField64,
 {
     let table_length = table.len();
+    let indexes_length = indexes.len();
     let eval = values.evaluate(&point);
     prover_state.add_extension_scalar(eval);
 
@@ -38,22 +45,24 @@ pub fn prove_logup_star<EF: Field>(
     let table_embedded =
         EvaluationsList::new(table.evals().par_iter().map(|&x| EF::from(x)).collect()); // TODO avoid embedding
 
-    let time = std::time::Instant::now();
-    let (_sc_point, inner_evals, prod) = sumcheck::prove::<PF<EF>, EF, EF, _, _>(
-        1,
-        &[&table_embedded, &pushforward],
-        &ProductComputation,
-        2,
-        &[EF::ONE],
-        None,
-        false,
-        prover_state,
-        eval,
-        None,
-        SumcheckGrinding::None,
-        None,
-    );
-    dbg!("Sumcheck took {:?}", time.elapsed());
+    let (_sc_point, inner_evals, prod) =
+        info_span!("logup_star sumcheck", table_length, indexes_length).in_scope(|| {
+            sumcheck::prove::<PF<EF>, EF, EF, _, _>(
+                1,
+                &[&table_embedded, &pushforward],
+                &ProductComputation,
+                2,
+                &[EF::ONE],
+                None,
+                false,
+                prover_state,
+                eval,
+                None,
+                SumcheckGrinding::None,
+                None,
+                false
+            )
+        });
 
     // open table at sc_point
     let table_eval = inner_evals[0].evaluate(&Default::default());
@@ -66,7 +75,29 @@ pub fn prove_logup_star<EF: Field>(
     // sanity check
     assert_eq!(prod, table_eval * pushforwardt_eval);
 
+    // "c" in the paper
     let random_challenge = prover_state.sample();
+
+    let mut gkr_layer_left = EF::zero_vec(indexes_length * 2);
+    parallel_clone(&poly_eq_point, &mut gkr_layer_left[..indexes_length]);
+    gkr_layer_left[indexes_length..]
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(i, x)| {
+            *x = random_challenge - indexes.evals()[i];
+        });
+
+    let claim_left = prove_gkr(prover_state, EvaluationsList::new(gkr_layer_left));
+
+    let mut gkr_layer_right = EF::zero_vec(table_length * 2);
+    parallel_clone(&pushforward, &mut gkr_layer_right[..table_length]);
+    gkr_layer_right[table_length..]
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(i, x)| {
+            *x = random_challenge - PF::<EF>::from_usize(i);
+        });
+    let claim_right = prove_gkr(prover_state, EvaluationsList::new(gkr_layer_right));
 }
 
 pub fn verify_logup_star<EF: Field>(
@@ -130,6 +161,9 @@ mod tests {
     use p3_field::extension::BinomialExtensionField;
     use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
     use rand::{Rng, SeedableRng, rngs::StdRng};
+    use tracing::level_filters::LevelFilter;
+    use tracing_forest::ForestLayer;
+    use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, 8>;
@@ -139,10 +173,19 @@ mod tests {
     type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
     #[test]
     fn test_logup_star() {
+        let env_filter = EnvFilter::builder()
+            .with_default_directive(LevelFilter::INFO.into())
+            .from_env_lossy();
+
+        Registry::default()
+            .with(env_filter)
+            .with(ForestLayer::default())
+            .init();
+
         let log_table_length = 20;
         let table_length = 1 << log_table_length;
 
-        let log_n_indexes = log_table_length + 3;
+        let log_n_indexes = log_table_length + 1;
         let n_indexes = 1 << log_n_indexes;
 
         let mut rng = StdRng::seed_from_u64(0);

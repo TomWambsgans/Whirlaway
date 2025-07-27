@@ -12,11 +12,7 @@ use utils::{
 use whir_p3::{
     dft::EvalsDft,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    whir::{
-        committer::writer::CommitmentWriter,
-        prover::Prover,
-        statement::{Statement, weights::Weights},
-    },
+    whir::{committer::writer::CommitmentWriter, prover::Prover, statement::Statement},
 };
 
 use crate::{
@@ -116,6 +112,7 @@ where
                     security_bits: settings.security_bits,
                 },
                 None,
+                true,
             )
         });
 
@@ -194,6 +191,7 @@ where
                 security_bits: settings.security_bits,
             },
             None,
+            false,
         );
 
         let final_point = [columns_batching_scalars.clone(), inner_challenges.0].concat();
@@ -205,10 +203,7 @@ where
         let prover = Prover(&whir_params);
 
         let mut statement = Statement::new(final_point.len());
-        statement.add_constraint(
-            Weights::evaluation(MultilinearPoint(final_point)),
-            packed_value,
-        );
+        statement.add_constraint(MultilinearPoint(final_point), packed_value);
         prover
             .prove(&dft, prover_state, statement, packed_witness)
             .unwrap();

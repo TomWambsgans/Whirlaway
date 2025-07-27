@@ -79,7 +79,6 @@ where
         let mv_params = MultivariateParameters::new(num_variables);
 
         let whir_params = ProtocolParameters {
-            initial_statement: true,
             security_level: settings.security_bits,
             pow_bits: WHIR_POW_BITS,
             folding_factor: settings.whir_folding_factor,
@@ -88,7 +87,6 @@ where
             soundness_type: settings.whir_soudness_type,
             starting_log_inv_rate: settings.whir_log_inv_rate,
             rs_domain_initial_reduction_factor: settings.whir_initial_domain_reduction_factor,
-            univariate_skip: false,
         };
 
         WhirConfig::new(mv_params, whir_params)

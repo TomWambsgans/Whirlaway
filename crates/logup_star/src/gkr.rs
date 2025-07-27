@@ -11,6 +11,7 @@ use p3_field::{ExtensionField, Field, PrimeField64, dot_product};
 use rayon::prelude::*;
 
 use sumcheck::{SumcheckComputation, SumcheckComputationPacked, SumcheckGrinding};
+use tracing::{info_span, instrument};
 use utils::{Evaluation, FSChallenger, FSProver, FSVerifier, PF};
 use whir_p3::fiat_shamir::errors::ProofError;
 use whir_p3::poly::evals::EvaluationsList;
@@ -38,6 +39,7 @@ with: U0 = AB(0 --- 0)
 
 */
 
+#[instrument(skip_all)]
 pub fn prove_gkr<EF: Field>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     final_layer: EvaluationsList<EF>,
@@ -95,6 +97,7 @@ where
     Ok((quotient, (point, claim).into()))
 }
 
+#[instrument(skip_all)]
 fn prove_gkr_step<EF: Field>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     up_layer: &EvaluationsList<EF>,
@@ -151,20 +154,23 @@ where
         EvaluationsList::new(u5),
     );
 
-    let (sc_point, inner_evals, _) = sumcheck::prove::<PF<EF>, EF, EF, _, _>(
-        1,
-        &[&u0, &u1, &u2, &u3, &u4, &u5],
-        &GKRQuotientComputation,
-        3,
-        &[EF::ONE],
-        Some(&point.0),
-        false,
-        prover_state,
-        eval,
-        None,
-        SumcheckGrinding::None,
-        None,
-    );
+    let (sc_point, inner_evals, _) = info_span!("sumcheck").in_scope(|| {
+        sumcheck::prove::<PF<EF>, EF, EF, _, _>(
+            1,
+            &[&u0, &u1, &u2, &u3, &u4, &u5],
+            &GKRQuotientComputation,
+            3,
+            &[EF::ONE],
+            Some(&point.0),
+            false,
+            prover_state,
+            eval,
+            None,
+            SumcheckGrinding::None,
+            None,
+            false,
+        )
+    });
 
     let quarter_evals = inner_evals[..4]
         .iter()

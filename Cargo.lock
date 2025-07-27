@@ -292,6 +292,9 @@ dependencies = [
  "rand",
  "rayon",
  "sumcheck",
+ "tracing",
+ "tracing-forest",
+ "tracing-subscriber",
  "utils",
  "whir-p3",
 ]
@@ -1100,7 +1103,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/whir-p3?branch=w#ec39c63a8e18b05862f778da7ac1314eade68699"
+source = "git+https://github.com/TomWambsgans/whir-p3?branch=w#69c5bda6399e9836d4fb954bb0848398fa415036"
 dependencies = [
  "clap",
  "itertools",

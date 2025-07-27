@@ -12,11 +12,7 @@ use utils::{FSVerifier, PF};
 use whir_p3::{
     fiat_shamir::errors::ProofError,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    whir::{
-        committer::reader::CommitmentReader,
-        statement::{Statement, weights::Weights},
-        verifier::Verifier,
-    },
+    whir::{committer::reader::CommitmentReader, statement::Statement, verifier::Verifier},
 };
 
 use crate::{
@@ -236,10 +232,7 @@ impl<
         .concat();
 
         let mut statement = Statement::<EF>::new(final_point.len());
-        statement.add_constraint(
-            Weights::evaluation(MultilinearPoint(final_point)),
-            expected_final_value,
-        );
+        statement.add_constraint(MultilinearPoint(final_point), expected_final_value);
         whir_verifier
             .verify(verifier_state, &parsed_commitment, &statement)
             .map_err(|_| AirVerifError::InvalidPcsOpening)?;
