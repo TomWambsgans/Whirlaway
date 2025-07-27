@@ -143,7 +143,7 @@ where
                 .iter()
                 .map(|s| s.evaluate(F::from_usize(z)))
                 .collect::<Vec<_>>();
-            // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication below: TODO not urgent)
+            // TODO OPTI: no need to store the full folded polynomials in RAM, they could be computed "on the fly"
             let folded = batch_fold_multilinear_in_small_field(multilinears, &folding_scalars);
             let mut sum_z =
                 compute_over_hypercube(&folded, computation, batching_scalars, eq_mle.as_ref());

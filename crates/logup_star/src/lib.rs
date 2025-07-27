@@ -17,7 +17,7 @@ use whir_p3::poly::evals::EvaluationsList;
 use whir_p3::poly::multilinear::MultilinearPoint;
 use whir_p3::utils::parallel_clone;
 
-use crate::gkr::prove_gkr;
+use crate::gkr::{prove_gkr, verify_gkr};
 
 pub mod gkr;
 
@@ -27,7 +27,7 @@ pub fn prove_logup_star<EF: Field>(
     table: &EvaluationsList<PF<EF>>,
     indexes: &EvaluationsList<PF<EF>>,
     values: &EvaluationsList<PF<EF>>,
-    point: &MultilinearPoint<EF>,
+    point: &MultilinearPoint<EF>, // "r" in the paper
 ) where
     EF: ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
     PF<EF>: PrimeField64,
@@ -98,25 +98,34 @@ pub fn prove_logup_star<EF: Field>(
             *x = random_challenge - PF::<EF>::from_usize(i);
         });
     let claim_right = prove_gkr(prover_state, EvaluationsList::new(gkr_layer_right));
+
+    // open Indexes at claim_left.point[1..]
+    // phony opening for now
+    prover_state
+        .add_extension_scalar(indexes.evaluate(&MultilinearPoint(claim_left.point[1..].to_vec())));
+
+    // open pushforward at claim_right.point[1..]
+    // phony opening for now
+    prover_state.add_extension_scalar(
+        pushforward.evaluate(&MultilinearPoint(claim_right.point[1..].to_vec())),
+    );
 }
 
 pub fn verify_logup_star<EF: Field>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
-    table: &EvaluationsList<PF<EF>>,
-    indexes: &EvaluationsList<PF<EF>>,
-    point: &MultilinearPoint<EF>,
+    log_table_len: usize,
+    log_indexes_len: usize,
+    point: &MultilinearPoint<EF>, // "r" in the paper
 ) -> Result<EF, ProofError>
 where
     EF: ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
     PF<EF>: PrimeField64,
 {
-    let log_table_len = table.len().ilog2() as usize;
-
     let claimed_eval = verifier_state.next_extension_scalar()?;
 
     // receive commitment of pushforward (phony for now)
     let pushforward =
-        EvaluationsList::new(verifier_state.receive_hint_extension_scalars(table.len())?);
+        EvaluationsList::new(verifier_state.receive_hint_extension_scalars(1 << log_table_len)?);
 
     let (sum, postponed) =
         sumcheck::verify(verifier_state, log_table_len, 2, SumcheckGrinding::None)
@@ -126,14 +135,47 @@ where
         return Err(ProofError::InvalidProof);
     }
 
-    let table_eval = table.evaluate(&postponed.point); // should be done by opening a commitment
-    let pushforward_eval = pushforward.evaluate(&postponed.point); // should be done by opening a commitment
+    let table_eval = verifier_state.next_extension_scalar()?; // should be done by opening a commitment
+    let pushforward_eval = verifier_state.next_extension_scalar()?; // should be done by opening a commitment
 
     if table_eval * pushforward_eval != postponed.value {
         return Err(ProofError::InvalidProof);
     }
 
-    let random_challenge = verifier_state.sample();
+    let random_challenge = verifier_state.sample(); // "c" in the paper
+
+    let (quotient_left, claim_left) = verify_gkr(verifier_state, log_indexes_len + 1)?;
+    let (quotient_right, claim_right) = verify_gkr(verifier_state, log_table_len + 1)?;
+
+    if quotient_left != quotient_right {
+        return Err(ProofError::InvalidProof);
+    }
+
+    let index_openined_value = verifier_state.next_extension_scalar()?; // Phony opening for now (at claim_left.point[1..])
+
+    if claim_left.value
+        != MultilinearPoint(claim_left.point[1..].to_vec()).eq_poly_outside(point)
+            * (EF::ONE - claim_left.point[0])
+            + (random_challenge - index_openined_value) * claim_left.point[0]
+    {
+        return Err(ProofError::InvalidProof);
+    }
+
+    let pushforward_openined_value = verifier_state.next_extension_scalar()?; // Phony opening for now (at claim_right.point[1..])
+
+    let big_endian_mle = claim_right.point[1..]
+        .iter()
+        .rev()
+        .enumerate()
+        .map(|(i, &p)| p * EF::TWO.exp_u64(i as u64))
+        .sum::<EF>();
+
+    if claim_right.value
+        != pushforward_openined_value * (EF::ONE - claim_right.point[0])
+            + (random_challenge - big_endian_mle) * claim_right.point[0]
+    {
+        return Err(ProofError::InvalidProof);
+    }
 
     Ok(claimed_eval)
 }
@@ -173,30 +215,29 @@ mod tests {
     type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
     #[test]
     fn test_logup_star() {
-        let env_filter = EnvFilter::builder()
-            .with_default_directive(LevelFilter::INFO.into())
-            .from_env_lossy();
+        // let env_filter = EnvFilter::builder()
+        //     .with_default_directive(LevelFilter::INFO.into())
+        //     .from_env_lossy();
 
-        Registry::default()
-            .with(env_filter)
-            .with(ForestLayer::default())
-            .init();
+        // Registry::default()
+        //     .with(env_filter)
+        //     .with(ForestLayer::default())
+        //     .init();
 
-        let log_table_length = 19;
-        let table_length = 1 << log_table_length;
+        let log_table_len = 19;
+        let table_len = 1 << log_table_len;
 
-        let log_n_indexes = log_table_length + 2;
-        let n_indexes = 1 << log_n_indexes;
+        let log_indexes_len = log_table_len + 2;
+        let indexes_len = 1 << log_indexes_len;
 
         let mut rng = StdRng::seed_from_u64(0);
 
-        let table =
-            EvaluationsList::new((0..table_length).map(|_| rng.random()).collect::<Vec<F>>());
+        let table = EvaluationsList::new((0..table_len).map(|_| rng.random()).collect::<Vec<F>>());
 
         let mut indexes = vec![];
         let mut values = vec![];
-        for _ in 0..n_indexes {
-            let index = rng.random_range(0..table_length);
+        for _ in 0..indexes_len {
+            let index = rng.random_range(0..table_len);
             indexes.push(F::from_usize(index));
             values.push(table[index]);
         }
@@ -213,7 +254,7 @@ mod tests {
         let challenger = MyChallenger::new(poseidon16);
 
         let point = MultilinearPoint(
-            (0..log_n_indexes)
+            (0..log_indexes_len)
                 .map(|_| rng.random())
                 .collect::<Vec<EF>>(),
         );
@@ -229,13 +270,8 @@ mod tests {
         );
 
         let mut verifier_state = FSVerifier::new(prover_state.proof_data().to_vec(), challenger);
-        let result = verify_logup_star(
-            &mut verifier_state,
-            &commited_table,
-            &commited_indexes,
-            &point,
-        )
-        .unwrap();
+        let result =
+            verify_logup_star(&mut verifier_state, log_table_len, log_indexes_len, &point).unwrap();
 
         assert_eq!(result, values.evaluate(&point));
     }

@@ -71,7 +71,7 @@ where
     (point, claim).into()
 }
 
-fn verify_gkr<EF: Field>(
+pub fn verify_gkr<EF: Field>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     n_vars: usize,
 ) -> Result<(EF, Evaluation<EF>), ProofError>
@@ -216,7 +216,7 @@ where
     .map_err(|_| ProofError::InvalidProof)?;
 
     if sc_eval != eval {
-        return Err(ProofError::InvalidProof);
+        panic!()
     }
 
     let [q0, q1, q2, q3] = verifier_state.next_extension_scalars_const()?;
