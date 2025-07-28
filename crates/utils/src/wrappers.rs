@@ -1,5 +1,6 @@
 use p3_challenger::FieldChallenger;
 use p3_challenger::GrindingChallenger;
+use p3_field::ExtensionField;
 use p3_field::{Field, PrimeCharacteristicRing};
 use p3_symmetric::CryptographicHasher;
 use p3_symmetric::PseudoCompressionFunction;
@@ -11,6 +12,7 @@ pub type PFPacking<F> = <PF<F> as Field>::Packing;
 
 pub type FSProver<EF, Challenger> = ProverState<PF<PF<EF>>, EF, Challenger>;
 pub type FSVerifier<EF, Challenger> = VerifierState<PF<PF<EF>>, EF, Challenger>;
+pub type EFPacking<F> = <F as ExtensionField<PF<F>>>::ExtensionPacking;
 
 pub trait FSChallenger<EF: Field>:
     FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>> + ChallengerState
