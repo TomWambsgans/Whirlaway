@@ -40,8 +40,8 @@ pub fn prove_logup_star<EF: Field>(
     let poly_eq_point = EvaluationsList::eval_eq(&point.0);
     let pushforward = compute_pushforward(indexes.evals(), table_length, poly_eq_point.evals());
 
-    // phony commitment for now
-    prover_state.hint_extension_scalars(&pushforward);
+    // commit to pushforward
+    // TODO
     let table_embedded =
         EvaluationsList::new(table.evals().par_iter().map(|&x| EF::from(x)).collect()); // TODO avoid embedding
 
@@ -49,7 +49,7 @@ pub fn prove_logup_star<EF: Field>(
         info_span!("logup_star sumcheck", table_length, indexes_length).in_scope(|| {
             sumcheck::prove::<PF<EF>, EF, EF, _, _>(
                 1,
-                &[&table_embedded, &pushforward],
+                &[table_embedded.evals(), pushforward.evals()],
                 &ProductComputation,
                 2,
                 &[EF::ONE],
@@ -123,9 +123,8 @@ where
 {
     let claimed_eval = verifier_state.next_extension_scalar()?;
 
-    // receive commitment of pushforward (phony for now)
-    let pushforward =
-        EvaluationsList::new(verifier_state.receive_hint_extension_scalars(1 << log_table_len)?);
+    // receive commitment of pushforward
+    // TODO
 
     let (sum, postponed) =
         sumcheck::verify(verifier_state, log_table_len, 2, SumcheckGrinding::None)

@@ -35,14 +35,14 @@ where
     F: Field,
     NF: ExtensionField<F>,
     EF: ExtensionField<NF> + ExtensionField<F> + ExtensionField<PF<PF<EF>>>,
-    M: Borrow<EvaluationsList<NF>>,
+    M: Borrow<[NF]>,
     SC: SumcheckComputation<F, NF, EF>
         + SumcheckComputation<F, EF, EF>
         + SumcheckComputationPacked<F, EF>,
 {
     let multilinears = multilinears.iter().map(|m| m.borrow()).collect::<Vec<_>>();
-    let mut n_vars = multilinears[0].num_variables();
-    assert!(multilinears.iter().all(|m| m.num_variables() == n_vars));
+    let mut n_vars = multilinears[0].len().ilog2() as usize;
+    assert!(multilinears.iter().all(|m| m.len() == 1 << n_vars));
 
     let mut challenges = Vec::new();
     let n_rounds = n_rounds.unwrap_or(n_vars - skips + 1);
@@ -71,7 +71,10 @@ where
     for i in 1..n_rounds {
         folded_multilinears = sc_round(
             1,
-            &folded_multilinears.iter().collect::<Vec<_>>(),
+            &folded_multilinears
+                .iter()
+                .map(|m| m.evals())
+                .collect::<Vec<_>>(),
             &mut n_vars,
             computation,
             eq_factor,
@@ -94,7 +97,7 @@ where
 #[allow(clippy::too_many_arguments)]
 pub fn sc_round<F, NF, EF, SC>(
     skips: usize, // the first round will fold 2^skips (instead of 2 in the basic sumcheck)
-    multilinears: &[&EvaluationsList<NF>],
+    multilinears: &[&[NF]],
     n_vars: &mut usize,
     computation: &SC,
     eq_factor: Option<&[EF]>,

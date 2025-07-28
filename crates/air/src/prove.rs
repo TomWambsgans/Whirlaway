@@ -96,10 +96,16 @@ where
             .iter()
             .chain(&witness)
             .collect::<Vec<_>>();
+
+        let my_columns_up_and_down = columns_up_and_down(&preprocessed_and_witness);
+
         let (zerocheck_challenges, all_inner_sums, _) = info_span!("zerocheck").in_scope(|| {
             sumcheck::prove::<PF<EF>, PF<EF>, EF, _, _>(
                 settings.univariate_skips,
-                &columns_up_and_down(&preprocessed_and_witness),
+                &my_columns_up_and_down
+                    .iter()
+                    .map(|m| m.evals())
+                    .collect::<Vec<_>>(),
                 &self.air,
                 self.constraint_degree,
                 &constraints_batching_scalars,
@@ -178,7 +184,10 @@ where
 
         let (inner_challenges, inner_evals, _) = sumcheck::prove::<PF<EF>, EF, EF, _, _>(
             1,
-            &mles_for_inner_sumcheck,
+            &mles_for_inner_sumcheck
+                .iter()
+                .map(|m| m.evals())
+                .collect::<Vec<_>>(),
             &ProductComputation,
             2,
             &[EF::ONE],

@@ -7,18 +7,17 @@ use tracing::instrument;
 use whir_p3::poly::evals::EvaluationsList;
 
 pub fn fold_multilinear_in_small_field<F: Field, EF: ExtensionField<F>>(
-    m: &EvaluationsList<EF>,
+    m: &[EF],
     scalars: &[F],
 ) -> EvaluationsList<EF> {
-    assert!(scalars.len().is_power_of_two() && scalars.len() <= m.num_evals());
-    let new_size = m.num_evals() / scalars.len();
+    assert!(scalars.len().is_power_of_two() && scalars.len() <= m.len());
+    let new_size = m.len() / scalars.len();
 
     let dim = <EF as BasedVectorSpace<F>>::DIMENSION;
 
-    let m_transmuted: &[F] = unsafe {
-        std::slice::from_raw_parts(std::mem::transmute(m.evals().as_ptr()), m.num_evals() * dim)
-    };
-    let res_transmuted = fold_multilinear_packed::<F>(m.num_evals() * dim, m_transmuted, scalars);
+    let m_transmuted: &[F] =
+        unsafe { std::slice::from_raw_parts(std::mem::transmute(m.as_ptr()), m.len() * dim) };
+    let res_transmuted = fold_multilinear_packed::<F>(m.len() * dim, m_transmuted, scalars);
     let res: Vec<EF> = unsafe {
         let mut res: Vec<EF> = std::mem::transmute(res_transmuted);
         res.set_len(new_size);
@@ -74,11 +73,11 @@ pub fn fold_multilinear_packed<F: Field>(n_evals: usize, m: &[F], scalars: &[F])
 }
 
 pub fn fold_multilinear_in_large_field<F: Field, EF: ExtensionField<F>>(
-    m: &EvaluationsList<F>,
+    m: &[F],
     scalars: &[EF],
 ) -> EvaluationsList<EF> {
-    assert!(scalars.len().is_power_of_two() && scalars.len() <= m.num_evals());
-    let new_size = m.num_evals() / scalars.len();
+    assert!(scalars.len().is_power_of_two() && scalars.len() <= m.len());
+    let new_size = m.len() / scalars.len();
     EvaluationsList::new(
         (0..new_size)
             .into_par_iter()
@@ -86,7 +85,7 @@ pub fn fold_multilinear_in_large_field<F: Field, EF: ExtensionField<F>>(
                 scalars
                     .iter()
                     .enumerate()
-                    .map(|(j, s)| *s * m.evals()[i + j * new_size])
+                    .map(|(j, s)| *s * m[i + j * new_size])
                     .sum()
             })
             .collect(),
@@ -118,7 +117,7 @@ pub fn multilinears_linear_combination<
 }
 
 pub fn batch_fold_multilinear_in_large_field<F: Field, EF: ExtensionField<F>>(
-    polys: &[&EvaluationsList<F>],
+    polys: &[&[F]],
     scalars: &[EF],
 ) -> Vec<EvaluationsList<EF>> {
     polys
@@ -128,7 +127,7 @@ pub fn batch_fold_multilinear_in_large_field<F: Field, EF: ExtensionField<F>>(
 }
 
 pub fn batch_fold_multilinear_in_small_field<F: Field, EF: ExtensionField<F>>(
-    polys: &[&EvaluationsList<EF>],
+    polys: &[&[EF]],
     scalars: &[F],
 ) -> Vec<EvaluationsList<EF>> {
     polys

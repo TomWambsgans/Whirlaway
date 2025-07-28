@@ -21,20 +21,20 @@ use whir_p3::poly::multilinear::MultilinearPoint;
 /*
 Custom GKR to compute sum of fractions.
 
-A: [a0, a1, a2, a3]
-B: [b0, b1, b2, b3]
-AB: [a0, a1, a2, a3, b0, b1, b2, b3]
-AB' = [a0.b1, + a1.b0, a2.b3 + a3.b2, b1.b2, b2.b3]
+A: [a0, a1, a2, a3, a4, a5, a6, a7]
+B: [b0, b1, b2, b3, b4, b5, b6, b7]
+AB: [a0, a1, a2, a3, a4, a5, a6, a7, b0, b1, b2, b3, b4, b5, b6, b7]
+AB' = [a0.b4 + a4.b0, a1.b5 +a5.b1, a2.b6 + a6.b2, a3.b7 + a7.b3, b0.b4, b1.b5, b2.b6, b3.b7] (sum of quotients 2 by 2)
 
 For i = (i1, i2, ..., i_{n-1}) on the hypercube:
-AB'(i1, i2, ..., i_{n-1}) = i1.AB(1, i2, i3, ..., i_{n-1}, 0).AB(1, i2, i3, ..., i_{n-1}, 1)
-                            + (1 - i1).[AB(0, i2, i3, ..., i_{n-1}, 0).AB(1, i2, i3, ..., i_{n-1}, 1) + AB(0, i2, i3, ..., i_{n-1}, 1).AB(1, i2, i3, ..., i_{n-1}, 0)]
-                          = i1.AB(1 --- 0).AB(1 --- 1) + (1 - i1).[AB(0 --- 0).AB(1 --- 1) + AB(0 --- 1).AB(1 --- 0)]
+AB'(i1, i2, ..., i_{n-1}) = i1.AB(1, 0, i2, i3, ..., i_{n-1}).AB(1, 1, i2, i3, ..., i_{n-1})
+                            + (1 - i1).[AB(0, 0, i2, i3, ..., i_{n-1}).AB(1, 1, i2, i3, ..., i_{n-1}) + AB(0, 1, i2, i3, ..., i_{n-1}).AB(1, 0, i2, i3, ..., i_{n-1})]
+                          = i1.AB(1 0 --- ).AB(1 1 --- ) + (1 - i1).[AB(0 0 --- ).AB(1 1 --- ) + AB(0 1 --- ).AB(1 0 --- )]
                           = U4.U2.U3 + U5.[U0.U3 + U1.U2]
-with: U0 = AB(0 --- 0)
-      U1 = AB(0 --- 1)
-      U2 = AB(1 --- 0)
-      U3 = AB(1 --- 1)
+with: U0 = AB(0 0 --- )
+      U1 = AB(0  1 ---)
+      U2 = AB(1 0 --- )
+      U3 = AB(1 1 --- )
       U4 = i1
       U5 = (1 - i1)
 
@@ -111,6 +111,8 @@ where
 {
     assert_eq!(up_layer.num_variables() - 1, point.0.len());
     let len = up_layer.num_evals();
+    let mid_len = len / 2;
+    let quarter_len = mid_len / 2;
 
     let up_layer = up_layer.evals();
 
@@ -127,10 +129,10 @@ where
         .enumerate()
         .for_each(|(i, (x, one_minus_x))| {
             let eq_eval = eq_poly.evals()[i];
-            let u0 = up_layer[2 * i];
-            let u1 = up_layer[2 * i + 1];
-            let u2 = up_layer[up_layer.len() / 2 + 2 * i];
-            let u3 = up_layer[up_layer.len() / 2 + 2 * i + 1];
+            let u0 = up_layer[i];
+            let u1 = up_layer[quarter_len + i];
+            let u2 = up_layer[mid_len + i];
+            let u3 = up_layer[mid_len + quarter_len + i];
             *x = eq_eval * u2 * u3;
             *one_minus_x = eq_eval * (u0 * u3 + u1 * u2);
         });
@@ -158,35 +160,11 @@ where
 
     let next_sum = first_sumcheck_polynomial.evaluate(first_sumcheck_challenge);
 
-    let mid_len = len / 2;
-    let quarter_len = mid_len / 2;
     let (u0_folded, u1_folded, u2_folded, u3_folded) = (
-        EF::zero_vec(quarter_len),
-        EF::zero_vec(quarter_len),
-        EF::zero_vec(quarter_len),
-        EF::zero_vec(quarter_len),
-    );
-    up_layer[..mid_len]
-        .par_chunks_exact(2)
-        .enumerate()
-        .for_each(|(i, chunk)| unsafe {
-            *(u0_folded.as_ptr() as *mut EF).add(i) = chunk[0];
-            *(u1_folded.as_ptr() as *mut EF).add(i) = chunk[1];
-        });
-
-    up_layer[mid_len..]
-        .par_chunks_exact(2)
-        .enumerate()
-        .for_each(|(i, chunk)| unsafe {
-            *(u2_folded.as_ptr() as *mut EF).add(i) = chunk[0];
-            *(u3_folded.as_ptr() as *mut EF).add(i) = chunk[1];
-        });
-
-    let (u0_folded, u1_folded, u2_folded, u3_folded) = (
-        EvaluationsList::new(u0_folded),
-        EvaluationsList::new(u1_folded),
-        EvaluationsList::new(u2_folded),
-        EvaluationsList::new(u3_folded),
+        &up_layer[..quarter_len],
+        &up_layer[quarter_len..mid_len],
+        &up_layer[mid_len..mid_len + quarter_len],
+        &up_layer[mid_len + quarter_len..],
     );
 
     let u4_const = first_sumcheck_challenge;
@@ -199,26 +177,32 @@ where
     let (sc_point, inner_evals) = if up_layer.len() == 4 {
         (
             MultilinearPoint(vec![first_sumcheck_challenge]),
-            vec![u0_folded, u1_folded, u2_folded, u3_folded].into(),
+            vec![
+                EvaluationsList::new(u0_folded.to_vec()),
+                EvaluationsList::new(u1_folded.to_vec()),
+                EvaluationsList::new(u2_folded.to_vec()),
+                EvaluationsList::new(u3_folded.to_vec()),
+            ],
         )
     } else {
-        let (mut sc_point, inner_evals, _) = info_span!("remaining sumcheck rounds").in_scope(|| {
-            sumcheck::prove::<PF<EF>, EF, EF, _, _>(
-                1,
-                &[&u0_folded, &u1_folded, &u2_folded, &u3_folded],
-                &GKRQuotientComputation { u4_const, u5_const },
-                2,
-                &[EF::ONE],
-                Some(&point.0[1..]),
-                false,
-                prover_state,
-                next_sum,
-                None,
-                SumcheckGrinding::None,
-                Some(missing_mul_factor),
-                false,
-            )
-        });
+        let (mut sc_point, inner_evals, _) =
+            info_span!("remaining sumcheck rounds").in_scope(|| {
+                sumcheck::prove::<PF<EF>, EF, EF, _, _>(
+                    1,
+                    &[u0_folded, u1_folded, u2_folded, u3_folded],
+                    &GKRQuotientComputation { u4_const, u5_const },
+                    2,
+                    &[EF::ONE],
+                    Some(&point.0[1..]),
+                    false,
+                    prover_state,
+                    next_sum,
+                    None,
+                    SumcheckGrinding::None,
+                    Some(missing_mul_factor),
+                    false,
+                )
+            });
         sc_point.insert(0, first_sumcheck_challenge);
         (sc_point, inner_evals)
     };
@@ -234,8 +218,8 @@ where
     let mixing_challenge_b = prover_state.sample();
 
     let mut next_point = sc_point.clone();
-    next_point.0[0] = mixing_challenge_a;
-    next_point.0.push(mixing_challenge_b);
+    next_point.0.insert(0, mixing_challenge_a);
+    next_point.0[1] = mixing_challenge_b;
 
     let next_claim = dot_product::<EF, _, _>(
         quarter_evals.into_iter(),
@@ -283,8 +267,8 @@ where
     let mixing_challenge_b = verifier_state.sample();
 
     let mut next_point = postponed.point.clone();
-    next_point.0[0] = mixing_challenge_a;
-    next_point.0.push(mixing_challenge_b);
+    next_point.0.insert(0, mixing_challenge_a);
+    next_point.0[1] = mixing_challenge_b;
 
     let next_claim = dot_product::<EF, _, _>(
         [q0, q1, q2, q3].into_iter(),
@@ -333,10 +317,9 @@ fn sum_quotients_2_by_2<EF: Field>(layer: &EvaluationsList<EF>) -> EvaluationsLi
             .into_par_iter()
             .map(|i| {
                 if i < n / 4 {
-                    layer[2 * i] * layer[n / 2 + 2 * i + 1]
-                        + layer[2 * i + 1] * layer[n / 2 + 2 * i]
+                    layer[i] * layer[n * 3 / 4 + i] + layer[n / 4 + i] * layer[n / 2 + i]
                 } else {
-                    layer[2 * i] * layer[2 * i + 1]
+                    layer[n / 4 + i] * layer[n / 2 + i]
                 }
             })
             .collect(),
