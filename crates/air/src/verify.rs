@@ -2,7 +2,7 @@ use p3_air::Air;
 use p3_field::{ExtensionField, TwoAdicField, cyclic_subgroup_known_order, dot_product};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use sumcheck::{SumcheckComputation, SumcheckError, SumcheckGrinding};
+use sumcheck::{SumcheckComputation, SumcheckError};
 use tracing::instrument;
 use utils::MerkleHasher;
 use utils::{
@@ -95,9 +95,6 @@ impl<
             self.constraint_degree + 1,
             log_length,
             settings.univariate_skips,
-            SumcheckGrinding::Auto {
-                security_bits: settings.security_bits,
-            },
         )?;
         if sc_sum != EF::ZERO {
             return Err(AirVerifError::SumMismatch);
@@ -199,14 +196,8 @@ impl<
             *challenge = verifier_state.sample();
         }
 
-        let (batched_inner_sum, inner_sumcheck_challenge) = sumcheck::verify::<EF>(
-            verifier_state,
-            log_length,
-            2,
-            SumcheckGrinding::Auto {
-                security_bits: settings.security_bits,
-            },
-        )?;
+        let (batched_inner_sum, inner_sumcheck_challenge) =
+            sumcheck::verify::<EF>(verifier_state, log_length, 2)?;
 
         if batched_inner_sum
             != EvaluationsList::new(sub_evals).evaluate(&MultilinearPoint(epsilons.clone()))

@@ -11,7 +11,7 @@ use utils::{
 use whir_p3::poly::multilinear::MultilinearPoint;
 use whir_p3::poly::{dense::WhirDensePolynomial, evals::EvaluationsList};
 
-use crate::{SumcheckComputation, SumcheckComputationPacked, SumcheckGrinding};
+use crate::{SumcheckComputation, SumcheckComputationPacked};
 
 #[allow(clippy::too_many_arguments)]
 pub fn prove<F, NF, EF, SC>(
@@ -25,7 +25,6 @@ pub fn prove<F, NF, EF, SC>(
     fs_prover: &mut FSProver<EF, impl FSChallenger<EF>>,
     mut sum: EF,
     n_rounds: Option<usize>,
-    grinding: SumcheckGrinding,
     mut missing_mul_factor: Option<EF>,
     log: bool,
 ) -> (MultilinearPoint<EF>, Vec<EvaluationsList<EF>>, EF)
@@ -63,14 +62,12 @@ where
         fs_prover,
         constraints_degree,
         &mut sum,
-        grinding,
         &mut challenges,
-        0,
         &mut missing_mul_factor,
         log,
     );
 
-    for i in 1..n_rounds {
+    for _ in 1..n_rounds {
         folded_multilinears = sc_round(
             1,
             &folded_multilinears
@@ -85,9 +82,7 @@ where
             fs_prover,
             constraints_degree,
             &mut sum,
-            grinding,
             &mut challenges,
-            i,
             &mut missing_mul_factor,
             log,
         );
@@ -108,9 +103,7 @@ pub(crate) fn sc_round<F, NF, EF, SC>(
     fs_prover: &mut FSProver<EF, impl FSChallenger<EF>>,
     comp_degree: usize,
     sum: &mut EF,
-    grinding: SumcheckGrinding,
     challenges: &mut Vec<EF>,
-    round: usize,
     missing_mul_factor: &mut Option<EF>,
     log: bool,
 ) -> Vec<EvaluationsList<EF>>
@@ -120,7 +113,7 @@ where
     EF: ExtensionField<NF> + ExtensionField<F> + ExtensionField<PF<PF<EF>>>,
     SC: SumcheckComputation<F, NF, EF> + SumcheckComputationPacked<F, EF>,
 {
-    let _info_span = log.then(|| info_span!("sumcheck round", round,));
+    let _info_span = log.then(|| info_span!("sumcheck round"));
 
     let selectors = univariate_selectors::<F>(skips);
 
@@ -186,10 +179,6 @@ where
     *sum = p.evaluate(challenge);
     *n_vars -= skips;
 
-    let pow_bits = grinding
-        .pow_bits::<EF>((comp_degree + usize::from(eq_factor.is_some())) * ((1 << skips) - 1));
-    fs_prover.pow_grinding(pow_bits);
-
     let folding_scalars = selectors
         .iter()
         .map(|s| s.evaluate(challenge))
@@ -200,7 +189,8 @@ where
                 .iter()
                 .map(|s| s.evaluate(eq_factor[0]) * s.evaluate(challenge))
                 .sum::<EF>()
-                * missing_mul_factor.unwrap_or(EF::ONE) / (EF::ONE - eq_factor.get(1).copied().unwrap_or_default())
+                * missing_mul_factor.unwrap_or(EF::ONE)
+                / (EF::ONE - eq_factor.get(1).copied().unwrap_or_default()),
         );
         eq_factor.remove(0);
         eq_mle.resize(eq_mle.len() / 2, Default::default());
@@ -221,7 +211,6 @@ pub(crate) fn sc_round_2<F, NF, EF, SC>(
     fs_prover: &mut FSProver<EF, impl FSChallenger<EF>>,
     comp_degree: usize,
     sum: &mut EF,
-    grinding: SumcheckGrinding,
     challenges: &mut Vec<EF>,
     round: usize,
     missing_mul_factor: &mut Option<EF>,
@@ -297,10 +286,6 @@ where
     challenges.push(challenge);
     *sum = p.evaluate(challenge);
     *n_vars -= skips;
-
-    let pow_bits = grinding
-        .pow_bits::<EF>((comp_degree + usize::from(eq_factor.is_some())) * ((1 << skips) - 1));
-    fs_prover.pow_grinding(pow_bits);
 
     let folding_scalars = selectors
         .iter()

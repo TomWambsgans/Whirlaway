@@ -9,7 +9,7 @@ use p3_field::{ExtensionField, Field, PrimeField64};
 use rayon::prelude::*;
 
 use p3_field::PrimeCharacteristicRing;
-use sumcheck::{ProductComputation, SumcheckGrinding};
+use sumcheck::ProductComputation;
 use tracing::{info_span, instrument};
 use utils::{FSChallenger, FSProver, FSVerifier, PF};
 use whir_p3::fiat_shamir::errors::ProofError;
@@ -47,7 +47,7 @@ pub fn prove_logup_star<EF: Field>(
 
     let (_sc_point, inner_evals, prod) =
         info_span!("logup_star sumcheck", table_length, indexes_length).in_scope(|| {
-            sumcheck::prove::<PF<EF>, EF, EF,  _>(
+            sumcheck::prove::<PF<EF>, EF, EF, _>(
                 1,
                 [table_embedded.evals(), pushforward.evals()].to_vec(),
                 &ProductComputation,
@@ -58,7 +58,6 @@ pub fn prove_logup_star<EF: Field>(
                 prover_state,
                 eval,
                 None,
-                SumcheckGrinding::None,
                 None,
                 false,
             )
@@ -127,8 +126,7 @@ where
     // TODO
 
     let (sum, postponed) =
-        sumcheck::verify(verifier_state, log_table_len, 2, SumcheckGrinding::None)
-            .map_err(|_| ProofError::InvalidProof)?;
+        sumcheck::verify(verifier_state, log_table_len, 2).map_err(|_| ProofError::InvalidProof)?;
 
     if sum != claimed_eval {
         return Err(ProofError::InvalidProof);

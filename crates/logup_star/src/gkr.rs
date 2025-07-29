@@ -12,7 +12,7 @@ use p3_field::PackedValue;
 use p3_field::PrimeCharacteristicRing;
 use p3_field::{ExtensionField, Field, PrimeField64, dot_product};
 use rayon::prelude::*;
-use sumcheck::{SumcheckComputation, SumcheckComputationPacked, SumcheckGrinding};
+use sumcheck::{SumcheckComputation, SumcheckComputationPacked};
 use tracing::{info_span, instrument};
 use utils::{EFPacking, Evaluation, FSChallenger, FSProver, FSVerifier, PF, PFPacking};
 use whir_p3::fiat_shamir::errors::ProofError;
@@ -175,7 +175,6 @@ where
                     prover_state,
                     next_sum,
                     None,
-                    SumcheckGrinding::None,
                     Some(missing_mul_factor),
                     false,
                 )
@@ -294,7 +293,8 @@ where
     let u4_const = first_sumcheck_challenge;
     let u5_const = EF::ONE - first_sumcheck_challenge;
     let missing_mul_factor = (first_sumcheck_challenge * point[0]
-        + (EF::ONE - first_sumcheck_challenge) * (EF::ONE - point[0])) / (EF::ONE - point[1]);
+        + (EF::ONE - first_sumcheck_challenge) * (EF::ONE - point[0]))
+        / (EF::ONE - point[1]);
 
     eq_poly_packed.resize(eq_poly_packed.len() / 2, Default::default());
 
@@ -314,7 +314,6 @@ where
             prover_state,
             next_sum,
             None,
-            SumcheckGrinding::None,
             Some(missing_mul_factor),
             false,
         )
@@ -387,7 +386,6 @@ where
         current_layer_log_len,
         2,
         3,
-        SumcheckGrinding::None,
     )
     .map_err(|_| ProofError::InvalidProof)?;
 

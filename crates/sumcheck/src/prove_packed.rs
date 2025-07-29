@@ -13,7 +13,7 @@ use whir_p3::poly::{dense::WhirDensePolynomial, evals::EvaluationsList};
 use whir_p3::utils::uninitialized_vec;
 
 use crate::sc_round_2;
-use crate::{SumcheckComputation, SumcheckComputationPacked, SumcheckGrinding};
+use crate::{SumcheckComputation, SumcheckComputationPacked};
 
 #[allow(clippy::too_many_arguments)]
 pub fn prove_packed<EF, M, SC>(
@@ -26,7 +26,6 @@ pub fn prove_packed<EF, M, SC>(
     fs_prover: &mut FSProver<EF, impl FSChallenger<EF>>,
     mut sum: EF,
     n_rounds: Option<usize>,
-    grinding: SumcheckGrinding,
     mut missing_mul_factor: Option<EF>,
     log: bool,
 ) -> (MultilinearPoint<EF>, Vec<EvaluationsList<EF>>, EF)
@@ -65,7 +64,6 @@ where
         fs_prover,
         constraints_degree,
         &mut sum,
-        grinding,
         &mut challenges,
         0,
         &mut missing_mul_factor,
@@ -90,7 +88,6 @@ where
             fs_prover,
             constraints_degree,
             &mut sum,
-            grinding,
             &mut challenges,
             i,
             &mut missing_mul_factor,
@@ -125,7 +122,6 @@ where
             fs_prover,
             constraints_degree,
             &mut sum,
-            grinding,
             &mut challenges,
             round,
             &mut missing_mul_factor,
@@ -151,7 +147,6 @@ fn sc_round_packed<EF, SC>(
     fs_prover: &mut FSProver<EF, impl FSChallenger<EF>>,
     comp_degree: usize,
     sum: &mut EF,
-    grinding: SumcheckGrinding,
     challenges: &mut Vec<EF>,
     round: usize,
     missing_mul_factor: &mut Option<EF>,
@@ -279,10 +274,6 @@ where
     challenges.push(challenge);
     *sum = p.evaluate(challenge);
     *n_vars -= skips;
-
-    let pow_bits = grinding
-        .pow_bits::<EF>((comp_degree + usize::from(eq_factor.is_some())) * ((1 << skips) - 1));
-    fs_prover.pow_grinding(pow_bits);
 
     let folding_scalars = selectors
         .iter()

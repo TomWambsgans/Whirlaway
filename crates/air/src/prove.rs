@@ -2,7 +2,7 @@ use p3_air::Air;
 use p3_field::{BasedVectorSpace, ExtensionField, TwoAdicField, cyclic_subgroup_known_order};
 use p3_util::log2_strict_usize;
 use serde::{Deserialize, Serialize};
-use sumcheck::{ProductComputation, SumcheckGrinding};
+use sumcheck::ProductComputation;
 use tracing::{Level, info_span, instrument, span};
 use utils::PF;
 use utils::{
@@ -100,7 +100,7 @@ where
         let my_columns_up_and_down = columns_up_and_down(&preprocessed_and_witness);
 
         let (zerocheck_challenges, all_inner_sums, _) = info_span!("zerocheck").in_scope(|| {
-            sumcheck::prove::<PF<EF>, PF<EF>, EF,  _>(
+            sumcheck::prove::<PF<EF>, PF<EF>, EF, _>(
                 settings.univariate_skips,
                 my_columns_up_and_down
                     .iter()
@@ -114,9 +114,6 @@ where
                 prover_state,
                 EF::ZERO,
                 None,
-                SumcheckGrinding::Auto {
-                    security_bits: settings.security_bits,
-                },
                 None,
                 true,
             )
@@ -182,7 +179,7 @@ where
         let inner_sum = info_span!("inner sum evaluation")
             .in_scope(|| batched_column_mixed.evaluate(&MultilinearPoint(point.clone())));
 
-        let (inner_challenges, inner_evals, _) = sumcheck::prove::<PF<EF>, EF, EF,  _>(
+        let (inner_challenges, inner_evals, _) = sumcheck::prove::<PF<EF>, EF, EF, _>(
             1,
             mles_for_inner_sumcheck
                 .iter()
@@ -196,9 +193,6 @@ where
             prover_state,
             inner_sum,
             None,
-            SumcheckGrinding::Auto {
-                security_bits: settings.security_bits,
-            },
             None,
             false,
         );

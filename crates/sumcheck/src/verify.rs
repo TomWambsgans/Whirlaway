@@ -7,8 +7,6 @@ use whir_p3::{
     poly::{dense::WhirDensePolynomial, multilinear::MultilinearPoint},
 };
 
-use crate::SumcheckGrinding;
-
 #[derive(Debug, Clone)]
 pub enum SumcheckError {
     Fs(ProofError),
@@ -25,19 +23,13 @@ pub fn verify<EF>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     n_vars: usize,
     degree: usize,
-    grinding: SumcheckGrinding,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
     EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
 {
     let sumation_sets = vec![(0..2).map(|i| EF::from_usize(i)).collect::<Vec<_>>(); n_vars];
     let max_degree_per_vars = vec![degree; n_vars];
-    verify_core(
-        verifier_state,
-        &max_degree_per_vars,
-        sumation_sets,
-        grinding,
-    )
+    verify_core(verifier_state, &max_degree_per_vars, sumation_sets)
 }
 
 pub fn verify_with_custom_degree_at_first_round<EF>(
@@ -45,7 +37,6 @@ pub fn verify_with_custom_degree_at_first_round<EF>(
     n_vars: usize,
     intial_degree: usize,
     remaining_degree: usize,
-    grinding: SumcheckGrinding,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
     EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
@@ -53,12 +44,7 @@ where
     let sumation_sets = vec![(0..2).map(|i| EF::from_usize(i)).collect::<Vec<_>>(); n_vars];
     let mut max_degree_per_vars = vec![intial_degree; 1];
     max_degree_per_vars.extend(vec![remaining_degree; n_vars - 1]);
-    verify_core(
-        verifier_state,
-        &max_degree_per_vars,
-        sumation_sets,
-        grinding,
-    )
+    verify_core(verifier_state, &max_degree_per_vars, sumation_sets)
 }
 
 pub fn verify_with_univariate_skip<EF>(
@@ -66,7 +52,6 @@ pub fn verify_with_univariate_skip<EF>(
     degree: usize,
     n_vars: usize,
     skips: usize,
-    grinding: SumcheckGrinding,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
     EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
@@ -78,19 +63,13 @@ where
         (0..2).map(EF::from_usize).collect::<Vec<_>>();
         n_vars - skips
     ]);
-    verify_core(
-        verifier_state,
-        &max_degree_per_vars,
-        sumation_sets,
-        grinding,
-    )
+    verify_core(verifier_state, &max_degree_per_vars, sumation_sets)
 }
 
 fn verify_core<EF>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     max_degree_per_vars: &[usize],
     sumation_sets: Vec<Vec<EF>>,
-    grinding: SumcheckGrinding,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
     EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
@@ -112,9 +91,6 @@ where
             return Err(SumcheckError::InvalidRound);
         }
         let challenge = verifier_state.sample();
-
-        let pow_bits = grinding.pow_bits::<EF>(deg);
-        verifier_state.check_pow_grinding(pow_bits)?;
 
         target = pol.evaluate(challenge);
         challenges.push(challenge);
