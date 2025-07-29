@@ -27,7 +27,7 @@ pub fn prove<F, NF, EF, SC>(
     n_rounds: Option<usize>,
     mut missing_mul_factor: Option<EF>,
     log: bool,
-) -> (MultilinearPoint<EF>, Vec<EvaluationsList<EF>>, EF)
+) -> (MultilinearPoint<EF>, Vec<Vec<EF>>, EF)
 where
     F: Field,
     NF: ExtensionField<F>,
@@ -72,7 +72,7 @@ where
             1,
             &folded_multilinears
                 .iter()
-                .map(|m| m.evals())
+                .map(|m| m.as_slice())
                 .collect::<Vec<_>>(),
             &mut n_vars,
             computation,
@@ -106,7 +106,7 @@ pub(crate) fn sc_round<F, NF, EF, SC>(
     challenges: &mut Vec<EF>,
     missing_mul_factor: &mut Option<EF>,
     log: bool,
-) -> Vec<EvaluationsList<EF>>
+) -> Vec<Vec<EF>>
 where
     F: Field,
     NF: ExtensionField<F>,
@@ -200,7 +200,7 @@ where
 }
 
 fn compute_over_hypercube<F, NF, EF, SC>(
-    pols: &[EvaluationsList<NF>],
+    pols: &[Vec<NF>],
     computation: &SC,
     batching_scalars: &[EF],
     eq_mle: Option<&[EF]>,
@@ -211,11 +211,8 @@ where
     EF: ExtensionField<NF> + ExtensionField<F>,
     SC: SumcheckComputation<F, NF, EF> + SumcheckComputationPacked<F, EF>,
 {
-    assert!(
-        pols.iter()
-            .all(|p| p.num_variables() == pols[0].num_variables())
-    );
-    let n_vars = pols[0].num_variables();
+    let n_vars = pols[0].len().ilog2() as usize;
+    assert!(pols.iter().all(|p| p.len() == 1 << n_vars));
     if TypeId::of::<NF>() == TypeId::of::<F>() {
         let pols: &[EvaluationsList<F>] = unsafe { std::mem::transmute(pols) };
         let packed_pols = pols
@@ -259,7 +256,7 @@ where
         (0..1 << n_vars)
             .into_par_iter()
             .map(|x| {
-                let point = pols.iter().map(|pol| pol.evals()[x]).collect::<Vec<_>>();
+                let point = pols.iter().map(|pol| pol[x]).collect::<Vec<_>>();
                 let eq_mle_eval = eq_mle.map(|p| p[x]);
                 eval_sumcheck_computation(computation, batching_scalars, &point, eq_mle_eval)
             })

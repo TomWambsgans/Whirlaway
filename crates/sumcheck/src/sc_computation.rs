@@ -5,12 +5,7 @@ use p3_field::{ExtensionField, Field};
 use p3_matrix::dense::RowMajorMatrixView;
 use utils::{ConstraintFolder, ConstraintFolderPacked};
 
-pub trait SumcheckComputation<F, NF, EF>: Sync
-where
-    F: Field,
-    NF: ExtensionField<F>,
-    EF: ExtensionField<NF>,
-{
+pub trait SumcheckComputation<F, NF, EF>: Sync {
     fn eval(&self, point: &[NF], alpha_powers: &[EF]) -> EF;
 }
 

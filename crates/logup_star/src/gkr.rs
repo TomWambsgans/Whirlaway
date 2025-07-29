@@ -180,7 +180,7 @@ where
                 )
             });
         sc_point.insert(0, first_sumcheck_challenge);
-        (sc_point, inner_evals)
+        (sc_point, inner_evals.into_iter().map(EvaluationsList::new).collect())
     };
 
     let quarter_evals = inner_evals[..4]
@@ -322,7 +322,7 @@ where
 
     let quarter_evals = inner_evals[..4]
         .iter()
-        .map(|e| e.as_constant())
+        .map(|e| e[0])
         .collect::<Vec<_>>();
 
     prover_state.add_extension_scalars(&quarter_evals);

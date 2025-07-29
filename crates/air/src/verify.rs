@@ -112,18 +112,26 @@ impl<
             .preprocessed_columns
             .iter()
             .map(|c| {
-                fold_multilinear_in_large_field(&column_up(c), &outer_selector_evals).evaluate(
-                    &MultilinearPoint(outer_sumcheck_challenge.point[1..].to_vec()),
-                )
+                EvaluationsList::new(fold_multilinear_in_large_field(
+                    &column_up(c),
+                    &outer_selector_evals,
+                ))
+                .evaluate(&MultilinearPoint(
+                    outer_sumcheck_challenge.point[1..].to_vec(),
+                ))
             })
             .collect::<Vec<_>>();
         let preprocessed_down = self
             .preprocessed_columns
             .iter()
             .map(|c| {
-                fold_multilinear_in_large_field(&column_down(c), &outer_selector_evals).evaluate(
-                    &MultilinearPoint(outer_sumcheck_challenge.point[1..].to_vec()),
-                )
+                EvaluationsList::new(fold_multilinear_in_large_field(
+                    &column_down(c),
+                    &outer_selector_evals,
+                ))
+                .evaluate(&MultilinearPoint(
+                    outer_sumcheck_challenge.point[1..].to_vec(),
+                ))
             })
             .collect::<Vec<_>>();
 

@@ -8,8 +8,8 @@ use rayon::prelude::*;
 use tracing::info_span;
 use utils::batch_fold_multilinear_in_large_field_packed;
 use utils::{EFPacking, FSChallenger, FSProver, PF, PFPacking, univariate_selectors};
+use whir_p3::poly::dense::WhirDensePolynomial;
 use whir_p3::poly::multilinear::MultilinearPoint;
-use whir_p3::poly::{dense::WhirDensePolynomial, evals::EvaluationsList};
 use whir_p3::utils::uninitialized_vec;
 
 use crate::sc_round;
@@ -28,7 +28,7 @@ pub fn prove_packed<EF, M, SC>(
     n_rounds: Option<usize>,
     mut missing_mul_factor: Option<EF>,
     log: bool,
-) -> (MultilinearPoint<EF>, Vec<EvaluationsList<EF>>, EF)
+) -> (MultilinearPoint<EF>, Vec<Vec<EF>>, EF)
 where
     EF: Field + ExtensionField<PF<PF<EF>>> + ExtensionField<PF<EF>>,
     M: Borrow<[EFPacking<EF>]>,
@@ -97,7 +97,7 @@ where
 
     let mut folded_multilinears_unpacked = folded_multilinears
         .into_iter()
-        .map(|m| EvaluationsList::new(EFPacking::<EF>::to_ext_iter(m).collect::<Vec<_>>()))
+        .map(|m| EFPacking::<EF>::to_ext_iter(m).collect::<Vec<_>>())
         .collect::<Vec<_>>();
 
     let mut eq_factor = eq_factor.clone().map(|(eq_factor, eq_mle)| {
@@ -112,7 +112,7 @@ where
             skips,
             &folded_multilinears_unpacked
                 .iter()
-                .map(|m| m.evals())
+                .map(|m| m.as_slice())
                 .collect::<Vec<_>>(),
             &mut n_vars,
             computation,

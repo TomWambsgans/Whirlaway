@@ -64,11 +64,11 @@ pub fn prove_logup_star<EF: Field>(
         });
 
     // open table at sc_point
-    let table_eval = inner_evals[0].evaluate(&Default::default());
+    let table_eval = inner_evals[0][0];
     prover_state.add_extension_scalar(table_eval); // phony opening for now
 
     // open pushforward at sc_point
-    let pushforwardt_eval = inner_evals[1].evaluate(&Default::default());
+    let pushforwardt_eval = inner_evals[1][0];
     prover_state.add_extension_scalar(pushforwardt_eval); // phony opening for now
 
     // sanity check

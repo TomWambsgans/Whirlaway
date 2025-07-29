@@ -11,7 +11,7 @@ use crate::{EFPacking, PF};
 pub fn fold_multilinear_in_small_field<F: Field, EF: ExtensionField<F>, D>(
     m: &[D],
     scalars: &[F],
-) -> EvaluationsList<EF> {
+) -> Vec<EF> {
     // TODO ...
     assert!(scalars.len().is_power_of_two() && scalars.len() <= m.len());
     let new_size = m.len() / scalars.len();
@@ -68,27 +68,25 @@ pub fn fold_multilinear_in_small_field<F: Field, EF: ExtensionField<F>, D>(
         res
     };
 
-    EvaluationsList::new(res)
+    res
 }
 
 pub fn fold_multilinear_in_large_field<F: Field, EF: ExtensionField<F>>(
     m: &[F],
     scalars: &[EF],
-) -> EvaluationsList<EF> {
+) -> Vec<EF> {
     assert!(scalars.len().is_power_of_two() && scalars.len() <= m.len());
     let new_size = m.len() / scalars.len();
-    EvaluationsList::new(
-        (0..new_size)
-            .into_par_iter()
-            .map(|i| {
-                scalars
-                    .iter()
-                    .enumerate()
-                    .map(|(j, s)| *s * m[i + j * new_size])
-                    .sum()
-            })
-            .collect(),
-    )
+    (0..new_size)
+        .into_par_iter()
+        .map(|i| {
+            scalars
+                .iter()
+                .enumerate()
+                .map(|(j, s)| *s * m[i + j * new_size])
+                .sum()
+        })
+        .collect()
 }
 
 pub fn fold_multilinear_in_large_field_packed<EF: Field + ExtensionField<PF<EF>>>(
@@ -137,7 +135,7 @@ pub fn multilinears_linear_combination<
 pub fn batch_fold_multilinear_in_large_field<F: Field, EF: ExtensionField<F>>(
     polys: &[&[F]],
     scalars: &[EF],
-) -> Vec<EvaluationsList<EF>> {
+) -> Vec<Vec<EF>> {
     polys
         .par_iter()
         .map(|poly| fold_multilinear_in_large_field(poly, scalars))
@@ -157,7 +155,7 @@ pub fn batch_fold_multilinear_in_large_field_packed<EF: Field + ExtensionField<P
 pub fn batch_fold_multilinear_in_small_field<F: Field, EF: ExtensionField<F>>(
     polys: &[&[EF]],
     scalars: &[F],
-) -> Vec<EvaluationsList<EF>> {
+) -> Vec<Vec<EF>> {
     polys
         .par_iter()
         .map(|poly| fold_multilinear_in_small_field(poly, scalars))
@@ -167,7 +165,7 @@ pub fn batch_fold_multilinear_in_small_field<F: Field, EF: ExtensionField<F>>(
 pub fn batch_fold_multilinear_in_small_field_packed<EF: Field + ExtensionField<PF<EF>>>(
     polys: &[&[EFPacking<EF>]],
     scalars: &[PF<EF>],
-) -> Vec<EvaluationsList<EF>> {
+) -> Vec<Vec<EF>> {
     polys
         .par_iter()
         .map(|poly| fold_multilinear_in_small_field(poly, scalars))
