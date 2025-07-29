@@ -12,7 +12,7 @@ use whir_p3::poly::multilinear::MultilinearPoint;
 use whir_p3::poly::{dense::WhirDensePolynomial, evals::EvaluationsList};
 use whir_p3::utils::uninitialized_vec;
 
-use crate::sc_round_2;
+use crate::sc_round;
 use crate::{SumcheckComputation, SumcheckComputationPacked};
 
 #[allow(clippy::too_many_arguments)]
@@ -102,13 +102,13 @@ where
 
     let mut eq_factor = eq_factor.clone().map(|(eq_factor, eq_mle)| {
         (
-            eq_factor,
+            eq_factor[last_round_packed..].to_vec(),
             EFPacking::<EF>::to_ext_iter(eq_mle).collect::<Vec<_>>(),
         )
     });
 
-    for round in last_round_packed..n_rounds {
-        folded_multilinears_unpacked = sc_round_2::<PF<EF>, EF, EF, _>(
+    for _ in last_round_packed..n_rounds {
+        folded_multilinears_unpacked = sc_round::<PF<EF>, EF, EF, _>(
             skips,
             &folded_multilinears_unpacked
                 .iter()
@@ -123,7 +123,6 @@ where
             constraints_degree,
             &mut sum,
             &mut challenges,
-            round,
             &mut missing_mul_factor,
             log,
         );
