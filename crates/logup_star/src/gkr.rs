@@ -66,7 +66,7 @@ where
     let mut claim = layers[n - 1].evaluate(&point);
 
     for layer in layers.iter().rev().skip(1) {
-        let (next_point, next_claim) = if layer.num_evals() >= PFPacking::<EF>::WIDTH << 3 {
+        let (next_point, next_claim) = if layer.num_evals() >= PFPacking::<EF>::WIDTH << 7 {
             prove_gkr_step_packed(prover_state, layer, &point, claim)
         } else {
             prove_gkr_step(prover_state, layer, &point, claim)
@@ -117,79 +117,6 @@ where
     let sum_x = sums_x.into_par_iter().sum::<EF>();
     let sum_one_minus_x = sums_one_minus_x.into_par_iter().sum::<EF>();
 
-    finish_prove_gkr_step(prover_state, up_layer, point, eval, sum_x, sum_one_minus_x)
-}
-
-#[instrument(skip_all)]
-fn prove_gkr_step_packed<EF: Field>(
-    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    up_layer: &EvaluationsList<EF>,
-    point: &MultilinearPoint<EF>,
-    eval: EF,
-) -> Evaluation<EF>
-where
-    EF: ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
-    PF<EF>: PrimeField64,
-{
-    assert_eq!(up_layer.num_variables() - 1, point.0.len());
-
-    let len_packed = up_layer.num_evals() / PFPacking::<EF>::WIDTH;
-    let mid_len_packed = len_packed / 2;
-    let quarter_len_packed = mid_len_packed / 2;
-
-    let eq_poly = info_span!("eq_poly").in_scope(|| EvaluationsList::eval_eq(&point.0[1..]));
-
-    let eq_poly_packed = eq_poly
-        .evals()
-        .par_chunks_exact(PFPacking::<EF>::WIDTH)
-        .map(EFPacking::<EF>::from_ext_slice)
-        .collect::<Vec<_>>();
-
-    let up_layer_packed = up_layer
-        .par_chunks_exact(PFPacking::<EF>::WIDTH)
-        .map(EFPacking::<EF>::from_ext_slice)
-        .collect::<Vec<_>>();
-
-    let mut all_sums_x_packed = EFPacking::<EF>::zero_vec(quarter_len_packed);
-    let mut all_sums_one_minus_x_packed = EFPacking::<EF>::zero_vec(quarter_len_packed);
-
-    all_sums_x_packed
-        .par_iter_mut()
-        .zip(all_sums_one_minus_x_packed.par_iter_mut())
-        .enumerate()
-        .for_each(|(i, (x, one_minus_x))| {
-            let eq_eval = eq_poly_packed[i];
-            let u0 = up_layer_packed[i];
-            let u1 = up_layer_packed[quarter_len_packed + i];
-            let u2 = up_layer_packed[mid_len_packed + i];
-            let u3 = up_layer_packed[mid_len_packed + quarter_len_packed + i];
-            *x = eq_eval * u2 * u3;
-            *one_minus_x = eq_eval * (u0 * u3 + u1 * u2);
-        });
-
-    let sum_x_packed = all_sums_x_packed.into_par_iter().sum::<EFPacking<EF>>();
-    let sum_one_minus_x_packed = all_sums_one_minus_x_packed
-        .into_par_iter()
-        .sum::<EFPacking<EF>>();
-
-    let sum_x = EFPacking::<EF>::to_ext_iter([sum_x_packed]).sum::<EF>();
-    let sum_one_minus_x = EFPacking::<EF>::to_ext_iter([sum_one_minus_x_packed]).sum::<EF>();
-
-    finish_prove_gkr_step(prover_state, up_layer, point, eval, sum_x, sum_one_minus_x)
-}
-
-fn finish_prove_gkr_step<EF: Field>(
-    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    up_layer: &EvaluationsList<EF>,
-    point: &MultilinearPoint<EF>,
-    eval: EF,
-    sum_x: EF,
-    sum_one_minus_x: EF,
-) -> Evaluation<EF>
-where
-    EF: ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
-    PF<EF>: PrimeField64,
-{
     let mid_len = up_layer.num_evals() / 2;
     let quarter_len = mid_len / 2;
     let first_sumcheck_polynomial = &WhirDensePolynomial::from_coefficients_vec(vec![
@@ -256,6 +183,143 @@ where
         sc_point.insert(0, first_sumcheck_challenge);
         (sc_point, inner_evals)
     };
+
+    let quarter_evals = inner_evals[..4]
+        .iter()
+        .map(|e| e.as_constant())
+        .collect::<Vec<_>>();
+
+    prover_state.add_extension_scalars(&quarter_evals);
+
+    let mixing_challenge_a = prover_state.sample();
+    let mixing_challenge_b = prover_state.sample();
+
+    let mut next_point = sc_point.clone();
+    next_point.0.insert(0, mixing_challenge_a);
+    next_point.0[1] = mixing_challenge_b;
+
+    let next_claim = dot_product::<EF, _, _>(
+        quarter_evals.into_iter(),
+        EvaluationsList::eval_eq(&[mixing_challenge_a, mixing_challenge_b])
+            .evals()
+            .iter()
+            .cloned(),
+    );
+
+    (next_point, next_claim).into()
+}
+
+#[instrument(skip_all)]
+fn prove_gkr_step_packed<EF: Field>(
+    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+    up_layer: &EvaluationsList<EF>,
+    point: &MultilinearPoint<EF>,
+    eval: EF,
+) -> Evaluation<EF>
+where
+    EF: ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    PF<EF>: PrimeField64,
+{
+    assert_eq!(up_layer.num_variables() - 1, point.0.len());
+
+    let len_packed = up_layer.num_evals() / PFPacking::<EF>::WIDTH;
+    let mid_len_packed = len_packed / 2;
+    let quarter_len_packed = mid_len_packed / 2;
+
+    let eq_poly = info_span!("eq_poly").in_scope(|| EvaluationsList::eval_eq(&point.0[1..]));
+
+    let mut eq_poly_packed = eq_poly
+        .evals()
+        .par_chunks_exact(PFPacking::<EF>::WIDTH)
+        .map(EFPacking::<EF>::from_ext_slice)
+        .collect::<Vec<_>>();
+
+    let up_layer_packed = up_layer
+        .par_chunks_exact(PFPacking::<EF>::WIDTH)
+        .map(EFPacking::<EF>::from_ext_slice)
+        .collect::<Vec<_>>();
+
+    let mut all_sums_x_packed = EFPacking::<EF>::zero_vec(quarter_len_packed);
+    let mut all_sums_one_minus_x_packed = EFPacking::<EF>::zero_vec(quarter_len_packed);
+
+    all_sums_x_packed
+        .par_iter_mut()
+        .zip(all_sums_one_minus_x_packed.par_iter_mut())
+        .enumerate()
+        .for_each(|(i, (x, one_minus_x))| {
+            let eq_eval = eq_poly_packed[i];
+            let u0 = up_layer_packed[i];
+            let u1 = up_layer_packed[quarter_len_packed + i];
+            let u2 = up_layer_packed[mid_len_packed + i];
+            let u3 = up_layer_packed[mid_len_packed + quarter_len_packed + i];
+            *x = eq_eval * u2 * u3;
+            *one_minus_x = eq_eval * (u0 * u3 + u1 * u2);
+        });
+
+    let sum_x_packed = all_sums_x_packed.into_par_iter().sum::<EFPacking<EF>>();
+    let sum_one_minus_x_packed = all_sums_one_minus_x_packed
+        .into_par_iter()
+        .sum::<EFPacking<EF>>();
+
+    let sum_x = EFPacking::<EF>::to_ext_iter([sum_x_packed]).sum::<EF>();
+    let sum_one_minus_x = EFPacking::<EF>::to_ext_iter([sum_one_minus_x_packed]).sum::<EF>();
+
+    let first_sumcheck_polynomial = &WhirDensePolynomial::from_coefficients_vec(vec![
+        EF::ONE - point[0],
+        point[0].double() - EF::ONE,
+    ]) * &WhirDensePolynomial::from_coefficients_vec(vec![
+        sum_one_minus_x,
+        sum_x - sum_one_minus_x,
+    ]);
+
+    // sanity check
+    assert_eq!(
+        first_sumcheck_polynomial.evaluate(EF::ZERO) + first_sumcheck_polynomial.evaluate(EF::ONE),
+        eval
+    );
+
+    prover_state.add_extension_scalars(&first_sumcheck_polynomial.coeffs);
+
+    let first_sumcheck_challenge = prover_state.sample();
+
+    let next_sum = first_sumcheck_polynomial.evaluate(first_sumcheck_challenge);
+
+    let (u0_folded_packed, u1_folded_packed, u2_folded_packed, u3_folded_packed) = (
+        &up_layer_packed[..quarter_len_packed],
+        &up_layer_packed[quarter_len_packed..mid_len_packed],
+        &up_layer_packed[mid_len_packed..mid_len_packed + quarter_len_packed],
+        &up_layer_packed[mid_len_packed + quarter_len_packed..],
+    );
+
+    let u4_const = first_sumcheck_challenge;
+    let u5_const = EF::ONE - first_sumcheck_challenge;
+    let missing_mul_factor = (first_sumcheck_challenge * point[0]
+        + (EF::ONE - first_sumcheck_challenge) * (EF::ONE - point[0])) / (EF::ONE - point[1]);
+
+    eq_poly_packed.resize(eq_poly_packed.len() / 2, Default::default());
+
+    let (mut sc_point, inner_evals, _) = info_span!("remaining sumcheck rounds").in_scope(|| {
+        sumcheck::prove_packed::<EF, _, _>(
+            1,
+            &[
+                u0_folded_packed,
+                u1_folded_packed,
+                u2_folded_packed,
+                u3_folded_packed,
+            ],
+            &GKRQuotientComputation { u4_const, u5_const },
+            2,
+            &mut Some((&point.0[1..], eq_poly_packed)),
+            false,
+            prover_state,
+            next_sum,
+            None,
+            SumcheckGrinding::None,
+            Some(missing_mul_factor),
+            false,
+        )
+    });
+    sc_point.insert(0, first_sumcheck_challenge);
 
     let quarter_evals = inner_evals[..4]
         .iter()
@@ -375,7 +439,7 @@ impl<F: Field, EF: ExtensionField<F>> SumcheckComputation<F, EF, EF>
 impl<F: Field, EF: ExtensionField<F>> SumcheckComputationPacked<F, EF>
     for GKRQuotientComputation<EF>
 {
-    fn eval_packed(
+    fn eval_packed_base(
         &self,
         _: &[<F as Field>::Packing],
         _: &[EF],
@@ -383,6 +447,14 @@ impl<F: Field, EF: ExtensionField<F>> SumcheckComputationPacked<F, EF>
     ) -> impl Iterator<Item = EF> + Send + Sync {
         // Unreachable
         std::iter::once(EF::ZERO)
+    }
+
+    fn eval_packed_extension(
+        &self,
+        point: &[<EF as ExtensionField<F>>::ExtensionPacking],
+    ) -> <EF as ExtensionField<F>>::ExtensionPacking {
+        point[2] * point[3] * self.u4_const
+            + (point[0] * point[3] + point[1] * point[2]) * self.u5_const
     }
 }
 
@@ -404,6 +476,8 @@ fn sum_quotients_2_by_2<EF: Field>(layer: &EvaluationsList<EF>) -> EvaluationsLi
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use super::*;
     use p3_challenger::DuplexChallenger;
     use p3_field::extension::BinomialExtensionField;
@@ -426,7 +500,7 @@ mod tests {
 
     #[test]
     fn test_gkr_step() {
-        let log_n = 10;
+        let log_n = 21;
         let n = 1 << log_n;
 
         let mut rng = StdRng::seed_from_u64(0);
@@ -447,7 +521,9 @@ mod tests {
         let challenger = MyChallenger::new(poseidon16);
         let mut prover_state = FSProver::new(challenger.clone());
 
-        prove_gkr_step(&mut prover_state, &big, &point, eval);
+        let time = Instant::now();
+        prove_gkr_step_packed(&mut prover_state, &big, &point, eval);
+        dbg!(time.elapsed());
 
         let mut verifier_state = FSVerifier::new(prover_state.proof_data().to_vec(), challenger);
 

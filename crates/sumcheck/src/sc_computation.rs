@@ -40,13 +40,17 @@ where
     F: Field,
     EF: ExtensionField<F>,
 {
-    // Currently we only support NF = F, TODO make it work for NF = EF
-    fn eval_packed(
+    fn eval_packed_base(
         &self,
         point: &[F::Packing],
         alpha_powers: &[EF],
         decomposed_alpha_powers: &[Vec<F>],
     ) -> impl Iterator<Item = EF> + Send + Sync;
+
+    fn eval_packed_extension(
+        &self,
+        point: &[<EF as ExtensionField<F>>::ExtensionPacking],
+    ) -> <EF as ExtensionField<F>>::ExtensionPacking;
 }
 
 impl<F, EF, A> SumcheckComputationPacked<F, EF> for A
@@ -55,7 +59,7 @@ where
     EF: ExtensionField<F>,
     A: for<'a> Air<ConstraintFolderPacked<'a, F, EF>>,
 {
-    fn eval_packed(
+    fn eval_packed_base(
         &self,
         point: &[F::Packing],
         alpha_powers: &[EF],
@@ -78,6 +82,13 @@ where
             })
         })
     }
+
+    fn eval_packed_extension(
+        &self,
+        _: &[<EF as ExtensionField<F>>::ExtensionPacking],
+    ) -> <EF as ExtensionField<F>>::ExtensionPacking {
+        todo!()
+    }
 }
 
 pub struct ProductComputation;
@@ -89,13 +100,22 @@ impl<F: Field, EF: ExtensionField<F>> SumcheckComputation<F, EF, EF> for Product
 }
 
 impl<F: Field, EF: ExtensionField<F>> SumcheckComputationPacked<F, EF> for ProductComputation {
-    fn eval_packed(
+    fn eval_packed_base(
         &self,
         _: &[<F as Field>::Packing],
         _: &[EF],
         _: &[Vec<F>],
     ) -> impl Iterator<Item = EF> + Send + Sync {
         // Unreachable
+        if true {
+            panic!();
+        }
         std::iter::once(EF::ZERO)
+    }
+    fn eval_packed_extension(
+        &self,
+        _: &[<EF as ExtensionField<F>>::ExtensionPacking],
+    ) -> <EF as ExtensionField<F>>::ExtensionPacking {
+        todo!()
     }
 }

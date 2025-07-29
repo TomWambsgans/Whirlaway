@@ -3,6 +3,8 @@
 mod prove;
 use p3_field::Field;
 pub use prove::*;
+pub mod prove_packed;
+pub use prove_packed::*;
 
 mod verify;
 use utils::log2_up;
