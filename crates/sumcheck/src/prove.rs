@@ -10,6 +10,7 @@ use utils::{
 };
 use whir_p3::poly::multilinear::MultilinearPoint;
 use whir_p3::poly::{dense::WhirDensePolynomial, evals::EvaluationsList};
+use whir_p3::utils::uninitialized_vec;
 
 use crate::{SumcheckComputation, SumcheckComputationPacked};
 
@@ -124,38 +125,75 @@ where
     } else {
         0
     };
-    for z in start..=comp_degree * ((1 << skips) - 1) {
-        let sum_z = if z == (1 << skips) - 1 {
-            if let Some((eq_factor, _)) = eq_factor {
-                (*sum
-                    - (0..(1 << skips) - 1)
-                        .map(|i| p_evals[i].1 * selectors[i].evaluate(eq_factor[0]))
-                        .sum::<EF>())
-                    / selectors[(1 << skips) - 1].evaluate(eq_factor[0])
-            } else {
-                *sum - p_evals.iter().map(|(_, s)| *s).sum::<EF>()
-            }
-        } else {
-            let folding_scalars = selectors
+
+    let zs = (start..=comp_degree * ((1 << skips) - 1))
+        .filter(|&i| i != (1 << skips) - 1)
+        .collect::<Vec<_>>();
+
+    let folding_scalars = zs
+        .iter()
+        .map(|&z| {
+            selectors
                 .iter()
                 .map(|s| s.evaluate(F::from_usize(z)))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    let fold_size = 1 << (*n_vars - skips);
+
+    let all_sums = unsafe { uninitialized_vec::<EF>(zs.len() * fold_size) }; // sums for zs[0], sums for zs[1], ...
+    (0..fold_size).into_par_iter().for_each(|i| {
+        let eq_mle_eval = eq_factor.as_ref().map(|(_, eq_mle)| eq_mle[i]);
+        let rows = multilinears
+            .iter()
+            .map(|m| {
+                (0..selectors.len())
+                    .map(|j| m[i + j * fold_size])
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        for (z_index, folding_scalars_z) in folding_scalars.iter().enumerate() {
+            let point = rows
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .zip(folding_scalars_z.iter())
+                        .map(|(x, s)| *x * *s)
+                        .sum::<NF>()
+                })
                 .collect::<Vec<_>>();
-            // TODO OPTI: no need to store the full folded polynomials in RAM, they could be computed "on the fly"
-            let folded = batch_fold_multilinear_in_small_field(multilinears, &folding_scalars);
-            let mut sum_z = compute_over_hypercube(
-                &folded,
-                computation,
-                batching_scalars,
-                eq_factor.as_ref().map(|(_, eq_mle)| eq_mle.as_slice()),
-            );
-            if let Some(missing_mul_factor) = missing_mul_factor {
-                sum_z *= *missing_mul_factor;
+            unsafe {
+                let sum_ptr = all_sums.as_ptr() as *mut EF;
+                *sum_ptr.add(z_index * fold_size + i) =
+                    eval_sumcheck_computation(computation, batching_scalars, &point, eq_mle_eval);
             }
-
-            sum_z
+        }
+    });
+    for (z_index, z) in zs.iter().enumerate() {
+        let mut sum_z = all_sums[z_index * fold_size..(z_index + 1) * fold_size]
+            .par_iter()
+            .copied()
+            .sum::<EF>();
+        if let Some(missing_mul_factor) = missing_mul_factor {
+            sum_z *= *missing_mul_factor;
+        }
+        p_evals.push((F::from_usize(*z), sum_z));
+    }
+    if !is_zerofier {
+        let missing_sum_z = if let Some((eq_factor, _)) = eq_factor {
+            (*sum
+                - (0..(1 << skips) - 1)
+                    .map(|i| p_evals[i].1 * selectors[i].evaluate(eq_factor[0]))
+                    .sum::<EF>())
+                / selectors[(1 << skips) - 1].evaluate(eq_factor[0])
+        } else {
+            *sum - p_evals[..(1 << skips) - 1]
+                .iter()
+                .map(|(_, s)| *s)
+                .sum::<EF>()
         };
-
-        p_evals.push((F::from_usize(z), sum_z));
+        p_evals.push((F::from_usize((1 << skips) - 1), missing_sum_z));
     }
 
     let mut p = WhirDensePolynomial::lagrange_interpolation(&p_evals).unwrap();
