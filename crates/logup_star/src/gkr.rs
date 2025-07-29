@@ -164,13 +164,13 @@ where
     } else {
         let (mut sc_point, inner_evals, _) =
             info_span!("remaining sumcheck rounds").in_scope(|| {
-                sumcheck::prove::<PF<EF>, EF, EF, _, _>(
+                sumcheck::prove::<PF<EF>, EF, EF, _>(
                     1,
-                    &[u0_folded, u1_folded, u2_folded, u3_folded],
+                    [u0_folded, u1_folded, u2_folded, u3_folded].to_vec(),
                     &GKRQuotientComputation { u4_const, u5_const },
                     2,
                     &[EF::ONE],
-                    Some(&point.0[1..]),
+                    Some((&point.0[1..], None)),
                     false,
                     prover_state,
                     next_sum,

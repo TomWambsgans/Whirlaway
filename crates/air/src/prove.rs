@@ -100,16 +100,16 @@ where
         let my_columns_up_and_down = columns_up_and_down(&preprocessed_and_witness);
 
         let (zerocheck_challenges, all_inner_sums, _) = info_span!("zerocheck").in_scope(|| {
-            sumcheck::prove::<PF<EF>, PF<EF>, EF, _, _>(
+            sumcheck::prove::<PF<EF>, PF<EF>, EF,  _>(
                 settings.univariate_skips,
-                &my_columns_up_and_down
+                my_columns_up_and_down
                     .iter()
                     .map(|m| m.evals())
                     .collect::<Vec<_>>(),
                 &self.air,
                 self.constraint_degree,
                 &constraints_batching_scalars,
-                Some(&zerocheck_challenges),
+                Some((&zerocheck_challenges, None)),
                 true,
                 prover_state,
                 EF::ZERO,
@@ -182,9 +182,9 @@ where
         let inner_sum = info_span!("inner sum evaluation")
             .in_scope(|| batched_column_mixed.evaluate(&MultilinearPoint(point.clone())));
 
-        let (inner_challenges, inner_evals, _) = sumcheck::prove::<PF<EF>, EF, EF, _, _>(
+        let (inner_challenges, inner_evals, _) = sumcheck::prove::<PF<EF>, EF, EF,  _>(
             1,
-            &mles_for_inner_sumcheck
+            mles_for_inner_sumcheck
                 .iter()
                 .map(|m| m.evals())
                 .collect::<Vec<_>>(),

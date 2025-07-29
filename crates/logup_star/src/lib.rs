@@ -47,9 +47,9 @@ pub fn prove_logup_star<EF: Field>(
 
     let (_sc_point, inner_evals, prod) =
         info_span!("logup_star sumcheck", table_length, indexes_length).in_scope(|| {
-            sumcheck::prove::<PF<EF>, EF, EF, _, _>(
+            sumcheck::prove::<PF<EF>, EF, EF,  _>(
                 1,
-                &[table_embedded.evals(), pushforward.evals()],
+                [table_embedded.evals(), pushforward.evals()].to_vec(),
                 &ProductComputation,
                 2,
                 &[EF::ONE],
