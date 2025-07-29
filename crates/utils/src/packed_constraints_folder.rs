@@ -4,12 +4,14 @@ use p3_field::PackedField;
 use p3_field::{ExtensionField, Field};
 use p3_matrix::dense::RowMajorMatrixView;
 
+use crate::EFPackingOf;
+
 #[derive(Debug)]
 pub struct ConstraintFolderPacked<'a, F: Field, EF: ExtensionField<F>> {
     pub main: RowMajorMatrixView<'a, F::Packing>,
     pub alpha_powers: &'a [EF],
     pub decomposed_alpha_powers: &'a [Vec<F>],
-    pub accumulator: <EF as ExtensionField<F>>::ExtensionPacking,
+    pub accumulator: EFPackingOf<EF, F>,
     pub constraint_index: usize,
 }
 

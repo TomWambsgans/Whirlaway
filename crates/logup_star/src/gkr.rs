@@ -14,6 +14,7 @@ use p3_field::{ExtensionField, Field, PrimeField64, dot_product};
 use rayon::prelude::*;
 use sumcheck::{SumcheckComputation, SumcheckComputationPacked};
 use tracing::{info_span, instrument};
+use utils::pack_extension;
 use utils::{EFPacking, Evaluation, FSChallenger, FSProver, FSVerifier, PF, PFPacking};
 use whir_p3::fiat_shamir::errors::ProofError;
 use whir_p3::poly::dense::WhirDensePolynomial;
@@ -180,7 +181,10 @@ where
                 )
             });
         sc_point.insert(0, first_sumcheck_challenge);
-        (sc_point, inner_evals.into_iter().map(EvaluationsList::new).collect())
+        (
+            sc_point,
+            inner_evals.into_iter().map(EvaluationsList::new).collect(),
+        )
     };
 
     let quarter_evals = inner_evals[..4]
@@ -227,16 +231,9 @@ where
 
     let eq_poly = info_span!("eq_poly").in_scope(|| EvaluationsList::eval_eq(&point.0[1..]));
 
-    let mut eq_poly_packed = eq_poly
-        .evals()
-        .par_chunks_exact(PFPacking::<EF>::WIDTH)
-        .map(EFPacking::<EF>::from_ext_slice)
-        .collect::<Vec<_>>();
+    let mut eq_poly_packed = pack_extension(&eq_poly.evals());
 
-    let up_layer_packed = up_layer
-        .par_chunks_exact(PFPacking::<EF>::WIDTH)
-        .map(EFPacking::<EF>::from_ext_slice)
-        .collect::<Vec<_>>();
+    let up_layer_packed = pack_extension(up_layer);
 
     let mut all_sums_x_packed = EFPacking::<EF>::zero_vec(quarter_len_packed);
     let mut all_sums_one_minus_x_packed = EFPacking::<EF>::zero_vec(quarter_len_packed);
@@ -320,10 +317,7 @@ where
     });
     sc_point.insert(0, first_sumcheck_challenge);
 
-    let quarter_evals = inner_evals[..4]
-        .iter()
-        .map(|e| e[0])
-        .collect::<Vec<_>>();
+    let quarter_evals = inner_evals[..4].iter().map(|e| e[0]).collect::<Vec<_>>();
 
     prover_state.add_extension_scalars(&quarter_evals);
 

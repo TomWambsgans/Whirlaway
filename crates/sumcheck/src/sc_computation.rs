@@ -1,9 +1,8 @@
 use p3_air::Air;
-use p3_field::PackedValue;
-use p3_field::{BasedVectorSpace, PrimeCharacteristicRing};
+use p3_field::PrimeCharacteristicRing;
 use p3_field::{ExtensionField, Field};
 use p3_matrix::dense::RowMajorMatrixView;
-use utils::{ConstraintFolder, ConstraintFolderPacked};
+use utils::{ConstraintFolder, ConstraintFolderPacked, EFPackingOf};
 
 pub trait SumcheckComputation<F, NF, EF>: Sync {
     fn eval(&self, point: &[NF], alpha_powers: &[EF]) -> EF;
@@ -40,12 +39,12 @@ where
         point: &[F::Packing],
         alpha_powers: &[EF],
         decomposed_alpha_powers: &[Vec<F>],
-    ) -> impl Iterator<Item = EF> + Send + Sync;
+    ) -> EFPackingOf<EF, F>;
 
     fn eval_packed_extension(
         &self,
         point: &[<EF as ExtensionField<F>>::ExtensionPacking],
-    ) -> <EF as ExtensionField<F>>::ExtensionPacking;
+    ) -> EFPackingOf<EF, F>;
 }
 
 impl<F, EF, A> SumcheckComputationPacked<F, EF> for A
@@ -59,7 +58,7 @@ where
         point: &[F::Packing],
         alpha_powers: &[EF],
         decomposed_alpha_powers: &[Vec<F>],
-    ) -> impl Iterator<Item = EF> {
+    ) -> EFPackingOf<EF, F> {
         let mut folder = ConstraintFolderPacked {
             main: RowMajorMatrixView::new(point, point.len() / 2),
             alpha_powers: alpha_powers,
@@ -69,13 +68,7 @@ where
         };
         self.eval(&mut folder);
 
-        (0..F::Packing::WIDTH).map(move |idx_in_packing| {
-            EF::from_basis_coefficients_fn(|coeff_idx| {
-                BasedVectorSpace::<F::Packing>::as_basis_coefficients_slice(&folder.accumulator)
-                    [coeff_idx]
-                    .as_slice()[idx_in_packing]
-            })
-        })
+        folder.accumulator
     }
 
     fn eval_packed_extension(
@@ -100,17 +93,13 @@ impl<F: Field, EF: ExtensionField<F>> SumcheckComputationPacked<F, EF> for Produ
         _: &[<F as Field>::Packing],
         _: &[EF],
         _: &[Vec<F>],
-    ) -> impl Iterator<Item = EF> + Send + Sync {
-        // Unreachable
-        if true {
-            panic!();
-        }
-        std::iter::once(EF::ZERO)
+    ) -> EFPackingOf<EF, F> {
+        todo!()
     }
     fn eval_packed_extension(
         &self,
         _: &[<EF as ExtensionField<F>>::ExtensionPacking],
-    ) -> <EF as ExtensionField<F>>::ExtensionPacking {
+    ) -> EFPackingOf<EF, F> {
         todo!()
     }
 }
