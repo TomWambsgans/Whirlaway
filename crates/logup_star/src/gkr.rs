@@ -8,13 +8,13 @@ with custom GKR
 */
 
 use p3_field::PackedFieldExtension;
-use p3_field::PackedValue;
 use p3_field::PrimeCharacteristicRing;
 use p3_field::{ExtensionField, Field, PrimeField64, dot_product};
 use rayon::prelude::*;
 use sumcheck::{SumcheckComputation, SumcheckComputationPacked};
 use tracing::{info_span, instrument};
 use utils::pack_extension;
+use utils::packing_width;
 use utils::{EFPacking, Evaluation, FSChallenger, FSProver, FSVerifier, PF, PFPacking};
 use whir_p3::fiat_shamir::errors::ProofError;
 use whir_p3::poly::dense::WhirDensePolynomial;
@@ -67,7 +67,7 @@ where
     let mut claim = layers[n - 1].evaluate(&point);
 
     for layer in layers.iter().rev().skip(1) {
-        let (next_point, next_claim) = if layer.num_evals() >= PFPacking::<EF>::WIDTH << 7 {
+        let (next_point, next_claim) = if layer.num_evals() >= packing_width::<EF>() << 7 {
             prove_gkr_step_packed(prover_state, layer, &point, claim)
         } else {
             prove_gkr_step(prover_state, layer, &point, claim)
@@ -175,10 +175,7 @@ where
                 )
             });
         sc_point.insert(0, first_sumcheck_challenge);
-        (
-            sc_point,
-            inner_evals,
-        )
+        (sc_point, inner_evals)
     };
 
     prover_state.add_extension_scalars(&quarter_evals);
@@ -214,7 +211,7 @@ where
 {
     assert_eq!(up_layer.num_variables() - 1, point.0.len());
 
-    let len_packed = up_layer.num_evals() / PFPacking::<EF>::WIDTH;
+    let len_packed = up_layer.num_evals() / packing_width::<EF>();
     let mid_len_packed = len_packed / 2;
     let quarter_len_packed = mid_len_packed / 2;
 
@@ -285,9 +282,9 @@ where
     eq_poly_packed.resize(eq_poly_packed.len() / 2, Default::default());
 
     let (mut sc_point, quarter_evals, _) = info_span!("remaining sumcheck rounds").in_scope(|| {
-        sumcheck::prove_packed::<EF, _, _>(
+        sumcheck::prove_extension_packed::<EF, _>(
             1,
-            &[
+            vec![
                 u0_folded_packed,
                 u1_folded_packed,
                 u2_folded_packed,
@@ -295,7 +292,8 @@ where
             ],
             &GKRQuotientComputation { u4_const, u5_const },
             2,
-            &mut Some((&point.0[1..], eq_poly_packed)),
+            &[],
+            Some((&point.0[1..], Some(eq_poly_packed))),
             false,
             prover_state,
             next_sum,
@@ -404,9 +402,7 @@ pub struct GKRQuotientComputation<EF> {
     u5_const: EF,
 }
 
-impl<EF: Field> SumcheckComputation<EF, EF>
-    for GKRQuotientComputation<EF>
-{
+impl<EF: Field> SumcheckComputation<EF, EF> for GKRQuotientComputation<EF> {
     fn eval(&self, point: &[EF], _: &[EF]) -> EF {
         // U4.U2.U3 + U5.[U0.U3 + U1.U2]
         self.u4_const * point[2] * point[3]
@@ -414,15 +410,8 @@ impl<EF: Field> SumcheckComputation<EF, EF>
     }
 }
 
-impl<EF: ExtensionField<PF<EF>>> SumcheckComputationPacked<EF>
-    for GKRQuotientComputation<EF>
-{
-    fn eval_packed_base(
-        &self,
-        _: &[PFPacking<EF>],
-        _: &[EF],
-        _: &[Vec<PF<EF>>],
-    ) -> EFPacking<EF> {
+impl<EF: ExtensionField<PF<EF>>> SumcheckComputationPacked<EF> for GKRQuotientComputation<EF> {
+    fn eval_packed_base(&self, _: &[PFPacking<EF>], _: &[EF], _: &[Vec<PF<EF>>]) -> EFPacking<EF> {
         todo!()
     }
 

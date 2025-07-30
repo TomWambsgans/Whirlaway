@@ -66,7 +66,7 @@ impl<
 
 pub fn pack_extension<EF: Field + ExtensionField<PF<EF>>>(slice: &[EF]) -> Vec<EFPacking<EF>> {
     slice
-        .par_chunks_exact(PFPacking::<EF>::WIDTH)
+        .par_chunks_exact(packing_width::<EF>())
         .map(EFPacking::<EF>::from_ext_slice)
         .collect::<Vec<_>>()
 }
@@ -75,7 +75,7 @@ pub fn unpack_extension<EF: Field + ExtensionField<PF<EF>>>(vec: &[EFPacking<EF>
     vec.into_iter()
         .flat_map(|x| {
             let packed_coeffs = x.as_basis_coefficients_slice();
-            (0..PFPacking::<EF>::WIDTH)
+            (0..packing_width::<EF>())
                 .map(|i| EF::from_basis_coefficients_fn(|j| packed_coeffs[j].as_slice()[i]))
                 .collect::<Vec<_>>()
         })
@@ -116,7 +116,11 @@ pub fn mul_extension_field_packing_by_base_scalar<EF: Field + ExtensionField<PF<
 }
 
 pub const fn packing_log_width<EF: Field>() -> usize {
-    PFPacking::<EF>::WIDTH.ilog2() as usize
+    packing_width::<EF>().ilog2() as usize
+}
+
+pub const fn packing_width<EF: Field>() -> usize {
+    PFPacking::<EF>::WIDTH
 }
 
 #[cfg(test)]
@@ -128,7 +132,7 @@ mod tests {
 
     type EF = BinomialExtensionField<KoalaBear, 4>;
     const D: usize = <EF as BasedVectorSpace<PF<EF>>>::DIMENSION;
-    const W: usize = PFPacking::<EF>::WIDTH;
+    const W: usize = packing_width::<EF>();
 
     #[test]
     fn test_mul_extension_field_packing_by_base_scalar() {

@@ -2,8 +2,6 @@
 
 mod prove;
 pub use prove::*;
-pub mod prove_packed;
-pub use prove_packed::*;
 
 mod verify;
 pub use verify::*;
