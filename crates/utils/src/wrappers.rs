@@ -1,5 +1,6 @@
 use p3_challenger::FieldChallenger;
 use p3_challenger::GrindingChallenger;
+use p3_field::BasedVectorSpace;
 use p3_field::ExtensionField;
 use p3_field::PackedFieldExtension;
 use p3_field::PackedValue;
@@ -70,6 +71,17 @@ pub fn pack_extension<EF: Field + ExtensionField<PF<EF>>>(slice: &[EF]) -> Vec<E
         .collect::<Vec<_>>()
 }
 
+pub fn unpack_extension<EF: Field + ExtensionField<PF<EF>>>(vec: &[EFPacking<EF>]) -> Vec<EF> {
+    vec.into_iter()
+        .flat_map(|x| {
+            let packed_coeffs = x.as_basis_coefficients_slice();
+            (0..PFPacking::<EF>::WIDTH)
+                .map(|i| EF::from_basis_coefficients_fn(|j| packed_coeffs[j].as_slice()[i]))
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
 pub fn transmute_vec<Before, After>(vec: Vec<Before>) -> Vec<After> {
     assert!(vec.len() * std::mem::size_of::<Before>() % std::mem::size_of::<After>() == 0);
     let new_len = vec.len() * std::mem::size_of::<Before>() / std::mem::size_of::<After>();
@@ -93,14 +105,18 @@ pub fn mul_extension_field_packing_by_base_scalar<EF: Field + ExtensionField<PF<
     let mut res = EFPacking::<EF>::default();
     for i in 0..EF::DIMENSION {
         unsafe {
-            let ef_ptr = ef_packing as *const EFPacking<EF> as *const PFPacking::<EF>;
-            let res_ptr = &mut res as *mut EFPacking<EF> as *mut PFPacking::<EF>;
+            let ef_ptr = ef_packing as *const EFPacking<EF> as *const PFPacking<EF>;
+            let res_ptr = &mut res as *mut EFPacking<EF> as *mut PFPacking<EF>;
 
             let base_elem = *ef_ptr.add(i);
             *res_ptr.add(i) = base_elem * scalar;
         }
     }
     res
+}
+
+pub const fn packing_log_width<EF: Field>() -> usize {
+    PFPacking::<EF>::WIDTH.ilog2() as usize
 }
 
 #[cfg(test)]

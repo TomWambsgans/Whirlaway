@@ -5,6 +5,9 @@ use p3_field::{ExtensionField, Field};
 use rayon::prelude::*;
 use tracing::info_span;
 use utils::mul_extension_field_packing_by_base_scalar;
+use utils::pack_extension;
+use utils::packing_log_width;
+use utils::unpack_extension;
 use utils::{
     EFPacking, FSChallenger, FSProver, PF, PFPacking, batch_fold_multilinear_in_large_field,
     transmute_slice, transmute_vec, univariate_selectors,
@@ -95,6 +98,117 @@ where
         .collect::<Vec<_>>();
 
     (MultilinearPoint(challenges), final_folds, sum)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn prove_extension_packed<EF, SC>(
+    skips: usize, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
+    multilinears: Vec<&[EFPacking<EF>]>,
+    computation: &SC,
+    constraints_degree: usize,
+    batching_scalars: &[EF],
+    eq_factor: Option<(&[EF], Option<Vec<EFPacking<EF>>>)>, // (a, b, c ...), eq_poly(b, c, ...)
+    is_zerofier: bool,
+    fs_prover: &mut FSProver<EF, impl FSChallenger<EF>>,
+    mut sum: EF,
+    mut missing_mul_factor: Option<EF>,
+    log: bool,
+) -> (MultilinearPoint<EF>, Vec<EF>, EF)
+where
+    EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    SC: SumcheckComputation<EF, EF> + SumcheckComputationPacked<EF>,
+{
+    let mut n_vars = multilinears[0].len().ilog2() as usize;
+    assert!(multilinears.iter().all(|m| m.len() == 1 << n_vars));
+
+    let mut challenges = Vec::new();
+    let n_rounds = n_vars - skips + 1;
+    let mut eq_factor: Option<(Vec<EF>, Vec<EFPacking<EF>>)> =
+        eq_factor.map(|(eq_point, eq_mle)| {
+            (
+                eq_point.to_vec(),
+                eq_mle.unwrap_or_else(|| {
+                    pack_extension(EvaluationsList::eval_eq(&eq_point[1..]).evals())
+                }),
+            )
+        });
+    if let Some((eq_point, eq_mle)) = &eq_factor {
+        assert_eq!(eq_point.len(), n_vars - skips + 1);
+        assert_eq!(eq_mle.len(), 1 << (eq_point.len() - 1));
+    }
+
+    assert!(
+        n_vars > packing_log_width::<EF>() + skips,
+        "too little variables for packing sumcheck"
+    );
+
+    let mut folded_multilinears = sc_round_packed_extension(
+        skips,
+        &multilinears,
+        &mut n_vars,
+        computation,
+        &mut eq_factor,
+        batching_scalars,
+        is_zerofier,
+        fs_prover,
+        constraints_degree,
+        &mut sum,
+        &mut challenges,
+        &mut missing_mul_factor,
+        log,
+    );
+
+    let last_round_packed = n_rounds - packing_log_width::<EF>() - 1;
+
+    for _ in 1..last_round_packed {
+        folded_multilinears = sc_round_packed_extension(
+            1,
+            &folded_multilinears
+                .iter()
+                .map(|m| m.as_slice())
+                .collect::<Vec<_>>(),
+            &mut n_vars,
+            computation,
+            &mut eq_factor,
+            batching_scalars,
+            false,
+            fs_prover,
+            constraints_degree,
+            &mut sum,
+            &mut challenges,
+            &mut missing_mul_factor,
+            log,
+        );
+    }
+
+    let unpacked_eq_factor = eq_factor
+        .as_ref()
+        .map(|(eq_point, eq_mle)| (eq_point.as_slice(), Some(unpack_extension(eq_mle))));
+    let folded_multilinears = folded_multilinears
+        .into_iter()
+        .map(|m| unpack_extension(&m))
+        .collect::<Vec<Vec<EF>>>();
+
+    let (final_challenges, folds, final_sum) = prove(
+        1,
+        folded_multilinears
+            .iter()
+            .map(|m| m.as_slice())
+            .collect::<Vec<_>>(),
+        computation,
+        constraints_degree,
+        batching_scalars,
+        unpacked_eq_factor,
+        false,
+        fs_prover,
+        sum,
+        missing_mul_factor,
+        log,
+    );
+
+    challenges.extend(final_challenges.0);
+
+    (MultilinearPoint(challenges), folds, final_sum)
 }
 
 #[allow(clippy::too_many_arguments)]
