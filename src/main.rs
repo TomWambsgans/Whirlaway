@@ -10,7 +10,7 @@ use crate::examples::poseidon2::prove_poseidon2;
 const SECURITY_BITS: usize = 128;
 
 fn main() {
-    let (log_n_rows, log_inv_rate) = (16, 1);
+    let (log_n_rows, log_inv_rate) = (17, 1);
     let benchmark = prove_poseidon2(
         log_n_rows,
         AirSettings::new(
@@ -22,7 +22,7 @@ fn main() {
             5,
         ),
         0,
-        false,
+        true,
     );
     println!("\n{benchmark}");
 }

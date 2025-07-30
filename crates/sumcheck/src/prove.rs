@@ -330,7 +330,7 @@ where
     EF: ExtensionField<NF> + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
     SC: SumcheckComputation<NF, EF>,
 {
-    let _info_span = log.then(|| info_span!("sumcheck round"));
+    let _info_span = log.then(|| info_span!("sumcheck round").entered());
 
     let selectors = univariate_selectors::<PF<EF>>(skips);
 
@@ -476,7 +476,7 @@ where
     EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
     SC: SumcheckComputationPacked<EF>,
 {
-    let _info_span = log.then(|| info_span!("sumcheck round"));
+    let _info_span = log.then(|| info_span!("sumcheck round").entered());
 
     let selectors = univariate_selectors::<PF<EF>>(skips);
 
@@ -502,7 +502,7 @@ where
         })
         .collect::<Vec<Vec<PF<EF>>>>();
 
-    let fold_size = (1 << (*n_vars - skips)) / packing_width::<EF>();
+    let fold_size = 1 << (*n_vars - skips);
     let packed_fold_size = fold_size / packing_width::<EF>();
 
     let all_sums = unsafe { uninitialized_vec::<EFPacking<EF>>(zs.len() * packed_fold_size) }; // sums for zs[0], sums for zs[1], ...
@@ -638,7 +638,7 @@ where
     EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
     SC: SumcheckComputationPacked<EF>,
 {
-    let _info_span = log.then(|| info_span!("sumcheck round"));
+    let _info_span = log.then(|| info_span!("sumcheck round").entered());
 
     let selectors = univariate_selectors::<PF<EF>>(skips);
 
@@ -729,7 +729,6 @@ where
         };
         p_evals.push((PF::<EF>::from_usize((1 << skips) - 1), missing_sum_z));
     }
-
 
     let mut p = WhirDensePolynomial::lagrange_interpolation(&p_evals).unwrap();
 
