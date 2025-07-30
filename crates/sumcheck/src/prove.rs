@@ -1,17 +1,17 @@
 use p3_field::PackedFieldExtension;
+use p3_field::PackedValue;
 use p3_field::PrimeCharacteristicRing;
 use p3_field::{ExtensionField, Field};
 use rayon::prelude::*;
 use tracing::info_span;
 use utils::batch_fold_multilinear_in_large_field_packed;
-use utils::mul_extension_field_packing_by_base_scalar;
 use utils::pack_extension;
 use utils::packing_log_width;
 use utils::packing_width;
 use utils::unpack_extension;
 use utils::{
     EFPacking, FSChallenger, FSProver, PF, PFPacking, batch_fold_multilinear_in_large_field,
-    transmute_slice, univariate_selectors,
+    univariate_selectors,
 };
 use whir_p3::poly::multilinear::MultilinearPoint;
 use whir_p3::poly::{dense::WhirDensePolynomial, evals::EvaluationsList};
@@ -28,7 +28,7 @@ pub fn prove_generic<NF, EF, SC>(
     batching_scalars: &[EF],
     mut eq_factor: Option<(&[EF], Option<Vec<EF>>)>, // (a, b, c ...), eq_poly(b, c, ...)
     is_zerofier: bool,
-    fs_prover: &mut FSProver<EF, impl FSChallenger<EF>>,
+    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     mut sum: EF,
     mut missing_mul_factor: Option<EF>,
     log: bool,
@@ -61,7 +61,7 @@ where
         &mut eq_factor,
         batching_scalars,
         is_zerofier,
-        fs_prover,
+        prover_state,
         constraints_degree,
         &mut sum,
         &mut challenges,
@@ -81,7 +81,7 @@ where
             &mut eq_factor,
             batching_scalars,
             false,
-            fs_prover,
+            prover_state,
             constraints_degree,
             &mut sum,
             &mut challenges,
@@ -110,7 +110,7 @@ pub fn prove_extension_packed<EF, SC>(
     batching_scalars: &[EF],
     eq_factor: Option<(&[EF], Option<Vec<EFPacking<EF>>>)>, // (a, b, c ...), eq_poly(b, c, ...)
     is_zerofier: bool,
-    fs_prover: &mut FSProver<EF, impl FSChallenger<EF>>,
+    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     mut sum: EF,
     mut missing_mul_factor: Option<EF>,
     log: bool,
@@ -158,7 +158,7 @@ where
         &mut eq_factor,
         batching_scalars,
         is_zerofier,
-        fs_prover,
+        prover_state,
         constraints_degree,
         &mut sum,
         &mut challenges,
@@ -179,7 +179,7 @@ where
             &mut eq_factor,
             batching_scalars,
             false,
-            fs_prover,
+            prover_state,
             constraints_degree,
             &mut sum,
             &mut challenges,
@@ -208,7 +208,7 @@ where
         batching_scalars,
         unpacked_eq_factor,
         false,
-        fs_prover,
+        prover_state,
         sum,
         missing_mul_factor,
         log,
@@ -228,7 +228,7 @@ pub fn prove_base_packed<EF, SC>(
     batching_scalars: &[EF],
     eq_factor: Option<(&[EF], Option<Vec<EFPacking<EF>>>)>, // (a, b, c ...), eq_poly(b, c, ...)
     is_zerofier: bool,
-    fs_prover: &mut FSProver<EF, impl FSChallenger<EF>>,
+    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     mut sum: EF,
     mut missing_mul_factor: Option<EF>,
     log: bool,
@@ -275,7 +275,7 @@ where
         &mut eq_factor,
         batching_scalars,
         is_zerofier,
-        fs_prover,
+        prover_state,
         constraints_degree,
         &mut sum,
         &mut challenges,
@@ -298,8 +298,8 @@ where
         constraints_degree,
         batching_scalars,
         eq_factor,
-        is_zerofier,
-        fs_prover,
+        false,
+        prover_state,
         sum,
         missing_mul_factor,
         log,
@@ -318,7 +318,7 @@ fn sc_round_generic<NF, EF, SC>(
     eq_factor: &mut Option<(Vec<EF>, Vec<EF>)>, // (a, b, c ...), eq_poly(b, c, ...)
     batching_scalars: &[EF],
     is_zerofier: bool,
-    fs_prover: &mut FSProver<EF, impl FSChallenger<EF>>,
+    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     comp_degree: usize,
     sum: &mut EF,
     challenges: &mut Vec<EF>,
@@ -429,9 +429,9 @@ where
         .unwrap();
     }
 
-    fs_prover.add_extension_scalars(&p.coeffs);
+    prover_state.add_extension_scalars(&p.coeffs);
 
-    let challenge = fs_prover.sample();
+    let challenge = prover_state.sample();
     challenges.push(challenge);
     *sum = p.evaluate(challenge);
     *n_vars -= skips;
@@ -465,7 +465,7 @@ fn sc_round_packed_base<EF, SC>(
     eq_factor: &mut Option<(Vec<EF>, Vec<EFPacking<EF>>)>, // (a, b, c ...), eq_poly(b, c, ...)
     batching_scalars: &[EF],
     is_zerofier: bool,
-    fs_prover: &mut FSProver<EF, impl FSChallenger<EF>>,
+    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     comp_degree: usize,
     sum: &mut EF,
     challenges: &mut Vec<EF>,
@@ -506,7 +506,7 @@ where
     let packed_fold_size = fold_size / packing_width::<EF>();
 
     let all_sums = unsafe { uninitialized_vec::<EFPacking<EF>>(zs.len() * packed_fold_size) }; // sums for zs[0], sums for zs[1], ...
-    (0..fold_size).into_par_iter().for_each(|i| {
+    (0..packed_fold_size).into_par_iter().for_each(|i| {
         let eq_mle_eval = eq_factor.as_ref().map(|(_, eq_mle)| eq_mle[i]);
         let rows = multilinears
             .iter()
@@ -538,6 +538,7 @@ where
             }
         }
     });
+
     for (z_index, z) in zs.iter().enumerate() {
         let sum_z_packed = all_sums[z_index * packed_fold_size..(z_index + 1) * packed_fold_size]
             .par_iter()
@@ -579,9 +580,9 @@ where
         .unwrap();
     }
 
-    fs_prover.add_extension_scalars(&p.coeffs);
+    prover_state.add_extension_scalars(&p.coeffs);
 
-    let challenge = fs_prover.sample();
+    let challenge = prover_state.sample();
     challenges.push(challenge);
     *sum = p.evaluate(challenge);
     *n_vars -= skips;
@@ -608,7 +609,7 @@ where
         &multilinears
             .iter()
             .copied()
-            .map(transmute_slice::<_, PF<EF>>)
+            .map(PFPacking::<EF>::unpack_slice)
             .collect::<Vec<_>>(),
         &folding_scalars,
     )
@@ -626,7 +627,7 @@ fn sc_round_packed_extension<EF, SC>(
     eq_factor: &mut Option<(Vec<EF>, Vec<EFPacking<EF>>)>, // (a, b, c ...), eq_poly(b, c, ...)
     batching_scalars: &[EF],
     is_zerofier: bool,
-    fs_prover: &mut FSProver<EF, impl FSChallenger<EF>>,
+    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     comp_degree: usize,
     sum: &mut EF,
     challenges: &mut Vec<EF>,
@@ -683,7 +684,7 @@ where
                 .map(|row| {
                     row.iter()
                         .zip(folding_scalars_z.iter())
-                        .map(|(x, s)| mul_extension_field_packing_by_base_scalar::<EF>(x, *s))
+                        .map(|(x, s)| *x * PFPacking::<EF>::from(*s))
                         .sum::<EFPacking<EF>>()
                 })
                 .collect::<Vec<_>>();
@@ -729,6 +730,7 @@ where
         p_evals.push((PF::<EF>::from_usize((1 << skips) - 1), missing_sum_z));
     }
 
+
     let mut p = WhirDensePolynomial::lagrange_interpolation(&p_evals).unwrap();
 
     if let Some((eq_factor, _)) = &eq_factor {
@@ -743,9 +745,9 @@ where
         .unwrap();
     }
 
-    fs_prover.add_extension_scalars(&p.coeffs);
+    prover_state.add_extension_scalars(&p.coeffs);
 
-    let challenge = fs_prover.sample();
+    let challenge = prover_state.sample();
     challenges.push(challenge);
     *sum = p.evaluate(challenge);
     *n_vars -= skips;

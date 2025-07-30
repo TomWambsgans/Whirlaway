@@ -1,6 +1,6 @@
 use p3_field::Field;
+use p3_field::PackedValue;
 use rayon::prelude::*;
-use utils::transmute_vec;
 use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
 pub(crate) fn matrix_up_lde<F: Field>(point: &[F]) -> F {
@@ -138,7 +138,7 @@ pub(crate) fn columns_up_and_down<F: Field>(
         .par_iter()
         .map(|c| column_up(c))
         .chain(columns.par_iter().map(|c| column_down(c)))
-        .map(transmute_vec)
+        .map(|x| F::Packing::pack_slice(&x).to_vec()) // TODO avoid clone
         .collect()
 }
 
