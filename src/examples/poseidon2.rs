@@ -104,7 +104,7 @@ pub fn prove_poseidon2(
     let constants =
         RoundConstants::<F, WIDTH, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>::from_rng(&mut rng);
 
-    let poseidon_air_base = Poseidon2Air::<
+    let poseidon_air = Poseidon2Air::<
         F,
         LinearLayers,
         WIDTH,

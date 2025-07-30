@@ -79,6 +79,7 @@ where
         let mv_params = MultivariateParameters::new(num_variables);
 
         let whir_params = ProtocolParameters {
+            max_num_variables_to_send_coeffs: 6,
             security_level: settings.security_bits,
             pow_bits: WHIR_POW_BITS,
             folding_factor: settings.whir_folding_factor,

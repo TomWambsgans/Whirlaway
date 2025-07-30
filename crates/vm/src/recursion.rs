@@ -860,6 +860,7 @@ pub fn run_whir_verif() {
     let merkle_compress = MerkleCompress::new(poseidon16.clone());
 
     let whir_params = ProtocolParameters {
+        max_num_variables_to_send_coeffs: 6,
         security_level: 128,
         pow_bits: 17,
         folding_factor: FoldingFactor::ConstantFromSecondRound(4, 4),
