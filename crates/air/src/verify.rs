@@ -46,7 +46,7 @@ impl From<SumcheckError> for AirVerifError {
 
 impl<
     EF: TwoAdicField + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
-    A: for<'a> Air<ConstraintFolder<'a, PF<EF>, EF, EF>>,
+    A: for<'a> Air<ConstraintFolder<'a, EF, EF>>,
 > AirTable<EF, A>
 {
     #[instrument(name = "air table: verify", skip_all)]

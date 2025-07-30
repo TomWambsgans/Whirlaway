@@ -1,13 +1,11 @@
-use std::any::TypeId;
-
 use p3_field::PrimeCharacteristicRing;
 use p3_field::{BasedVectorSpace, PackedValue};
 use p3_field::{ExtensionField, Field};
 use rayon::prelude::*;
 use tracing::info_span;
 use utils::{
-    EFPacking, EFPackingOf, FSChallenger, FSProver, PF, PFPacking,
-    batch_fold_multilinear_in_large_field, batch_fold_multilinear_in_small_field, transmute_slice,
+    EFPacking,  FSChallenger, FSProver, PF, PFPacking,
+    batch_fold_multilinear_in_large_field,  transmute_slice,
     transmute_vec, univariate_selectors,
 };
 use whir_p3::poly::multilinear::MultilinearPoint;
@@ -17,7 +15,7 @@ use whir_p3::utils::uninitialized_vec;
 use crate::{SumcheckComputation, SumcheckComputationPacked};
 
 #[allow(clippy::too_many_arguments)]
-pub fn prove<F, NF, EF, SC>(
+pub fn prove<NF, EF, SC>(
     skips: usize, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
     multilinears: Vec<&[NF]>,
     computation: &SC,
@@ -32,12 +30,11 @@ pub fn prove<F, NF, EF, SC>(
     log: bool,
 ) -> (MultilinearPoint<EF>, Vec<Vec<EF>>, EF)
 where
-    F: Field,
-    NF: ExtensionField<F>,
-    EF: ExtensionField<NF> + ExtensionField<F> + ExtensionField<PF<PF<EF>>>,
-    SC: SumcheckComputation<F, NF, EF>
-        + SumcheckComputation<F, EF, EF>
-        + SumcheckComputationPacked<F, EF>,
+    NF: ExtensionField<PF<EF>>,
+    EF: ExtensionField<NF> + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    SC: SumcheckComputation<NF, EF>
+        + SumcheckComputation<EF, EF>
+        + SumcheckComputationPacked<EF>,
 {
     let mut n_vars = multilinears[0].len().ilog2() as usize;
     assert!(multilinears.iter().all(|m| m.len() == 1 << n_vars));
@@ -95,7 +92,7 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn sc_round_generic<F, NF, EF, SC>(
+pub(crate) fn sc_round_generic<NF, EF, SC>(
     skips: usize, // the first round will fold 2^skips (instead of 2 in the basic sumcheck)
     multilinears: &[&[NF]],
     n_vars: &mut usize,
@@ -111,18 +108,17 @@ pub(crate) fn sc_round_generic<F, NF, EF, SC>(
     log: bool,
 ) -> Vec<Vec<EF>>
 where
-    F: Field,
-    NF: ExtensionField<F>,
-    EF: ExtensionField<NF> + ExtensionField<F> + ExtensionField<PF<PF<EF>>>,
-    SC: SumcheckComputation<F, NF, EF>,
+    NF: ExtensionField<PF<EF>>,
+    EF: ExtensionField<NF> + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    SC: SumcheckComputation<NF, EF>,
 {
     let _info_span = log.then(|| info_span!("sumcheck round"));
 
-    let selectors = univariate_selectors::<F>(skips);
+    let selectors = univariate_selectors::<PF<EF>>(skips);
 
-    let mut p_evals = Vec::<(F, EF)>::new();
+    let mut p_evals = Vec::<(PF<EF>, EF)>::new();
     let start = if is_zerofier {
-        p_evals.extend((0..1 << skips).map(|i| (F::from_usize(i), EF::ZERO)));
+        p_evals.extend((0..1 << skips).map(|i| (PF::<EF>::from_usize(i), EF::ZERO)));
         1 << skips
     } else {
         0
@@ -137,7 +133,7 @@ where
         .map(|&z| {
             selectors
                 .iter()
-                .map(|s| s.evaluate(F::from_usize(z)))
+                .map(|s| s.evaluate(PF::<EF>::from_usize(z)))
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
@@ -183,7 +179,7 @@ where
         if let Some(missing_mul_factor) = missing_mul_factor {
             sum_z *= *missing_mul_factor;
         }
-        p_evals.push((F::from_usize(*z), sum_z));
+        p_evals.push((PF::<EF>::from_usize(*z), sum_z));
     }
     if !is_zerofier {
         let missing_sum_z = if let Some((eq_factor, _)) = eq_factor {
@@ -198,7 +194,7 @@ where
                 .map(|(_, s)| *s)
                 .sum::<EF>()
         };
-        p_evals.push((F::from_usize((1 << skips) - 1), missing_sum_z));
+        p_evals.push((PF::<EF>::from_usize((1 << skips) - 1), missing_sum_z));
     }
 
     let mut p = WhirDensePolynomial::lagrange_interpolation(&p_evals).unwrap();
@@ -209,7 +205,7 @@ where
         p *= &WhirDensePolynomial::lagrange_interpolation(
             &(0..1 << skips)
                 .into_par_iter()
-                .map(|i| (F::from_usize(i), selectors[i].evaluate(eq_factor[0])))
+                .map(|i| (PF::<EF>::from_usize(i), selectors[i].evaluate(eq_factor[0])))
                 .collect::<Vec<_>>(),
         )
         .unwrap();
@@ -260,7 +256,7 @@ pub(crate) fn sc_round_packed_base<EF, SC>(
 ) -> Vec<Vec<EFPacking<EF>>>
 where
     EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
-    SC: SumcheckComputationPacked<PF<EF>, EF>,
+    SC: SumcheckComputationPacked<EF>,
 {
     let _info_span = log.then(|| info_span!("sumcheck round"));
 
@@ -411,4 +407,29 @@ where
     .into_iter()
     .map(transmute_vec)
     .collect()
+}
+
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn sc_round<NF, EF, SC>(
+    skips: usize, // the first round will fold 2^skips (instead of 2 in the basic sumcheck)
+    multilinears: &[&[NF]],
+    n_vars: &mut usize,
+    computation: &SC,
+    eq_factor: &mut Option<(Vec<EF>, Vec<EF>)>, // (a, b, c ...), eq_poly(b, c, ...)
+    batching_scalars: &[EF],
+    is_zerofier: bool,
+    fs_prover: &mut FSProver<EF, impl FSChallenger<EF>>,
+    comp_degree: usize,
+    sum: &mut EF,
+    challenges: &mut Vec<EF>,
+    missing_mul_factor: &mut Option<EF>,
+    log: bool,
+) -> Vec<Vec<EF>>
+where
+    NF: ExtensionField<PF<EF>>,
+    EF: ExtensionField<NF> + ExtensionField<PF<EF>>,
+    SC: SumcheckComputation<NF, EF> + SumcheckComputationPacked<EF>,
+{
+    todo!()
 }

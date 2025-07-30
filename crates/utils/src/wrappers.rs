@@ -15,8 +15,7 @@ pub type PFPacking<F> = <PF<F> as Field>::Packing;
 
 pub type FSProver<EF, Challenger> = ProverState<PF<PF<EF>>, EF, Challenger>;
 pub type FSVerifier<EF, Challenger> = VerifierState<PF<PF<EF>>, EF, Challenger>;
-pub type EFPackingOf<EF, F> = <EF as ExtensionField<F>>::ExtensionPacking;
-pub type EFPacking<F> = EFPackingOf<F, PF<F>>;
+pub type EFPacking<EF> = <EF as ExtensionField<PF<EF>>>::ExtensionPacking;
 
 pub trait FSChallenger<EF: Field>:
     FieldChallenger<PF<PF<EF>>> + GrindingChallenger<Witness = PF<PF<EF>>> + ChallengerState

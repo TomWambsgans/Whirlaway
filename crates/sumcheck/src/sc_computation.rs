@@ -1,19 +1,18 @@
 use p3_air::Air;
-use p3_field::PrimeCharacteristicRing;
 use p3_field::{ExtensionField, Field};
 use p3_matrix::dense::RowMajorMatrixView;
-use utils::{ConstraintFolder, ConstraintFolderPacked, EFPackingOf};
+use utils::{ConstraintFolder, ConstraintFolderPacked, EFPacking, PF, PFPacking};
 
-pub trait SumcheckComputation<F, NF, EF>: Sync {
+pub trait SumcheckComputation<NF, EF>: Sync {
     fn eval(&self, point: &[NF], alpha_powers: &[EF]) -> EF;
 }
 
-impl<F, NF, EF, A> SumcheckComputation<F, NF, EF> for A
+impl<NF, EF, A> SumcheckComputation<NF, EF> for A
 where
-    F: Field,
-    NF: ExtensionField<F>,
-    EF: ExtensionField<NF> + ExtensionField<F>,
-    A: for<'a> Air<ConstraintFolder<'a, F, NF, EF>>,
+    NF: ExtensionField<PF<EF>>,
+    EF: ExtensionField<NF> + ExtensionField<PF<EF>>,
+    PF<EF>: ExtensionField<PF<PF<EF>>> + ExtensionField<PF<NF>>,
+    A: for<'a> Air<ConstraintFolder<'a, NF, EF>>,
 {
     fn eval(&self, point: &[NF], alpha_powers: &[EF]) -> EF {
         assert_eq!(A::width(self) * 2, point.len());
@@ -22,48 +21,43 @@ where
             alpha_powers,
             accumulator: EF::ZERO,
             constraint_index: 0,
-            _phantom: std::marker::PhantomData,
         };
         self.eval(&mut folder);
         folder.accumulator
     }
 }
 
-pub trait SumcheckComputationPacked<F, EF>: Sync
+pub trait SumcheckComputationPacked<EF>: Sync
 where
-    F: Field,
-    EF: ExtensionField<F>,
+    EF: Field + ExtensionField<PF<EF>>,
 {
     fn eval_packed_base(
         &self,
-        point: &[F::Packing],
+        point: &[PFPacking<EF>],
         alpha_powers: &[EF],
-        decomposed_alpha_powers: &[Vec<F>],
-    ) -> EFPackingOf<EF, F>;
+        decomposed_alpha_powers: &[Vec<PF<EF>>],
+    ) -> EFPacking<EF>;
 
-    fn eval_packed_extension(
-        &self,
-        point: &[<EF as ExtensionField<F>>::ExtensionPacking],
-    ) -> EFPackingOf<EF, F>;
+    fn eval_packed_extension(&self, point: &[EFPacking<EF>]) -> EFPacking<EF>;
 }
 
-impl<F, EF, A> SumcheckComputationPacked<F, EF> for A
+impl<EF: Field, A> SumcheckComputationPacked<EF> for A
 where
-    F: Field,
-    EF: ExtensionField<F>,
-    A: for<'a> Air<ConstraintFolderPacked<'a, F, EF>>,
+    EF: ExtensionField<PF<EF>>,
+    PF<EF>: ExtensionField<PF<PF<EF>>>,
+    A: for<'a> Air<ConstraintFolderPacked<'a, EF>>,
 {
     fn eval_packed_base(
         &self,
-        point: &[F::Packing],
+        point: &[PFPacking<EF>],
         alpha_powers: &[EF],
-        decomposed_alpha_powers: &[Vec<F>],
-    ) -> EFPackingOf<EF, F> {
+        decomposed_alpha_powers: &[Vec<PF<EF>>],
+    ) -> EFPacking<EF> {
         let mut folder = ConstraintFolderPacked {
             main: RowMajorMatrixView::new(point, point.len() / 2),
             alpha_powers: alpha_powers,
             decomposed_alpha_powers: decomposed_alpha_powers,
-            accumulator: <EF as ExtensionField<F>>::ExtensionPacking::ZERO,
+            accumulator: Default::default(),
             constraint_index: 0,
         };
         self.eval(&mut folder);
@@ -71,35 +65,24 @@ where
         folder.accumulator
     }
 
-    fn eval_packed_extension(
-        &self,
-        _: &[<EF as ExtensionField<F>>::ExtensionPacking],
-    ) -> <EF as ExtensionField<F>>::ExtensionPacking {
+    fn eval_packed_extension(&self, _: &[EFPacking<EF>]) -> EFPacking<EF> {
         todo!()
     }
 }
 
 pub struct ProductComputation;
 
-impl<F: Field, EF: ExtensionField<F>> SumcheckComputation<F, EF, EF> for ProductComputation {
+impl<EF: Field> SumcheckComputation<EF, EF> for ProductComputation {
     fn eval(&self, point: &[EF], _: &[EF]) -> EF {
         unsafe { *point.get_unchecked(0) * *point.get_unchecked(1) }
     }
 }
 
-impl<F: Field, EF: ExtensionField<F>> SumcheckComputationPacked<F, EF> for ProductComputation {
-    fn eval_packed_base(
-        &self,
-        _: &[<F as Field>::Packing],
-        _: &[EF],
-        _: &[Vec<F>],
-    ) -> EFPackingOf<EF, F> {
+impl<EF: Field + ExtensionField<PF<EF>>> SumcheckComputationPacked<EF> for ProductComputation {
+    fn eval_packed_base(&self, _: &[PFPacking<EF>], _: &[EF], _: &[Vec<PF<EF>>]) -> EFPacking<EF> {
         todo!()
     }
-    fn eval_packed_extension(
-        &self,
-        _: &[<EF as ExtensionField<F>>::ExtensionPacking],
-    ) -> EFPackingOf<EF, F> {
+    fn eval_packed_extension(&self, _: &[EFPacking<EF>]) -> EFPacking<EF> {
         todo!()
     }
 }

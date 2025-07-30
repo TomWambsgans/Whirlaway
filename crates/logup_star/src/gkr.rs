@@ -165,7 +165,7 @@ where
     } else {
         let (mut sc_point, inner_evals, _) =
             info_span!("remaining sumcheck rounds").in_scope(|| {
-                sumcheck::prove::<PF<EF>, EF, EF, _>(
+                sumcheck::prove::<EF, EF, _>(
                     1,
                     [u0_folded, u1_folded, u2_folded, u3_folded].to_vec(),
                     &GKRQuotientComputation { u4_const, u5_const },
@@ -418,7 +418,7 @@ pub struct GKRQuotientComputation<EF> {
     u5_const: EF,
 }
 
-impl<F: Field, EF: ExtensionField<F>> SumcheckComputation<F, EF, EF>
+impl<EF: Field> SumcheckComputation<EF, EF>
     for GKRQuotientComputation<EF>
 {
     fn eval(&self, point: &[EF], _: &[EF]) -> EF {
@@ -428,23 +428,19 @@ impl<F: Field, EF: ExtensionField<F>> SumcheckComputation<F, EF, EF>
     }
 }
 
-impl<F: Field, EF: ExtensionField<F>> SumcheckComputationPacked<F, EF>
+impl<EF: ExtensionField<PF<EF>>> SumcheckComputationPacked<EF>
     for GKRQuotientComputation<EF>
 {
     fn eval_packed_base(
         &self,
-        _: &[<F as Field>::Packing],
+        _: &[PFPacking<EF>],
         _: &[EF],
-        _: &[Vec<F>],
-    ) -> impl Iterator<Item = EF> + Send + Sync {
-        // Unreachable
-        std::iter::once(EF::ZERO)
+        _: &[Vec<PF<EF>>],
+    ) -> EFPacking<EF> {
+        todo!()
     }
 
-    fn eval_packed_extension(
-        &self,
-        point: &[<EF as ExtensionField<F>>::ExtensionPacking],
-    ) -> <EF as ExtensionField<F>>::ExtensionPacking {
+    fn eval_packed_extension(&self, point: &[EFPacking<EF>]) -> EFPacking<EF> {
         point[2] * point[3] * self.u4_const
             + (point[0] * point[3] + point[1] * point[2]) * self.u5_const
     }

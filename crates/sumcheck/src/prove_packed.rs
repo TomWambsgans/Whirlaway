@@ -32,9 +32,8 @@ pub fn prove_packed<EF, M, SC>(
 where
     EF: Field + ExtensionField<PF<PF<EF>>> + ExtensionField<PF<EF>>,
     M: Borrow<[EFPacking<EF>]>,
-    SC: SumcheckComputation<PF<PF<EF>>, EF, EF>
-        + SumcheckComputation<PF<EF>, EF, EF>
-        + SumcheckComputationPacked<PF<EF>, EF>,
+    SC: SumcheckComputation<EF, EF>
+        + SumcheckComputationPacked<EF>,
 {
     let multilinears = multilinears.iter().map(|m| m.borrow()).collect::<Vec<_>>();
     let mut n_vars = (multilinears[0].len() * PFPacking::<EF>::WIDTH).ilog2() as usize;
@@ -108,7 +107,7 @@ where
     });
 
     for _ in last_round_packed..n_rounds {
-        folded_multilinears_unpacked = sc_round::<PF<EF>, EF, EF, _>(
+        folded_multilinears_unpacked = sc_round::<EF, EF, _>(
             skips,
             &folded_multilinears_unpacked
                 .iter()
@@ -153,7 +152,7 @@ fn sc_round_packed<EF, SC>(
 ) -> Vec<Vec<EFPacking<EF>>>
 where
     EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
-    SC: SumcheckComputation<PF<PF<EF>>, EF, EF> + SumcheckComputationPacked<PF<EF>, EF>,
+    SC: SumcheckComputation<EF, EF> + SumcheckComputationPacked<EF>,
 {
     let _info_span = log.then(|| info_span!("sumcheck round", round,));
 
@@ -301,7 +300,7 @@ fn eval_sumcheck_computation<EF, SC>(
 ) -> EFPacking<EF>
 where
     EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
-    SC: SumcheckComputationPacked<PF<EF>, EF>,
+    SC: SumcheckComputationPacked<EF>,
 {
     let res = computation.eval_packed_extension(point);
     eq_mle_eval.map_or(res, |factor| res * factor)

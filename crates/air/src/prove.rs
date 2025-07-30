@@ -32,9 +32,9 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 impl<EF, A> AirTable<EF, A>
 where
     EF: TwoAdicField + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
-    A: for<'a> Air<ConstraintFolder<'a, PF<EF>, PF<EF>, EF>>
-        + for<'a> Air<ConstraintFolder<'a, PF<EF>, EF, EF>>
-        + for<'a> Air<ConstraintFolderPacked<'a, PF<EF>, EF>>,
+    A: for<'a> Air<ConstraintFolder<'a, PF<EF>, EF>>
+        + for<'a> Air<ConstraintFolder<'a, EF, EF>>
+        + for<'a> Air<ConstraintFolderPacked<'a, EF>>,
 {
     #[instrument(name = "air: prove", skip_all)]
     pub fn prove<const DIGEST_ELEMS: usize>(
@@ -100,7 +100,7 @@ where
         let my_columns_up_and_down = columns_up_and_down(&preprocessed_and_witness);
 
         let (zerocheck_challenges, all_inner_sums, _) = info_span!("zerocheck").in_scope(|| {
-            sumcheck::prove::<PF<EF>, PF<EF>, EF, _>(
+            sumcheck::prove::<PF<EF>, EF, _>(
                 settings.univariate_skips,
                 my_columns_up_and_down
                     .iter()
@@ -179,7 +179,7 @@ where
         let inner_sum = info_span!("inner sum evaluation")
             .in_scope(|| batched_column_mixed.evaluate(&MultilinearPoint(point.clone())));
 
-        let (inner_challenges, inner_evals, _) = sumcheck::prove::<PF<EF>, EF, EF, _>(
+        let (inner_challenges, inner_evals, _) = sumcheck::prove::<EF, EF, _>(
             1,
             mles_for_inner_sumcheck
                 .iter()
