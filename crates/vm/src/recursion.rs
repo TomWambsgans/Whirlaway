@@ -30,29 +30,33 @@ pub fn run_whir_verif() {
 
     const N_VARS = 22;
     const LOG_INV_RATE = 2; 
-    const N_ROUNDS = 3;
+    const N_ROUNDS = 4;
 
     const FOLDING_FACTOR_0 = 4;
     const FOLDING_FACTOR_1 = 4;
     const FOLDING_FACTOR_2 = 4;
     const FOLDING_FACTOR_3 = 4;
+    const FOLDING_FACTOR_4 = 4;
 
-    const FINAL_VARS = N_VARS - (FOLDING_FACTOR_0 + FOLDING_FACTOR_1 + FOLDING_FACTOR_2 + FOLDING_FACTOR_3);
+    const FINAL_VARS = N_VARS - (FOLDING_FACTOR_0 + FOLDING_FACTOR_1 + FOLDING_FACTOR_2 + FOLDING_FACTOR_3 + FOLDING_FACTOR_4);
 
     const RS_REDUCTION_FACTOR_0 = 1;
     const RS_REDUCTION_FACTOR_1 = 1;
     const RS_REDUCTION_FACTOR_2 = 1;
     const RS_REDUCTION_FACTOR_3 = 1;
+    const RS_REDUCTION_FACTOR_4 = 1;
 
     const NUM_QUERIES_0 = 58;
     const NUM_QUERIES_1 = 23;
     const NUM_QUERIES_2 = 14;
     const NUM_QUERIES_3 = 11;
+    const NUM_QUERIES_4 = 8;
 
     const GRINDING_BITS_0 = 16;
     const GRINDING_BITS_1 = 14;
     const GRINDING_BITS_2 = 16;
     const GRINDING_BITS_3 = 7;
+    const GRINDING_BITS_4 = 16;
 
     const TWO_ADICITY = 24;
     const ROOT = 1791270792; // of order 2^TWO_ADICITY
@@ -83,13 +87,16 @@ pub fn run_whir_verif() {
             whir_round(fs_state_6, root_2, FOLDING_FACTOR_2, 2**FOLDING_FACTOR_2, 0, NUM_QUERIES_2, domain_size_2, claimed_sum_2, GRINDING_BITS_2);
 
         domain_size_3 = domain_size_2 - RS_REDUCTION_FACTOR_2;
-        fs_state_8, folding_randomness_4, final_claimed_sum = sumcheck(fs_state_7, FOLDING_FACTOR_3, claimed_sum_3);
+        fs_state_7_bis, folding_randomness_4, ood_point_4, root_4, circle_values_4, combination_randomness_powers_4, claimed_sum_4 = 
+            whir_round(fs_state_7, root_3, FOLDING_FACTOR_3, 2**FOLDING_FACTOR_3, 0, NUM_QUERIES_3, domain_size_3, claimed_sum_3, GRINDING_BITS_3);
+
+        domain_size_4 = domain_size_3 - RS_REDUCTION_FACTOR_3;
+        fs_state_8, folding_randomness_5, final_claimed_sum = sumcheck(fs_state_7_bis, FOLDING_FACTOR_4, claimed_sum_4);
         fs_state_9, final_coeffcients = fs_receive(fs_state_8, 2**FINAL_VARS);
         fs_state_10, final_circle_values, final_folds =
-            sample_stir_indexes_and_fold(fs_state_9, NUM_QUERIES_3, 0, FOLDING_FACTOR_3, 2**FOLDING_FACTOR_3, domain_size_3, root_3, folding_randomness_4, GRINDING_BITS_3);
+            sample_stir_indexes_and_fold(fs_state_9, NUM_QUERIES_4, 0, FOLDING_FACTOR_4, 2**FOLDING_FACTOR_4, domain_size_4, root_4, folding_randomness_5, GRINDING_BITS_4);
 
-        
-        for i in 0..NUM_QUERIES_3 {
+        for i in 0..NUM_QUERIES_4 {
             powers_of_2_rev = powers_of_two_rev_base(final_circle_values[i], FINAL_VARS);
             poly_eq = poly_eq_base(powers_of_2_rev, FINAL_VARS, 2**FINAL_VARS);
             final_pol_evaluated_on_circle = malloc_vec(1);
@@ -98,14 +105,14 @@ pub fn run_whir_verif() {
             assert correct_eval == 1;
         }
 
-        fs_state_11, folding_randomness_5, end_sum = sumcheck(fs_state_10, FINAL_VARS, final_claimed_sum);
+        fs_state_11, folding_randomness_6, end_sum = sumcheck(fs_state_10, FINAL_VARS, final_claimed_sum);
 
         folding_randomness_global = malloc_vec(N_VARS);
 
         ffs = malloc(N_ROUNDS + 2);
-        ffs[0] = FOLDING_FACTOR_0; ffs[1] = FOLDING_FACTOR_1; ffs[2] = FOLDING_FACTOR_2; ffs[3] = FOLDING_FACTOR_3; ffs[4] = FINAL_VARS;
+        ffs[0] = FOLDING_FACTOR_0; ffs[1] = FOLDING_FACTOR_1; ffs[2] = FOLDING_FACTOR_2; ffs[3] = FOLDING_FACTOR_3; ffs[4] = FOLDING_FACTOR_4; ffs[5] = FINAL_VARS;
         frs = malloc(N_ROUNDS + 2);
-        frs[0] = folding_randomness_5; frs[1] = folding_randomness_4; frs[2] = folding_randomness_3; frs[3] = folding_randomness_2; frs[4] = folding_randomness_1;
+        frs[0] = folding_randomness_6; frs[1] = folding_randomness_5; frs[2] = folding_randomness_4; frs[3] = folding_randomness_3; frs[4] = folding_randomness_2; frs[5] = folding_randomness_1;
         ffs_sums = malloc(N_ROUNDS + 2);
         ffs_sums[0] = FOLDING_FACTOR_0;
         for i in 0..N_ROUNDS + 1 {
@@ -127,10 +134,10 @@ pub fn run_whir_verif() {
         weight_sums = malloc(N_ROUNDS + 1);
         weight_sums[0] = s4;
 
-        ood_points = malloc(N_ROUNDS + 1); ood_points[0] = ood_point_0; ood_points[1] = ood_point_1; ood_points[2] = ood_point_2; ood_points[3] = ood_point_3;
-        num_queries = malloc(N_ROUNDS + 1); num_queries[0] = NUM_QUERIES_0; num_queries[1] = NUM_QUERIES_1; num_queries[2] = NUM_QUERIES_2; num_queries[3] = NUM_QUERIES_3;
-        circle_values = malloc(N_ROUNDS + 1); circle_values[0] = circle_values_1; circle_values[1] = circle_values_2; circle_values[2] = circle_values_3; circle_values[3] = final_circle_values;
-        combination_randomness_powers = malloc(N_ROUNDS); combination_randomness_powers[0] = combination_randomness_powers_1; combination_randomness_powers[1] = combination_randomness_powers_2; combination_randomness_powers[2] = combination_randomness_powers_3;
+        ood_points = malloc(N_ROUNDS + 1); ood_points[0] = ood_point_0; ood_points[1] = ood_point_1; ood_points[2] = ood_point_2; ood_points[3] = ood_point_3; ood_points[4] = ood_point_4;
+        num_queries = malloc(N_ROUNDS + 1); num_queries[0] = NUM_QUERIES_0; num_queries[1] = NUM_QUERIES_1; num_queries[2] = NUM_QUERIES_2; num_queries[3] = NUM_QUERIES_3; num_queries[4] = NUM_QUERIES_4;
+        circle_values = malloc(N_ROUNDS + 1); circle_values[0] = circle_values_1; circle_values[1] = circle_values_2; circle_values[2] = circle_values_3; circle_values[3] = circle_values_4; circle_values[4] = final_circle_values;
+        combination_randomness_powers = malloc(N_ROUNDS); combination_randomness_powers[0] = combination_randomness_powers_1; combination_randomness_powers[1] = combination_randomness_powers_2; combination_randomness_powers[2] = combination_randomness_powers_3; combination_randomness_powers[3] = combination_randomness_powers_4;
 
         for i in 0..N_ROUNDS {
             ood_expanded_from_univariate = powers_of_two_rev_extension(ood_points[i + 1], N_VARS - ffs_sums[i]); // 456 cycles
@@ -149,7 +156,7 @@ pub fn run_whir_verif() {
         }
 
         evaluation_of_weights = weight_sums[N_ROUNDS];
-        poly_eq_final = poly_eq_extension(folding_randomness_5, FINAL_VARS, 2**FINAL_VARS);
+        poly_eq_final = poly_eq_extension(folding_randomness_6, FINAL_VARS, 2**FINAL_VARS);
         final_value = dot_product_extension(poly_eq_final, final_coeffcients, 2**FINAL_VARS);
         evaluation_of_weights_times_final_value = mul_extension_ret(evaluation_of_weights, final_value);
         final_check = eq_extension(evaluation_of_weights_times_final_value, end_sum);
@@ -860,6 +867,7 @@ pub fn run_whir_verif() {
     let merkle_compress = MerkleCompress::new(poseidon16.clone());
 
     let whir_params = ProtocolParameters {
+        max_num_variables_to_send_coeffs: 4,
         security_level: 128,
         pow_bits: 17,
         folding_factor: FoldingFactor::ConstantFromSecondRound(4, 4),
@@ -880,14 +888,15 @@ pub fn run_whir_verif() {
     // println!("Whir parameters: {}", params.to_string());
     for (i, round) in params.round_parameters.iter().enumerate() {
         println!(
-            "Round {}: {} queries, pow: {} bits",
-            i, round.num_queries, round.pow_bits
+            "Round {}: {} queries, pow: {} bits, folding: {}",
+            i, round.num_queries, round.pow_bits, round.folding_factor
         );
     }
     println!(
-        "Final round: {} queries, pow: {} bits",
-        params.final_queries, params.final_pow_bits
+        "Final round: {} queries, pow: {} bits, folding: {}",
+        params.final_queries, params.final_pow_bits, params.final_sumcheck_rounds
     );
+
 
     let mut rng = StdRng::seed_from_u64(0);
     let polynomial =
