@@ -26,10 +26,9 @@ pub fn prove<NF, EF, SC>(
     is_zerofier: bool,
     fs_prover: &mut FSProver<EF, impl FSChallenger<EF>>,
     mut sum: EF,
-    n_rounds: Option<usize>,
     mut missing_mul_factor: Option<EF>,
     log: bool,
-) -> (MultilinearPoint<EF>, Vec<Vec<EF>>, EF)
+) -> (MultilinearPoint<EF>, Vec<EF>, EF)
 where
     NF: ExtensionField<PF<EF>>,
     EF: ExtensionField<NF> + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
@@ -39,7 +38,7 @@ where
     assert!(multilinears.iter().all(|m| m.len() == 1 << n_vars));
 
     let mut challenges = Vec::new();
-    let n_rounds = n_rounds.unwrap_or(n_vars - skips + 1);
+    let n_rounds = n_vars - skips + 1;
     if let Some((eq_point, _)) = &mut eq_factor {
         assert_eq!(eq_point.len(), n_vars - skips + 1);
     }
@@ -87,7 +86,15 @@ where
         );
     }
 
-    (MultilinearPoint(challenges), folded_multilinears, sum)
+    let final_folds = folded_multilinears
+        .into_iter()
+        .map(|m| {
+            debug_assert_eq!(m.len(), 1);
+            m[0]
+        })
+        .collect::<Vec<_>>();
+
+    (MultilinearPoint(challenges), final_folds, sum)
 }
 
 #[allow(clippy::too_many_arguments)]

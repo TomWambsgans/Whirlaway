@@ -152,15 +152,10 @@ where
     let missing_mul_factor = first_sumcheck_challenge * point[0]
         + (EF::ONE - first_sumcheck_challenge) * (EF::ONE - point[0]);
 
-    let (sc_point, inner_evals) = if up_layer.len() == 4 {
+    let (sc_point, quarter_evals) = if up_layer.len() == 4 {
         (
             MultilinearPoint(vec![first_sumcheck_challenge]),
-            vec![
-                EvaluationsList::new(u0_folded.to_vec()),
-                EvaluationsList::new(u1_folded.to_vec()),
-                EvaluationsList::new(u2_folded.to_vec()),
-                EvaluationsList::new(u3_folded.to_vec()),
-            ],
+            vec![u0_folded[0], u1_folded[0], u2_folded[0], u3_folded[0]],
         )
     } else {
         let (mut sc_point, inner_evals, _) =
@@ -175,7 +170,6 @@ where
                     false,
                     prover_state,
                     next_sum,
-                    None,
                     Some(missing_mul_factor),
                     false,
                 )
@@ -183,14 +177,9 @@ where
         sc_point.insert(0, first_sumcheck_challenge);
         (
             sc_point,
-            inner_evals.into_iter().map(EvaluationsList::new).collect(),
+            inner_evals,
         )
     };
-
-    let quarter_evals = inner_evals[..4]
-        .iter()
-        .map(|e| e.as_constant())
-        .collect::<Vec<_>>();
 
     prover_state.add_extension_scalars(&quarter_evals);
 
@@ -295,7 +284,7 @@ where
 
     eq_poly_packed.resize(eq_poly_packed.len() / 2, Default::default());
 
-    let (mut sc_point, inner_evals, _) = info_span!("remaining sumcheck rounds").in_scope(|| {
+    let (mut sc_point, quarter_evals, _) = info_span!("remaining sumcheck rounds").in_scope(|| {
         sumcheck::prove_packed::<EF, _, _>(
             1,
             &[
@@ -310,14 +299,11 @@ where
             false,
             prover_state,
             next_sum,
-            None,
             Some(missing_mul_factor),
             false,
         )
     });
     sc_point.insert(0, first_sumcheck_challenge);
-
-    let quarter_evals = inner_evals[..4].iter().map(|e| e[0]).collect::<Vec<_>>();
 
     prover_state.add_extension_scalars(&quarter_evals);
 

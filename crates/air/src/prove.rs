@@ -114,21 +114,14 @@ where
                 prover_state,
                 EF::ZERO,
                 None,
-                None,
                 true,
             )
         });
 
         let _span = span!(Level::INFO, "inner sumchecks").entered();
 
-        let inner_sums_up = all_inner_sums[self.n_preprocessed_columns()..self.n_columns]
-            .iter()
-            .map(|s| s[0])
-            .collect::<Vec<_>>();
-        let inner_sums_down = all_inner_sums[self.n_columns + self.n_preprocessed_columns()..]
-            .iter()
-            .map(|s| s[0])
-            .collect::<Vec<_>>();
+        let inner_sums_up = &all_inner_sums[self.n_preprocessed_columns()..self.n_columns];
+        let inner_sums_down = &all_inner_sums[self.n_columns + self.n_preprocessed_columns()..];
 
         prover_state.add_extension_scalars(&inner_sums_up);
         prover_state.add_extension_scalars(&inner_sums_down);
@@ -193,13 +186,12 @@ where
             prover_state,
             inner_sum,
             None,
-            None,
             false,
         );
 
         let final_point = [columns_batching_scalars.clone(), inner_challenges.0].concat();
 
-        let packed_value = inner_evals[1][0];
+        let packed_value = inner_evals[1];
 
         std::mem::drop(_span);
 

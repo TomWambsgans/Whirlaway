@@ -25,10 +25,9 @@ pub fn prove_packed<EF, M, SC>(
     is_zerofier: bool,
     fs_prover: &mut FSProver<EF, impl FSChallenger<EF>>,
     mut sum: EF,
-    n_rounds: Option<usize>,
     mut missing_mul_factor: Option<EF>,
     log: bool,
-) -> (MultilinearPoint<EF>, Vec<Vec<EF>>, EF)
+) -> (MultilinearPoint<EF>, Vec<EF>, EF)
 where
     EF: Field + ExtensionField<PF<PF<EF>>> + ExtensionField<PF<EF>>,
     M: Borrow<[EFPacking<EF>]>,
@@ -44,7 +43,7 @@ where
     );
 
     let mut challenges = Vec::new();
-    let n_rounds = n_rounds.unwrap_or(n_vars - skips + 1);
+    let n_rounds = n_vars - skips + 1;
     if let Some(eq_factor) = &eq_factor {
         assert_eq!(eq_factor.0.len(), n_vars - skips + 1);
         assert_eq!(
@@ -127,9 +126,17 @@ where
         );
     }
 
+     let final_folds = folded_multilinears_unpacked
+        .into_iter()
+        .map(|m| {
+            debug_assert_eq!(m.len(), 1);
+            m[0]
+        })
+        .collect::<Vec<_>>();
+
     (
         MultilinearPoint(challenges),
-        folded_multilinears_unpacked,
+        final_folds,
         sum,
     )
 }
