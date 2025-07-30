@@ -89,7 +89,7 @@ pub fn fold_multilinear_in_large_field<F: Field, EF: ExtensionField<F>>(
         .collect()
 }
 
-pub fn fold_multilinear_in_large_field_packed<EF: Field + ExtensionField<PF<EF>>>(
+pub fn fold_extension_packed<EF: Field + ExtensionField<PF<EF>>>(
     m: &[EFPacking<EF>],
     scalars: &[EF],
 ) -> Vec<EFPacking<EF>> {
@@ -148,7 +148,7 @@ pub fn batch_fold_multilinear_in_large_field_packed<EF: Field + ExtensionField<P
 ) -> Vec<Vec<EFPacking<EF>>> {
     polys
         .iter()
-        .map(|poly| fold_multilinear_in_large_field_packed(poly, scalars))
+        .map(|poly| fold_extension_packed(poly, scalars))
         .collect()
 }
 
@@ -187,14 +187,11 @@ pub fn packed_multilinear<F: Field>(pols: &[EvaluationsList<F>]) -> EvaluationsL
 }
 
 #[instrument(name = "add_multilinears", skip_all)]
-pub fn add_multilinears<F: Field>(
-    pol1: &EvaluationsList<F>,
-    pol2: &EvaluationsList<F>,
-) -> EvaluationsList<F> {
-    assert_eq!(pol1.num_variables(), pol2.num_variables());
-    let mut dst = pol1.evals().to_vec();
+pub fn add_multilinears<F: Field>(pol1: &[F], pol2: &[F]) -> EvaluationsList<F> {
+    assert_eq!(pol1.len(), pol2.len());
+    let mut dst = pol1.to_vec();
     dst.par_iter_mut()
-        .zip(pol2.evals().par_iter())
+        .zip(pol2.par_iter())
         .for_each(|(a, b)| *a += *b);
     EvaluationsList::new(dst)
 }

@@ -4,10 +4,10 @@ use p3_util::log2_strict_usize;
 use serde::{Deserialize, Serialize};
 use sumcheck::ProductComputation;
 use tracing::{Level, info_span, instrument, span};
-use utils::PF;
+use utils::{ConstraintFolderPackedExtension, PF};
 use utils::{
-    ConstraintFolder, ConstraintFolderPacked, FSChallenger, FSProver, MerkleCompress, MerkleHasher,
-    add_multilinears, multilinears_linear_combination, packed_multilinear,
+    ConstraintFolder, ConstraintFolderPackedBase, FSChallenger, FSProver, MerkleCompress,
+    MerkleHasher, add_multilinears, multilinears_linear_combination, packed_multilinear,
 };
 use whir_p3::{
     dft::EvalsDft,
@@ -34,7 +34,8 @@ where
     EF: TwoAdicField + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
     A: for<'a> Air<ConstraintFolder<'a, PF<EF>, EF>>
         + for<'a> Air<ConstraintFolder<'a, EF, EF>>
-        + for<'a> Air<ConstraintFolderPacked<'a, EF>>,
+        + for<'a> Air<ConstraintFolderPackedBase<'a, EF>>
+        + for<'a> Air<ConstraintFolderPackedExtension<'a, EF>>,
 {
     #[instrument(name = "air: prove", skip_all)]
     pub fn prove<const DIGEST_ELEMS: usize>(
@@ -98,14 +99,15 @@ where
             .collect::<Vec<_>>();
 
         let my_columns_up_and_down = columns_up_and_down(&preprocessed_and_witness);
+        let my_columns_up_and_down = my_columns_up_and_down
+            .iter()
+            .map(|m| m.as_slice())
+            .collect::<Vec<_>>();
 
         let (zerocheck_challenges, all_inner_sums, _) = info_span!("zerocheck").in_scope(|| {
-            sumcheck::prove::<PF<EF>, EF, _>(
+            sumcheck::prove_base_packed::<EF, _>(
                 settings.univariate_skips,
-                my_columns_up_and_down
-                    .iter()
-                    .map(|m| m.evals())
-                    .collect::<Vec<_>>(),
+                my_columns_up_and_down,
                 &self.air,
                 self.constraint_degree,
                 &constraints_batching_scalars,
@@ -145,7 +147,9 @@ where
 
         let batched_column_mixed = add_multilinears(
             &column_up(&batched_column),
-            &column_down(&batched_column).scale(alpha),
+            &EvaluationsList::new(column_down(&batched_column))
+                .scale(alpha)
+                .into_evals(),
         );
 
         // TODO opti
@@ -172,7 +176,7 @@ where
         let inner_sum = info_span!("inner sum evaluation")
             .in_scope(|| batched_column_mixed.evaluate(&MultilinearPoint(point.clone())));
 
-        let (inner_challenges, inner_evals, _) = sumcheck::prove::<EF, EF, _>(
+        let (inner_challenges, inner_evals, _) = sumcheck::prove_generic::<EF, EF, _>(
             1,
             mles_for_inner_sumcheck
                 .iter()

@@ -1,4 +1,3 @@
-use p3_field::BasedVectorSpace;
 use p3_field::PackedFieldExtension;
 use p3_field::PrimeCharacteristicRing;
 use p3_field::{ExtensionField, Field};
@@ -12,7 +11,7 @@ use utils::packing_width;
 use utils::unpack_extension;
 use utils::{
     EFPacking, FSChallenger, FSProver, PF, PFPacking, batch_fold_multilinear_in_large_field,
-    transmute_slice, transmute_vec, univariate_selectors,
+    transmute_slice, univariate_selectors,
 };
 use whir_p3::poly::multilinear::MultilinearPoint;
 use whir_p3::poly::{dense::WhirDensePolynomial, evals::EvaluationsList};
@@ -21,7 +20,7 @@ use whir_p3::utils::uninitialized_vec;
 use crate::{SumcheckComputation, SumcheckComputationPacked};
 
 #[allow(clippy::too_many_arguments)]
-pub fn prove<NF, EF, SC>(
+pub fn prove_generic<NF, EF, SC>(
     skips: usize, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
     multilinears: Vec<&[NF]>,
     computation: &SC,
@@ -196,13 +195,14 @@ where
         .into_iter()
         .map(|m| unpack_extension(&m))
         .collect::<Vec<Vec<EF>>>();
+    let folded_multilinears = folded_multilinears
+        .iter()
+        .map(|m| m.as_slice())
+        .collect::<Vec<_>>();
 
-    let (final_challenges, folds, final_sum) = prove(
+    let (final_challenges, folds, final_sum) = prove_generic(
         1,
-        folded_multilinears
-            .iter()
-            .map(|m| m.as_slice())
-            .collect::<Vec<_>>(),
+        folded_multilinears,
         computation,
         constraints_degree,
         batching_scalars,
@@ -220,7 +220,97 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn sc_round_generic<NF, EF, SC>(
+pub fn prove_base_packed<EF, SC>(
+    skips: usize, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
+    multilinears: Vec<&[PFPacking<EF>]>,
+    computation: &SC,
+    constraints_degree: usize,
+    batching_scalars: &[EF],
+    eq_factor: Option<(&[EF], Option<Vec<EFPacking<EF>>>)>, // (a, b, c ...), eq_poly(b, c, ...)
+    is_zerofier: bool,
+    fs_prover: &mut FSProver<EF, impl FSChallenger<EF>>,
+    mut sum: EF,
+    mut missing_mul_factor: Option<EF>,
+    log: bool,
+) -> (MultilinearPoint<EF>, Vec<EF>, EF)
+where
+    EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    SC: SumcheckComputation<EF, EF> + SumcheckComputationPacked<EF>,
+{
+    let mut n_vars = packing_log_width::<EF>() + multilinears[0].len().ilog2() as usize;
+    assert!(
+        multilinears
+            .iter()
+            .all(|m| m.len() * packing_width::<EF>() == 1 << n_vars)
+    );
+
+    let mut challenges = Vec::new();
+    let mut eq_factor: Option<(Vec<EF>, Vec<EFPacking<EF>>)> =
+        eq_factor.map(|(eq_point, eq_mle)| {
+            (
+                eq_point.to_vec(),
+                eq_mle.unwrap_or_else(|| {
+                    pack_extension(EvaluationsList::eval_eq(&eq_point[1..]).evals())
+                }),
+            )
+        });
+    if let Some((eq_point, eq_mle)) = &eq_factor {
+        assert_eq!(eq_point.len(), n_vars - skips + 1);
+        assert_eq!(
+            eq_mle.len() * packing_width::<EF>(),
+            1 << (eq_point.len() - 1)
+        );
+    }
+
+    assert!(
+        n_vars > packing_log_width::<EF>() + skips,
+        "too little variables for packing sumcheck"
+    );
+
+    let folded_multilinears = sc_round_packed_base(
+        skips,
+        &multilinears,
+        &mut n_vars,
+        computation,
+        &mut eq_factor,
+        batching_scalars,
+        is_zerofier,
+        fs_prover,
+        constraints_degree,
+        &mut sum,
+        &mut challenges,
+        &mut missing_mul_factor,
+        log,
+    );
+
+    let eq_factor = eq_factor
+        .as_mut()
+        .map(|(eq_point, eq_mle)| (eq_point.as_slice(), Some(std::mem::take(eq_mle))));
+    let folded_multilinears = folded_multilinears
+        .iter()
+        .map(|m| m.as_slice())
+        .collect::<Vec<_>>();
+
+    let (final_challenges, folds, final_sum) = prove_extension_packed(
+        1,
+        folded_multilinears,
+        computation,
+        constraints_degree,
+        batching_scalars,
+        eq_factor,
+        is_zerofier,
+        fs_prover,
+        sum,
+        missing_mul_factor,
+        log,
+    );
+
+    challenges.extend(final_challenges.0);
+    (MultilinearPoint(challenges), folds, final_sum)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn sc_round_generic<NF, EF, SC>(
     skips: usize, // the first round will fold 2^skips (instead of 2 in the basic sumcheck)
     multilinears: &[&[NF]],
     n_vars: &mut usize,
@@ -367,7 +457,7 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn sc_round_packed_base<EF, SC>(
+fn sc_round_packed_base<EF, SC>(
     skips: usize, // the first round will fold 2^skips (instead of 2 in the basic sumcheck)
     multilinears: &[&[PFPacking<EF>]],
     n_vars: &mut usize,
@@ -412,26 +502,17 @@ where
         })
         .collect::<Vec<Vec<PF<EF>>>>();
 
-    let decomposed_batching_scalars: Vec<Vec<PF<EF>>> = (0
-        ..<EF as BasedVectorSpace<PF<EF>>>::DIMENSION)
-        .map(|i| {
-            batching_scalars
-                .iter()
-                .map(|x| x.as_basis_coefficients_slice()[i])
-                .collect()
-        })
-        .collect();
-
     let fold_size = (1 << (*n_vars - skips)) / packing_width::<EF>();
+    let packed_fold_size = fold_size / packing_width::<EF>();
 
-    let all_sums = unsafe { uninitialized_vec::<EFPacking<EF>>(zs.len() * fold_size) }; // sums for zs[0], sums for zs[1], ...
+    let all_sums = unsafe { uninitialized_vec::<EFPacking<EF>>(zs.len() * packed_fold_size) }; // sums for zs[0], sums for zs[1], ...
     (0..fold_size).into_par_iter().for_each(|i| {
         let eq_mle_eval = eq_factor.as_ref().map(|(_, eq_mle)| eq_mle[i]);
         let rows = multilinears
             .iter()
             .map(|m| {
                 (0..selectors.len())
-                    .map(|j| m[i + j * fold_size])
+                    .map(|j| m[i + j * packed_fold_size])
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
@@ -446,23 +527,19 @@ where
                 })
                 .collect::<Vec<_>>();
 
-            let mut res = computation.eval_packed_base(
-                &point,
-                batching_scalars,
-                &decomposed_batching_scalars,
-            );
+            let mut res = computation.eval_packed_base(&point, batching_scalars);
             if let Some(eq_mle_eval) = eq_mle_eval {
                 res *= eq_mle_eval;
             }
 
             unsafe {
                 let sum_ptr = all_sums.as_ptr() as *mut EFPacking<EF>;
-                *sum_ptr.add(z_index * fold_size + i) = res;
+                *sum_ptr.add(z_index * packed_fold_size + i) = res;
             }
         }
     });
     for (z_index, z) in zs.iter().enumerate() {
-        let sum_z_packed = all_sums[z_index * fold_size..(z_index + 1) * fold_size]
+        let sum_z_packed = all_sums[z_index * packed_fold_size..(z_index + 1) * packed_fold_size]
             .par_iter()
             .copied()
             .sum::<EFPacking<EF>>();
@@ -526,6 +603,7 @@ where
         eq_mle.resize(eq_mle.len() / 2, Default::default());
     }
 
+    // TODO this is ugly and not optimized
     batch_fold_multilinear_in_large_field(
         &multilinears
             .iter()
@@ -534,13 +612,13 @@ where
             .collect::<Vec<_>>(),
         &folding_scalars,
     )
-    .into_iter()
-    .map(transmute_vec)
+    .iter()
+    .map(|m| pack_extension(m))
     .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn sc_round_packed_extension<EF, SC>(
+fn sc_round_packed_extension<EF, SC>(
     skips: usize, // the first round will fold 2^skips (instead of 2 in the basic sumcheck)
     multilinears: &[&[EFPacking<EF>]],
     n_vars: &mut usize,

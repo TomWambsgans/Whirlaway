@@ -160,7 +160,7 @@ where
     } else {
         let (mut sc_point, inner_evals, _) =
             info_span!("remaining sumcheck rounds").in_scope(|| {
-                sumcheck::prove::<EF, EF, _>(
+                sumcheck::prove_generic::<EF, EF, _>(
                     1,
                     [u0_folded, u1_folded, u2_folded, u3_folded].to_vec(),
                     &GKRQuotientComputation { u4_const, u5_const },
@@ -411,7 +411,7 @@ impl<EF: Field> SumcheckComputation<EF, EF> for GKRQuotientComputation<EF> {
 }
 
 impl<EF: ExtensionField<PF<EF>>> SumcheckComputationPacked<EF> for GKRQuotientComputation<EF> {
-    fn eval_packed_base(&self, _: &[PFPacking<EF>], _: &[EF], _: &[Vec<PF<EF>>]) -> EFPacking<EF> {
+    fn eval_packed_base(&self, _: &[PFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
         todo!()
     }
 
