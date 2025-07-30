@@ -3,7 +3,7 @@ use p3_field::PrimeField64;
 use std::collections::BTreeMap;
 
 use crate::{
-    F, FIELD_ELEMENTS_PER_OPCODE,
+    F,
     bytecode::{
         bytecode::{
             Bytecode, Hint, Instruction, Label, MemOrConstant, MemOrFp, MemOrFpOrConstant,
@@ -49,19 +49,8 @@ pub fn compile_to_low_level_bytecode(
         .get("main")
         .unwrap();
 
-    let bytecode_size = intermediate_bytecode
-        .bytecode
-        .iter()
-        .map(|(_, instructions)| instructions.len())
-        .sum::<usize>();
-    let mut pointer_to_zero_vector = bytecode_size * FIELD_ELEMENTS_PER_OPCODE;
-    // make it 8-aligned
-    if pointer_to_zero_vector % 8 != 0 {
-        pointer_to_zero_vector += 8 - (pointer_to_zero_vector % 8);
-    }
-    let public_input_start = pointer_to_zero_vector + 8;
-    pointer_to_zero_vector /= 8;
-    // ADD the zeros into the bytecode?
+    let pointer_to_zero_vector = 0; // convention
+    let public_input_start = 8;
 
     let mut label_to_pc = BTreeMap::new();
     label_to_pc.insert("@function_main".to_string(), 0);

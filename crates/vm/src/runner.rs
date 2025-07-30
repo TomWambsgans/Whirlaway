@@ -4,7 +4,6 @@ use utils::pretty_integer;
 
 use crate::precompiles::PrecompileName;
 use crate::precompiles::PRECOMPILES;
-use crate::FIELD_ELEMENTS_PER_OPCODE;
 use crate::Poseidon16;
 use crate::Poseidon24;
 use crate::bytecode::bytecode::Hint;
@@ -211,13 +210,8 @@ fn execute_bytecode_helper(
 ) -> Result<usize, RunnerError> {
     let mut memory = Memory::default();
 
-    // TODO place the bytecode into memory
-    // For now we will it with zeros
-    for _ in 0..bytecode.instructions.len() * FIELD_ELEMENTS_PER_OPCODE {
-        memory.data.push(Some(F::ZERO));
-    }
 
-    for _ in bytecode.instructions.len() * FIELD_ELEMENTS_PER_OPCODE..bytecode.public_input_start {
+    for _ in 0..8 {
         memory.data.push(Some(F::ZERO)); // For "pointer_to_zero_vector"
     }
 
