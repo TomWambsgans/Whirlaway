@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use crate::{
     F,
     bytecode::{bytecode::Label, intermediate_bytecode::HighLevelOperation},
+    precompiles::Precompile,
 };
 
 #[derive(Debug, Clone)]
@@ -277,16 +278,10 @@ pub enum Line {
     FunctionRet {
         return_data: Vec<Expression>,
     },
-    Poseidon16 {
-        args: [Expression; 2],
-        res: [Var; 2],
-    },
-    Poseidon24 {
-        args: [Expression; 3],
-        res: [Var; 3],
-    },
-    ExtensionMul {
-        args: [Expression; 3],
+    Precompile {
+        precompile: Precompile,
+        args: Vec<Expression>,
+        res: Vec<Var>,
     },
     Break,
     Panic,
@@ -436,38 +431,23 @@ impl Line {
                     .join(", ");
                 format!("return {}", return_data_str)
             }
-            Line::Poseidon16 {
-                args: [arg0, arg1],
-                res: [res0, res1],
+            Line::Precompile {
+                precompile,
+                args,
+                res: return_data,
             } => {
                 format!(
-                    "{}, {} = poseidon16({}, {})",
-                    res0.to_string(),
-                    res1.to_string(),
-                    arg0.to_string(),
-                    arg1.to_string()
-                )
-            }
-            Line::Poseidon24 {
-                args: [arg0, arg1, arg2],
-                res: [res0, res1, res2],
-            } => {
-                format!(
-                    "{}, {}, {} = poseidon24({}, {}, {})",
-                    res0.to_string(),
-                    res1.to_string(),
-                    res2.to_string(),
-                    arg0.to_string(),
-                    arg1.to_string(),
-                    arg2.to_string()
-                )
-            }
-            Line::ExtensionMul { args } => {
-                format!(
-                    "mul_extension({}, {}, {})",
-                    args[0].to_string(),
-                    args[1].to_string(),
-                    args[2].to_string()
+                    "{} = {}({})",
+                    return_data
+                        .iter()
+                        .map(|var| var.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    precompile.name.to_string(),
+                    args.iter()
+                        .map(|arg| arg.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 )
             }
             Line::Print {

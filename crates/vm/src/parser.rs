@@ -1,5 +1,6 @@
 use crate::bytecode::intermediate_bytecode::*;
-use crate::{ENABLE_MUL_PRECOMPILE, F, lang::*};
+use crate::precompiles::PRECOMPILES;
+use crate::{F, lang::*};
 use p3_field::PrimeCharacteristicRing;
 use p3_field::PrimeField64;
 use pest::Parser;
@@ -399,30 +400,6 @@ fn parse_function_call(
     }
 
     match function_name.as_str() {
-        "poseidon16" => {
-            assert!(
-                args.len() == 2 && return_data.len() == 2,
-                "Invalid poseidon16 call"
-            );
-            Ok(Line::Poseidon16 {
-                args: [args[0].clone(), args[1].clone()],
-                res: [return_data[0].clone(), return_data[1].clone()],
-            })
-        }
-        "poseidon24" => {
-            assert!(
-                args.len() == 3 && return_data.len() == 3,
-                "Invalid poseidon24 call"
-            );
-            Ok(Line::Poseidon24 {
-                args: [args[0].clone(), args[1].clone(), args[2].clone()],
-                res: [
-                    return_data[0].clone(),
-                    return_data[1].clone(),
-                    return_data[2].clone(),
-                ],
-            })
-        }
         "malloc" => {
             assert!(
                 args.len() == 1 && return_data.len() == 1,
@@ -472,20 +449,25 @@ fn parse_function_call(
             );
             Ok(Line::Panic)
         }
-        "mul_extension" if ENABLE_MUL_PRECOMPILE => {
-            assert!(
-                args.len() == 3 && return_data.is_empty(),
-                "Invalid mul_extension call"
-            );
-            Ok(Line::ExtensionMul {
-                args: args.try_into().unwrap(),
-            })
+        _ => {
+            if let Some(precompile) = PRECOMPILES.iter().find(|p| p.name.to_string() == function_name) {
+                assert!(
+                    args.len() == precompile.n_inputs && return_data.len() == precompile.n_outputs,
+                    "Invalid precompile call"
+                );
+                Ok(Line::Precompile {
+                    precompile: precompile.clone(),
+                    args,
+                    res: return_data,
+                })
+            } else {
+                Ok(Line::FunctionCall {
+                    function_name,
+                    args,
+                    return_data,
+                })
+            }
         }
-        _ => Ok(Line::FunctionCall {
-            function_name,
-            args,
-            return_data,
-        }),
     }
 }
 

@@ -2,7 +2,8 @@ use p3_field::BasedVectorSpace;
 use p3_field::PrimeCharacteristicRing;
 use utils::pretty_integer;
 
-use crate::ENABLE_MUL_PRECOMPILE;
+use crate::precompiles::PrecompileName;
+use crate::precompiles::PRECOMPILES;
 use crate::FIELD_ELEMENTS_PER_OPCODE;
 use crate::Poseidon16;
 use crate::Poseidon24;
@@ -457,7 +458,7 @@ fn execute_bytecode_helper(
                 pc += 1;
             }
             Instruction::ExtensionMul { args } => {
-                assert!(ENABLE_MUL_PRECOMPILE);
+                assert!(PRECOMPILES.iter().any(|p| p.name == PrecompileName::MulExtension));
 
                 extension_mul_calls += 1;
 

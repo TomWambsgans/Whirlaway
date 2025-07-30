@@ -6,6 +6,7 @@ use crate::{
         a_simplify_lang::{SimpleFunction, SimpleLine, VarOrConstMallocAccess},
     },
     lang::*,
+    precompiles::{Precompile, PrecompileName},
 };
 use p3_field::Field;
 use p3_field::PrimeField64;
@@ -332,20 +333,44 @@ fn compile_lines(
                 return Ok(instructions);
             }
 
-            SimpleLine::Poseidon16 { args, res } => {
+            SimpleLine::Precompile {
+                precompile:
+                    Precompile {
+                        name: PrecompileName::Poseidon16,
+                        ..
+                    },
+                args,
+                res,
+            } => {
                 compile_poseidon(&mut instructions, args, res, compiler, declared_vars)?;
                 instructions.push(IntermediateInstruction::Poseidon2_16 {
                     shift: compiler.stack_size - 4,
                 });
             }
 
-            SimpleLine::Poseidon24 { args, res } => {
+            SimpleLine::Precompile {
+                precompile:
+                    Precompile {
+                        name: PrecompileName::Poseidon24,
+                        ..
+                    },
+                args,
+                res,
+            } => {
                 compile_poseidon(&mut instructions, args, res, compiler, declared_vars)?;
                 instructions.push(IntermediateInstruction::Poseidon2_24 {
                     shift: compiler.stack_size - 6,
                 });
             }
-            SimpleLine::ExtensionMul { args } => {
+            SimpleLine::Precompile {
+                precompile:
+                    Precompile {
+                        name: PrecompileName::MulExtension,
+                        ..
+                    },
+                args,
+                ..
+            } => {
                 let args = args
                     .iter()
                     .map(|arg| compiler.get_offset(&arg.clone().try_into().unwrap()))
@@ -596,11 +621,10 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
             SimpleLine::FunctionCall { return_data, .. } => {
                 internal_vars.extend(return_data.iter().cloned());
             }
-            SimpleLine::Poseidon16 { res, .. } => {
-                internal_vars.extend(res.iter().cloned());
-            }
-            SimpleLine::Poseidon24 { res, .. } => {
-                internal_vars.extend(res.iter().cloned());
+            SimpleLine::Precompile {
+                res: return_data, ..
+            } => {
+                internal_vars.extend(return_data.iter().cloned());
             }
             SimpleLine::IfNotZero {
                 then_branch,
@@ -610,10 +634,7 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
                 internal_vars.extend(find_internal_vars(then_branch));
                 internal_vars.extend(find_internal_vars(else_branch));
             }
-            SimpleLine::Panic
-            | SimpleLine::Print { .. }
-            | SimpleLine::FunctionRet { .. }
-            | SimpleLine::ExtensionMul { .. } => {}
+            SimpleLine::Panic | SimpleLine::Print { .. } | SimpleLine::FunctionRet { .. } => {}
         }
     }
     internal_vars

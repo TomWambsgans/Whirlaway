@@ -2,12 +2,13 @@ use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
 use rand::{SeedableRng as _, rngs::StdRng};
 
-use crate::{compiler::compile_program, runner::execute_bytecode};
+use crate::{compiler::compile_program, precompiles::PRECOMPILES, runner::execute_bytecode};
 
 pub mod bytecode;
 pub mod compiler;
 pub mod lang;
 pub mod parser;
+pub mod precompiles;
 pub mod recursion;
 pub mod runner;
 
@@ -23,8 +24,7 @@ type MyChallenger = p3_challenger::DuplexChallenger<F, Poseidon16, 16, 8>;
 type MerkleHash = p3_symmetric::PaddingFreeSponge<Poseidon24, 24, 16, 8>; // leaf hashing
 type MerkleCompress = p3_symmetric::TruncatedPermutation<Poseidon16, 2, 8, 16>; // 2-to-1 compression
 
-const ENABLE_MUL_PRECOMPILE: bool = true;
-const FIELD_ELEMENTS_PER_OPCODE: usize = 13 + ENABLE_MUL_PRECOMPILE as usize;
+const FIELD_ELEMENTS_PER_OPCODE: usize = 11 + PRECOMPILES.len();
 
 pub fn compile_and_run(program: &str, public_input: &[F], private_input: &[F]) {
     let bytecode = compile_program(program);

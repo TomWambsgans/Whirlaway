@@ -5,6 +5,7 @@ use crate::{
         Boolean, ConstExpression, ConstMallocLabel, Expression, Function, Line, Program,
         SimpleExpr, Var,
     },
+    precompiles::Precompile,
 };
 use p3_field::PrimeField64;
 use std::collections::{BTreeMap, BTreeSet};
@@ -96,16 +97,10 @@ pub enum SimpleLine {
     FunctionRet {
         return_data: Vec<SimpleExpr>,
     },
-    Poseidon16 {
-        args: [SimpleExpr; 2],
-        res: [Var; 2],
-    },
-    Poseidon24 {
-        args: [SimpleExpr; 3],
-        res: [Var; 3],
-    },
-    ExtensionMul {
-        args: [SimpleExpr; 3],
+    Precompile {
+        precompile: Precompile,
+        args: Vec<SimpleExpr>,
+        res: Vec<Var>,
     },
     Panic,
     // Hints
@@ -507,35 +502,19 @@ fn simplify_lines(
                     return_data: simplified_return_data,
                 });
             }
-            Line::Poseidon16 { args, res: ret } => {
-                let simplified_args = [
-                    simplify_expr(&args[0], &mut res, counters, array_manager, const_malloc),
-                    simplify_expr(&args[1], &mut res, counters, array_manager, const_malloc),
-                ];
-                res.push(SimpleLine::Poseidon16 {
+            Line::Precompile {
+                precompile,
+                args,
+                res: return_data,
+            } => {
+                let simplified_args = args
+                    .iter()
+                    .map(|arg| simplify_expr(arg, &mut res, counters, array_manager, const_malloc))
+                    .collect::<Vec<_>>();
+                res.push(SimpleLine::Precompile {
+                    precompile: precompile.clone(),
                     args: simplified_args,
-                    res: ret.clone(),
-                });
-            }
-            Line::Poseidon24 { args, res: ret } => {
-                let simplified_args = [
-                    simplify_expr(&args[0], &mut res, counters, array_manager, const_malloc),
-                    simplify_expr(&args[1], &mut res, counters, array_manager, const_malloc),
-                    simplify_expr(&args[2], &mut res, counters, array_manager, const_malloc),
-                ];
-                res.push(SimpleLine::Poseidon24 {
-                    args: simplified_args,
-                    res: ret.clone(),
-                });
-            }
-            Line::ExtensionMul { args } => {
-                let simplified_args = [
-                    simplify_expr(&args[0], &mut res, counters, array_manager, const_malloc),
-                    simplify_expr(&args[1], &mut res, counters, array_manager, const_malloc),
-                    simplify_expr(&args[2], &mut res, counters, array_manager, const_malloc),
-                ];
-                res.push(SimpleLine::ExtensionMul {
-                    args: simplified_args,
+                    res: return_data.clone(),
                 });
             }
             Line::Print { line_info, content } => {
@@ -751,25 +730,16 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                 on_new_expr(size, &internal_vars, &mut external_vars);
                 internal_vars.insert(var.clone());
             }
-            Line::Poseidon16 { args, res } => {
+            Line::Precompile {
+                precompile: _,
+                args,
+                res,
+            } => {
                 for arg in args {
                     on_new_expr(arg, &internal_vars, &mut external_vars);
                 }
                 for r in res {
                     internal_vars.insert(r.clone());
-                }
-            }
-            Line::Poseidon24 { args, res } => {
-                for arg in args {
-                    on_new_expr(arg, &internal_vars, &mut external_vars);
-                }
-                for r in res {
-                    internal_vars.insert(r.clone());
-                }
-            }
-            Line::ExtensionMul { args } => {
-                for arg in args {
-                    on_new_expr(arg, &internal_vars, &mut external_vars);
                 }
             }
             Line::Print { content, .. } => {
@@ -1062,25 +1032,16 @@ fn replace_vars_for_unroll(
                     replace_vars_for_unroll_in_expr(ret, iterator, iterator_value, internal_vars);
                 }
             }
-            Line::Poseidon16 { args, res } => {
+            Line::Precompile {
+                precompile: _,
+                args,
+                res,
+            } => {
                 for arg in args {
                     replace_vars_for_unroll_in_expr(arg, iterator, iterator_value, internal_vars);
                 }
-                for r in res {
-                    *r = format!("@unrolled_{}_{}", iterator_value, r).into();
-                }
-            }
-            Line::Poseidon24 { args, res } => {
-                for arg in args {
-                    replace_vars_for_unroll_in_expr(arg, iterator, iterator_value, internal_vars);
-                }
-                for r in res {
-                    *r = format!("@unrolled_{}_{}", iterator_value, r).into();
-                }
-            }
-            Line::ExtensionMul { args } => {
-                for arg in args {
-                    replace_vars_for_unroll_in_expr(arg, iterator, iterator_value, internal_vars);
+                for ret in res {
+                    *ret = format!("@unrolled_{}_{}", iterator_value, ret).into();
                 }
             }
             Line::Break => {}
@@ -1313,25 +1274,16 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                     replace_vars_by_const_in_expr(ret, map);
                 }
             }
-            Line::Poseidon16 { args, res } => {
+            Line::Precompile {
+                precompile: _,
+                args,
+                res: return_data,
+            } => {
                 for arg in args {
                     replace_vars_by_const_in_expr(arg, map);
                 }
-                for r in res {
+                for r in return_data {
                     assert!(!map.contains_key(r), "Return variable {} is a constant", r);
-                }
-            }
-            Line::Poseidon24 { args, res } => {
-                for arg in args {
-                    replace_vars_by_const_in_expr(arg, map);
-                }
-                for r in res {
-                    assert!(!map.contains_key(r), "Return variable {} is a constant", r);
-                }
-            }
-            Line::ExtensionMul { args } => {
-                for arg in args {
-                    replace_vars_by_const_in_expr(arg, map);
                 }
             }
             Line::Print { content, .. } => {
@@ -1478,40 +1430,19 @@ impl SimpleLine {
                     .join(", ");
                 format!("return {}", return_data_str)
             }
-            SimpleLine::Poseidon16 {
-                args: [arg0, arg1],
-                res: [res0, res1],
+            SimpleLine::Precompile {
+                precompile,
+                args,
+                res: return_data,
             } => {
                 format!(
-                    "{}, {} = poseidon16({}, {})",
-                    res0.to_string(),
-                    res1.to_string(),
-                    arg0.to_string(),
-                    arg1.to_string()
-                )
-            }
-            SimpleLine::Poseidon24 {
-                args: [arg0, arg1, arg2],
-                res: [res0, res1, res2],
-            } => {
-                format!(
-                    "{}, {}, {} = poseidon24({}, {}, {})",
-                    res0.to_string(),
-                    res1.to_string(),
-                    res2.to_string(),
-                    arg0.to_string(),
-                    arg1.to_string(),
-                    arg2.to_string()
-                )
-            }
-            SimpleLine::ExtensionMul {
-                args: [arg0, arg1, arg2],
-            } => {
-                format!(
-                    "extension_mul({}, {}, {})",
-                    arg0.to_string(),
-                    arg1.to_string(),
-                    arg2.to_string()
+                    "{} = {}({})",
+                    return_data.join(", "),
+                    &precompile.name.to_string(),
+                    args.iter()
+                        .map(|arg| arg.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 )
             }
             SimpleLine::Print {
