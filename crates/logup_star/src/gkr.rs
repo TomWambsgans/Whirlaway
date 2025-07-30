@@ -440,7 +440,7 @@ impl<EF: ExtensionField<PF<EF>>> SumcheckComputationPacked<EF>
         todo!()
     }
 
-    fn eval_packed_extension(&self, point: &[EFPacking<EF>]) -> EFPacking<EF> {
+    fn eval_packed_extension(&self, point: &[EFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
         point[2] * point[3] * self.u4_const
             + (point[0] * point[3] + point[1] * point[2]) * self.u5_const
     }

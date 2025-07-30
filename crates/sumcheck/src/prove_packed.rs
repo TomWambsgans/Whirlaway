@@ -302,6 +302,6 @@ where
     EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
     SC: SumcheckComputationPacked<EF>,
 {
-    let res = computation.eval_packed_extension(point);
+    let res = computation.eval_packed_extension(point, &[]);
     eq_mle_eval.map_or(res, |factor| res * factor)
 }

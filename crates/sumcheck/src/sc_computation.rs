@@ -38,7 +38,7 @@ where
         decomposed_alpha_powers: &[Vec<PF<EF>>],
     ) -> EFPacking<EF>;
 
-    fn eval_packed_extension(&self, point: &[EFPacking<EF>]) -> EFPacking<EF>;
+    fn eval_packed_extension(&self, point: &[EFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF>;
 }
 
 impl<EF: Field, A> SumcheckComputationPacked<EF> for A
@@ -65,7 +65,7 @@ where
         folder.accumulator
     }
 
-    fn eval_packed_extension(&self, _: &[EFPacking<EF>]) -> EFPacking<EF> {
+    fn eval_packed_extension(&self, _: &[EFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
         todo!()
     }
 }
@@ -82,7 +82,7 @@ impl<EF: Field + ExtensionField<PF<EF>>> SumcheckComputationPacked<EF> for Produ
     fn eval_packed_base(&self, _: &[PFPacking<EF>], _: &[EF], _: &[Vec<PF<EF>>]) -> EFPacking<EF> {
         todo!()
     }
-    fn eval_packed_extension(&self, _: &[EFPacking<EF>]) -> EFPacking<EF> {
+    fn eval_packed_extension(&self, _: &[EFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
         todo!()
     }
 }
