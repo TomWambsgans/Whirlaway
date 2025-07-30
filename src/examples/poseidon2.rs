@@ -190,3 +190,28 @@ pub fn prove_poseidon2(
         proof_size,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use whir_p3::parameters::errors::SecurityAssumption;
+
+    use super::*;
+
+    #[test]
+    fn test_prove_poseidon2() {
+        let benchmark = prove_poseidon2(
+            13,
+            AirSettings::new(
+                128,
+                SecurityAssumption::CapacityBound,
+                FoldingFactor::ConstantFromSecondRound(7, 4),
+                2,
+                4,
+                5,
+            ),
+            2,
+            true,
+        );
+        println!("\n{benchmark}");
+    }
+}
