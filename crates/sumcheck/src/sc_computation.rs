@@ -81,9 +81,9 @@ impl<EF: Field> SumcheckComputation<EF, EF> for ProductComputation {
 
 impl<EF: Field + ExtensionField<PF<EF>>> SumcheckComputationPacked<EF> for ProductComputation {
     fn eval_packed_base(&self, _: &[PFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
-        todo!()
+        unreachable!()
     }
-    fn eval_packed_extension(&self, _: &[EFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
-        todo!()
+    fn eval_packed_extension(&self, point: &[EFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
+        unsafe { *point.get_unchecked(0) * *point.get_unchecked(1) }
     }
 }

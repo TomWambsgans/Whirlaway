@@ -11,11 +11,11 @@ use rayon::prelude::*;
 use p3_field::PrimeCharacteristicRing;
 use sumcheck::ProductComputation;
 use tracing::{info_span, instrument};
-use utils::{FSChallenger, FSProver, FSVerifier, PF};
-use whir_p3::fiat_shamir::errors::ProofError;
+use utils::{EFPacking, FSChallenger, FSProver, FSVerifier, PF, pack_extension, packing_width};
 use whir_p3::poly::evals::EvaluationsList;
 use whir_p3::poly::multilinear::MultilinearPoint;
 use whir_p3::utils::parallel_clone;
+use whir_p3::{fiat_shamir::errors::ProofError, utils::uninitialized_vec};
 
 use crate::gkr::{prove_gkr, verify_gkr};
 
@@ -37,22 +37,33 @@ pub fn prove_logup_star<EF: Field>(
     let eval = values.evaluate(&point);
     prover_state.add_extension_scalar(eval);
 
-    let poly_eq_point = EvaluationsList::eval_eq(&point.0);
+    let poly_eq_point = info_span!("eval_eq").in_scope(|| EvaluationsList::eval_eq(&point.0));
     let pushforward = compute_pushforward(indexes.evals(), table_length, poly_eq_point.evals());
 
     // commit to pushforward
     // TODO
-    let table_embedded =
-        EvaluationsList::new(table.evals().par_iter().map(|&x| EF::from(x)).collect()); // TODO avoid embedding
+
+    let table_embedded = info_span!("embedding").in_scope(|| {
+        EvaluationsList::new(table.evals().par_iter().map(|&x| EF::from(x)).collect())
+    }); // TODO avoid embedding
+
+    let (table_embedded_packed, poly_eq_point_packed, pushforward_packed) = info_span!("packing")
+        .in_scope(|| {
+            (
+                pack_extension(table_embedded.evals()),
+                pack_extension(poly_eq_point.evals()),
+                pack_extension(pushforward.evals()),
+            )
+        });
 
     let (_sc_point, inner_evals, prod) =
         info_span!("logup_star sumcheck", table_length, indexes_length).in_scope(|| {
-            sumcheck::prove_generic::<EF, EF, _>(
+            sumcheck::prove_extension_packed::<EF, _>(
                 1,
-                [table_embedded.evals(), pushforward.evals()].to_vec(),
+                vec![&table_embedded_packed, &pushforward_packed],
                 &ProductComputation,
                 2,
-                &[EF::ONE],
+                &[],
                 None,
                 false,
                 prover_state,
@@ -76,26 +87,40 @@ pub fn prove_logup_star<EF: Field>(
     // "c" in the paper
     let random_challenge = prover_state.sample();
 
-    let mut gkr_layer_left = EF::zero_vec(indexes_length * 2);
-    parallel_clone(&poly_eq_point, &mut gkr_layer_left[..indexes_length]);
-    gkr_layer_left[indexes_length..]
-        .par_iter_mut()
-        .enumerate()
-        .for_each(|(i, x)| {
-            *x = random_challenge - indexes.evals()[i];
-        });
+    let gkr_layer_left = info_span!("building left").in_scope(|| {
+        let mut layer = unsafe {
+            uninitialized_vec::<EFPacking<EF>>(indexes_length * 2 / packing_width::<EF>())
+        };
+        let half_len_packed = layer.len() / 2;
+        let challenge_minus_indexes = pack_extension(
+            &indexes
+                .evals()
+                .par_iter()
+                .map(|&x| random_challenge - x)
+                .collect::<Vec<_>>(),
+        );
+        parallel_clone(&poly_eq_point_packed, &mut layer[..half_len_packed]);
+        parallel_clone(&challenge_minus_indexes, &mut layer[half_len_packed..]);
+        layer
+    });
 
-    let claim_left = prove_gkr(prover_state, EvaluationsList::new(gkr_layer_left));
+    let claim_left = prove_gkr(prover_state, gkr_layer_left);
 
-    let mut gkr_layer_right = EF::zero_vec(table_length * 2);
-    parallel_clone(&pushforward, &mut gkr_layer_right[..table_length]);
-    gkr_layer_right[table_length..]
-        .par_iter_mut()
-        .enumerate()
-        .for_each(|(i, x)| {
-            *x = random_challenge - PF::<EF>::from_usize(i);
-        });
-    let claim_right = prove_gkr(prover_state, EvaluationsList::new(gkr_layer_right));
+    let gkr_layer_right = info_span!("building right").in_scope(|| {
+        let mut layer =
+            unsafe { uninitialized_vec::<EFPacking<EF>>(table_length * 2 / packing_width::<EF>()) };
+        let half_len_packed = layer.len() / 2;
+        let challenge_minus_increment = pack_extension(
+            &(0..table.len())
+                .into_par_iter()
+                .map(|i| random_challenge - PF::<EF>::from_usize(i))
+                .collect::<Vec<_>>(),
+        );
+        parallel_clone(&pushforward_packed, &mut layer[..half_len_packed]);
+        parallel_clone(&challenge_minus_increment, &mut layer[half_len_packed..]);
+        layer
+    });
+    let claim_right = prove_gkr(prover_state, gkr_layer_right);
 
     // open Indexes at claim_left.point[1..]
     // phony opening for now
@@ -176,17 +201,18 @@ where
     Ok(claimed_eval)
 }
 
+#[instrument(skip_all)]
 fn compute_pushforward<F: PrimeField64, EF: ExtensionField<EF>>(
     indexes: &[F],
     table_length: usize,
-    i: &[EF],
+    poly_eq_point: &[EF],
 ) -> EvaluationsList<EF> {
-    assert_eq!(indexes.len(), i.len());
+    assert_eq!(indexes.len(), poly_eq_point.len());
     // TODO there are a lot of fun optimizations here
     let mut pushforward = EF::zero_vec(table_length);
-    for (index, value) in indexes.iter().zip(i) {
+    for (index, value) in indexes.iter().zip(poly_eq_point) {
         let index_usize = index.as_canonical_u64() as usize;
-        pushforward[index_usize] += *value; // TODO unchecked arithmetic for performance
+        pushforward[index_usize] += *value;
     }
     return EvaluationsList::new(pushforward);
 }
@@ -209,6 +235,7 @@ mod tests {
     type Poseidon16 = Poseidon2KoalaBear<16>;
 
     type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
+
     #[test]
     fn test_logup_star() {
         let env_filter = EnvFilter::builder()
@@ -220,7 +247,7 @@ mod tests {
             .with(ForestLayer::default())
             .init();
 
-        let log_table_len = 19;
+        let log_table_len = 18;
         let table_len = 1 << log_table_len;
 
         let log_indexes_len = log_table_len + 2;
