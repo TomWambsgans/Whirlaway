@@ -67,6 +67,9 @@ pub enum Instruction {
     ExtensionMul {
         args: [usize; 3], // offset after fp
     },
+    ExtensionAdd {
+        args: [usize; 3], // offset after fp
+    },
 }
 
 impl Operation {
@@ -209,6 +212,14 @@ impl ToString for Instruction {
             Self::ExtensionMul { args } => {
                 format!(
                     "extension_mul(m[fp + {}], m[fp + {}], m[fp + {}])",
+                    args[0].to_string(),
+                    args[1].to_string(),
+                    args[2].to_string()
+                )
+            }
+            Self::ExtensionAdd { args } => {
+                format!(
+                    "extension_add(m[fp + {}], m[fp + {}], m[fp + {}])",
                     args[0].to_string(),
                     args[1].to_string(),
                     args[2].to_string()

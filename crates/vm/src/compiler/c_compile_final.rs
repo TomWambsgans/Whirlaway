@@ -211,6 +211,15 @@ pub fn compile_to_low_level_bytecode(
                         .unwrap();
                     low_level_bytecode.push(Instruction::ExtensionMul { args });
                 }
+                IntermediateInstruction::ExtensionAdd { args } => {
+                    let args = args
+                        .iter()
+                        .map(|arg| eval_const_expression_usize(arg, &compiler))
+                        .collect::<Vec<_>>()
+                        .try_into()
+                        .unwrap();
+                    low_level_bytecode.push(Instruction::ExtensionAdd { args });
+                }
                 IntermediateInstruction::DecomposeBits {
                     res_offset,
                     to_decompose,

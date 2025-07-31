@@ -10,6 +10,7 @@ pub enum PrecompileName {
     Poseidon16,
     Poseidon24,
     MulExtension,
+    AddExtension
 }
 
 impl ToString for PrecompileName {
@@ -18,6 +19,7 @@ impl ToString for PrecompileName {
             PrecompileName::Poseidon16 => "poseidon16",
             PrecompileName::Poseidon24 => "poseidon24",
             PrecompileName::MulExtension => "mul_extension",
+            PrecompileName::AddExtension => "add_extension",
         }
         .to_string()
     }
@@ -41,4 +43,10 @@ pub const MUL_EXTENSION: Precompile = Precompile {
     n_outputs: 0,
 };
 
-pub const PRECOMPILES: [Precompile; 3] = [POSEIDON_16, POSEIDON_24, MUL_EXTENSION];
+pub const ADD_EXTENSION: Precompile = Precompile {
+    name: PrecompileName::AddExtension,
+    n_inputs: 3,
+    n_outputs: 0,
+};
+
+pub const PRECOMPILES: [Precompile; 4] = [POSEIDON_16, POSEIDON_24, MUL_EXTENSION, ADD_EXTENSION];

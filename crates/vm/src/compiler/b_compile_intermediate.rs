@@ -379,6 +379,23 @@ fn compile_lines(
                     .unwrap();
                 instructions.push(IntermediateInstruction::ExtensionMul { args });
             }
+            SimpleLine::Precompile {
+                precompile:
+                    Precompile {
+                        name: PrecompileName::AddExtension,
+                        ..
+                    },
+                args,
+                ..
+            } => {
+                let args = args
+                    .iter()
+                    .map(|arg| compiler.get_offset(&arg.clone().try_into().unwrap()))
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .unwrap();
+                instructions.push(IntermediateInstruction::ExtensionAdd { args });
+            }
 
             SimpleLine::FunctionRet { return_data } => {
                 if compiler.func_name == "main" {

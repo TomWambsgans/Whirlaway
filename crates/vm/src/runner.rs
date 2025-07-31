@@ -2,8 +2,6 @@ use p3_field::BasedVectorSpace;
 use p3_field::PrimeCharacteristicRing;
 use utils::pretty_integer;
 
-use crate::precompiles::PrecompileName;
-use crate::precompiles::PRECOMPILES;
 use crate::Poseidon16;
 use crate::Poseidon24;
 use crate::bytecode::bytecode::Hint;
@@ -11,6 +9,8 @@ use crate::bytecode::bytecode::Instruction;
 use crate::bytecode::bytecode::MemOrConstant;
 use crate::bytecode::bytecode::MemOrFp;
 use crate::bytecode::bytecode::MemOrFpOrConstant;
+use crate::precompiles::PRECOMPILES;
+use crate::precompiles::PrecompileName;
 use crate::{DIMENSION, EF, F, bytecode::bytecode::Bytecode};
 use p3_field::Field;
 use p3_field::PrimeField64;
@@ -210,7 +210,6 @@ fn execute_bytecode_helper(
 ) -> Result<usize, RunnerError> {
     let mut memory = Memory::default();
 
-
     for _ in 0..8 {
         memory.data.push(Some(F::ZERO)); // For "pointer_to_zero_vector"
     }
@@ -241,6 +240,7 @@ fn execute_bytecode_helper(
     let mut poseidon16_calls = 0;
     let mut poseidon24_calls = 0;
     let mut extension_mul_calls = 0;
+    let mut extension_add_calls = 0;
     let mut cpu_cycles = 0;
 
     let mut last_checkpoint_cpu_cycles = 0;
@@ -452,7 +452,11 @@ fn execute_bytecode_helper(
                 pc += 1;
             }
             Instruction::ExtensionMul { args } => {
-                assert!(PRECOMPILES.iter().any(|p| p.name == PrecompileName::MulExtension));
+                assert!(
+                    PRECOMPILES
+                        .iter()
+                        .any(|p| p.name == PrecompileName::MulExtension)
+                );
 
                 extension_mul_calls += 1;
 
@@ -464,6 +468,26 @@ fn execute_bytecode_helper(
                 let b = EF::from_basis_coefficients_slice(&memory.get_vector(ptr_arg_1)?).unwrap();
                 let prod = (a * b).as_basis_coefficients_slice().try_into().unwrap();
                 memory.set_vector(ptr_arg_2, prod)?;
+
+                pc += 1;
+            }
+            Instruction::ExtensionAdd { args } => {
+                assert!(
+                    PRECOMPILES
+                        .iter()
+                        .any(|p| p.name == PrecompileName::AddExtension)
+                );
+
+                extension_add_calls += 1;
+
+                let ptr_arg_0 = memory.get(fp + args[0])?.as_canonical_u64() as usize;
+                let ptr_arg_1 = memory.get(fp + args[1])?.as_canonical_u64() as usize;
+                let ptr_arg_2 = memory.get(fp + args[2])?.as_canonical_u64() as usize;
+
+                let a = EF::from_basis_coefficients_slice(&memory.get_vector(ptr_arg_0)?).unwrap();
+                let b = EF::from_basis_coefficients_slice(&memory.get_vector(ptr_arg_1)?).unwrap();
+                let sum = (a + b).as_basis_coefficients_slice().try_into().unwrap();
+                memory.set_vector(ptr_arg_2, sum)?;
 
                 pc += 1;
             }
@@ -503,6 +527,12 @@ fn execute_bytecode_helper(
             println!(
                 "ExtensionMul calls: {}",
                 pretty_integer(extension_mul_calls)
+            );
+        }
+        if extension_add_calls > 0 {
+            println!(
+                "ExtensionAdd calls: {}",
+                pretty_integer(extension_add_calls)
             );
         }
         let used_memory_cells = memory

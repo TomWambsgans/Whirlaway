@@ -119,6 +119,9 @@ pub enum IntermediateInstruction {
     ExtensionMul {
         args: [ConstExpression; 3], // offset after fp
     },
+    ExtensionAdd {
+        args: [ConstExpression; 3], // offset after fp
+    },
     // HINTS (does not appears in the final bytecode)
     RequestMemory {
         shift: ConstExpression,  // m[fp + shift] where the hint will be stored
@@ -217,6 +220,14 @@ impl ToString for IntermediateInstruction {
             Self::ExtensionMul { args } => {
                 format!(
                     "extension_mul(m[fp + {}], m[fp + {}], m[fp + {}])",
+                    args[0].to_string(),
+                    args[1].to_string(),
+                    args[2].to_string()
+                )
+            }
+            Self::ExtensionAdd { args } => {
+                format!(
+                    "extension_add(m[fp + {}], m[fp + {}], m[fp + {}])",
                     args[0].to_string(),
                     args[1].to_string(),
                     args[2].to_string()
