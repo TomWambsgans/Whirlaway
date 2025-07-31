@@ -94,8 +94,7 @@ pub fn run_whir_verif() {
             poly_eq = poly_eq_base(powers_of_2_rev, FINAL_VARS, 2**FINAL_VARS);
             final_pol_evaluated_on_circle = malloc_vec(1);
             dot_product_base_extension(poly_eq, final_coeffcients, final_pol_evaluated_on_circle, 2**FINAL_VARS);
-            correct_eval = eq_extension(final_pol_evaluated_on_circle, final_folds + i);
-            assert correct_eval == 1;
+            assert_eq_extension(final_pol_evaluated_on_circle, final_folds + i);
         }
 
         fs_state_11, folding_randomness_5, end_sum = sumcheck(fs_state_10, FINAL_VARS, final_claimed_sum);
@@ -152,9 +151,7 @@ pub fn run_whir_verif() {
         poly_eq_final = poly_eq_extension(folding_randomness_5, FINAL_VARS, 2**FINAL_VARS);
         final_value = dot_product_extension(poly_eq_final, final_coeffcients, 2**FINAL_VARS);
         evaluation_of_weights_times_final_value = mul_extension_ret(evaluation_of_weights, final_value);
-        final_check = eq_extension(evaluation_of_weights_times_final_value, end_sum);
-        assert final_check == 1;
-
+        assert_eq_extension(evaluation_of_weights_times_final_value, end_sum);
         return;
     }
 
@@ -247,10 +244,7 @@ pub fn run_whir_verif() {
         for sc_round in 0..n_steps {
             fs_state_5, poly = fs_receive(fs_states_a[sc_round], 3); // vectorized pointer of len 1
             sum_over_boolean_hypercube = degree_two_polynomial_sum_at_0_and_1(poly);
-            consistent = eq_extension(sum_over_boolean_hypercube, claimed_sums[sc_round]);
-            if consistent == 0 {
-                panic();
-            }
+            assert_eq_extension(sum_over_boolean_hypercube, claimed_sums[sc_round]);
             fs_state_6, rand = fs_sample_ef(fs_state_5);  // vectorized pointer of len 1
             fs_states_a[sc_round + 1] = fs_state_6;
             new_claimed_sum = degree_two_polynomial_eval(poly, rand);
@@ -327,8 +321,7 @@ pub fn run_whir_verif() {
                 state_j_plus_1, _ = poseidon16(left, right);
                 states[j + 1] = state_j_plus_1;
             }
-            correct_root = eq_extension(states[folded_domain_size], prev_root);
-            assert correct_root == 1;
+            assert_eq_extension(states[folded_domain_size], prev_root);
         }
 
         fs_state_11 = fs_states_c[num_queries];
@@ -822,18 +815,11 @@ pub fn run_whir_verif() {
         }
         return;
     }
-
-    fn eq_extension(a, b) -> 1 {
-        // a and b are vectorized pointers
-        // return 1 if a == b, 0 otherwise
-        a_ptr = a * 8;
-        b_ptr = b * 8;
-        for i in 0..8 unroll {
-            if a_ptr[i] != b_ptr[i] {
-                return 0; // a != b
-            }
-        }
-        return 1; // a == b
+    
+    fn assert_eq_extension(a, b)  {
+        null_ptr = pointer_to_zero_vector; // TODO avoid having to store this in a variable
+        add_extension(a, null_ptr, b);
+        return;
     }
 
     fn set_to_one(a) {
