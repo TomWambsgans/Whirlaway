@@ -8,15 +8,17 @@ workspace = true
 
 [dependencies]
 p3-field.workspace = true
-# tracing.workspace = true
-# sumcheck.workspace = true
+tracing.workspace = true
+sumcheck.workspace = true
 utils.workspace = true
 whir-p3.workspace = true
-# rayon.workspace = true
+rayon.workspace = true
 p3-symmetric.workspace = true
-# p3-challenger.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
 p3-koala-bear.workspace = true
 rand.workspace = true
+p3-challenger.workspace = true
+tracing-forest.workspace = true
+tracing-subscriber.workspace = true

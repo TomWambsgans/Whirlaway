@@ -1,5 +1,6 @@
 use ::air::AirSettings;
 use air::table::AirTable;
+use multi_pcs::ring_switch::RingSwitching;
 use p3_challenger::DuplexChallenger;
 use p3_field::extension::BinomialExtensionField;
 use p3_field::{BasedVectorSpace, PrimeField64};
@@ -30,8 +31,9 @@ type MerkleCompress = TruncatedPermutation<Poseidon16, 2, 8, 16>; // 2-to-1 comp
 type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
 
 // Koalabear
+const EXTENSION_DEGREE: usize = 8;
 type F = KoalaBear;
-type EF = BinomialExtensionField<F, 8>;
+type EF = BinomialExtensionField<F, EXTENSION_DEGREE>;
 type LinearLayers = GenericPoseidon2LinearLayersKoalaBear;
 const SBOX_DEGREE: u64 = 3;
 const SBOX_REGISTERS: usize = 0;
@@ -154,7 +156,7 @@ pub fn prove_poseidon2(
 
     let mut prover_state = ProverState::new(challenger.clone());
 
-    let pcs = WhirConfigBuilder {
+    let pcs_inner = WhirConfigBuilder {
         folding_factor,
         soundness_type,
         merkle_hash,
@@ -164,9 +166,11 @@ pub fn prove_poseidon2(
         rs_domain_initial_reduction_factor,
         security_level,
         starting_log_inv_rate: log_inv_rate,
-        base_field: PhantomData::<PF<EF>>,
+        base_field: PhantomData::<EF>,
         extension_field: PhantomData::<EF>,
     };
+
+    let pcs = RingSwitching::<F, EF, _, EXTENSION_DEGREE>::new(pcs_inner);
 
     let ext_dim = <EF as BasedVectorSpace<PF<EF>>>::DIMENSION;
     let dft = EvalsDft::new(

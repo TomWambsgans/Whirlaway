@@ -154,3 +154,4 @@ whir-p3.workspace = true
 p3-uni-stark.workspace = true
 utils.workspace = true
 p3-util.workspace = true
+multi_pcs.workspace = true
