@@ -3,13 +3,13 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use p3_uni_stark::{SymbolicAirBuilder, get_symbolic_constraints};
 use utils::{PF, log2_up, univariate_selectors};
-use whir_p3::poly::{dense::WhirDensePolynomial, evals::EvaluationsList};
+use whir_p3::poly::dense::WhirDensePolynomial;
 
 pub struct AirTable<EF: Field, A> {
     pub log_length: usize,
     pub n_columns: usize,
     pub air: A,
-    pub preprocessed_columns: Vec<EvaluationsList<PF<EF>>>, // TODO 'sparse' preprocessed columns (with non zero values at cylic shifts)
+    pub preprocessed_columns: Vec<Vec<PF<EF>>>, // TODO 'sparse' preprocessed columns (with non zero values at cylic shifts)
     pub n_constraints: usize,
     pub constraint_degree: usize,
     pub(crate) univariate_selectors: Vec<WhirDensePolynomial<PF<EF>>>,
@@ -26,7 +26,7 @@ where
         air: A,
         log_length: usize,
         univariate_skips: usize,
-        preprocessed_columns: Vec<EvaluationsList<PF<EF>>>,
+        preprocessed_columns: Vec<Vec<PF<EF>>>,
         constraint_degree: usize,
     ) -> Self
     where

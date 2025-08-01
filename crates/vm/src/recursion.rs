@@ -879,8 +879,9 @@ pub fn run_whir_verif() {
     );
 
     let mut rng = StdRng::seed_from_u64(0);
-    let polynomial =
-        EvaluationsList::<EF>::new((0..1 << num_variables).map(|_| rng.random()).collect());
+    let polynomial = (0..1 << num_variables)
+        .map(|_| rng.random())
+        .collect::<Vec<EF>>();
 
     let point = MultilinearPoint::<EF>::rand(&mut rng, num_variables);
 

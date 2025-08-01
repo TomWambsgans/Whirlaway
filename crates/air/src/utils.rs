@@ -1,7 +1,7 @@
 use p3_field::Field;
 use p3_field::PackedValue;
 use rayon::prelude::*;
-use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
+use whir_p3::poly::{multilinear::MultilinearPoint};
 
 pub(crate) fn matrix_up_lde<F: Field>(point: &[F]) -> F {
     /*
@@ -132,7 +132,7 @@ fn next_mle<F: Field>(point: &[F]) -> F {
 }
 
 pub(crate) fn columns_up_and_down<F: Field>(
-    columns: &[&EvaluationsList<F>],
+    columns: &[&Vec<F>],
 ) -> Vec<Vec<F::Packing>> {
     columns
         .par_iter()
@@ -142,14 +142,14 @@ pub(crate) fn columns_up_and_down<F: Field>(
         .collect()
 }
 
-pub(crate) fn column_up<F: Field>(column: &EvaluationsList<F>) -> Vec<F> {
-    let mut up = column.clone();
-    up.evals_mut()[column.num_evals() - 1] = up.evals()[column.num_evals() - 2];
-    up.into_evals()
+pub(crate) fn column_up<F: Field>(column: &[F]) -> Vec<F> {
+    let mut up = column.to_vec();
+    up[column.len() - 1] = up[column.len() - 2];
+    up
 }
 
-pub(crate) fn column_down<F: Field>(column: &EvaluationsList<F>) -> Vec<F> {
-    let mut down = column.evals()[1..].to_vec();
+pub(crate) fn column_down<F: Field>(column: &[F]) -> Vec<F> {
+    let mut down = column[1..].to_vec();
     down.push(*down.last().unwrap());
     down
 }

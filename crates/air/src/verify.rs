@@ -8,6 +8,7 @@ use utils::Evaluation;
 use utils::{ConstraintFolder, fold_multilinear_in_large_field};
 use utils::{FSVerifier, PF};
 use whir_p3::fiat_shamir::FSChallenger;
+use whir_p3::poly::evals::eval_eq;
 use whir_p3::{
     fiat_shamir::errors::ProofError,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -90,26 +91,18 @@ impl<EF: TwoAdicField + ExtensionField<PF<EF>>, A: for<'a> Air<ConstraintFolder<
             .preprocessed_columns
             .iter()
             .map(|c| {
-                EvaluationsList::new(fold_multilinear_in_large_field(
-                    &column_up(c),
-                    &outer_selector_evals,
-                ))
-                .evaluate(&MultilinearPoint(
-                    outer_sumcheck_challenge.point[1..].to_vec(),
-                ))
+                fold_multilinear_in_large_field(&column_up(c), &outer_selector_evals).evaluate(
+                    &MultilinearPoint(outer_sumcheck_challenge.point[1..].to_vec()),
+                )
             })
             .collect::<Vec<_>>();
         let preprocessed_down = self
             .preprocessed_columns
             .iter()
             .map(|c| {
-                EvaluationsList::new(fold_multilinear_in_large_field(
-                    &column_down(c),
-                    &outer_selector_evals,
-                ))
-                .evaluate(&MultilinearPoint(
-                    outer_sumcheck_challenge.point[1..].to_vec(),
-                ))
+                fold_multilinear_in_large_field(&column_down(c), &outer_selector_evals).evaluate(
+                    &MultilinearPoint(outer_sumcheck_challenge.point[1..].to_vec()),
+                )
             })
             .collect::<Vec<_>>();
 
@@ -158,12 +151,12 @@ impl<EF: TwoAdicField + ExtensionField<PF<EF>>, A: for<'a> Air<ConstraintFolder<
             outer_selector_evals.iter().copied(),
         ) != dot_product::<EF, _, _>(
             witness_up.iter().copied(),
-            EvaluationsList::eval_eq(&columns_batching_scalars).evals()[..self.n_witness_columns()]
+            eval_eq(&columns_batching_scalars)[..self.n_witness_columns()]
                 .iter()
                 .copied(),
         ) + dot_product::<EF, _, _>(
             witness_down.iter().copied(),
-            EvaluationsList::eval_eq(&columns_batching_scalars).evals()[..self.n_witness_columns()]
+            eval_eq(&columns_batching_scalars)[..self.n_witness_columns()]
                 .iter()
                 .copied(),
         ) * alpha
@@ -179,9 +172,7 @@ impl<EF: TwoAdicField + ExtensionField<PF<EF>>, A: for<'a> Air<ConstraintFolder<
         let (batched_inner_sum, inner_sumcheck_challenge) =
             sumcheck::verify::<EF>(verifier_state, log_length, 2)?;
 
-        if batched_inner_sum
-            != EvaluationsList::new(sub_evals).evaluate(&MultilinearPoint(epsilons.clone()))
-        {
+        if batched_inner_sum != sub_evals.evaluate(&MultilinearPoint(epsilons.clone())) {
             return Err(AirVerifError::SumMismatch);
         }
 

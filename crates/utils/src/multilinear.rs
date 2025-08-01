@@ -112,24 +112,23 @@ pub fn fold_extension_packed<EF: Field + ExtensionField<PF<EF>>>(
 pub fn multilinears_linear_combination<
     F: Field,
     EF: ExtensionField<F>,
-    P: Borrow<EvaluationsList<F>> + Send + Sync,
+    P: Borrow<[F]> + Send + Sync,
 >(
     pols: &[P],
     scalars: &[EF],
-) -> EvaluationsList<EF> {
+) -> Vec<EF> {
     assert_eq!(pols.len(), scalars.len());
     let n_vars = pols[0].borrow().num_variables();
     assert!(pols.iter().all(|p| p.borrow().num_variables() == n_vars));
-    let evals = (0..1 << n_vars)
+    (0..1 << n_vars)
         .into_par_iter()
         .map(|i| {
             dot_product(
                 scalars.iter().copied(),
-                pols.iter().map(|p| p.borrow().evals()[i]),
+                pols.iter().map(|p| p.borrow()[i]),
             )
         })
-        .collect::<Vec<_>>();
-    EvaluationsList::new(evals)
+        .collect::<Vec<_>>()
 }
 
 pub fn batch_fold_multilinear_in_large_field<F: Field, EF: ExtensionField<F>>(
@@ -172,7 +171,7 @@ pub fn batch_fold_multilinear_in_small_field_packed<EF: Field + ExtensionField<P
         .collect()
 }
 
-pub fn packed_multilinear<F: Field>(pols: &[EvaluationsList<F>]) -> EvaluationsList<F> {
+pub fn packed_multilinear<F: Field>(pols: &[Vec<F>]) -> Vec<F> {
     let n_vars = pols[0].num_variables();
     assert!(pols.iter().all(|p| p.num_variables() == n_vars));
     let packed_len = (pols.len() << n_vars).next_power_of_two();
@@ -180,18 +179,18 @@ pub fn packed_multilinear<F: Field>(pols: &[EvaluationsList<F>]) -> EvaluationsL
     let mut offset = 0;
     // TODO parallelize
     for pol in pols {
-        dst[offset..offset + pol.num_evals()].copy_from_slice(pol.evals());
+        dst[offset..offset + pol.num_evals()].copy_from_slice(pol);
         offset += pol.num_evals();
     }
-    EvaluationsList::new(dst)
+    dst
 }
 
 #[instrument(name = "add_multilinears", skip_all)]
-pub fn add_multilinears<F: Field>(pol1: &[F], pol2: &[F]) -> EvaluationsList<F> {
+pub fn add_multilinears<F: Field>(pol1: &[F], pol2: &[F]) -> Vec<F> {
     assert_eq!(pol1.len(), pol2.len());
     let mut dst = pol1.to_vec();
     dst.par_iter_mut()
         .zip(pol2.par_iter())
         .for_each(|(a, b)| *a += *b);
-    EvaluationsList::new(dst)
+    dst
 }

@@ -11,9 +11,9 @@ use rayon::prelude::*;
 use p3_field::PrimeCharacteristicRing;
 use sumcheck::ProductComputation;
 use tracing::{info_span, instrument};
-use utils::{EFPacking,  FSProver, FSVerifier, PF, pack_extension, packing_width};
+use utils::{EFPacking, FSProver, FSVerifier, PF, pack_extension, packing_width};
 use whir_p3::fiat_shamir::FSChallenger;
-use whir_p3::poly::evals::EvaluationsList;
+use whir_p3::poly::evals::{EvaluationsList, eval_eq};
 use whir_p3::poly::multilinear::MultilinearPoint;
 use whir_p3::utils::parallel_clone;
 use whir_p3::{fiat_shamir::errors::ProofError, utils::uninitialized_vec};
@@ -25,9 +25,9 @@ pub mod gkr;
 #[instrument(skip_all)]
 pub fn prove_logup_star<EF: Field>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    table: &EvaluationsList<PF<EF>>,
-    indexes: &EvaluationsList<PF<EF>>,
-    values: &EvaluationsList<PF<EF>>,
+    table: &[PF<EF>],
+    indexes: &[PF<EF>],
+    values: &[PF<EF>],
     point: &MultilinearPoint<EF>, // "r" in the paper
 ) where
     EF: ExtensionField<PF<EF>>,
@@ -38,22 +38,21 @@ pub fn prove_logup_star<EF: Field>(
     let eval = values.evaluate(&point);
     prover_state.add_extension_scalar(eval);
 
-    let poly_eq_point = info_span!("eval_eq").in_scope(|| EvaluationsList::eval_eq(&point.0));
-    let pushforward = compute_pushforward(indexes.evals(), table_length, poly_eq_point.evals());
+    let poly_eq_point = info_span!("eval_eq").in_scope(|| eval_eq(&point.0));
+    let pushforward = compute_pushforward(indexes, table_length, &poly_eq_point);
 
     // commit to pushforward
     // TODO
 
-    let table_embedded = info_span!("embedding").in_scope(|| {
-        EvaluationsList::new(table.evals().par_iter().map(|&x| EF::from(x)).collect())
-    }); // TODO avoid embedding
+    let table_embedded = info_span!("embedding")
+        .in_scope(|| table.par_iter().map(|&x| EF::from(x)).collect::<Vec<_>>()); // TODO avoid embedding
 
     let (table_embedded_packed, poly_eq_point_packed, pushforward_packed) = info_span!("packing")
         .in_scope(|| {
             (
-                pack_extension(table_embedded.evals()),
-                pack_extension(poly_eq_point.evals()),
-                pack_extension(pushforward.evals()),
+                pack_extension(&table_embedded),
+                pack_extension(&poly_eq_point),
+                pack_extension(&pushforward),
             )
         });
 
@@ -95,7 +94,6 @@ pub fn prove_logup_star<EF: Field>(
         let half_len_packed = layer.len() / 2;
         let challenge_minus_indexes = pack_extension(
             &indexes
-                .evals()
                 .par_iter()
                 .map(|&x| random_challenge - x)
                 .collect::<Vec<_>>(),
@@ -207,7 +205,7 @@ fn compute_pushforward<F: PrimeField64, EF: ExtensionField<EF>>(
     indexes: &[F],
     table_length: usize,
     poly_eq_point: &[EF],
-) -> EvaluationsList<EF> {
+) -> Vec<EF> {
     assert_eq!(indexes.len(), poly_eq_point.len());
     // TODO there are a lot of fun optimizations here
     let mut pushforward = EF::zero_vec(table_length);
@@ -215,7 +213,7 @@ fn compute_pushforward<F: PrimeField64, EF: ExtensionField<EF>>(
         let index_usize = index.as_canonical_u64() as usize;
         pushforward[index_usize] += *value;
     }
-    return EvaluationsList::new(pushforward);
+    pushforward
 }
 
 #[cfg(test)]
@@ -256,7 +254,7 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(0);
 
-        let table = EvaluationsList::new((0..table_len).map(|_| rng.random()).collect::<Vec<F>>());
+        let table = (0..table_len).map(|_| rng.random()).collect::<Vec<F>>();
 
         let mut indexes = vec![];
         let mut values = vec![];
@@ -265,8 +263,6 @@ mod tests {
             indexes.push(F::from_usize(index));
             values.push(table[index]);
         }
-        let indexes = EvaluationsList::new(indexes);
-        let values = EvaluationsList::new(values);
 
         // Commit to the table
         let commited_table = table.clone(); // Phony commitment for the example

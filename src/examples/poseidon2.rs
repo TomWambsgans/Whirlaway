@@ -129,7 +129,7 @@ pub fn prove_poseidon2(
 
     let mut witness = witness_matrix
         .rows()
-        .map(|col| whir_p3::poly::evals::EvaluationsList::new(col.collect()))
+        .map(|col| col.collect::<Vec<_>>())
         .collect::<Vec<_>>();
 
     let preprocessed_columns = witness.drain(..n_preprocessed_columns).collect::<Vec<_>>();

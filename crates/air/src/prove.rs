@@ -9,6 +9,7 @@ use utils::{
 };
 use utils::{ConstraintFolderPackedExtension, PF};
 use whir_p3::fiat_shamir::FSChallenger;
+use whir_p3::poly::evals::{eval_eq, fold_multilinear, scale_poly};
 use whir_p3::{
     dft::EvalsDft,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -41,7 +42,7 @@ where
         &self,
         settings: &AirSettings,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-        witness: Vec<EvaluationsList<PF<EF>>>,
+        witness: Vec<Vec<PF<EF>>>,
         pcs: &impl PCS<PF<EF>, EF>,
         dft: &EvalsDft<PF<EF>>,
     ) where
@@ -119,23 +120,23 @@ where
 
         let batched_column = multilinears_linear_combination(
             &witness,
-            &EvaluationsList::eval_eq(&columns_batching_scalars).evals()[..witness.len()],
+            &eval_eq(&columns_batching_scalars)[..witness.len()],
         );
 
         let alpha = prover_state.sample();
 
         let batched_column_mixed = add_multilinears(
             &column_up(&batched_column),
-            &EvaluationsList::new(column_down(&batched_column))
-                .scale(alpha)
-                .into_evals(),
+            &scale_poly(&column_down(&batched_column), alpha),
         );
 
         // TODO opti
-        let sub_evals =
-            &batched_column_mixed.fold(&MultilinearPoint(zerocheck_challenges[1..].to_vec()));
+        let sub_evals = fold_multilinear(
+            &batched_column_mixed,
+            &MultilinearPoint(zerocheck_challenges[1..].to_vec()),
+        );
 
-        prover_state.add_extension_scalars(sub_evals);
+        prover_state.add_extension_scalars(&sub_evals);
 
         let mut epsilons = vec![EF::ZERO; settings.univariate_skips];
         for challenge in &mut epsilons {
@@ -146,7 +147,7 @@ where
         let mles_for_inner_sumcheck = vec![
             add_multilinears(
                 &matrix_up_folded(&point),
-                &matrix_down_folded(&point).scale(alpha),
+                &scale_poly(&matrix_down_folded(&point), alpha)
             ),
             batched_column,
         ];
@@ -159,7 +160,7 @@ where
             1,
             mles_for_inner_sumcheck
                 .iter()
-                .map(|m| m.evals())
+                .map(|m| m.as_slice())
                 .collect::<Vec<_>>(),
             &ProductComputation,
             2,

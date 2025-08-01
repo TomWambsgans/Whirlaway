@@ -13,8 +13,9 @@ use utils::{
     EFPacking, FSProver, PF, PFPacking, batch_fold_multilinear_in_large_field, univariate_selectors,
 };
 use whir_p3::fiat_shamir::FSChallenger;
+use whir_p3::poly::dense::WhirDensePolynomial;
+use whir_p3::poly::evals::eval_eq;
 use whir_p3::poly::multilinear::MultilinearPoint;
-use whir_p3::poly::{dense::WhirDensePolynomial, evals::EvaluationsList};
 use whir_p3::utils::uninitialized_vec;
 
 use crate::{SumcheckComputation, SumcheckComputationPacked};
@@ -35,7 +36,7 @@ pub fn prove_generic<NF, EF, SC>(
 ) -> (MultilinearPoint<EF>, Vec<EF>, EF)
 where
     NF: ExtensionField<PF<EF>>,
-    EF: ExtensionField<NF> + ExtensionField<PF<EF>> ,
+    EF: ExtensionField<NF> + ExtensionField<PF<EF>>,
     SC: SumcheckComputation<NF, EF> + SumcheckComputation<EF, EF> + SumcheckComputationPacked<EF>,
 {
     let mut n_vars = multilinears[0].len().ilog2() as usize;
@@ -49,7 +50,7 @@ where
     let mut eq_factor = eq_factor.map(|(eq_point, eq_mle)| {
         (
             eq_point.to_vec(),
-            eq_mle.unwrap_or_else(|| EvaluationsList::eval_eq(&eq_point[1..]).into_evals()),
+            eq_mle.unwrap_or_else(|| eval_eq(&eq_point[1..])),
         )
     });
 
@@ -116,7 +117,7 @@ pub fn prove_extension_packed<EF, SC>(
     log: bool,
 ) -> (MultilinearPoint<EF>, Vec<EF>, EF)
 where
-    EF: Field + ExtensionField<PF<EF>> ,
+    EF: Field + ExtensionField<PF<EF>>,
     SC: SumcheckComputation<EF, EF> + SumcheckComputationPacked<EF>,
 {
     let mut n_vars = packing_log_width::<EF>() + multilinears[0].len().ilog2() as usize;
@@ -132,9 +133,7 @@ where
         eq_factor.map(|(eq_point, eq_mle)| {
             (
                 eq_point.to_vec(),
-                eq_mle.unwrap_or_else(|| {
-                    pack_extension(EvaluationsList::eval_eq(&eq_point[1..]).evals())
-                }),
+                eq_mle.unwrap_or_else(|| pack_extension(&eval_eq(&eq_point[1..]))),
             )
         });
     if let Some((eq_point, eq_mle)) = &eq_factor {
@@ -234,7 +233,7 @@ pub fn prove_base_packed<EF, SC>(
     log: bool,
 ) -> (MultilinearPoint<EF>, Vec<EF>, EF)
 where
-    EF: Field + ExtensionField<PF<EF>> ,
+    EF: Field + ExtensionField<PF<EF>>,
     SC: SumcheckComputation<EF, EF> + SumcheckComputationPacked<EF>,
 {
     let mut n_vars = packing_log_width::<EF>() + multilinears[0].len().ilog2() as usize;
@@ -249,9 +248,7 @@ where
         eq_factor.map(|(eq_point, eq_mle)| {
             (
                 eq_point.to_vec(),
-                eq_mle.unwrap_or_else(|| {
-                    pack_extension(EvaluationsList::eval_eq(&eq_point[1..]).evals())
-                }),
+                eq_mle.unwrap_or_else(|| pack_extension(&eval_eq(&eq_point[1..]))),
             )
         });
     if let Some((eq_point, eq_mle)) = &eq_factor {
@@ -327,7 +324,7 @@ fn sc_round_generic<NF, EF, SC>(
 ) -> Vec<Vec<EF>>
 where
     NF: ExtensionField<PF<EF>>,
-    EF: ExtensionField<NF> + ExtensionField<PF<EF>> ,
+    EF: ExtensionField<NF> + ExtensionField<PF<EF>>,
     SC: SumcheckComputation<NF, EF>,
 {
     let _info_span = log.then(|| info_span!("sumcheck round").entered());
@@ -473,7 +470,7 @@ fn sc_round_packed_base<EF, SC>(
     log: bool,
 ) -> Vec<Vec<EFPacking<EF>>>
 where
-    EF: Field + ExtensionField<PF<EF>> ,
+    EF: Field + ExtensionField<PF<EF>>,
     SC: SumcheckComputationPacked<EF>,
 {
     let _info_span = log.then(|| info_span!("sumcheck round").entered());
@@ -635,7 +632,7 @@ fn sc_round_packed_extension<EF, SC>(
     log: bool,
 ) -> Vec<Vec<EFPacking<EF>>>
 where
-    EF: Field + ExtensionField<PF<EF>> ,
+    EF: Field + ExtensionField<PF<EF>>,
     SC: SumcheckComputationPacked<EF>,
 {
     let _info_span = log.then(|| info_span!("sumcheck round").entered());

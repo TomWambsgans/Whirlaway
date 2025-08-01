@@ -18,10 +18,11 @@ use utils::packing_log_width;
 use utils::packing_width;
 use utils::unpack_extension;
 use utils::{EFPacking, Evaluation, FSProver, FSVerifier, PF, PFPacking};
-use whir_p3::fiat_shamir::errors::ProofError;
 use whir_p3::fiat_shamir::FSChallenger;
+use whir_p3::fiat_shamir::errors::ProofError;
 use whir_p3::poly::dense::WhirDensePolynomial;
 use whir_p3::poly::evals::EvaluationsList;
+use whir_p3::poly::evals::eval_eq;
 use whir_p3::poly::multilinear::MultilinearPoint;
 
 /*
@@ -76,8 +77,7 @@ where
     prover_state.add_extension_scalars(&layers_not_packed[n - last_packed - 2]);
 
     let mut point = MultilinearPoint(vec![prover_state.sample()]);
-    let mut claim =
-        EvaluationsList::new(layers_not_packed[n - last_packed - 2].clone()).evaluate(&point);
+    let mut claim = layers_not_packed[n - last_packed - 2].evaluate(&point);
 
     for layer in layers_not_packed.iter().rev().skip(1) {
         let (next_point, next_claim) = prove_gkr_step(prover_state, layer, &point, claim).into();
@@ -110,7 +110,7 @@ where
     let mid_len = len / 2;
     let quarter_len = mid_len / 2;
 
-    let eq_poly = info_span!("eq_poly").in_scope(|| EvaluationsList::eval_eq(&point.0[1..]));
+    let eq_poly = info_span!("eq_poly").in_scope(|| eval_eq(&point.0[1..]));
 
     let mut sums_x = EF::zero_vec(up_layer.len() / 4);
     let mut sums_one_minus_x = EF::zero_vec(up_layer.len() / 4);
@@ -120,7 +120,7 @@ where
         .zip(sums_one_minus_x.par_iter_mut())
         .enumerate()
         .for_each(|(i, (x, one_minus_x))| {
-            let eq_eval = eq_poly.evals()[i];
+            let eq_eval = eq_poly[i];
             let u0 = up_layer[i];
             let u1 = up_layer[quarter_len + i];
             let u2 = up_layer[mid_len + i];
@@ -203,8 +203,7 @@ where
 
     let next_claim = dot_product::<EF, _, _>(
         quarter_evals.into_iter(),
-        EvaluationsList::eval_eq(&[mixing_challenge_a, mixing_challenge_b])
-            .evals()
+        eval_eq(&[mixing_challenge_a, mixing_challenge_b])
             .iter()
             .cloned(),
     );
@@ -232,9 +231,9 @@ where
     let mid_len_packed = len_packed / 2;
     let quarter_len_packed = mid_len_packed / 2;
 
-    let eq_poly = info_span!("eq_poly").in_scope(|| EvaluationsList::eval_eq(&point.0[1..]));
+    let eq_poly = info_span!("eq_poly").in_scope(|| eval_eq(&point.0[1..]));
 
-    let mut eq_poly_packed = pack_extension(&eq_poly.evals());
+    let mut eq_poly_packed = pack_extension(&eq_poly);
 
     let mut all_sums_x_packed = EFPacking::<EF>::zero_vec(quarter_len_packed);
     let mut all_sums_one_minus_x_packed = EFPacking::<EF>::zero_vec(quarter_len_packed);
@@ -329,8 +328,7 @@ where
 
     let next_claim = dot_product::<EF, _, _>(
         quarter_evals.into_iter(),
-        EvaluationsList::eval_eq(&[mixing_challenge_a, mixing_challenge_b])
-            .evals()
+        eval_eq(&[mixing_challenge_a, mixing_challenge_b])
             .iter()
             .cloned(),
     );
@@ -353,7 +351,7 @@ where
     let quotient = a / b;
 
     let mut point = MultilinearPoint(vec![verifier_state.sample()]);
-    let mut claim = EvaluationsList::new(vec![a, b]).evaluate(&point);
+    let mut claim = [a, b].evaluate(&point);
 
     for i in 1..n_vars {
         let (next_point, next_claim) = verify_gkr_step(verifier_state, i, &point, claim)?.into();
@@ -403,8 +401,7 @@ where
 
     let next_claim = dot_product::<EF, _, _>(
         [q0, q1, q2, q3].into_iter(),
-        EvaluationsList::eval_eq(&[mixing_challenge_a, mixing_challenge_b])
-            .evals()
+        eval_eq(&[mixing_challenge_a, mixing_challenge_b])
             .iter()
             .cloned(),
     );
@@ -467,7 +464,7 @@ mod tests {
 
     type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
 
-    fn sum_all_quotients(layer: &EvaluationsList<EF>) -> EF {
+    fn sum_all_quotients(layer: &[EF]) -> EF {
         (0..layer.num_evals() / 2)
             .into_par_iter()
             .map(|i| layer[i] / layer[layer.num_evals() / 2 + i])
@@ -481,8 +478,8 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(0);
 
-        let big = EvaluationsList::new((0..n).map(|_| rng.random()).collect::<Vec<EF>>());
-        let small = EvaluationsList::new(sum_quotients_2_by_2(&big));
+        let big = (0..n).map(|_| rng.random()).collect::<Vec<EF>>();
+        let small = sum_quotients_2_by_2(&big);
 
         // sanity check
         assert_eq!(
@@ -514,7 +511,7 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(0);
 
-        let layer = EvaluationsList::new((0..n).map(|_| rng.random()).collect::<Vec<EF>>());
+        let layer = (0..n).map(|_| rng.random()).collect::<Vec<EF>>();
         let real_quotient = sum_all_quotients(&layer);
 
         let poseidon16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
