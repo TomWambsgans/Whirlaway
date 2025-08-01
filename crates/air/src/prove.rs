@@ -1,19 +1,17 @@
+use multi_pcs::pcs::PCS;
 use p3_air::Air;
 use p3_field::{BasedVectorSpace, ExtensionField, TwoAdicField, cyclic_subgroup_known_order};
-use p3_util::log2_strict_usize;
-use serde::{Deserialize, Serialize};
 use sumcheck::ProductComputation;
 use tracing::{Level, info_span, instrument, span};
-use utils::{ConstraintFolderPackedExtension, PF};
 use utils::{
-    ConstraintFolder, ConstraintFolderPackedBase,  FSProver, MerkleCompress,
-    MerkleHasher, add_multilinears, multilinears_linear_combination, packed_multilinear,
+    ConstraintFolder, ConstraintFolderPackedBase, Evaluation, FSProver, add_multilinears,
+    multilinears_linear_combination, packed_multilinear,
 };
+use utils::{ConstraintFolderPackedExtension, PF};
 use whir_p3::fiat_shamir::FSChallenger;
 use whir_p3::{
     dft::EvalsDft,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    whir::{committer::writer::CommitmentWriter, prover::Prover, statement::Statement},
 };
 
 use crate::{
@@ -39,15 +37,14 @@ where
         + for<'a> Air<ConstraintFolderPackedExtension<'a, EF>>,
 {
     #[instrument(name = "air: prove", skip_all)]
-    pub fn prove<const DIGEST_ELEMS: usize>(
+    pub fn prove(
         &self,
         settings: &AirSettings,
-        merkle_hash: impl MerkleHasher<EF, DIGEST_ELEMS>,
-        merkle_compress: impl MerkleCompress<EF, DIGEST_ELEMS>,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         witness: Vec<EvaluationsList<PF<EF>>>,
+        pcs: &impl PCS<PF<EF>, EF>,
+        dft: &EvalsDft<PF<EF>>,
     ) where
-        [PF<EF>; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
         PF<EF>: TwoAdicField,
     {
         assert!(
@@ -57,35 +54,22 @@ where
         let log_length = self.log_length;
         assert!(witness.iter().all(|w| w.num_variables() == log_length));
 
-        let whir_params = self.build_whir_config(settings, merkle_hash, merkle_compress);
-
         // 1) Commit to the witness columns
 
         // TODO avoid cloning (use a row major matrix for the witness)
 
         let packed_pol = packed_multilinear(&witness);
 
-        let committer = CommitmentWriter::new(&whir_params);
-
         let ext_dim = <EF as BasedVectorSpace<PF<EF>>>::DIMENSION;
         assert!(ext_dim.is_power_of_two());
-        let dft = EvalsDft::new(
-            1 << (self.log_n_witness_columns() + self.log_length + settings.whir_log_inv_rate
-                - log2_strict_usize(ext_dim)),
-        );
 
-        let packed_witness = committer.commit(&dft, prover_state, &packed_pol).unwrap();
-
-        self.constraints_batching_pow(prover_state, settings)
-            .unwrap();
+        let packed_witness = pcs.commit(&dft, prover_state, &packed_pol);
 
         let constraints_batching_scalar = prover_state.sample();
 
         let constraints_batching_scalars =
             cyclic_subgroup_known_order(constraints_batching_scalar, self.n_constraints)
                 .collect::<Vec<_>>();
-
-        self.zerocheck_pow(prover_state, settings).unwrap();
 
         let mut zerocheck_challenges = vec![EF::ZERO; log_length + 1 - settings.univariate_skips];
         for challenge in &mut zerocheck_challenges {
@@ -127,11 +111,6 @@ where
 
         prover_state.add_extension_scalars(&inner_sums_up);
         prover_state.add_extension_scalars(&inner_sums_down);
-
-        info_span!("pow grinding").in_scope(|| {
-            self.secondary_sumchecks_batching_pow(prover_state, settings)
-                .unwrap();
-        });
 
         let mut columns_batching_scalars = vec![EF::ZERO; self.log_n_witness_columns()];
         for challenge in &mut columns_batching_scalars {
@@ -199,12 +178,10 @@ where
 
         std::mem::drop(_span);
 
-        let prover = Prover(&whir_params);
-
-        let mut statement = Statement::new(final_point.len());
-        statement.add_constraint(MultilinearPoint(final_point), packed_value);
-        prover
-            .prove(&dft, prover_state, statement, packed_witness, &packed_pol)
-            .unwrap();
+        let statement = vec![Evaluation {
+            point: MultilinearPoint(final_point),
+            value: packed_value,
+        }];
+        pcs.open(&dft, prover_state, &statement, packed_witness, &packed_pol);
     }
 }

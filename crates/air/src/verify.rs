@@ -1,17 +1,16 @@
+use multi_pcs::pcs::PCS;
 use p3_air::Air;
 use p3_field::{ExtensionField, TwoAdicField, cyclic_subgroup_known_order, dot_product};
-use serde::{Deserialize, Serialize};
-use whir_p3::fiat_shamir::FSChallenger;
 use std::fmt::Debug;
 use sumcheck::{SumcheckComputation, SumcheckError};
 use tracing::instrument;
-use utils::MerkleHasher;
-use utils::{ConstraintFolder, MerkleCompress, fold_multilinear_in_large_field, log2_up};
+use utils::Evaluation;
+use utils::{ConstraintFolder, fold_multilinear_in_large_field};
 use utils::{FSVerifier, PF};
+use whir_p3::fiat_shamir::FSChallenger;
 use whir_p3::{
     fiat_shamir::errors::ProofError,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-    whir::{committer::reader::CommitmentReader, statement::Statement, verifier::Verifier},
 };
 
 use crate::{
@@ -43,46 +42,26 @@ impl From<SumcheckError> for AirVerifError {
     }
 }
 
-impl<
-    EF: TwoAdicField + ExtensionField<PF<EF>>,
-    A: for<'a> Air<ConstraintFolder<'a, EF, EF>>,
-> AirTable<EF, A>
+impl<EF: TwoAdicField + ExtensionField<PF<EF>>, A: for<'a> Air<ConstraintFolder<'a, EF, EF>>>
+    AirTable<EF, A>
 {
     #[instrument(name = "air table: verify", skip_all)]
-    pub fn verify<const DIGEST_ELEMS: usize>(
+    pub fn verify(
         &self,
         settings: &AirSettings,
-        merkle_hash: impl MerkleHasher<EF, DIGEST_ELEMS>,
-        merkle_compress: impl MerkleCompress<EF, DIGEST_ELEMS>,
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
         log_length: usize,
+        pcs: &impl PCS<PF<EF>, EF>,
     ) -> Result<(), AirVerifError>
     where
-        [PF<EF>; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        PF<EF>: TwoAdicField,
         PF<EF>: TwoAdicField,
     {
-        let whir_params = self.build_whir_config(settings, merkle_hash, merkle_compress);
-
-        let commitment_reader = CommitmentReader::new(&whir_params);
-        let whir_verifier = Verifier::new(&whir_params);
-        let parsed_commitment = commitment_reader
-            .parse_commitment(verifier_state)
+        let num_variables = self.log_length + self.log_n_witness_columns();
+        let parsed_commitment = pcs
+            .parse_commitment(verifier_state, num_variables)
             .map_err(|_| AirVerifError::InvalidPcsCommitment)?;
 
-        verifier_state.check_pow_grinding(
-            settings
-                .security_bits
-                .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_constraints))),
-        )?;
-
         let constraints_batching_scalar = verifier_state.sample();
-
-        verifier_state.check_pow_grinding(
-            settings
-                .security_bits
-                .saturating_sub(EF::bits().saturating_sub(self.log_length)),
-        )?;
 
         let mut zerocheck_challenges = vec![EF::ZERO; log_length - settings.univariate_skips + 1];
         for challenge in &mut zerocheck_challenges {
@@ -164,12 +143,6 @@ impl<
             return Err(AirVerifError::SumMismatch);
         }
 
-        verifier_state.check_pow_grinding(
-            settings
-                .security_bits
-                .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_witness_columns()))),
-        )?;
-
         let mut columns_batching_scalars = vec![EF::ZERO; self.log_n_witness_columns()];
         for challenge in &mut columns_batching_scalars {
             *challenge = verifier_state.sample();
@@ -229,10 +202,11 @@ impl<
         ]
         .concat();
 
-        let mut statement = Statement::<EF>::new(final_point.len());
-        statement.add_constraint(MultilinearPoint(final_point), expected_final_value);
-        whir_verifier
-            .verify(verifier_state, &parsed_commitment, &statement)
+        let statement = vec![Evaluation {
+            point: MultilinearPoint(final_point),
+            value: expected_final_value,
+        }];
+        pcs.verify(verifier_state, &parsed_commitment, &statement)
             .map_err(|_| AirVerifError::InvalidPcsOpening)?;
 
         Ok(())

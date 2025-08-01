@@ -1,21 +1,25 @@
 use ::air::AirSettings;
 use air::table::AirTable;
 use p3_challenger::DuplexChallenger;
-use p3_field::PrimeField64;
 use p3_field::extension::BinomialExtensionField;
+use p3_field::{BasedVectorSpace, PrimeField64};
 use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear, Poseidon2KoalaBear};
 use p3_matrix::Matrix;
 use p3_poseidon2_air::{Poseidon2Air, RoundConstants, generate_trace_rows};
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
+use p3_util::log2_strict_usize;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use whir_p3::whir::config::FoldingFactor;
 use std::fmt;
+use std::marker::PhantomData;
 use std::time::{Duration, Instant};
 use tracing::level_filters::LevelFilter;
 use tracing_forest::ForestLayer;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
+use utils::PF;
+use whir_p3::dft::EvalsDft;
 use whir_p3::fiat_shamir::prover::ProverState;
 use whir_p3::fiat_shamir::verifier::VerifierState;
+use whir_p3::whir::config::{FoldingFactor, SecurityAssumption, WhirConfigBuilder};
 
 // Koalabear
 type Poseidon16 = Poseidon2KoalaBear<16>;
@@ -48,7 +52,6 @@ const WIDTH: usize = 16;
 #[derive(Clone, Debug)]
 pub struct Poseidon2Benchmark {
     pub log_n_rows: usize,
-    pub settings: AirSettings,
     pub prover_time: Duration,
     pub verifier_time: Duration,
     pub proof_size: f64, // in bytes
@@ -56,18 +59,6 @@ pub struct Poseidon2Benchmark {
 
 impl fmt::Display for Poseidon2Benchmark {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(
-            f,
-            "Security level: {} bits ({:?}), starting rate: 1/{}, folding factor: {}",
-            self.settings.security_bits,
-            self.settings.whir_soudness_type,
-            1 << self.settings.whir_log_inv_rate,
-            match self.settings.whir_folding_factor {
-                FoldingFactor::Constant(factor) => format!("{factor}"),
-                FoldingFactor::ConstantFromSecondRound(first, then) =>
-                    format!("1st: {first} then {then}"),
-            }
-        )?;
         let n_rows = 1 << self.log_n_rows;
         writeln!(
             f,
@@ -84,6 +75,13 @@ impl fmt::Display for Poseidon2Benchmark {
 pub fn prove_poseidon2(
     log_n_rows: usize,
     settings: AirSettings,
+    folding_factor: FoldingFactor,
+    log_inv_rate: usize,
+    soundness_type: SecurityAssumption,
+    pow_bits: usize,
+    security_level: usize,
+    rs_domain_initial_reduction_factor: usize,
+    max_num_variables_to_send_coeffs: usize,
     n_preprocessed_columns: usize,
     display_logs: bool,
 ) -> Poseidon2Benchmark {
@@ -147,6 +145,7 @@ pub fn prove_poseidon2(
     let poseidon16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
     let poseidon24 = Poseidon24::new_from_rng_128(&mut StdRng::seed_from_u64(0));
     let merkle_hash = MerkleHash::new(poseidon24);
+
     let merkle_compress = MerkleCompress::new(poseidon16.clone());
 
     let t = Instant::now();
@@ -155,13 +154,27 @@ pub fn prove_poseidon2(
 
     let mut prover_state = ProverState::new(challenger.clone());
 
-    table.prove(
-        &settings,
-        merkle_hash.clone(),
-        merkle_compress.clone(),
-        &mut prover_state,
-        witness,
+    let pcs = WhirConfigBuilder {
+        folding_factor,
+        soundness_type,
+        merkle_hash,
+        merkle_compress,
+        pow_bits,
+        max_num_variables_to_send_coeffs,
+        rs_domain_initial_reduction_factor,
+        security_level,
+        starting_log_inv_rate: log_inv_rate,
+        base_field: PhantomData::<PF<EF>>,
+        extension_field: PhantomData::<EF>,
+    };
+
+    let ext_dim = <EF as BasedVectorSpace<PF<EF>>>::DIMENSION;
+    let dft = EvalsDft::new(
+        1 << (table.log_n_witness_columns() + log_n_rows + log_inv_rate
+            - log2_strict_usize(ext_dim)),
     );
+
+    table.prove(&settings, &mut prover_state, witness, &pcs, &dft);
     // let proof_size = prover_state.narg_string().len();
 
     let prover_time = t.elapsed();
@@ -170,13 +183,7 @@ pub fn prove_poseidon2(
     let mut verifier_state = VerifierState::new(prover_state.proof_data().to_vec(), challenger);
 
     table
-        .verify(
-            &settings,
-            merkle_hash,
-            merkle_compress,
-            &mut verifier_state,
-            log_n_rows,
-        )
+        .verify(&settings, &mut verifier_state, log_n_rows, &pcs)
         .unwrap();
     let verifier_time = time.elapsed();
 
@@ -184,7 +191,6 @@ pub fn prove_poseidon2(
 
     Poseidon2Benchmark {
         log_n_rows,
-        settings,
         prover_time,
         verifier_time,
         proof_size,
@@ -201,16 +207,16 @@ mod tests {
     fn test_prove_poseidon2() {
         let benchmark = prove_poseidon2(
             13,
-            AirSettings::new(
-                128,
-                SecurityAssumption::CapacityBound,
-                FoldingFactor::ConstantFromSecondRound(7, 4),
-                2,
-                4,
-                5,
-            ),
+            AirSettings::new(5),
+            FoldingFactor::ConstantFromSecondRound(5, 3),
             2,
-            true,
+            SecurityAssumption::CapacityBound,
+            13,
+            128,
+            1,
+            5,
+            7,
+            false,
         );
         println!("\n{benchmark}");
     }

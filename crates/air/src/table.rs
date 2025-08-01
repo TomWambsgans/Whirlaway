@@ -1,17 +1,9 @@
-use std::marker::PhantomData;
-
 use p3_air::Air;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use p3_uni_stark::{SymbolicAirBuilder, get_symbolic_constraints};
-use utils::{ FSProver, PF, log2_up, univariate_selectors};
-use whir_p3::{
-    fiat_shamir::{errors::ProofError, FSChallenger},
-    poly::{dense::WhirDensePolynomial, evals::EvaluationsList},
-    whir::config::{WhirConfig, WhirConfigBuilder},
-};
-
-use crate::{AirSettings, WHIR_POW_BITS};
+use utils::{PF, log2_up, univariate_selectors};
+use whir_p3::poly::{dense::WhirDensePolynomial, evals::EvaluationsList};
 
 pub struct AirTable<EF: Field, A> {
     pub log_length: usize,
@@ -68,72 +60,5 @@ where
     #[allow(clippy::missing_const_for_fn)]
     pub fn n_preprocessed_columns(&self) -> usize {
         self.preprocessed_columns.len()
-    }
-
-    pub fn build_whir_config<H, C, const DIGEST_ELEMS: usize>(
-        &self,
-        settings: &AirSettings,
-        merkle_hash: H,
-        merkle_compress: C,
-    ) -> WhirConfig<PF<EF>, EF, H, C, DIGEST_ELEMS> {
-        let num_variables = self.log_length + self.log_n_witness_columns();
-
-        let whir_config_builder = WhirConfigBuilder {
-            max_num_variables_to_send_coeffs: 6,
-            security_level: settings.security_bits,
-            pow_bits: WHIR_POW_BITS,
-            folding_factor: settings.whir_folding_factor,
-            merkle_hash,
-            merkle_compress,
-            soundness_type: settings.whir_soudness_type,
-            starting_log_inv_rate: settings.whir_log_inv_rate,
-            rs_domain_initial_reduction_factor: settings.whir_initial_domain_reduction_factor,
-            base_field: PhantomData,
-            extension_field: PhantomData,
-        };
-
-        WhirConfig::new(whir_config_builder, num_variables)
-    }
-
-    pub(crate) fn constraints_batching_pow(
-        &self,
-        prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-        settings: &AirSettings,
-    ) -> Result<(), ProofError> {
-        prover_state.pow_grinding(
-            settings
-                .security_bits
-                .saturating_sub(EF::bits().saturating_sub(log2_up(self.n_constraints))),
-        );
-
-        Ok(())
-    }
-
-    pub(crate) fn zerocheck_pow(
-        &self,
-        prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-        settings: &AirSettings,
-    ) -> Result<(), ProofError> {
-        prover_state.pow_grinding(
-            settings
-                .security_bits
-                .saturating_sub(EF::bits().saturating_sub(self.log_length)),
-        );
-
-        Ok(())
-    }
-
-    pub(crate) fn secondary_sumchecks_batching_pow(
-        &self,
-        prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-        settings: &AirSettings,
-    ) -> Result<(), ProofError> {
-        prover_state.pow_grinding(
-            settings
-                .security_bits
-                .saturating_sub(EF::bits().saturating_sub(self.log_n_witness_columns())),
-        );
-
-        Ok(())
     }
 }

@@ -20,10 +20,8 @@ dependencies = [
  "p3-field",
  "p3-koala-bear",
  "p3-uni-stark",
- "p3-util",
  "rand",
  "rayon",
- "serde",
  "sumcheck",
  "tracing",
  "utils",
@@ -319,18 +317,11 @@ checksum = "32a282da65faaf38286cf3be983213fcf1d2e2a58700e808f83f4ea9a4804bc0"
 name = "multi_pcs"
 version = "0.1.0"
 dependencies = [
- "p3-air",
- "p3-challenger",
  "p3-field",
  "p3-koala-bear",
  "p3-symmetric",
- "p3-uni-stark",
- "p3-util",
  "rand",
- "rayon",
  "serde",
- "sumcheck",
- "tracing",
  "utils",
  "whir-p3",
 ]
@@ -1106,7 +1097,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/whir-p3?branch=w#6784129eee914d9768838a86d28d7019a015524e"
+source = "git+https://github.com/TomWambsgans/whir-p3?branch=w#655b894bb2abeb033312547bae15ff0f86a2f5e6"
 dependencies = [
  "clap",
  "itertools",
@@ -1145,10 +1136,12 @@ dependencies = [
  "p3-poseidon2-air",
  "p3-symmetric",
  "p3-uni-stark",
+ "p3-util",
  "rand",
  "tracing",
  "tracing-forest",
  "tracing-subscriber",
+ "utils",
  "whir-p3",
 ]
 

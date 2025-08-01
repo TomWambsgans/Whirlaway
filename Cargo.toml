@@ -152,3 +152,5 @@ p3-challenger.workspace = true
 p3-symmetric.workspace = true
 whir-p3.workspace = true
 p3-uni-stark.workspace = true
+utils.workspace = true
+p3-util.workspace = true

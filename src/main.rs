@@ -2,24 +2,21 @@
 
 mod examples;
 
+use crate::examples::poseidon2::prove_poseidon2;
 use air::AirSettings;
 use whir_p3::whir::config::{FoldingFactor, SecurityAssumption};
-use crate::examples::poseidon2::prove_poseidon2;
-
-const SECURITY_BITS: usize = 128;
 
 fn main() {
-    let (log_n_rows, log_inv_rate) = (17, 1);
     let benchmark = prove_poseidon2(
-        log_n_rows,
-        AirSettings::new(
-            SECURITY_BITS,
-            SecurityAssumption::CapacityBound,
-            FoldingFactor::ConstantFromSecondRound(7, 4),
-            log_inv_rate,
-            4,
-            5,
-        ),
+        17,
+        AirSettings::new(4),
+        FoldingFactor::ConstantFromSecondRound(7, 4),
+        1,
+        SecurityAssumption::CapacityBound,
+        16,
+        128,
+        5,
+        6,
         0,
         true,
     );

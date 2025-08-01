@@ -861,8 +861,10 @@ pub fn run_whir_verif() {
         extension_field: PhantomData,
     };
 
-    let config =
-        WhirConfig::<EF, EF, MerkleHash, MerkleCompress, 8>::new(whir_config_builder, num_variables);
+    let config = WhirConfig::<EF, EF, MerkleHash, MerkleCompress, 8>::new(
+        whir_config_builder,
+        num_variables,
+    );
     assert_eq!(config.committment_ood_samples, 1);
     // println!("Whir parameters: {}", params.to_string());
     for (i, round) in config.round_parameters.iter().enumerate() {
@@ -891,7 +893,7 @@ pub fn run_whir_verif() {
     let mut prover_state = ProverState::new(challenger.clone());
 
     // Commit to the polynomial and produce a witness
-    let committer = CommitmentWriter::new(&config);
+    let committer = Commiter(&config);
 
     let dft = EvalsDft::<F>::new(1 << config.max_fft_size());
 
@@ -923,21 +925,16 @@ pub fn run_whir_verif() {
 
     public_input.extend(prover_state.proof_data()[commitment_size..].to_vec());
 
-    let commitment_reader = CommitmentReader::new(&config);
-
-    // Create a verifier with matching parameters
-    let verifier = Verifier::new(&config);
-
     // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
     let mut verifier_state =
         VerifierState::<F, EF, _>::new(prover_state.proof_data().to_vec(), challenger.clone());
 
     // Parse the commitment
-    let parsed_commitment = commitment_reader
+    let parsed_commitment = CommitmentReader(&config)
         .parse_commitment(&mut verifier_state)
         .unwrap();
 
-    verifier
+    Verifier(&config)
         .verify(&mut verifier_state, &parsed_commitment, &statement)
         .unwrap();
 

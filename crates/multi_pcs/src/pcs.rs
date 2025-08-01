@@ -2,43 +2,67 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use utils::{Evaluation,  FSProver, FSVerifier, PF, PFPacking};
+use utils::{Evaluation, FSProver, FSVerifier, PF, PFPacking};
 use whir_p3::{
     dft::EvalsDft,
-    fiat_shamir::{ errors::ProofError,  FSChallenger},
+    fiat_shamir::{FSChallenger, errors::ProofError},
     poly::evals::EvaluationsList,
     whir::{
-        committer::{reader::ParsedCommitment, writer::CommitmentWriter, Witness},
+        committer::{
+            Witness,
+            reader::{CommitmentReader, ParsedCommitment},
+            writer::Commiter,
+        },
         config::{WhirConfig, WhirConfigBuilder},
+        prover::Prover,
+        statement::Statement,
+        verifier::Verifier,
     },
 };
 
+pub trait NumVariables {
+    fn num_variables(&self) -> usize;
+}
+
 pub trait PCS<F: Field, EF: ExtensionField<F>> {
-    type ParsedCommitment;
+    type ParsedCommitment: NumVariables;
     type Witness;
     type VerifError: Debug;
     fn commit(
         &self,
         dft: &EvalsDft<PF<EF>>,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-        pol: &EvaluationsList<F>,
+        polynomial: &EvaluationsList<F>,
     ) -> Self::Witness;
     fn open(
         &self,
-        witness: Self::Witness,
-        statements: &[Evaluation<EF>],
+        dft: &EvalsDft<PF<EF>>,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    ) -> Result<(), Self::VerifError>;
+        statements: &[Evaluation<EF>],
+        witness: Self::Witness,
+        polynomial: &EvaluationsList<F>,
+    );
     fn parse_commitment(
         &self,
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+        num_variables: usize,
     ) -> Result<Self::ParsedCommitment, Self::VerifError>;
     fn verify(
         &self,
+        verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
         parsed_commitment: &Self::ParsedCommitment,
         statements: &[Evaluation<EF>],
-        verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     ) -> Result<(), Self::VerifError>;
+}
+
+impl<F, EF, const DIGEST_ELEMS: usize> NumVariables for ParsedCommitment<F, EF, DIGEST_ELEMS>
+where
+    F: Field,
+    EF: ExtensionField<F>,
+{
+    fn num_variables(&self) -> usize {
+        self.num_variables
+    }
 }
 
 impl<F, EF, H, C, const DIGEST_ELEMS: usize> PCS<F, EF>
@@ -64,36 +88,53 @@ where
         &self,
         dft: &EvalsDft<PF<EF>>,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-        pol: &EvaluationsList<F>,
+        polynomial: &EvaluationsList<F>,
     ) -> Self::Witness {
-        let config = WhirConfig::new(self.clone(), pol.num_variables());
-        CommitmentWriter::new(&config)
-            .commit(dft, prover_state, pol)
+        let config = WhirConfig::new(self.clone(), polynomial.num_variables());
+        Commiter(&config)
+            .commit(dft, prover_state, polynomial)
             .unwrap()
     }
 
     fn open(
         &self,
-        witness: Self::Witness,
-        statements: &[Evaluation<EF>],
+        dft: &EvalsDft<PF<EF>>,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    ) -> Result<(), Self::VerifError> {
-        todo!()
+        statements: &[Evaluation<EF>],
+        witness: Self::Witness,
+        polynomial: &EvaluationsList<F>,
+    ) {
+        let config = WhirConfig::new(self.clone(), polynomial.num_variables());
+        let mut whir_statements = Statement::new(polynomial.num_variables());
+        for statement in statements {
+            whir_statements.add_constraint(statement.point.clone(), statement.value);
+        }
+        Prover(&config)
+            .prove(dft, prover_state, whir_statements, witness, polynomial)
+            .unwrap();
     }
 
     fn parse_commitment(
         &self,
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+        num_variables: usize,
     ) -> Result<Self::ParsedCommitment, Self::VerifError> {
-        todo!()
+        let config = WhirConfig::new(self.clone(), num_variables);
+        CommitmentReader(&config).parse_commitment(verifier_state)
     }
 
     fn verify(
         &self,
+        verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
         parsed_commitment: &Self::ParsedCommitment,
         statements: &[Evaluation<EF>],
-        verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     ) -> Result<(), Self::VerifError> {
-        todo!()
+        let config = WhirConfig::new(self.clone(), parsed_commitment.num_variables());
+        let mut whir_statements = Statement::new(parsed_commitment.num_variables());
+        for statement in statements {
+            whir_statements.add_constraint(statement.point.clone(), statement.value);
+        }
+        Verifier(&config).verify(verifier_state, parsed_commitment, &whir_statements)?;
+        Ok(())
     }
 }
