@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use p3_air::Air;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
@@ -5,9 +7,8 @@ use p3_uni_stark::{SymbolicAirBuilder, get_symbolic_constraints};
 use utils::{FSChallenger, FSProver, PF, log2_up, univariate_selectors};
 use whir_p3::{
     fiat_shamir::errors::ProofError,
-    parameters::{MultivariateParameters, ProtocolParameters},
     poly::{dense::WhirDensePolynomial, evals::EvaluationsList},
-    whir::parameters::WhirConfig,
+    whir::config::{WhirConfig, WhirConfigBuilder},
 };
 
 use crate::{AirSettings, WHIR_POW_BITS};
@@ -69,16 +70,15 @@ where
         self.preprocessed_columns.len()
     }
 
-    pub fn build_whir_params<H, C, Challenger: FSChallenger<EF>>(
+    pub fn build_whir_config<H, C, const DIGEST_ELEMS: usize>(
         &self,
         settings: &AirSettings,
         merkle_hash: H,
         merkle_compress: C,
-    ) -> WhirConfig<EF, PF<EF>, H, C, Challenger> {
+    ) -> WhirConfig<PF<EF>, EF, H, C, DIGEST_ELEMS> {
         let num_variables = self.log_length + self.log_n_witness_columns();
-        let mv_params = MultivariateParameters::new(num_variables);
 
-        let whir_params = ProtocolParameters {
+        let whir_config_builder = WhirConfigBuilder {
             max_num_variables_to_send_coeffs: 6,
             security_level: settings.security_bits,
             pow_bits: WHIR_POW_BITS,
@@ -88,9 +88,11 @@ where
             soundness_type: settings.whir_soudness_type,
             starting_log_inv_rate: settings.whir_log_inv_rate,
             rs_domain_initial_reduction_factor: settings.whir_initial_domain_reduction_factor,
+            base_field: PhantomData,
+            extension_field: PhantomData,
         };
 
-        WhirConfig::new(mv_params, whir_params)
+        WhirConfig::new(whir_config_builder, num_variables)
     }
 
     pub(crate) fn constraints_batching_pow(

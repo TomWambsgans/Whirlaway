@@ -57,7 +57,7 @@ where
         let log_length = self.log_length;
         assert!(witness.iter().all(|w| w.num_variables() == log_length));
 
-        let whir_params = self.build_whir_params(settings, merkle_hash, merkle_compress);
+        let whir_params = self.build_whir_config(settings, merkle_hash, merkle_compress);
 
         // 1) Commit to the witness columns
 
@@ -74,7 +74,7 @@ where
                 - log2_strict_usize(ext_dim)),
         );
 
-        let packed_witness = committer.commit(&dft, prover_state, packed_pol).unwrap();
+        let packed_witness = committer.commit(&dft, prover_state, &packed_pol).unwrap();
 
         self.constraints_batching_pow(prover_state, settings)
             .unwrap();
@@ -204,7 +204,7 @@ where
         let mut statement = Statement::new(final_point.len());
         statement.add_constraint(MultilinearPoint(final_point), packed_value);
         prover
-            .prove(&dft, prover_state, statement, packed_witness)
+            .prove(&dft, prover_state, statement, packed_witness, &packed_pol)
             .unwrap();
     }
 }

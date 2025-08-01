@@ -8,7 +8,7 @@ mod verify;
 
 const WHIR_POW_BITS: usize = 16;
 
-use whir_p3::parameters::{FoldingFactor, errors::SecurityAssumption};
+use whir_p3::whir::config::{FoldingFactor, SecurityAssumption};
 
 #[derive(Clone, Debug)]
 pub struct AirSettings {

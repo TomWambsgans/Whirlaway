@@ -1,5 +1,5 @@
 [package]
-name = "air"
+name = "multi_pcs"
 version.workspace = true
 edition.workspace = true
 
@@ -13,12 +13,11 @@ sumcheck.workspace = true
 utils.workspace = true
 whir-p3.workspace = true
 rayon.workspace = true
-# p3-symmetric.workspace = true
+p3-symmetric.workspace = true
 p3-air.workspace = true
 p3-uni-stark.workspace = true
-# p3-challenger.workspace = true
+p3-challenger.workspace = true
 p3-util.workspace = true
-multi_pcs.workspace = true
 serde.workspace = true
 
 [dev-dependencies]

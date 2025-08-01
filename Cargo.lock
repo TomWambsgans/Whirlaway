@@ -15,6 +15,7 @@ dependencies = [
 name = "air"
 version = "0.1.0"
 dependencies = [
+ "multi_pcs",
  "p3-air",
  "p3-field",
  "p3-koala-bear",
@@ -315,6 +316,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a282da65faaf38286cf3be983213fcf1d2e2a58700e808f83f4ea9a4804bc0"
 
 [[package]]
+name = "multi_pcs"
+version = "0.1.0"
+dependencies = [
+ "p3-air",
+ "p3-challenger",
+ "p3-field",
+ "p3-koala-bear",
+ "p3-symmetric",
+ "p3-uni-stark",
+ "p3-util",
+ "rand",
+ "rayon",
+ "serde",
+ "sumcheck",
+ "tracing",
+ "utils",
+ "whir-p3",
+]
+
+[[package]]
 name = "nu-ansi-term"
 version = "0.46.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -444,23 +465,6 @@ dependencies = [
  "rand",
  "serde",
  "tracing",
-]
-
-[[package]]
-name = "p3-goldilocks"
-version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=extension-packed-field-air-builder#ecf75742da5ff19b8cbbf295b60881869ab28b5f"
-dependencies = [
- "num-bigint",
- "p3-dft",
- "p3-field",
- "p3-mds",
- "p3-poseidon2",
- "p3-symmetric",
- "p3-util",
- "paste",
- "rand",
- "serde",
 ]
 
 [[package]]
@@ -1103,7 +1107,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/whir-p3?branch=w#6924af98a2feaef1b787eab116c644d062cce101"
+source = "git+https://github.com/TomWambsgans/whir-p3?branch=w#551caef2277208b198f540232026a85ac1f50199"
 dependencies = [
  "clap",
  "itertools",
@@ -1112,7 +1116,6 @@ dependencies = [
  "p3-commit",
  "p3-dft",
  "p3-field",
- "p3-goldilocks",
  "p3-interpolation",
  "p3-koala-bear",
  "p3-matrix",

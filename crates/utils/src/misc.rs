@@ -7,6 +7,16 @@ pub const fn log2_up(x: usize) -> usize {
     }
 }
 
+pub fn transmute_slice<Before, After>(slice: &[Before]) -> &[After] {
+    let new_len = slice.len() * std::mem::size_of::<Before>() / std::mem::size_of::<After>();
+    assert_eq!(
+        slice.len() * std::mem::size_of::<Before>(),
+        new_len * std::mem::size_of::<After>()
+    );
+    assert_eq!(slice.as_ptr() as usize % std::mem::align_of::<After>(), 0);
+    unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const After, new_len) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

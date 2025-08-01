@@ -3,8 +3,7 @@
 mod examples;
 
 use air::AirSettings;
-use whir_p3::parameters::{FoldingFactor, errors::SecurityAssumption};
-
+use whir_p3::whir::config::{FoldingFactor, SecurityAssumption};
 use crate::examples::poseidon2::prove_poseidon2;
 
 const SECURITY_BITS: usize = 128;

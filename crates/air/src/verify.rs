@@ -63,12 +63,12 @@ impl<
         PF<EF>: TwoAdicField + ExtensionField<PF<PF<EF>>>,
         PF<PF<EF>>: TwoAdicField,
     {
-        let whir_params = self.build_whir_params(settings, merkle_hash, merkle_compress);
+        let whir_params = self.build_whir_config(settings, merkle_hash, merkle_compress);
 
         let commitment_reader = CommitmentReader::new(&whir_params);
         let whir_verifier = Verifier::new(&whir_params);
         let parsed_commitment = commitment_reader
-            .parse_commitment::<DIGEST_ELEMS>(verifier_state)
+            .parse_commitment(verifier_state)
             .map_err(|_| AirVerifError::InvalidPcsCommitment)?;
 
         verifier_state.check_pow_grinding(

@@ -106,6 +106,8 @@ utils = { path = "crates/utils" }
 vm = { path = "crates/vm" }
 xmss = { path = "crates/xmss" }
 logup_star = { path = "crates/logup_star" }
+ring_switching = { path = "crates/multi_pcs" }
+multi_pcs = { path = "crates/multi_pcs" }
 
 # External
 rand = "0.9.2"

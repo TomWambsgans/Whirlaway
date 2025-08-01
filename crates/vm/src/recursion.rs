@@ -1,14 +1,15 @@
+use std::marker::PhantomData;
+
 use crate::*;
 use p3_field::BasedVectorSpace;
 use rand::{Rng, rngs::StdRng};
 use whir_p3::{
     dft::*,
     fiat_shamir::{prover::ProverState, verifier::VerifierState},
-    parameters::{errors::*, *},
     poly::{evals::*, multilinear::*},
     whir::{
         committer::{reader::*, writer::*},
-        parameters::*,
+        config::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder},
         prover::*,
         statement::Statement,
         verifier::*,
@@ -845,7 +846,8 @@ pub fn run_whir_verif() {
     let merkle_hash = MerkleHash::new(poseidon24);
     let merkle_compress = MerkleCompress::new(poseidon16.clone());
 
-    let whir_params = ProtocolParameters {
+    let num_variables = 22;
+    let whir_config_builder = WhirConfigBuilder {
         max_num_variables_to_send_coeffs: 6,
         security_level: 128,
         pow_bits: 17,
@@ -855,17 +857,15 @@ pub fn run_whir_verif() {
         soundness_type: SecurityAssumption::CapacityBound,
         starting_log_inv_rate: 2,
         rs_domain_initial_reduction_factor: 1,
+        base_field: PhantomData,
+        extension_field: PhantomData,
     };
 
-    let num_variables = 22;
-
-    let mv_params = MultivariateParameters::<EF>::new(num_variables);
-
-    let params =
-        WhirConfig::<EF, EF, MerkleHash, MerkleCompress, MyChallenger>::new(mv_params, whir_params);
-    assert_eq!(params.committment_ood_samples, 1);
+    let config =
+        WhirConfig::<EF, EF, MerkleHash, MerkleCompress, 8>::new(whir_config_builder, num_variables);
+    assert_eq!(config.committment_ood_samples, 1);
     // println!("Whir parameters: {}", params.to_string());
-    for (i, round) in params.round_parameters.iter().enumerate() {
+    for (i, round) in config.round_parameters.iter().enumerate() {
         println!(
             "Round {}: {} queries, pow: {} bits",
             i, round.num_queries, round.pow_bits
@@ -873,7 +873,7 @@ pub fn run_whir_verif() {
     }
     println!(
         "Final round: {} queries, pow: {} bits",
-        params.final_queries, params.final_pow_bits
+        config.final_queries, config.final_pow_bits
     );
 
     let mut rng = StdRng::seed_from_u64(0);
@@ -891,12 +891,12 @@ pub fn run_whir_verif() {
     let mut prover_state = ProverState::new(challenger.clone());
 
     // Commit to the polynomial and produce a witness
-    let committer = CommitmentWriter::new(&params);
+    let committer = CommitmentWriter::new(&config);
 
-    let dft = EvalsDft::<F>::new(1 << params.max_fft_size());
+    let dft = EvalsDft::<F>::new(1 << config.max_fft_size());
 
     let witness = committer
-        .commit(&dft, &mut prover_state, polynomial)
+        .commit(&dft, &mut prover_state, &polynomial)
         .unwrap();
 
     let mut public_input = prover_state.proof_data().to_vec();
@@ -909,18 +909,24 @@ pub fn run_whir_verif() {
     );
     public_input.extend(<EF as BasedVectorSpace<F>>::as_basis_coefficients_slice(&eval).to_vec());
 
-    let prover = Prover(&params);
+    let prover = Prover(&config);
 
     prover
-        .prove(&dft, &mut prover_state, statement.clone(), witness)
+        .prove(
+            &dft,
+            &mut prover_state,
+            statement.clone(),
+            witness,
+            &polynomial,
+        )
         .unwrap();
 
     public_input.extend(prover_state.proof_data()[commitment_size..].to_vec());
 
-    let commitment_reader = CommitmentReader::new(&params);
+    let commitment_reader = CommitmentReader::new(&config);
 
     // Create a verifier with matching parameters
-    let verifier = Verifier::new(&params);
+    let verifier = Verifier::new(&config);
 
     // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
     let mut verifier_state =
@@ -928,7 +934,7 @@ pub fn run_whir_verif() {
 
     // Parse the commitment
     let parsed_commitment = commitment_reader
-        .parse_commitment::<8>(&mut verifier_state)
+        .parse_commitment(&mut verifier_state)
         .unwrap();
 
     verifier
