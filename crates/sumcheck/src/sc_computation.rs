@@ -14,7 +14,6 @@ impl<NF, EF, A> SumcheckComputation<NF, EF> for A
 where
     NF: ExtensionField<PF<EF>>,
     EF: ExtensionField<NF> + ExtensionField<PF<EF>>,
-    PF<EF>: ExtensionField<PF<PF<EF>>> + ExtensionField<PF<NF>>,
     A: for<'a> Air<ConstraintFolder<'a, NF, EF>>,
 {
     fn eval(&self, point: &[NF], alpha_powers: &[EF]) -> EF {
@@ -42,7 +41,6 @@ where
 impl<EF: Field, A> SumcheckComputationPacked<EF> for A
 where
     EF: ExtensionField<PF<EF>>,
-    PF<EF>: ExtensionField<PF<PF<EF>>>,
     A: for<'a> Air<ConstraintFolderPackedBase<'a, EF>>
         + for<'a> Air<ConstraintFolderPackedExtension<'a, EF>>,
 {

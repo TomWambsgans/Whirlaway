@@ -4,9 +4,9 @@ use p3_air::Air;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 
 use p3_uni_stark::{SymbolicAirBuilder, get_symbolic_constraints};
-use utils::{FSChallenger, FSProver, PF, log2_up, univariate_selectors};
+use utils::{ FSProver, PF, log2_up, univariate_selectors};
 use whir_p3::{
-    fiat_shamir::errors::ProofError,
+    fiat_shamir::{errors::ProofError, FSChallenger},
     poly::{dense::WhirDensePolynomial, evals::EvaluationsList},
     whir::config::{WhirConfig, WhirConfigBuilder},
 };
@@ -27,7 +27,7 @@ pub struct AirTable<EF: Field, A> {
 
 impl<EF, A> AirTable<EF, A>
 where
-    EF: ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>> + TwoAdicField,
+    EF: ExtensionField<PF<EF>> + TwoAdicField,
     PF<EF>: TwoAdicField,
 {
     pub fn new(

@@ -1,13 +1,12 @@
 use p3_air::Air;
 use p3_field::{ExtensionField, TwoAdicField, cyclic_subgroup_known_order, dot_product};
 use serde::{Deserialize, Serialize};
+use whir_p3::fiat_shamir::FSChallenger;
 use std::fmt::Debug;
 use sumcheck::{SumcheckComputation, SumcheckError};
 use tracing::instrument;
 use utils::MerkleHasher;
-use utils::{
-    ConstraintFolder, FSChallenger, MerkleCompress, fold_multilinear_in_large_field, log2_up,
-};
+use utils::{ConstraintFolder, MerkleCompress, fold_multilinear_in_large_field, log2_up};
 use utils::{FSVerifier, PF};
 use whir_p3::{
     fiat_shamir::errors::ProofError,
@@ -45,7 +44,7 @@ impl From<SumcheckError> for AirVerifError {
 }
 
 impl<
-    EF: TwoAdicField + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    EF: TwoAdicField + ExtensionField<PF<EF>>,
     A: for<'a> Air<ConstraintFolder<'a, EF, EF>>,
 > AirTable<EF, A>
 {
@@ -59,9 +58,9 @@ impl<
         log_length: usize,
     ) -> Result<(), AirVerifError>
     where
-        [PF<PF<EF>>; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        PF<EF>: TwoAdicField + ExtensionField<PF<PF<EF>>>,
-        PF<PF<EF>>: TwoAdicField,
+        [PF<EF>; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        PF<EF>: TwoAdicField,
+        PF<EF>: TwoAdicField,
     {
         let whir_params = self.build_whir_config(settings, merkle_hash, merkle_compress);
 

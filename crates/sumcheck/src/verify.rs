@@ -1,9 +1,9 @@
 use std::fmt::Debug;
 
 use p3_field::{ExtensionField, Field};
-use utils::{Evaluation, FSChallenger, FSVerifier, PF};
+use utils::{Evaluation, FSVerifier, PF};
 use whir_p3::{
-    fiat_shamir::errors::ProofError,
+    fiat_shamir::{errors::ProofError, FSChallenger},
     poly::{dense::WhirDensePolynomial, multilinear::MultilinearPoint},
 };
 
@@ -25,7 +25,7 @@ pub fn verify<EF>(
     degree: usize,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
-    EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    EF: Field + ExtensionField<PF<EF>> ,
 {
     let sumation_sets = vec![(0..2).map(|i| EF::from_usize(i)).collect::<Vec<_>>(); n_vars];
     let max_degree_per_vars = vec![degree; n_vars];
@@ -39,7 +39,7 @@ pub fn verify_with_custom_degree_at_first_round<EF>(
     remaining_degree: usize,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
-    EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    EF: Field + ExtensionField<PF<EF>>,
 {
     let sumation_sets = vec![(0..2).map(|i| EF::from_usize(i)).collect::<Vec<_>>(); n_vars];
     let mut max_degree_per_vars = vec![intial_degree; 1];
@@ -54,7 +54,7 @@ pub fn verify_with_univariate_skip<EF>(
     skips: usize,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
-    EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    EF: Field + ExtensionField<PF<EF>> ,
 {
     let mut max_degree_per_vars = vec![degree * ((1 << skips) - 1)];
     max_degree_per_vars.extend(vec![degree; n_vars - skips]);
@@ -72,7 +72,7 @@ fn verify_core<EF>(
     sumation_sets: Vec<Vec<EF>>,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
-    EF: Field + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    EF: Field + ExtensionField<PF<EF>>,
 {
     assert_eq!(max_degree_per_vars.len(), sumation_sets.len(),);
     let mut challenges = Vec::new();

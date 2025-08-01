@@ -17,8 +17,9 @@ use utils::pack_extension;
 use utils::packing_log_width;
 use utils::packing_width;
 use utils::unpack_extension;
-use utils::{EFPacking, Evaluation, FSChallenger, FSProver, FSVerifier, PF, PFPacking};
+use utils::{EFPacking, Evaluation, FSProver, FSVerifier, PF, PFPacking};
 use whir_p3::fiat_shamir::errors::ProofError;
+use whir_p3::fiat_shamir::FSChallenger;
 use whir_p3::poly::dense::WhirDensePolynomial;
 use whir_p3::poly::evals::EvaluationsList;
 use whir_p3::poly::multilinear::MultilinearPoint;
@@ -51,7 +52,7 @@ pub fn prove_gkr<EF: Field>(
     final_layer: Vec<EFPacking<EF>>,
 ) -> Evaluation<EF>
 where
-    EF: ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    EF: ExtensionField<PF<EF>>,
     PF<EF>: PrimeField64,
 {
     let n = (final_layer.len() * packing_width::<EF>()).ilog2() as usize;
@@ -101,7 +102,7 @@ fn prove_gkr_step<EF: Field>(
     eval: EF,
 ) -> Evaluation<EF>
 where
-    EF: ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    EF: ExtensionField<PF<EF>>,
     PF<EF>: PrimeField64,
 {
     assert_eq!(up_layer.len().ilog2() as usize - 1, point.0.len());
@@ -219,7 +220,7 @@ fn prove_gkr_step_packed<EF: Field>(
     eval: EF,
 ) -> Evaluation<EF>
 where
-    EF: ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    EF: ExtensionField<PF<EF>>,
     PF<EF>: PrimeField64,
 {
     assert_eq!(
@@ -342,7 +343,7 @@ pub fn verify_gkr<EF: Field>(
     n_vars: usize,
 ) -> Result<(EF, Evaluation<EF>), ProofError>
 where
-    EF: ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    EF: ExtensionField<PF<EF>>,
     PF<EF>: PrimeField64,
 {
     let [a, b] = verifier_state.next_extension_scalars_const()?;
@@ -370,7 +371,7 @@ fn verify_gkr_step<EF: Field>(
     eval: EF,
 ) -> Result<Evaluation<EF>, ProofError>
 where
-    EF: ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    EF: ExtensionField<PF<EF>>,
     PF<EF>: PrimeField64,
 {
     let (sc_eval, postponed) = sumcheck::verify_with_custom_degree_at_first_round(

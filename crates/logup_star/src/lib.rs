@@ -11,7 +11,8 @@ use rayon::prelude::*;
 use p3_field::PrimeCharacteristicRing;
 use sumcheck::ProductComputation;
 use tracing::{info_span, instrument};
-use utils::{EFPacking, FSChallenger, FSProver, FSVerifier, PF, pack_extension, packing_width};
+use utils::{EFPacking,  FSProver, FSVerifier, PF, pack_extension, packing_width};
+use whir_p3::fiat_shamir::FSChallenger;
 use whir_p3::poly::evals::EvaluationsList;
 use whir_p3::poly::multilinear::MultilinearPoint;
 use whir_p3::utils::parallel_clone;
@@ -29,7 +30,7 @@ pub fn prove_logup_star<EF: Field>(
     values: &EvaluationsList<PF<EF>>,
     point: &MultilinearPoint<EF>, // "r" in the paper
 ) where
-    EF: ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    EF: ExtensionField<PF<EF>>,
     PF<EF>: PrimeField64,
 {
     let table_length = table.len();
@@ -141,7 +142,7 @@ pub fn verify_logup_star<EF: Field>(
     point: &MultilinearPoint<EF>, // "r" in the paper
 ) -> Result<EF, ProofError>
 where
-    EF: ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    EF: ExtensionField<PF<EF>>,
     PF<EF>: PrimeField64,
 {
     let claimed_eval = verifier_state.next_extension_scalar()?;

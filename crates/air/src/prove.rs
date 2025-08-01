@@ -6,9 +6,10 @@ use sumcheck::ProductComputation;
 use tracing::{Level, info_span, instrument, span};
 use utils::{ConstraintFolderPackedExtension, PF};
 use utils::{
-    ConstraintFolder, ConstraintFolderPackedBase, FSChallenger, FSProver, MerkleCompress,
+    ConstraintFolder, ConstraintFolderPackedBase,  FSProver, MerkleCompress,
     MerkleHasher, add_multilinears, multilinears_linear_combination, packed_multilinear,
 };
+use whir_p3::fiat_shamir::FSChallenger;
 use whir_p3::{
     dft::EvalsDft,
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -31,7 +32,7 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 
 impl<EF, A> AirTable<EF, A>
 where
-    EF: TwoAdicField + ExtensionField<PF<EF>> + ExtensionField<PF<PF<EF>>>,
+    EF: TwoAdicField + ExtensionField<PF<EF>>,
     A: for<'a> Air<ConstraintFolder<'a, PF<EF>, EF>>
         + for<'a> Air<ConstraintFolder<'a, EF, EF>>
         + for<'a> Air<ConstraintFolderPackedBase<'a, EF>>
@@ -46,9 +47,8 @@ where
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         witness: Vec<EvaluationsList<PF<EF>>>,
     ) where
-        [PF<PF<EF>>; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
-        PF<EF>: TwoAdicField + ExtensionField<PF<PF<EF>>>,
-        PF<PF<EF>>: TwoAdicField,
+        [PF<EF>; DIGEST_ELEMS]: Serialize + for<'de> Deserialize<'de>,
+        PF<EF>: TwoAdicField,
     {
         assert!(
             settings.univariate_skips < self.log_length,
