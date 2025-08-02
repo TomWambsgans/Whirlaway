@@ -28,13 +28,13 @@ impl ToString for PrecompileName {
 pub const POSEIDON_16: Precompile = Precompile {
     name: PrecompileName::Poseidon16,
     n_inputs: 2,
-    n_outputs: 2,
+    n_outputs: 1,
 };
 
 pub const POSEIDON_24: Precompile = Precompile {
     name: PrecompileName::Poseidon24,
-    n_inputs: 3,
-    n_outputs: 3,
+    n_inputs: 2,
+    n_outputs: 1,
 };
 
 pub const MUL_EXTENSION: Precompile = Precompile {

@@ -108,14 +108,15 @@ pub enum IntermediateInstruction {
         updated_fp: Option<IntermediateValue>,
     },
     Poseidon2_16 {
-        shift: usize,
-    }, /*
-       Poseidon2(m[8 * m[fp + shift]] .. 8 * (1 + m[fp + shift])] | m[8 * m[fp + shift + 1]] .. 8 * (1 + m[fp + shift + 1])])
-       = m[8 * m[fp + shift + 2]] .. 8 * (1 + m[fp + shift + 2])] | m[8 * m[fp + shift + 3]] .. 8 * (1 + m[fp + shift + 3])]
-       */
+        arg_a: IntermediateValue, // vectorized pointer, of size 1
+        arg_b: IntermediateValue, // vectorized pointer, of size 1
+        res: IntermediateValue,   // vectorized pointer, of size 2
+    },
     Poseidon2_24 {
-        shift: usize,
-    }, // same as above, but with 24 field elements
+        arg_a: IntermediateValue, // vectorized pointer, of size 2 (2 first inputs)
+        arg_b: IntermediateValue, // vectorized pointer, of size 1 (3rd = last input)
+        res: IntermediateValue,   // vectorized pointer, of size 1 (3rd = last output)
+    },
     ExtensionMul {
         args: [ConstExpression; 3], // offset after fp
     },
@@ -285,14 +286,30 @@ impl ToString for IntermediateInstruction {
                     )
                 }
             }
-            Self::Poseidon2_16 { shift } => format!(
-                "poseidon2_16 m[8 * m[fp + {}] .. 8 * (1 + m[fp + {}])] | m[8 * m[fp + {} + 1]] .. 8 * (1 + m[fp + {} + 1])]",
-                shift, shift, shift, shift
-            ),
-            Self::Poseidon2_24 { shift } => format!(
-                "poseidon2_24 m[8 * m[fp + {}] .. 8 * (1 + m[fp + {}])] | m[8 * m[fp + {} + 1]] .. 8 * (1 + m[fp + {} + 1])]",
-                shift, shift, shift, shift
-            ),
+            Self::Poseidon2_16 { 
+                arg_a,
+                arg_b,
+                res,
+            } => {
+                format!(
+                    "{} = poseidon2_16({}, {})",
+                    arg_a.to_string(),
+                    arg_b.to_string(),
+                    res.to_string(),
+                )
+            }
+            Self::Poseidon2_24 {
+                arg_a,
+                arg_b,
+                res,
+            } => {
+                format!(
+                    "{} = poseidon2_24({}, {})",
+                    res.to_string(),
+                    arg_a.to_string(),
+                    arg_b.to_string(),
+                )
+            }
             Self::RequestMemory {
                 shift,
                 size,

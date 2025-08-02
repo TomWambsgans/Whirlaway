@@ -56,14 +56,15 @@ pub enum Instruction {
         updated_fp: MemOrFp,
     },
     Poseidon2_16 {
-        shift: usize,
-    }, /*
-       Poseidon2(m[8 * m[fp + shift]] .. 8 * (1 + m[fp + shift])] | m[8 * m[fp + shift + 1]] .. 8 * (1 + m[fp + shift + 1])])
-       = m[8 * m[fp + shift + 2]] .. 8 * (1 + m[fp + shift + 2])] | m[8 * m[fp + shift + 3]] .. 8 * (1 + m[fp + shift + 3])]
-       */
+        arg_a: MemOrConstant, // vectorized pointer, of size 1
+        arg_b: MemOrConstant, // vectorized pointer, of size 1
+        res: MemOrFp, // vectorized pointer, of size 2 (The Fp would never be used in practice)
+    },
     Poseidon2_24 {
-        shift: usize,
-    }, // same as above, but with 24 field elements
+        arg_a: MemOrConstant, // vectorized pointer, of size 2 (2 first inputs)
+        arg_b: MemOrConstant, // vectorized pointer, of size 1 (3rd = last input)
+        res: MemOrFp, // vectorized pointer, of size 1 (3rd = last output) (The Fp would never be used in practice)
+    },
     ExtensionMul {
         args: [usize; 3], // offset after fp
     },
@@ -237,11 +238,29 @@ impl ToString for Instruction {
                     updated_fp.to_string()
                 )
             }
-            Self::Poseidon2_16 { shift } => {
-                format!("Poseidon2_16(m[{}..+4])", shift)
+            Self::Poseidon2_16 {
+                arg_a,
+                arg_b,
+                res,
+            } => {
+                format!(
+                    "{} = poseidon2_16({}, {})",
+                    res.to_string(),
+                    arg_a.to_string(),
+                    arg_b.to_string(),
+                )
             }
-            Self::Poseidon2_24 { shift } => {
-                format!("Poseidon2_24(m[{}..+6])", shift)
+            Self::Poseidon2_24 {
+                arg_a,
+                arg_b,
+                res,
+            } => {
+                format!(
+                    "{} = poseidon2_24({}, {})",
+                    res.to_string(),
+                    arg_a.to_string(),
+                    arg_b.to_string(),
+                )
             }
         }
     }

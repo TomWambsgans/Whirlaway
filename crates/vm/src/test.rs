@@ -160,10 +160,10 @@ fn test_mini_program_3() {
     fn main() {
         a = public_input_start / 8;
         b = a + 1;
-        c, d = poseidon16(a, b);
+        c = poseidon16(a, b);
 
         c_shifted = c * 8;
-        d_shifted = d * 8;
+        d_shifted = (c + 1) * 8;
 
         for i in 0..8 {
             cc = c_shifted[i];
@@ -194,22 +194,12 @@ fn test_mini_program_4() {
     let program = r#"
     fn main() {
         a = public_input_start / 8;
-        b = a + 1;
         c = a + 2;
-        d, e, f = poseidon24(a, b, c);
+        f = poseidon24(a, c);
 
-        arr = malloc(3);
-        arr[0] = d;
-        arr[1] = e;
-        arr[2] = f;
-
-        for i in 0..3 {
-            v = arr[i];
-            v_shifted = v * 8;
-            for j in 0..8 {
-                vv = v_shifted[j];
-                print(vv);
-            }
+        f_shifted = f * 8;
+        for j in 0..8 {
+            print(f_shifted[j]);
         }
         return;
     }
@@ -223,7 +213,7 @@ fn test_mini_program_4() {
 
     let poseidon_24 = Poseidon24::new_from_rng_128(&mut StdRng::seed_from_u64(0));
     poseidon_24.permute_mut(&mut public_input);
-    dbg!(public_input);
+    dbg!(&public_input[16..]);
 }
 
 #[test]
@@ -262,9 +252,9 @@ fn test_verify_merkle_path() {
         is_left = are_left[0];
 
         if is_left == 1 {
-            hashed, _ = poseidon16(thing_to_hash, neighbours);
+            hashed = poseidon16(thing_to_hash, neighbours);
         } else {
-            hashed, _ = poseidon16(neighbours, thing_to_hash);
+            hashed = poseidon16(neighbours, thing_to_hash);
         }
 
         next_step = step + 1;
@@ -353,13 +343,13 @@ fn test_verify_wots_signature() {
         // signature: vectorized pointer
         // return a pointer of vectorized pointers
 
-        public_key = malloc(N_CHAINS);
+        public_key = malloc_vec(N_CHAINS);
         for i in 0..N_CHAINS {
             msg_i = message[i];
             n_hash_iter = CHAIN_LENGTH - msg_i;
             signature_i = signature + i;
             pk_i = hash_chain(signature_i, n_hash_iter);
-            public_key[i] = pk_i;
+            copy_vector(pk_i, public_key + i);
         }
         return public_key;
     }
@@ -368,26 +358,20 @@ fn test_verify_wots_signature() {
         if n_iter == 0 {
             return thing_to_hash;
         }
-        hashed, _ = poseidon16(thing_to_hash, pointer_to_zero_vector);
+        hashed = poseidon16(thing_to_hash, pointer_to_zero_vector);
         n_iter_minus_one = n_iter - 1;
         res = hash_chain(hashed, n_iter_minus_one);
         return res;
     }
 
     fn hash_wots_public_key(public_key) -> 1 {
-        hashes = malloc(33); // N_CHAINS / 2 + 1
+        hashes = malloc(N_CHAINS / 2 + 1);
         hashes[0] = pointer_to_zero_vector;
-        for i in 0..32 {
-            two_i = 2 * i;
-            two_i_plus_one = two_i + 1;
-            a = public_key[two_i];
-            b = public_key[two_i_plus_one];
-            c = hashes[i];
-            next, _1, _2 = poseidon24(a, b, c);
-            i_plus_one = i + 1;
-            hashes[i_plus_one] = next;
+        for i in 0..N_CHAINS / 2 {
+            next = poseidon24(public_key + 2 * i, hashes[i]);
+            hashes[i + 1] = next;
         }
-        res = hashes[32];
+        res = hashes[N_CHAINS / 2];
         return res; 
     }
 
@@ -396,6 +380,17 @@ fn test_verify_wots_signature() {
         for i in 0..8 {
             arr_i = reindexed_arr[i];
             print(arr_i);
+        }
+        return;
+    }
+
+    fn copy_vector(a, b) {
+        // a and b both pointers in the memory of chunk of 8 field elements
+        a_shifted = a * 8;
+        b_shifted = b * 8;
+        for i in 0..8 {
+            a_i = a_shifted[i];
+            b_shifted[i] = a_i;
         }
         return;
     }
@@ -470,13 +465,13 @@ fn test_verify_xmss_signature() {
         // signature: vectorized pointer
         // return a pointer of vectorized pointers
 
-        public_key = malloc(N_CHAINS);
+        public_key = malloc_vec(N_CHAINS);
         for i in 0..N_CHAINS {
             msg_i = message[i];
             n_hash_iter = CHAIN_LENGTH - msg_i;
             signature_i = signature + i;
             pk_i = hash_chain(signature_i, n_hash_iter);
-            public_key[i] = pk_i;
+            copy_vector(pk_i, public_key + i);
         }
         return public_key;
     }
@@ -485,26 +480,20 @@ fn test_verify_xmss_signature() {
         if n_iter == 0 {
             return thing_to_hash;
         }
-        hashed, _ = poseidon16(thing_to_hash, pointer_to_zero_vector);
+        hashed = poseidon16(thing_to_hash, pointer_to_zero_vector);
         n_iter_minus_one = n_iter - 1;
         res = hash_chain(hashed, n_iter_minus_one);
         return res;
     }
 
     fn hash_wots_public_key(public_key) -> 1 {
-        hashes = malloc(33); // N_CHAINS / 2 + 1
+        hashes = malloc(N_CHAINS / 2 + 1);
         hashes[0] = pointer_to_zero_vector;
-        for i in 0..32 {
-            two_i = 2 * i;
-            two_i_plus_one = two_i + 1;
-            a = public_key[two_i];
-            b = public_key[two_i_plus_one];
-            c = hashes[i];
-            next, _1, _2 = poseidon24(a, b, c);
-            i_plus_one = i + 1;
-            hashes[i_plus_one] = next;
+        for i in 0..N_CHAINS / 2 {
+            next = poseidon24(public_key + 2 * i, hashes[i]);
+            hashes[i + 1] = next;
         }
-        res = hashes[32];
+        res = hashes[N_CHAINS / 2];
         return res; 
     }
 
@@ -515,9 +504,9 @@ fn test_verify_xmss_signature() {
         is_left = are_left[0];
 
         if is_left == 1 {
-            hashed, _ = poseidon16(thing_to_hash, neighbours);
+            hashed = poseidon16(thing_to_hash, neighbours);
         } else {
-            hashed, _ = poseidon16(neighbours, thing_to_hash);
+            hashed = poseidon16(neighbours, thing_to_hash);
         }
 
         next_step = step + 1;
@@ -544,6 +533,17 @@ fn test_verify_xmss_signature() {
             a_i = a_shifted[i];
             b_i = b_shifted[i];
             assert a_i == b_i;
+        }
+        return;
+    }
+
+    fn copy_vector(a, b) {
+        // a and b both pointers in the memory of chunk of 8 field elements
+        a_shifted = a * 8;
+        b_shifted = b * 8;
+        for i in 0..8 {
+            a_i = a_shifted[i];
+            b_shifted[i] = a_i;
         }
         return;
     }
@@ -640,12 +640,13 @@ fn test_aggregate_xmss_signatures() {
         // signature: vectorized pointer
         // return a pointer of vectorized pointers
 
-        public_key = malloc(N_CHAINS);
+        public_key = malloc_vec(N_CHAINS);
         for i in 0..N_CHAINS {
             msg_i = message[i];
             n_hash_iter = CHAIN_LENGTH - msg_i;
-            pk_i = hash_chain(signature + i, n_hash_iter);
-            public_key[i] = pk_i;
+            signature_i = signature + i;
+            pk_i = hash_chain(signature_i, n_hash_iter);
+            copy_vector(pk_i, public_key + i);
         }
         return public_key;
     }
@@ -654,19 +655,20 @@ fn test_aggregate_xmss_signatures() {
         if n_iter == 0 {
             return thing_to_hash;
         }
-        hashed, _ = poseidon16(thing_to_hash, pointer_to_zero_vector);
-        res = hash_chain(hashed, n_iter - 1);
+        hashed = poseidon16(thing_to_hash, pointer_to_zero_vector);
+        n_iter_minus_one = n_iter - 1;
+        res = hash_chain(hashed, n_iter_minus_one);
         return res;
     }
 
     fn hash_wots_public_key(public_key) -> 1 {
-        hashes = malloc((N_CHAINS / 2) + 1);
+        hashes = malloc(N_CHAINS / 2 + 1);
         hashes[0] = pointer_to_zero_vector;
-        for i in 0..32 {
-            next, _, _ = poseidon24(public_key[2 * i], public_key[(2 * i) + 1], hashes[i]);
+        for i in 0..N_CHAINS / 2 {
+            next = poseidon24(public_key + 2 * i, hashes[i]);
             hashes[i + 1] = next;
         }
-        res = hashes[32];
+        res = hashes[N_CHAINS / 2];
         return res; 
     }
 
@@ -674,13 +676,18 @@ fn test_aggregate_xmss_signatures() {
         if step == height {
             return thing_to_hash;
         }
-        if are_left[0] == 1 {
-            hashed, _ = poseidon16(thing_to_hash, neighbours);
+        is_left = are_left[0];
+
+        if is_left == 1 {
+            hashed = poseidon16(thing_to_hash, neighbours);
         } else {
-            hashed, _ = poseidon16(neighbours, thing_to_hash);
+            hashed = poseidon16(neighbours, thing_to_hash);
         }
 
-        res = merkle_step(step + 1, height, hashed, are_left + 1, neighbours + 1);
+        next_step = step + 1;
+        next_are_left = are_left + 1;
+        next_neighbours = neighbours + 1;
+        res = merkle_step(next_step, height, hashed, next_are_left, next_neighbours);
         return res;
     }
 
@@ -701,6 +708,17 @@ fn test_aggregate_xmss_signatures() {
             a_i = a_shifted[i];
             b_i = b_shifted[i];
             assert a_i == b_i;
+        }
+        return;
+    }
+
+    fn copy_vector(a, b) {
+        // a and b both pointers in the memory of chunk of 8 field elements
+        a_shifted = a * 8;
+        b_shifted = b * 8;
+        for i in 0..8 {
+            a_i = a_shifted[i];
+            b_shifted[i] = a_i;
         }
         return;
     }
@@ -958,11 +976,11 @@ fn test_fiat_shamir_complete() {
             input_buffer_ptr[i] = l_ptr[i];
         }
 
-        l, r = poseidon16(input_buffer, fs_state[2]);
+        l_r = poseidon16(input_buffer, fs_state[2]);
         new_fs_state = malloc(6);
         new_fs_state[0] = fs_state[0];
-        new_fs_state[1] = l;
-        new_fs_state[2] = r;
+        new_fs_state[1] = l_r;
+        new_fs_state[2] = l_r + 1;
         new_fs_state[3] = 0; // reset input buffer size
         allocated = malloc_vec(1);
         new_fs_state[4] = allocated; // input buffer
@@ -1013,11 +1031,11 @@ fn test_fiat_shamir_complete() {
         steps_done = 8 - input_buffer_size;
 
         // duplexing
-        l, r = poseidon16(input_buffer, fs_state[2]);
+        l_r = poseidon16(input_buffer, fs_state[2]);
         new_fs_state = malloc(6);
         new_fs_state[0] = transcript_ptr + steps_done;
-        new_fs_state[1] = l;
-        new_fs_state[2] = r;
+        new_fs_state[1] = l_r;
+        new_fs_state[2] = l_r + 1;
         new_fs_state[3] = 0; // reset input buffer size
         allocated = malloc_vec(1);
         new_fs_state[4] = allocated; // input buffer
@@ -1169,14 +1187,14 @@ fn test_fiat_shamir_simple() {
             new_l_ptr[i] = l_ptr[i];
         }
 
-        l_updated, r_updated = poseidon16(new_l, fs_state[2]);
+        l_r_updated = poseidon16(new_l, fs_state[2]);
         new_fs_state = malloc(4);
         new_fs_state[0] = fs_state[0] + 1; // read one 1 chunk of 8 field elements (7 are useless)
-        new_fs_state[1] = l_updated;
-        new_fs_state[2] = r_updated;
+        new_fs_state[1] = l_r_updated;
+        new_fs_state[2] = l_r_updated + 1;
         new_fs_state[3] = 7; // output_buffer_size
 
-        l_updated_ptr = l_updated* 8;
+        l_updated_ptr = l_r_updated * 8;
         sampled = l_updated_ptr[7];
         sampled_bits = checked_decompose_bits(sampled);
         for i in 0..bits {
@@ -1241,11 +1259,11 @@ fn test_fiat_shamir_simple() {
         }
 
         // duplexing
-        l, r = poseidon16(fs_state[1], fs_state[2]);
+        l_r = poseidon16(fs_state[1], fs_state[2]);
         new_fs_state = malloc(4);
         new_fs_state[0] = fs_state[0];
-        new_fs_state[1] = l;
-        new_fs_state[2] = r;
+        new_fs_state[1] = l_r;
+        new_fs_state[2] = l_r + 1;
         new_fs_state[3] = 8; // output_buffer_size
 
         remaining = n - output_buffer_size;
@@ -1283,11 +1301,11 @@ fn test_fiat_shamir_simple() {
         // observe n chunk of 8 field elements from the transcript
         // and return the updated fs_state
         // duplexing
-        l, r = poseidon16(fs_state[0], fs_state[2]);
+        l_r = poseidon16(fs_state[0], fs_state[2]);
         new_fs_state = malloc(4);
         new_fs_state[0] = fs_state[0] + 1;
-        new_fs_state[1] = l;
-        new_fs_state[2] = r;
+        new_fs_state[1] = l_r;
+        new_fs_state[2] = l_r + 1;
         new_fs_state[3] = 8; // output_buffer_size
 
         if n == 1 {

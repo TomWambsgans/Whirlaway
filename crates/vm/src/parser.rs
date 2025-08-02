@@ -591,8 +591,8 @@ fn main() {
 
     print(hh);
 
-    xx, yy = poseidon16(x, y);
-    xxx, yyy, zzz = poseidon24(7, y, b);
+    xx= poseidon16(x, y);
+    xxx = poseidon24(7, b);
 
     k = public_input_start;
 

@@ -87,7 +87,7 @@ impl WotsPublicKey {
         assert!(N_CHAINS % 2 == 0, "TODO");
         let mut digest = Default::default();
         for (a, b) in self.0.chunks(2).map(|chunk| (chunk[0], chunk[1])) {
-            digest = poseidon24_kb(a, b, digest).0;
+            digest = poseidon24_kb(a, b, digest).2;
         }
         digest
     }

@@ -395,16 +395,15 @@ fn execute_bytecode_helper(
                     pc += 1;
                 }
             }
-            Instruction::Poseidon2_16 { shift } => {
+            Instruction::Poseidon2_16 { arg_a, arg_b, res } => {
                 poseidon16_calls += 1;
 
-                let ptr_arg_0 = memory.get(fp + shift)?;
-                let ptr_arg_1 = memory.get(fp + shift + 1)?;
-                let ptr_res_0 = memory.get(fp + shift + 2)?;
-                let ptr_res_1 = memory.get(fp + shift + 3)?;
+                let a_value = arg_a.read_value(&memory, fp)?;
+                let b_value = arg_b.read_value(&memory, fp)?;
+                let res_value = res.read_value(&memory, fp)?;
 
-                let arg0 = memory.get_vector(ptr_arg_0.as_canonical_u64() as usize)?;
-                let arg1 = memory.get_vector(ptr_arg_1.as_canonical_u64() as usize)?;
+                let arg0 = memory.get_vector(a_value.as_canonical_u64() as usize)?;
+                let arg1 = memory.get_vector(b_value.as_canonical_u64() as usize)?;
 
                 let mut input = [F::ZERO; DIMENSION * 2];
                 input[..DIMENSION].copy_from_slice(&arg0);
@@ -415,24 +414,21 @@ fn execute_bytecode_helper(
                 let res0: [F; DIMENSION] = input[..DIMENSION].try_into().unwrap();
                 let res1: [F; DIMENSION] = input[DIMENSION..].try_into().unwrap();
 
-                memory.set_vector(ptr_res_0.as_canonical_u64() as usize, res0)?;
-                memory.set_vector(ptr_res_1.as_canonical_u64() as usize, res1)?;
+                memory.set_vector(res_value.as_canonical_u64() as usize, res0)?;
+                memory.set_vector(1 + res_value.as_canonical_u64() as usize, res1)?;
 
                 pc += 1;
             }
-            Instruction::Poseidon2_24 { shift } => {
+            Instruction::Poseidon2_24 { arg_a, arg_b, res } => {
                 poseidon24_calls += 1;
 
-                let ptr_arg_0 = memory.get(fp + shift)?;
-                let ptr_arg_1 = memory.get(fp + shift + 1)?;
-                let ptr_arg_2 = memory.get(fp + shift + 2)?;
-                let ptr_res_0 = memory.get(fp + shift + 3)?;
-                let ptr_res_1 = memory.get(fp + shift + 4)?;
-                let ptr_res_2 = memory.get(fp + shift + 5)?;
+                let a_value = arg_a.read_value(&memory, fp)?;
+                let b_value = arg_b.read_value(&memory, fp)?;
+                let res_value = res.read_value(&memory, fp)?;
 
-                let arg0 = memory.get_vector(ptr_arg_0.as_canonical_u64() as usize)?;
-                let arg1 = memory.get_vector(ptr_arg_1.as_canonical_u64() as usize)?;
-                let arg2 = memory.get_vector(ptr_arg_2.as_canonical_u64() as usize)?;
+                let arg0 = memory.get_vector(a_value.as_canonical_u64() as usize)?;
+                let arg1 = memory.get_vector(1 + a_value.as_canonical_u64() as usize)?;
+                let arg2 = memory.get_vector(b_value.as_canonical_u64() as usize)?;
 
                 let mut input = [F::ZERO; DIMENSION * 3];
                 input[..DIMENSION].copy_from_slice(&arg0);
@@ -441,13 +437,9 @@ fn execute_bytecode_helper(
 
                 poseidon_24.permute_mut(&mut input);
 
-                let res0: [F; DIMENSION] = input[..DIMENSION].try_into().unwrap();
-                let res1: [F; DIMENSION] = input[DIMENSION..2 * DIMENSION].try_into().unwrap();
-                let res2: [F; DIMENSION] = input[2 * DIMENSION..].try_into().unwrap();
+                let res: [F; DIMENSION] = input[2 * DIMENSION..].try_into().unwrap();
 
-                memory.set_vector(ptr_res_0.as_canonical_u64() as usize, res0)?;
-                memory.set_vector(ptr_res_1.as_canonical_u64() as usize, res1)?;
-                memory.set_vector(ptr_res_2.as_canonical_u64() as usize, res2)?;
+                memory.set_vector(res_value.as_canonical_u64() as usize, res)?;
 
                 pc += 1;
             }

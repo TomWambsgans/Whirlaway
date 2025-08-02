@@ -196,11 +196,19 @@ pub fn compile_to_low_level_bytecode(
                             .unwrap_or(MemOrFp::Fp),
                     });
                 }
-                IntermediateInstruction::Poseidon2_16 { shift } => {
-                    low_level_bytecode.push(Instruction::Poseidon2_16 { shift });
+                IntermediateInstruction::Poseidon2_16 { arg_a, arg_b, res } => {
+                    low_level_bytecode.push(Instruction::Poseidon2_16 {
+                        arg_a: try_as_mem_or_constant(&arg_a).unwrap(),
+                        arg_b: try_as_mem_or_constant(&arg_b).unwrap(),
+                        res: try_as_mem_or_fp(&res).unwrap(),
+                    });
                 }
-                IntermediateInstruction::Poseidon2_24 { shift } => {
-                    low_level_bytecode.push(Instruction::Poseidon2_24 { shift });
+                IntermediateInstruction::Poseidon2_24 { arg_a, arg_b, res } => {
+                    low_level_bytecode.push(Instruction::Poseidon2_24 {
+                        arg_a: try_as_mem_or_constant(&arg_a).unwrap(),
+                        arg_b: try_as_mem_or_constant(&arg_b).unwrap(),
+                        res: try_as_mem_or_fp(&res).unwrap(),
+                    });
                 }
                 IntermediateInstruction::ExtensionMul { args } => {
                     let args = args

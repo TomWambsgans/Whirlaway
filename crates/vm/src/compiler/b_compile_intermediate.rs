@@ -342,10 +342,7 @@ fn compile_lines(
                 args,
                 res,
             } => {
-                compile_poseidon(&mut instructions, args, res, compiler, declared_vars)?;
-                instructions.push(IntermediateInstruction::Poseidon2_16 {
-                    shift: compiler.stack_size - 4,
-                });
+                compile_poseidon(&mut instructions, args, res, compiler, declared_vars, true)?;
             }
 
             SimpleLine::Precompile {
@@ -357,10 +354,7 @@ fn compile_lines(
                 args,
                 res,
             } => {
-                compile_poseidon(&mut instructions, args, res, compiler, declared_vars)?;
-                instructions.push(IntermediateInstruction::Poseidon2_24 {
-                    shift: compiler.stack_size - 6,
-                });
+                compile_poseidon(&mut instructions, args, res, compiler, declared_vars, false)?;
             }
             SimpleLine::Precompile {
                 precompile:
@@ -560,40 +554,42 @@ fn setup_function_call(
 fn compile_poseidon(
     instructions: &mut Vec<IntermediateInstruction>,
     args: &[SimpleExpr],
-    results: &[Var],
+    res: &[Var],
     compiler: &mut Compiler,
     declared_vars: &mut BTreeSet<Var>,
+    over_16: bool, // otherwise over_24
 ) -> Result<(), String> {
-    // Allocate memory for new result variables
-    for res_var in results {
-        if declared_vars.insert((*res_var).clone()) {
-            instructions.push(IntermediateInstruction::RequestMemory {
-                shift: compiler.get_offset(&res_var.clone().into()),
-                size: ConstExpression::one().into(),
-                vectorized: true,
-            });
-        }
+    assert_eq!(args.len(), 2);
+    assert_eq!(res.len(), 1);
+    let res_var = &res[0];
+
+    // Allocate memory for result
+    if declared_vars.insert(res_var.clone()) {
+        instructions.push(IntermediateInstruction::RequestMemory {
+            shift: compiler.get_offset(&res_var.clone().into()),
+            size: ConstExpression::scalar(if over_16 { 2 } else { 1 }).into(),
+            vectorized: true,
+        });
     }
 
-    for (i, arg) in args.iter().enumerate() {
-        instructions.push(IntermediateInstruction::equality(
-            IntermediateValue::MemoryAfterFp {
-                shift: (compiler.stack_size + i).into(),
-            },
-            IntermediateValue::from_simple_expr(arg, compiler),
-        ));
+    let low_level_arg_a = IntermediateValue::from_simple_expr(&args[0], compiler);
+    let low_level_arg_b = IntermediateValue::from_simple_expr(&args[1], compiler);
+    let low_level_res = IntermediateValue::from_var(res_var, compiler);
+
+    if over_16 {
+        instructions.push(IntermediateInstruction::Poseidon2_16 {
+            arg_a: low_level_arg_a,
+            arg_b: low_level_arg_b,
+            res: low_level_res,
+        });
+    } else {
+        instructions.push(IntermediateInstruction::Poseidon2_24 {
+            arg_a: low_level_arg_a,
+            arg_b: low_level_arg_b,
+            res: low_level_res,
+        });
     }
 
-    for (i, res) in results.iter().enumerate() {
-        instructions.push(IntermediateInstruction::equality(
-            IntermediateValue::from_var(res, compiler),
-            IntermediateValue::MemoryAfterFp {
-                shift: (compiler.stack_size + args.len() + i).into(),
-            },
-        ));
-    }
-
-    compiler.stack_size += args.len() + results.len();
     Ok(())
 }
 
