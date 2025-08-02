@@ -34,6 +34,7 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 impl<EF, A> AirTable<EF, A>
 where
     EF: TwoAdicField + ExtensionField<PF<EF>>,
+    PF<EF>: TwoAdicField,
     A: Air<SymbolicAirBuilder<PF<EF>>>
         + for<'a> Air<ConstraintFolder<'a, PF<EF>, EF>>
         + for<'a> Air<ConstraintFolder<'a, EF, EF>>
@@ -48,9 +49,7 @@ where
         witness: Vec<Vec<PF<EF>>>,
         pcs: &impl PCS<PF<EF>, EF>,
         dft: &EvalsDft<PF<EF>>,
-    ) where
-        PF<EF>: TwoAdicField,
-    {
+    ) {
         assert!(
             settings.univariate_skips < self.log_length,
             "TODO handle the case UNIVARIATE_SKIPS >= log_length"
@@ -107,7 +106,7 @@ where
             .map(|col| PFPacking::<EF>::pack_slice(col))
             .collect::<Vec<_>>();
 
-        let (zerocheck_challenges, all_inner_sums, _) = info_span!("zerocheck").in_scope(|| {
+        let (outer_sumcheck_challenge, all_inner_sums, _) = info_span!("zerocheck").in_scope(|| {
             sumcheck::prove_base_packed::<EF, _>(
                 settings.univariate_skips,
                 columns_for_zero_check,
@@ -123,49 +122,101 @@ where
             )
         });
 
-        if !self.air.structured() {
-            let _span = span!(Level::INFO, "proving column MLEs for unstructured AIR").entered();
-            prover_state.add_extension_scalars(&all_inner_sums[self.n_preprocessed_columns()..]);
-
-            let mut columns_batching_scalars = vec![EF::ZERO; self.log_n_witness_columns()];
-            for challenge in &mut columns_batching_scalars {
-                *challenge = prover_state.sample();
-            }
-
-            let batched_column = multilinears_linear_combination(
+        if self.air.structured() {
+            self.open_structured_columns(
+                prover_state,
+                dft,
+                packed_witness,
+                &packed_pol,
+                settings,
                 &witness,
-                &eval_eq(&columns_batching_scalars)[..self.n_witness_columns()],
+                &all_inner_sums,
+                &outer_sumcheck_challenge,
+                pcs,
             );
-
-            // TODO opti
-            let sub_evals = fold_multilinear(
-                &batched_column,
-                &MultilinearPoint(zerocheck_challenges[1..].to_vec()),
+        } else {
+            self.open_unstructured_columns(
+                prover_state,
+                dft,
+                packed_witness,
+                &packed_pol,
+                settings,
+                &witness,
+                &all_inner_sums,
+                &outer_sumcheck_challenge,
+                pcs,
             );
+        }
+    }
 
-            prover_state.add_extension_scalars(&sub_evals);
+    fn open_unstructured_columns<Pcs: PCS<PF<EF>, EF>>(
+        &self,
+        prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+        dft: &EvalsDft<PF<EF>>,
+        packed_witness: Pcs::Witness,
+        packed_pol: &[PF<EF>],
+        settings: &AirSettings,
+        witness: &[Vec<PF<EF>>],
+        all_inner_sums: &[EF],
+        zerocheck_challenges: &[EF],
+        pcs: &Pcs,
+    ) {
+        let span = span!(Level::INFO, "proving column MLEs for unstructured AIR").entered();
+        prover_state.add_extension_scalars(&all_inner_sums[self.n_preprocessed_columns()..]);
 
-            let mut epsilons = vec![EF::ZERO; settings.univariate_skips];
-            for challenge in &mut epsilons {
-                *challenge = prover_state.sample();
-            }
-
-            let point =
-                MultilinearPoint([epsilons.clone(), zerocheck_challenges[1..].to_vec()].concat());
-
-            let final_value = sub_evals.evaluate(&MultilinearPoint(epsilons));
-
-            prover_state.add_extension_scalar(final_value);
-
-            let statement = vec![Evaluation {
-                point: MultilinearPoint([columns_batching_scalars, point.0].concat()),
-                value: final_value,
-            }];
-            pcs.open(&dft, prover_state, &statement, packed_witness, &packed_pol);
-            return;
+        let mut columns_batching_scalars = vec![EF::ZERO; self.log_n_witness_columns()];
+        for challenge in &mut columns_batching_scalars {
+            *challenge = prover_state.sample();
         }
 
-        let _span = span!(
+        let batched_column = multilinears_linear_combination(
+            &witness,
+            &eval_eq(&columns_batching_scalars)[..self.n_witness_columns()],
+        );
+
+        // TODO opti
+        let sub_evals = fold_multilinear(
+            &batched_column,
+            &MultilinearPoint(zerocheck_challenges[1..].to_vec()),
+        );
+
+        prover_state.add_extension_scalars(&sub_evals);
+
+        let mut epsilons = vec![EF::ZERO; settings.univariate_skips];
+        for challenge in &mut epsilons {
+            *challenge = prover_state.sample();
+        }
+
+        let point =
+            MultilinearPoint([epsilons.clone(), zerocheck_challenges[1..].to_vec()].concat());
+
+        let final_value = sub_evals.evaluate(&MultilinearPoint(epsilons));
+
+        prover_state.add_extension_scalar(final_value);
+
+        let statement = vec![Evaluation {
+            point: MultilinearPoint([columns_batching_scalars, point.0].concat()),
+            value: final_value,
+        }];
+
+        span.exit();
+
+        pcs.open(&dft, prover_state, &statement, packed_witness, &packed_pol);
+    }
+
+    fn open_structured_columns<Pcs: PCS<PF<EF>, EF>>(
+        &self,
+        prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+        dft: &EvalsDft<PF<EF>>,
+        packed_witness: Pcs::Witness,
+        packed_pol: &[PF<EF>],
+        settings: &AirSettings,
+        witness: &[Vec<PF<EF>>],
+        all_inner_sums: &[EF],
+        zerocheck_challenges: &[EF],
+        pcs: &Pcs,
+    ) {
+        let span = span!(
             Level::INFO,
             "proving column UP/DOWN MLEs for structured AIR"
         )
@@ -241,7 +292,7 @@ where
 
         let packed_value = inner_evals[1];
 
-        std::mem::drop(_span);
+        span.exit();
 
         let statement = vec![Evaluation {
             point: MultilinearPoint(final_point),
