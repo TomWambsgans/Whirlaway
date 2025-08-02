@@ -219,34 +219,20 @@ fn compute_pushforward<F: PrimeField64, EF: ExtensionField<EF>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use p3_challenger::DuplexChallenger;
     use p3_field::PrimeCharacteristicRing;
     use p3_field::extension::BinomialExtensionField;
-    use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
+    use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
-    use tracing::level_filters::LevelFilter;
-    use tracing_forest::ForestLayer;
-    use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
+    use utils::{init_tracing, MyChallenger, Poseidon16};
 
     type F = KoalaBear;
-    type EF = BinomialExtensionField<F, 8>;
-
-    type Poseidon16 = Poseidon2KoalaBear<16>;
-
-    type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
+    type EF = BinomialExtensionField<F, 4>;
 
     #[test]
     fn test_logup_star() {
-        let env_filter = EnvFilter::builder()
-            .with_default_directive(LevelFilter::INFO.into())
-            .from_env_lossy();
+        init_tracing();
 
-        Registry::default()
-            .with(env_filter)
-            .with(ForestLayer::default())
-            .init();
-
-        let log_table_len = 18;
+        let log_table_len = 19;
         let table_len = 1 << log_table_len;
 
         let log_indexes_len = log_table_len + 2;

@@ -19,6 +19,7 @@ dependencies = [
  "p3-air",
  "p3-field",
  "p3-koala-bear",
+ "p3-matrix",
  "p3-uni-stark",
  "rand",
  "rayon",
@@ -292,8 +293,6 @@ dependencies = [
  "rayon",
  "sumcheck",
  "tracing",
- "tracing-forest",
- "tracing-subscriber",
  "utils",
  "whir-p3",
 ]
@@ -317,7 +316,6 @@ checksum = "32a282da65faaf38286cf3be983213fcf1d2e2a58700e808f83f4ea9a4804bc0"
 name = "multi_pcs"
 version = "0.1.0"
 dependencies = [
- "p3-challenger",
  "p3-field",
  "p3-koala-bear",
  "p3-symmetric",
@@ -326,8 +324,6 @@ dependencies = [
  "serde",
  "sumcheck",
  "tracing",
- "tracing-forest",
- "tracing-subscriber",
  "utils",
  "whir-p3",
 ]
@@ -1052,6 +1048,7 @@ name = "utils"
 version = "0.1.0"
 dependencies = [
  "p3-air",
+ "p3-challenger",
  "p3-field",
  "p3-koala-bear",
  "p3-matrix",
@@ -1059,6 +1056,8 @@ dependencies = [
  "rand",
  "rayon",
  "tracing",
+ "tracing-forest",
+ "tracing-subscriber",
  "whir-p3",
 ]
 
@@ -1145,9 +1144,6 @@ dependencies = [
  "p3-uni-stark",
  "p3-util",
  "rand",
- "tracing",
- "tracing-forest",
- "tracing-subscriber",
  "utils",
  "whir-p3",
 ]

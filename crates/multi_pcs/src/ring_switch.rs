@@ -357,12 +357,13 @@ pub fn piecewise_dot_product_at_field_level<F: Field, EF: ExtensionField<F>, con
 #[cfg(test)]
 mod tests {
     use p3_field::extension::BinomialExtensionField;
-    use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
+    use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
-    use tracing_forest::{ForestLayer, util::LevelFilter};
-    use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
+    use utils::{
+        MyMerkleCompress, MyMerkleHash, build_merkle_compress,
+        build_merkle_hash, build_prover_state, build_verifier_state, init_tracing,
+    };
     use whir_p3::{
-        fiat_shamir::{prover::ProverState, verifier::VerifierState},
         poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
         whir::config::{FoldingFactor, SecurityAssumption, WhirConfigBuilder},
     };
@@ -372,28 +373,10 @@ mod tests {
     const DIMENSION: usize = 8;
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, DIMENSION>;
-    type Poseidon16 = Poseidon2KoalaBear<16>;
-    type Poseidon24 = Poseidon2KoalaBear<24>;
-    type MyChallenger = p3_challenger::DuplexChallenger<F, Poseidon16, 16, 8>;
-    type MerkleHash = p3_symmetric::PaddingFreeSponge<Poseidon24, 24, 16, 8>; // leaf hashing
-    type MerkleCompress = p3_symmetric::TruncatedPermutation<Poseidon16, 2, 8, 16>; // 2-to-1 compression
 
     #[test]
     fn test_ring_switching() {
-        let env_filter = EnvFilter::builder()
-            .with_default_directive(LevelFilter::INFO.into())
-            .from_env_lossy();
-
-        Registry::default()
-            .with(env_filter)
-            .with(ForestLayer::default())
-            .init();
-
-        let poseidon16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
-        let poseidon24 = Poseidon24::new_from_rng_128(&mut StdRng::seed_from_u64(0));
-
-        let merkle_hash = MerkleHash::new(poseidon24);
-        let merkle_compress = MerkleCompress::new(poseidon16.clone());
+        init_tracing();
 
         let num_variables = 25;
         let mut rng = StdRng::seed_from_u64(0);
@@ -411,8 +394,8 @@ mod tests {
             security_level: 128,
             pow_bits: 17,
             folding_factor: FoldingFactor::ConstantFromSecondRound(4, 4),
-            merkle_hash,
-            merkle_compress,
+            merkle_hash: build_merkle_hash(),
+            merkle_compress: build_merkle_compress(),
             soundness_type: SecurityAssumption::CapacityBound,
             starting_log_inv_rate: 1,
             rs_domain_initial_reduction_factor: 3,
@@ -425,16 +408,14 @@ mod tests {
                 - inner_pcs.folding_factor.at_round(0)),
         );
 
-        type InnerPcs = WhirConfigBuilder<EF, EF, MerkleHash, MerkleCompress, 8>;
+        type InnerPcs = WhirConfigBuilder<EF, EF, MyMerkleHash, MyMerkleCompress, 8>;
 
         let statement = vec![Evaluation {
             point: point.clone(),
             value: polynomial.evaluate(&point),
         }];
 
-        let challenger = MyChallenger::new(poseidon16);
-
-        let mut prover_state = ProverState::new(challenger.clone());
+        let mut prover_state = build_prover_state();
 
         let ring_switch_pcs = RingSwitching::<F, EF, InnerPcs, 8>::new(inner_pcs);
 
@@ -442,8 +423,7 @@ mod tests {
 
         ring_switch_pcs.open(&dft, &mut prover_state, &statement, witness, &polynomial);
 
-        let mut verifier_state =
-            VerifierState::<F, EF, _>::new(prover_state.proof_data().to_vec(), challenger.clone());
+        let mut verifier_state = build_verifier_state(&prover_state);
 
         let parsed_commitment = ring_switch_pcs
             .parse_commitment(&mut verifier_state, num_variables)

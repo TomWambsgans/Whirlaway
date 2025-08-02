@@ -452,17 +452,13 @@ mod tests {
     use std::time::Instant;
 
     use super::*;
-    use p3_challenger::DuplexChallenger;
     use p3_field::extension::BinomialExtensionField;
-    use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
+    use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
+    use utils::{MyChallenger, Poseidon16};
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, 8>;
-
-    type Poseidon16 = Poseidon2KoalaBear<16>;
-
-    type MyChallenger = DuplexChallenger<F, Poseidon16, 16, 8>;
 
     fn sum_all_quotients(layer: &[EF]) -> EF {
         (0..layer.num_evals() / 2)

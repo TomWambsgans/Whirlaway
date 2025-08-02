@@ -139,9 +139,6 @@ whir-p3 = { git = "https://github.com/TomWambsgans/whir-p3", branch = "w"}
 [dependencies]
 air.workspace = true
 p3-field.workspace = true
-tracing.workspace = true
-tracing-forest.workspace = true
-tracing-subscriber.workspace = true
 p3-koala-bear.workspace = true
 p3-baby-bear.workspace = true
 p3-poseidon2.workspace = true

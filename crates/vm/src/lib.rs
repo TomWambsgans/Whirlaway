@@ -1,6 +1,7 @@
 use p3_field::extension::BinomialExtensionField;
-use p3_koala_bear::{KoalaBear, Poseidon2KoalaBear};
+use p3_koala_bear::KoalaBear;
 use rand::{SeedableRng as _, rngs::StdRng};
+use utils::{Poseidon16, Poseidon24};
 
 use crate::{compiler::compile_program, runner::execute_bytecode};
 
@@ -18,11 +19,6 @@ mod test;
 const DIMENSION: usize = 8;
 type F = KoalaBear;
 type EF = BinomialExtensionField<F, DIMENSION>;
-type Poseidon16 = Poseidon2KoalaBear<16>;
-type Poseidon24 = Poseidon2KoalaBear<24>;
-type MyChallenger = p3_challenger::DuplexChallenger<F, Poseidon16, 16, 8>;
-type MerkleHash = p3_symmetric::PaddingFreeSponge<Poseidon24, 24, 16, 8>; // leaf hashing
-type MerkleCompress = p3_symmetric::TruncatedPermutation<Poseidon16, 2, 8, 16>; // 2-to-1 compression
 
 pub fn compile_and_run(program: &str, public_input: &[F], private_input: &[F]) {
     let bytecode = compile_program(program);

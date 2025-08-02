@@ -22,3 +22,4 @@ multi_pcs.workspace = true
 [dev-dependencies]
 p3-koala-bear.workspace = true
 rand.workspace = true
+p3-matrix.workspace = true

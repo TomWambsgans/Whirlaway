@@ -7,12 +7,12 @@ use whir_p3::poly::dense::WhirDensePolynomial;
 
 pub struct AirTable<EF: Field, A> {
     pub air: A,
-    pub structured: bool, // Does the order of the rows matter?
     pub log_length: usize,
     pub preprocessed_columns: Vec<Vec<PF<EF>>>,
     pub n_constraints: usize,
     pub constraint_degree: usize,
-    pub(crate) univariate_selectors: Vec<WhirDensePolynomial<PF<EF>>>,
+    pub univariate_skips: usize,
+    pub univariate_selectors: Vec<WhirDensePolynomial<PF<EF>>>,
 
     _phantom: std::marker::PhantomData<EF>,
 }
@@ -24,7 +24,6 @@ where
 {
     pub fn new(
         air: A,
-        structured: bool,
         log_length: usize,
         univariate_skips: usize,
         preprocessed_columns: Vec<Vec<PF<EF>>>,
@@ -35,11 +34,11 @@ where
 
         Self {
             air,
-            structured,
             log_length,
             preprocessed_columns,
             n_constraints,
             constraint_degree,
+            univariate_skips,
             univariate_selectors: univariate_selectors(univariate_skips),
             _phantom: std::marker::PhantomData,
         }

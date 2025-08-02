@@ -26,3 +26,6 @@ pub use display::*;
 
 mod point;
 pub use point::*;
+
+mod logs;
+pub use logs::*;

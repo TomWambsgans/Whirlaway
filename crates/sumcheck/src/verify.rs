@@ -82,12 +82,13 @@ where
     for (&deg, sumation_set) in max_degree_per_vars.iter().zip(sumation_sets) {
         let coeffs = verifier_state.next_extension_scalars_vec(deg + 1)?;
         let pol = WhirDensePolynomial::from_coefficients_vec(coeffs);
-
+        dbg!(1);
         let computed_sum = sumation_set.iter().map(|&s| pol.evaluate(s)).sum();
         if first_round {
             first_round = false;
             sum = computed_sum;
         } else if target != computed_sum {
+            dbg!(target, computed_sum);
             return Err(SumcheckError::InvalidRound);
         }
         let challenge = verifier_state.sample();

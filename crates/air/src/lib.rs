@@ -6,13 +6,5 @@ mod uni_skip_utils;
 mod utils;
 mod verify;
 
-#[derive(Clone, Debug)]
-pub struct AirSettings {
-    pub univariate_skips: usize,
-}
-
-impl AirSettings {
-    pub const fn new(univariate_skips: usize) -> Self {
-        Self { univariate_skips }
-    }
-}
+#[cfg(test)]
+mod test;

@@ -3,9 +3,12 @@ use std::marker::PhantomData;
 use crate::*;
 use p3_field::BasedVectorSpace;
 use rand::{Rng, rngs::StdRng};
+use utils::{
+    MyMerkleCompress, MyMerkleHash, build_merkle_compress, build_merkle_hash, build_prover_state,
+    build_verifier_state,
+};
 use whir_p3::{
     dft::*,
-    fiat_shamir::{prover::ProverState, verifier::VerifierState},
     poly::{evals::*, multilinear::*},
     whir::{
         committer::{reader::*, writer::*},
@@ -835,20 +838,14 @@ pub fn run_whir_verif() {
 
    "#;
 
-    let poseidon16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
-    let poseidon24 = Poseidon24::new_from_rng_128(&mut StdRng::seed_from_u64(0));
-
-    let merkle_hash = MerkleHash::new(poseidon24);
-    let merkle_compress = MerkleCompress::new(poseidon16.clone());
-
     let num_variables = 22;
     let whir_config_builder = WhirConfigBuilder {
         max_num_variables_to_send_coeffs: 6,
         security_level: 128,
         pow_bits: 17,
         folding_factor: FoldingFactor::ConstantFromSecondRound(4, 4),
-        merkle_hash,
-        merkle_compress,
+        merkle_hash: build_merkle_hash(),
+        merkle_compress: build_merkle_compress(),
         soundness_type: SecurityAssumption::CapacityBound,
         starting_log_inv_rate: 2,
         rs_domain_initial_reduction_factor: 1,
@@ -856,7 +853,7 @@ pub fn run_whir_verif() {
         extension_field: PhantomData,
     };
 
-    let config = WhirConfig::<EF, EF, MerkleHash, MerkleCompress, 8>::new(
+    let config = WhirConfig::<EF, EF, MyMerkleHash, MyMerkleCompress, 8>::new(
         whir_config_builder,
         num_variables,
     );
@@ -884,9 +881,7 @@ pub fn run_whir_verif() {
     let eval = polynomial.evaluate(&point);
     statement.add_constraint(point.clone(), eval);
 
-    let challenger = MyChallenger::new(poseidon16);
-
-    let mut prover_state = ProverState::new(challenger.clone());
+    let mut prover_state = build_prover_state();
 
     // Commit to the polynomial and produce a witness
     let committer = Commiter(&config);
@@ -922,8 +917,7 @@ pub fn run_whir_verif() {
     public_input.extend(prover_state.proof_data()[commitment_size..].to_vec());
 
     // Reconstruct verifier's view of the transcript using the DomainSeparator and prover's data
-    let mut verifier_state =
-        VerifierState::<F, EF, _>::new(prover_state.proof_data().to_vec(), challenger.clone());
+    let mut verifier_state = build_verifier_state(&prover_state);
 
     // Parse the commitment
     let parsed_commitment = CommitmentReader(&config)

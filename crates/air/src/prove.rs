@@ -1,7 +1,7 @@
 use multi_pcs::pcs::PCS;
 use p3_air::Air;
 use p3_field::PackedValue;
-use p3_field::{BasedVectorSpace, ExtensionField, TwoAdicField, cyclic_subgroup_known_order};
+use p3_field::{ExtensionField, TwoAdicField, cyclic_subgroup_known_order};
 use p3_uni_stark::SymbolicAirBuilder;
 use sumcheck::ProductComputation;
 use tracing::{Level, info_span, instrument, span};
@@ -18,7 +18,6 @@ use whir_p3::{
 };
 
 use crate::{
-    AirSettings,
     uni_skip_utils::{matrix_down_folded, matrix_up_folded},
     utils::{column_down, column_up, columns_up_and_down},
 };
@@ -44,14 +43,13 @@ where
     #[instrument(name = "air: prove", skip_all)]
     pub fn prove(
         &self,
-        settings: &AirSettings,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         witness: Vec<Vec<PF<EF>>>,
         pcs: &impl PCS<PF<EF>, EF>,
         dft: &EvalsDft<PF<EF>>,
     ) {
         assert!(
-            settings.univariate_skips < self.log_length,
+            self.univariate_skips < self.log_length,
             "TODO handle the case UNIVARIATE_SKIPS >= log_length"
         );
         let log_length = self.log_length;
@@ -63,9 +61,6 @@ where
 
         let packed_pol = packed_multilinear(&witness);
 
-        let ext_dim = <EF as BasedVectorSpace<PF<EF>>>::DIMENSION;
-        assert!(ext_dim.is_power_of_two());
-
         let packed_witness = pcs.commit(&dft, prover_state, &packed_pol);
 
         let constraints_batching_scalar = prover_state.sample();
@@ -74,7 +69,7 @@ where
             cyclic_subgroup_known_order(constraints_batching_scalar, self.n_constraints)
                 .collect::<Vec<_>>();
 
-        let mut zerocheck_challenges = vec![EF::ZERO; log_length + 1 - settings.univariate_skips];
+        let mut zerocheck_challenges = vec![EF::ZERO; log_length + 1 - self.univariate_skips];
         for challenge in &mut zerocheck_challenges {
             *challenge = prover_state.sample();
         }
@@ -106,21 +101,22 @@ where
             .map(|col| PFPacking::<EF>::pack_slice(col))
             .collect::<Vec<_>>();
 
-        let (outer_sumcheck_challenge, all_inner_sums, _) = info_span!("zerocheck").in_scope(|| {
-            sumcheck::prove_base_packed::<EF, _>(
-                settings.univariate_skips,
-                columns_for_zero_check,
-                &self.air,
-                self.constraint_degree,
-                &constraints_batching_scalars,
-                Some((&zerocheck_challenges, None)),
-                true,
-                prover_state,
-                EF::ZERO,
-                None,
-                true,
-            )
-        });
+        let (outer_sumcheck_challenge, all_inner_sums, _) =
+            info_span!("zerocheck").in_scope(|| {
+                sumcheck::prove_base_packed::<EF, _>(
+                    self.univariate_skips,
+                    columns_for_zero_check,
+                    &self.air,
+                    self.constraint_degree,
+                    &constraints_batching_scalars,
+                    Some((&zerocheck_challenges, None)),
+                    true,
+                    prover_state,
+                    EF::ZERO,
+                    None,
+                    true,
+                )
+            });
 
         if self.air.structured() {
             self.open_structured_columns(
@@ -128,7 +124,6 @@ where
                 dft,
                 packed_witness,
                 &packed_pol,
-                settings,
                 &witness,
                 &all_inner_sums,
                 &outer_sumcheck_challenge,
@@ -140,7 +135,6 @@ where
                 dft,
                 packed_witness,
                 &packed_pol,
-                settings,
                 &witness,
                 &all_inner_sums,
                 &outer_sumcheck_challenge,
@@ -155,7 +149,6 @@ where
         dft: &EvalsDft<PF<EF>>,
         packed_witness: Pcs::Witness,
         packed_pol: &[PF<EF>],
-        settings: &AirSettings,
         witness: &[Vec<PF<EF>>],
         all_inner_sums: &[EF],
         zerocheck_challenges: &[EF],
@@ -182,7 +175,7 @@ where
 
         prover_state.add_extension_scalars(&sub_evals);
 
-        let mut epsilons = vec![EF::ZERO; settings.univariate_skips];
+        let mut epsilons = vec![EF::ZERO; self.univariate_skips];
         for challenge in &mut epsilons {
             *challenge = prover_state.sample();
         }
@@ -210,7 +203,6 @@ where
         dft: &EvalsDft<PF<EF>>,
         packed_witness: Pcs::Witness,
         packed_pol: &[PF<EF>],
-        settings: &AirSettings,
         witness: &[Vec<PF<EF>>],
         all_inner_sums: &[EF],
         zerocheck_challenges: &[EF],
@@ -253,7 +245,7 @@ where
 
         prover_state.add_extension_scalars(&sub_evals);
 
-        let mut epsilons = vec![EF::ZERO; settings.univariate_skips];
+        let mut epsilons = vec![EF::ZERO; self.univariate_skips];
         for challenge in &mut epsilons {
             *challenge = prover_state.sample();
         }

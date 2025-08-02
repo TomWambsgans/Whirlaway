@@ -16,7 +16,6 @@ use whir_p3::{
 };
 
 use crate::{
-    AirSettings,
     utils::{column_down, column_up, matrix_down_lde, matrix_up_lde},
 };
 
@@ -52,9 +51,7 @@ impl<
     #[instrument(name = "air table: verify", skip_all)]
     pub fn verify(
         &self,
-        settings: &AirSettings,
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
-        log_length: usize,
         pcs: &impl PCS<PF<EF>, EF>,
     ) -> Result<(), AirVerifError>
     where
@@ -67,7 +64,7 @@ impl<
 
         let constraints_batching_scalar = verifier_state.sample();
 
-        let mut zerocheck_challenges = vec![EF::ZERO; log_length - settings.univariate_skips + 1];
+        let mut zerocheck_challenges = vec![EF::ZERO; self.log_length - self.univariate_skips + 1];
         for challenge in &mut zerocheck_challenges {
             *challenge = verifier_state.sample();
         }
@@ -75,9 +72,9 @@ impl<
         let (sc_sum, outer_sumcheck_challenge) = sumcheck::verify_with_univariate_skip::<EF>(
             verifier_state,
             self.constraint_degree + 1,
-            log_length,
-            settings.univariate_skips,
-        )?;
+            self.log_length,
+            self.univariate_skips,
+        ).unwrap();
         if sc_sum != EF::ZERO {
             return Err(AirVerifError::SumMismatch);
         }
@@ -91,19 +88,17 @@ impl<
         if self.air.structured() {
             self.verify_structured_columns(
                 verifier_state,
-                settings,
                 pcs,
                 &parsed_commitment,
                 &outer_sumcheck_challenge,
                 &outer_selector_evals,
                 &zerocheck_challenges,
                 constraints_batching_scalar,
-                log_length,
+                self.log_length,
             )
         } else {
             self.verify_unstructured_columns(
                 verifier_state,
-                settings,
                 pcs,
                 &parsed_commitment,
                 &outer_sumcheck_challenge,
@@ -117,7 +112,6 @@ impl<
     fn verify_unstructured_columns<Pcs: PCS<PF<EF>, EF>>(
         &self,
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
-        settings: &AirSettings,
         pcs: &Pcs,
         parsed_commitment: &Pcs::ParsedCommitment,
         outer_sumcheck_challenge: &Evaluation<EF>,
@@ -169,7 +163,7 @@ impl<
         }
 
         let sub_evals =
-            verifier_state.next_extension_scalars_vec(1 << settings.univariate_skips)?;
+            verifier_state.next_extension_scalars_vec(1 << self.univariate_skips)?;
 
         if dot_product::<EF, _, _>(
             sub_evals.iter().copied(),
@@ -183,7 +177,7 @@ impl<
             return Err(AirVerifError::SumMismatch);
         }
 
-        let mut epsilons = vec![EF::ZERO; settings.univariate_skips];
+        let mut epsilons = vec![EF::ZERO; self.univariate_skips];
         for challenge in &mut epsilons {
             *challenge = verifier_state.sample();
         }
@@ -216,7 +210,6 @@ impl<
     fn verify_structured_columns<Pcs: PCS<PF<EF>, EF>>(
         &self,
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
-        settings: &AirSettings,
         pcs: &Pcs,
         parsed_commitment: &Pcs::ParsedCommitment,
         outer_sumcheck_challenge: &Evaluation<EF>,
@@ -288,7 +281,7 @@ impl<
         let alpha: EF = verifier_state.sample();
 
         let sub_evals =
-            verifier_state.next_extension_scalars_vec(1 << settings.univariate_skips)?;
+            verifier_state.next_extension_scalars_vec(1 << self.univariate_skips)?;
 
         if dot_product::<EF, _, _>(
             sub_evals.iter().copied(),
@@ -308,7 +301,7 @@ impl<
             return Err(AirVerifError::SumMismatch);
         }
 
-        let mut epsilons = vec![EF::ZERO; settings.univariate_skips];
+        let mut epsilons = vec![EF::ZERO; self.univariate_skips];
         for challenge in &mut epsilons {
             *challenge = verifier_state.sample();
         }

@@ -16,8 +16,3 @@ sumcheck.workspace = true
 whir-p3.workspace = true
 p3-challenger.workspace = true
 tracing.workspace = true
-
-[dev-dependencies]
-p3-challenger.workspace = true
-tracing-forest.workspace = true
-tracing-subscriber.workspace = true
