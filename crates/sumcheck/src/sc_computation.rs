@@ -17,9 +17,13 @@ where
     A: for<'a> Air<ConstraintFolder<'a, NF, EF>>,
 {
     fn eval(&self, point: &[NF], alpha_powers: &[EF]) -> EF {
-        assert_eq!(A::width(self) * 2, point.len());
+        if self.structured() {
+            assert_eq!(point.len(), A::width(self) * 2);
+        } else {
+            assert_eq!(point.len(), A::width(self));
+        }
         let mut folder = ConstraintFolder {
-            main: RowMajorMatrixView::new(point, point.len() / 2),
+            main: RowMajorMatrixView::new(point, A::width(self)),
             alpha_powers,
             accumulator: EF::ZERO,
             constraint_index: 0,
@@ -45,8 +49,13 @@ where
         + for<'a> Air<ConstraintFolderPackedExtension<'a, EF>>,
 {
     fn eval_packed_base(&self, point: &[PFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF> {
+        if self.structured() {
+            assert_eq!(point.len(), A::width(self) * 2);
+        } else {
+            assert_eq!(point.len(), A::width(self));
+        }
         let mut folder = ConstraintFolderPackedBase {
-            main: RowMajorMatrixView::new(point, point.len() / 2),
+            main: RowMajorMatrixView::new(point, A::width(self)),
             alpha_powers: alpha_powers,
             accumulator: Default::default(),
             constraint_index: 0,
@@ -57,8 +66,13 @@ where
     }
 
     fn eval_packed_extension(&self, point: &[EFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF> {
+        if self.structured() {
+            assert_eq!(point.len(), A::width(self) * 2);
+        } else {
+            assert_eq!(point.len(), A::width(self));
+        }
         let mut folder = ConstraintFolderPackedExtension {
-            main: RowMajorMatrixView::new(point, point.len() / 2),
+            main: RowMajorMatrixView::new(point, A::width(self)),
             alpha_powers: alpha_powers,
             accumulator: Default::default(),
             constraint_index: 0,

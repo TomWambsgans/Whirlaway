@@ -1,6 +1,7 @@
 use multi_pcs::pcs::PCS;
 use p3_air::Air;
 use p3_field::{ExtensionField, TwoAdicField, cyclic_subgroup_known_order, dot_product};
+use p3_uni_stark::SymbolicAirBuilder;
 use std::fmt::Debug;
 use sumcheck::{SumcheckComputation, SumcheckError};
 use tracing::instrument;
@@ -43,8 +44,10 @@ impl From<SumcheckError> for AirVerifError {
     }
 }
 
-impl<EF: TwoAdicField + ExtensionField<PF<EF>>, A: for<'a> Air<ConstraintFolder<'a, EF, EF>>>
-    AirTable<EF, A>
+impl<
+    EF: TwoAdicField + ExtensionField<PF<EF>>,
+    A: Air<SymbolicAirBuilder<PF<EF>>> + for<'a> Air<ConstraintFolder<'a, EF, EF>>,
+> AirTable<EF, A>
 {
     #[instrument(name = "air table: verify", skip_all)]
     pub fn verify(
@@ -79,14 +82,102 @@ impl<EF: TwoAdicField + ExtensionField<PF<EF>>, A: for<'a> Air<ConstraintFolder<
             return Err(AirVerifError::SumMismatch);
         }
 
-        let witness_up = verifier_state.next_extension_scalars_vec(self.n_witness_columns())?;
-        let witness_down = verifier_state.next_extension_scalars_vec(self.n_witness_columns())?;
-
         let outer_selector_evals = self
             .univariate_selectors
             .iter()
             .map(|s| s.evaluate(outer_sumcheck_challenge.point[0]))
             .collect::<Vec<_>>();
+
+        if !self.air.structured() {
+            let witness_evals =
+                verifier_state.next_extension_scalars_vec(self.n_witness_columns())?;
+            let preprocessed_evals = self
+                .preprocessed_columns
+                .iter()
+                .map(|c| {
+                    fold_multilinear_in_large_field(c, &outer_selector_evals).evaluate(
+                        &MultilinearPoint(outer_sumcheck_challenge.point[1..].to_vec()),
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            let global_point = [preprocessed_evals, witness_evals.clone()].concat();
+
+            let global_constraint_eval = SumcheckComputation::eval(
+                &self.air,
+                &global_point,
+                &cyclic_subgroup_known_order(constraints_batching_scalar, self.n_constraints)
+                    .collect::<Vec<_>>(),
+            );
+
+            let zerocheck_selector_evals = self
+                .univariate_selectors
+                .iter()
+                .map(|s| s.evaluate(zerocheck_challenges[0]));
+            if dot_product::<EF, _, _>(
+                zerocheck_selector_evals.clone(),
+                outer_selector_evals.iter().copied(),
+            ) * MultilinearPoint(zerocheck_challenges[1..].to_vec()).eq_poly_outside(
+                &MultilinearPoint(outer_sumcheck_challenge.point[1..].to_vec()),
+            ) * global_constraint_eval
+                != outer_sumcheck_challenge.value
+            {
+                return Err(AirVerifError::SumMismatch);
+            }
+
+            let mut columns_batching_scalars = vec![EF::ZERO; self.log_n_witness_columns()];
+            for challenge in &mut columns_batching_scalars {
+                *challenge = verifier_state.sample();
+            }
+
+            let sub_evals =
+                verifier_state.next_extension_scalars_vec(1 << settings.univariate_skips)?;
+
+            if dot_product::<EF, _, _>(
+                sub_evals.iter().copied(),
+                outer_selector_evals.iter().copied(),
+            ) != dot_product::<EF, _, _>(
+                witness_evals.iter().copied(),
+                eval_eq(&columns_batching_scalars)[..self.n_witness_columns()]
+                    .iter()
+                    .copied(),
+            ) {
+                return Err(AirVerifError::SumMismatch);
+            }
+
+            let mut epsilons = vec![EF::ZERO; settings.univariate_skips];
+            for challenge in &mut epsilons {
+                *challenge = verifier_state.sample();
+            }
+
+            let [final_value] = verifier_state.next_extension_scalars_const()?;
+
+            if final_value != sub_evals.evaluate(&MultilinearPoint(epsilons.clone())) {
+                return Err(AirVerifError::SumMismatch);
+            }
+
+            let final_point = MultilinearPoint(
+                [
+                    columns_batching_scalars,
+                    epsilons.clone(),
+                    outer_sumcheck_challenge.point[1..].to_vec(),
+                ]
+                .concat(),
+            );
+
+            let statement = vec![Evaluation {
+                point: final_point,
+                value: final_value,
+            }];
+            pcs.verify(verifier_state, &parsed_commitment, &statement)
+                .map_err(|_| AirVerifError::InvalidPcsOpening)?;
+
+            return Ok(());
+        }
+
+        let witness_up = verifier_state.next_extension_scalars_vec(self.n_witness_columns())?;
+        let witness_down = verifier_state.next_extension_scalars_vec(self.n_witness_columns())?;
+
         let preprocessed_up = self
             .preprocessed_columns
             .iter()

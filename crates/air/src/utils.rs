@@ -1,5 +1,4 @@
 use p3_field::Field;
-use p3_field::PackedValue;
 use rayon::prelude::*;
 use whir_p3::poly::{multilinear::MultilinearPoint};
 
@@ -133,12 +132,11 @@ fn next_mle<F: Field>(point: &[F]) -> F {
 
 pub(crate) fn columns_up_and_down<F: Field>(
     columns: &[&Vec<F>],
-) -> Vec<Vec<F::Packing>> {
+) -> Vec<Vec<F>> {
     columns
         .par_iter()
         .map(|c| column_up(c))
         .chain(columns.par_iter().map(|c| column_down(c)))
-        .map(|x| F::Packing::pack_slice(&x).to_vec()) // TODO avoid clone
         .collect()
 }
 

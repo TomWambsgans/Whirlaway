@@ -6,10 +6,10 @@ use utils::{PF, log2_up, univariate_selectors};
 use whir_p3::poly::dense::WhirDensePolynomial;
 
 pub struct AirTable<EF: Field, A> {
-    pub log_length: usize,
-    pub n_columns: usize,
     pub air: A,
-    pub preprocessed_columns: Vec<Vec<PF<EF>>>, // TODO 'sparse' preprocessed columns (with non zero values at cylic shifts)
+    pub structured: bool, // Does the order of the rows matter?
+    pub log_length: usize,
+    pub preprocessed_columns: Vec<Vec<PF<EF>>>,
     pub n_constraints: usize,
     pub constraint_degree: usize,
     pub(crate) univariate_selectors: Vec<WhirDensePolynomial<PF<EF>>>,
@@ -17,28 +17,26 @@ pub struct AirTable<EF: Field, A> {
     _phantom: std::marker::PhantomData<EF>,
 }
 
-impl<EF, A> AirTable<EF, A>
+impl<EF, A: Air<SymbolicAirBuilder<PF<EF>>>> AirTable<EF, A>
 where
     EF: ExtensionField<PF<EF>> + TwoAdicField,
     PF<EF>: TwoAdicField,
 {
     pub fn new(
         air: A,
+        structured: bool,
         log_length: usize,
         univariate_skips: usize,
         preprocessed_columns: Vec<Vec<PF<EF>>>,
         constraint_degree: usize,
-    ) -> Self
-    where
-        A: Air<SymbolicAirBuilder<PF<EF>>>,
-    {
+    ) -> Self {
         let symbolic_constraints = get_symbolic_constraints(&air, 0, 0);
         let n_constraints = symbolic_constraints.len();
 
         Self {
-            log_length,
-            n_columns: air.width(),
             air,
+            structured,
+            log_length,
             preprocessed_columns,
             n_constraints,
             constraint_degree,
@@ -47,9 +45,13 @@ where
         }
     }
 
+    pub fn n_columns(&self) -> usize {
+        self.air.width()
+    }
+
     #[allow(clippy::missing_const_for_fn)]
     pub fn n_witness_columns(&self) -> usize {
-        self.n_columns - self.preprocessed_columns.len()
+        self.n_columns() - self.preprocessed_columns.len()
     }
 
     /// rounded up

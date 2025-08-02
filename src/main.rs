@@ -10,14 +10,14 @@ fn main() {
     let benchmark = prove_poseidon2(
         17,
         AirSettings::new(4),
-        FoldingFactor::ConstantFromSecondRound(4, 4),
+        FoldingFactor::ConstantFromSecondRound(7, 4),
         1,
         SecurityAssumption::CapacityBound,
         16,
         128,
-        2,
+        5,
         6,
-        0,
+        3,
         true,
     );
     println!("\n{benchmark}");

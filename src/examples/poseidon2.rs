@@ -1,6 +1,5 @@
 use ::air::AirSettings;
 use air::table::AirTable;
-use multi_pcs::ring_switch::RingSwitching;
 use p3_challenger::DuplexChallenger;
 use p3_field::extension::BinomialExtensionField;
 use p3_field::{BasedVectorSpace, PrimeField64};
@@ -39,15 +38,6 @@ const SBOX_DEGREE: u64 = 3;
 const SBOX_REGISTERS: usize = 0;
 const HALF_FULL_ROUNDS: usize = 4;
 const PARTIAL_ROUNDS: usize = 20;
-
-// BabyBear
-// type F = BabyBear;
-// type EF = BinomialExtensionField<F, 4>;
-// type LinearLayers = GenericPoseidon2LinearLayersBabyBear;
-// const SBOX_DEGREE: u64 = 7;
-// const SBOX_REGISTERS: usize = 1;
-// const HALF_FULL_ROUNDS: usize = 4;
-// const PARTIAL_ROUNDS: usize = 13;
 
 const WIDTH: usize = 16;
 
@@ -138,6 +128,7 @@ pub fn prove_poseidon2(
 
     let table = AirTable::<EF, _>::new(
         poseidon_air,
+        false,
         log_n_rows,
         settings.univariate_skips,
         preprocessed_columns,
@@ -156,7 +147,7 @@ pub fn prove_poseidon2(
 
     let mut prover_state = ProverState::new(challenger.clone());
 
-    let pcs_inner = WhirConfigBuilder {
+    let pcs = WhirConfigBuilder {
         folding_factor,
         soundness_type,
         merkle_hash,
@@ -166,11 +157,11 @@ pub fn prove_poseidon2(
         rs_domain_initial_reduction_factor,
         security_level,
         starting_log_inv_rate: log_inv_rate,
-        base_field: PhantomData::<EF>,
+        base_field: PhantomData::<F>,
         extension_field: PhantomData::<EF>,
     };
 
-    let pcs = RingSwitching::<F, EF, _, EXTENSION_DEGREE>::new(pcs_inner);
+    // let pcs = RingSwitching::<F, EF, _, EXTENSION_DEGREE>::new(pcs);
 
     let ext_dim = <EF as BasedVectorSpace<PF<EF>>>::DIMENSION;
     let dft = EvalsDft::new(

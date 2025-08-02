@@ -1,11 +1,13 @@
 use multi_pcs::pcs::PCS;
 use p3_air::Air;
+use p3_field::PackedValue;
 use p3_field::{BasedVectorSpace, ExtensionField, TwoAdicField, cyclic_subgroup_known_order};
+use p3_uni_stark::SymbolicAirBuilder;
 use sumcheck::ProductComputation;
 use tracing::{Level, info_span, instrument, span};
 use utils::{
-    ConstraintFolder, ConstraintFolderPackedBase, Evaluation, FSProver, add_multilinears,
-    multilinears_linear_combination, packed_multilinear,
+    ConstraintFolder, ConstraintFolderPackedBase, Evaluation, FSProver, PFPacking,
+    add_multilinears, multilinears_linear_combination, packed_multilinear,
 };
 use utils::{ConstraintFolderPackedExtension, PF};
 use whir_p3::fiat_shamir::FSChallenger;
@@ -32,7 +34,8 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 impl<EF, A> AirTable<EF, A>
 where
     EF: TwoAdicField + ExtensionField<PF<EF>>,
-    A: for<'a> Air<ConstraintFolder<'a, PF<EF>, EF>>
+    A: Air<SymbolicAirBuilder<PF<EF>>>
+        + for<'a> Air<ConstraintFolder<'a, PF<EF>, EF>>
         + for<'a> Air<ConstraintFolder<'a, EF, EF>>
         + for<'a> Air<ConstraintFolderPackedBase<'a, EF>>
         + for<'a> Air<ConstraintFolderPackedExtension<'a, EF>>,
@@ -83,16 +86,31 @@ where
             .chain(&witness)
             .collect::<Vec<_>>();
 
-        let my_columns_up_and_down = columns_up_and_down(&preprocessed_and_witness);
-        let my_columns_up_and_down = my_columns_up_and_down
+        let columns_up_and_down_opt = if self.air.structured() {
+            Some(columns_up_and_down(&preprocessed_and_witness))
+        } else {
+            None
+        };
+
+        let columns_for_zero_check = if self.air.structured() {
+            columns_up_and_down_opt
+                .as_ref()
+                .unwrap()
+                .iter()
+                .collect::<Vec<_>>()
+        } else {
+            preprocessed_and_witness
+        };
+
+        let columns_for_zero_check = columns_for_zero_check
             .iter()
-            .map(|m| m.as_slice())
+            .map(|col| PFPacking::<EF>::pack_slice(col))
             .collect::<Vec<_>>();
 
         let (zerocheck_challenges, all_inner_sums, _) = info_span!("zerocheck").in_scope(|| {
             sumcheck::prove_base_packed::<EF, _>(
                 settings.univariate_skips,
-                my_columns_up_and_down,
+                columns_for_zero_check,
                 &self.air,
                 self.constraint_degree,
                 &constraints_batching_scalars,
@@ -105,10 +123,56 @@ where
             )
         });
 
-        let _span = span!(Level::INFO, "inner sumchecks").entered();
+        if !self.air.structured() {
+            let _span = span!(Level::INFO, "proving column MLEs for unstructured AIR").entered();
+            prover_state.add_extension_scalars(&all_inner_sums[self.n_preprocessed_columns()..]);
 
-        let inner_sums_up = &all_inner_sums[self.n_preprocessed_columns()..self.n_columns];
-        let inner_sums_down = &all_inner_sums[self.n_columns + self.n_preprocessed_columns()..];
+            let mut columns_batching_scalars = vec![EF::ZERO; self.log_n_witness_columns()];
+            for challenge in &mut columns_batching_scalars {
+                *challenge = prover_state.sample();
+            }
+
+            let batched_column = multilinears_linear_combination(
+                &witness,
+                &eval_eq(&columns_batching_scalars)[..self.n_witness_columns()],
+            );
+
+            // TODO opti
+            let sub_evals = fold_multilinear(
+                &batched_column,
+                &MultilinearPoint(zerocheck_challenges[1..].to_vec()),
+            );
+
+            prover_state.add_extension_scalars(&sub_evals);
+
+            let mut epsilons = vec![EF::ZERO; settings.univariate_skips];
+            for challenge in &mut epsilons {
+                *challenge = prover_state.sample();
+            }
+
+            let point =
+                MultilinearPoint([epsilons.clone(), zerocheck_challenges[1..].to_vec()].concat());
+
+            let final_value = sub_evals.evaluate(&MultilinearPoint(epsilons));
+
+            prover_state.add_extension_scalar(final_value);
+
+            let statement = vec![Evaluation {
+                point: MultilinearPoint([columns_batching_scalars, point.0].concat()),
+                value: final_value,
+            }];
+            pcs.open(&dft, prover_state, &statement, packed_witness, &packed_pol);
+            return;
+        }
+
+        let _span = span!(
+            Level::INFO,
+            "proving column UP/DOWN MLEs for structured AIR"
+        )
+        .entered();
+
+        let inner_sums_up = &all_inner_sums[self.n_preprocessed_columns()..self.n_columns()];
+        let inner_sums_down = &all_inner_sums[self.n_columns() + self.n_preprocessed_columns()..];
 
         prover_state.add_extension_scalars(&inner_sums_up);
         prover_state.add_extension_scalars(&inner_sums_down);
@@ -147,7 +211,7 @@ where
         let mles_for_inner_sumcheck = vec![
             add_multilinears(
                 &matrix_up_folded(&point),
-                &scale_poly(&matrix_down_folded(&point), alpha)
+                &scale_poly(&matrix_down_folded(&point), alpha),
             ),
             batched_column,
         ];

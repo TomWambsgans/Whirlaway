@@ -391,7 +391,7 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 [[package]]
 name = "p3-air"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=extension-packed-field-air-builder#ecf75742da5ff19b8cbbf295b60881869ab28b5f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=w#7b93abc1f666e72939eedbfff7dff132bb419f66"
 dependencies = [
  "p3-field",
  "p3-matrix",
@@ -400,7 +400,7 @@ dependencies = [
 [[package]]
 name = "p3-baby-bear"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=extension-packed-field-air-builder#ecf75742da5ff19b8cbbf295b60881869ab28b5f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=w#7b93abc1f666e72939eedbfff7dff132bb419f66"
 dependencies = [
  "p3-field",
  "p3-mds",
@@ -413,7 +413,7 @@ dependencies = [
 [[package]]
 name = "p3-challenger"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=extension-packed-field-air-builder#ecf75742da5ff19b8cbbf295b60881869ab28b5f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=w#7b93abc1f666e72939eedbfff7dff132bb419f66"
 dependencies = [
  "p3-field",
  "p3-maybe-rayon",
@@ -425,7 +425,7 @@ dependencies = [
 [[package]]
 name = "p3-commit"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=extension-packed-field-air-builder#ecf75742da5ff19b8cbbf295b60881869ab28b5f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=w#7b93abc1f666e72939eedbfff7dff132bb419f66"
 dependencies = [
  "itertools",
  "p3-challenger",
@@ -439,7 +439,7 @@ dependencies = [
 [[package]]
 name = "p3-dft"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=extension-packed-field-air-builder#ecf75742da5ff19b8cbbf295b60881869ab28b5f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=w#7b93abc1f666e72939eedbfff7dff132bb419f66"
 dependencies = [
  "itertools",
  "p3-field",
@@ -452,7 +452,7 @@ dependencies = [
 [[package]]
 name = "p3-field"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=extension-packed-field-air-builder#ecf75742da5ff19b8cbbf295b60881869ab28b5f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=w#7b93abc1f666e72939eedbfff7dff132bb419f66"
 dependencies = [
  "itertools",
  "num-bigint",
@@ -467,7 +467,7 @@ dependencies = [
 [[package]]
 name = "p3-interpolation"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=extension-packed-field-air-builder#ecf75742da5ff19b8cbbf295b60881869ab28b5f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=w#7b93abc1f666e72939eedbfff7dff132bb419f66"
 dependencies = [
  "p3-field",
  "p3-matrix",
@@ -478,7 +478,7 @@ dependencies = [
 [[package]]
 name = "p3-koala-bear"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=extension-packed-field-air-builder#ecf75742da5ff19b8cbbf295b60881869ab28b5f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=w#7b93abc1f666e72939eedbfff7dff132bb419f66"
 dependencies = [
  "p3-field",
  "p3-monty-31",
@@ -490,7 +490,7 @@ dependencies = [
 [[package]]
 name = "p3-matrix"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=extension-packed-field-air-builder#ecf75742da5ff19b8cbbf295b60881869ab28b5f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=w#7b93abc1f666e72939eedbfff7dff132bb419f66"
 dependencies = [
  "itertools",
  "p3-field",
@@ -505,7 +505,7 @@ dependencies = [
 [[package]]
 name = "p3-maybe-rayon"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=extension-packed-field-air-builder#ecf75742da5ff19b8cbbf295b60881869ab28b5f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=w#7b93abc1f666e72939eedbfff7dff132bb419f66"
 dependencies = [
  "rayon",
 ]
@@ -513,7 +513,7 @@ dependencies = [
 [[package]]
 name = "p3-mds"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=extension-packed-field-air-builder#ecf75742da5ff19b8cbbf295b60881869ab28b5f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=w#7b93abc1f666e72939eedbfff7dff132bb419f66"
 dependencies = [
  "p3-dft",
  "p3-field",
@@ -525,7 +525,7 @@ dependencies = [
 [[package]]
 name = "p3-merkle-tree"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=extension-packed-field-air-builder#ecf75742da5ff19b8cbbf295b60881869ab28b5f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=w#7b93abc1f666e72939eedbfff7dff132bb419f66"
 dependencies = [
  "itertools",
  "p3-commit",
@@ -542,7 +542,7 @@ dependencies = [
 [[package]]
 name = "p3-monty-31"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=extension-packed-field-air-builder#ecf75742da5ff19b8cbbf295b60881869ab28b5f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=w#7b93abc1f666e72939eedbfff7dff132bb419f66"
 dependencies = [
  "itertools",
  "num-bigint",
@@ -564,7 +564,7 @@ dependencies = [
 [[package]]
 name = "p3-poseidon2"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=extension-packed-field-air-builder#ecf75742da5ff19b8cbbf295b60881869ab28b5f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=w#7b93abc1f666e72939eedbfff7dff132bb419f66"
 dependencies = [
  "p3-field",
  "p3-mds",
@@ -576,7 +576,7 @@ dependencies = [
 [[package]]
 name = "p3-poseidon2-air"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=extension-packed-field-air-builder#ecf75742da5ff19b8cbbf295b60881869ab28b5f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=w#7b93abc1f666e72939eedbfff7dff132bb419f66"
 dependencies = [
  "p3-air",
  "p3-field",
@@ -590,7 +590,7 @@ dependencies = [
 [[package]]
 name = "p3-symmetric"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=extension-packed-field-air-builder#ecf75742da5ff19b8cbbf295b60881869ab28b5f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=w#7b93abc1f666e72939eedbfff7dff132bb419f66"
 dependencies = [
  "itertools",
  "p3-field",
@@ -600,7 +600,7 @@ dependencies = [
 [[package]]
 name = "p3-uni-stark"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=extension-packed-field-air-builder#ecf75742da5ff19b8cbbf295b60881869ab28b5f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=w#7b93abc1f666e72939eedbfff7dff132bb419f66"
 dependencies = [
  "itertools",
  "p3-air",
@@ -618,7 +618,7 @@ dependencies = [
 [[package]]
 name = "p3-util"
 version = "0.3.0"
-source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=extension-packed-field-air-builder#ecf75742da5ff19b8cbbf295b60881869ab28b5f"
+source = "git+https://github.com/TomWambsgans/Plonky3.git?branch=w#7b93abc1f666e72939eedbfff7dff132bb419f66"
 dependencies = [
  "rayon",
  "serde",
@@ -1103,7 +1103,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/whir-p3?branch=w#4049fca2595bc75f91033811883e458995f293bc"
+source = "git+https://github.com/TomWambsgans/whir-p3?branch=w#2e05a36880cb72eb73ca524d3a3de31acb8869c3"
 dependencies = [
  "clap",
  "itertools",

@@ -4,11 +4,13 @@ use serde::{Deserialize, Serialize};
 use utils::{Evaluation, FSProver, FSVerifier, PF, PFPacking};
 use whir_p3::{
     dft::EvalsDft,
-    fiat_shamir::{errors::ProofError, FSChallenger},
+    fiat_shamir::{FSChallenger, errors::ProofError},
     poly::evals::EvaluationsList,
     whir::{
         committer::{
-            reader::{CommitmentReader, ParsedCommitment}, writer::Commiter, Witness
+            Witness,
+            reader::{CommitmentReader, ParsedCommitment},
+            writer::Commiter,
         },
         config::{WhirConfig, WhirConfigBuilder},
         prover::Prover,
