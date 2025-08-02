@@ -287,13 +287,8 @@ pub fn run_whir_verif() {
             internal_states = malloc(1 + (n_chuncks_per_answer / 2)); // "/ 2" because with poseidon24 we hash 2 chuncks of 8 field elements at each permutation
             internal_states[0] = pointer_to_zero_vector; // initial state
             for j in 0..n_chuncks_per_answer / 2 {
-                new_state_0, _, new_state_2 = poseidon24(answer + (2*j), answer + (2*j) + 1, internal_states[j]);
-                if j == (n_chuncks_per_answer / 2) - 1 {
-                    // last step
-                    internal_states[j + 1] = new_state_0;
-                } else {
-                    internal_states[j + 1] = new_state_2;
-                }
+                _, _, new_state_2 = poseidon24(answer + (2*j), answer + (2*j) + 1, internal_states[j]);
+                internal_states[j + 1] = new_state_2;
             }
             leaf_hashes[i] = internal_states[n_chuncks_per_answer / 2];
         }
