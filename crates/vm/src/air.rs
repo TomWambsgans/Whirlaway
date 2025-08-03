@@ -1,0 +1,132 @@
+use std::borrow::Borrow;
+
+use p3_air::{Air, AirBuilder, BaseAir};
+use p3_field::PrimeCharacteristicRing;
+use p3_matrix::Matrix;
+
+/*
+
+Bytecode columns:
+
+0: OPERAND_A
+1: OPERAND_B
+2: OPERAND_C
+3: FLAG_A
+4: FLAG_B
+5: FLAG_C
+6: ADD
+7: MUL
+8: DEREF
+9: JUZ
+10: AUX
+
+Execution columns:
+
+11: PC
+12: FP
+13: ADDR_A
+14: ADDR_B
+15: ADDR_C
+16: VALUE_A (virtual)
+17: VALUE_B (virtual)
+18: VALUE_C (virtual)
+
+*/
+
+const N_COLUMNS: usize = 18;
+
+pub struct VMAir;
+
+impl<F> BaseAir<F> for VMAir {
+    fn width(&self) -> usize {
+        N_COLUMNS
+    }
+    fn structured(&self) -> bool {
+        true
+    }
+}
+
+impl<AB: AirBuilder> Air<AB> for VMAir {
+    #[inline]
+    fn eval(&self, builder: &mut AB) {
+        let main = builder.main();
+        let up = main.row_slice(0).unwrap();
+        let up = (*up).borrow();
+        assert_eq!(up.len(), N_COLUMNS);
+        let down = main.row_slice(1).unwrap();
+        let down = (*down).borrow();
+        assert_eq!(down.len(), N_COLUMNS);
+
+        let (operand_a, operand_b, operand_c): (AB::Expr, AB::Expr, AB::Expr) = (
+            up[0].clone().into(),
+            up[1].clone().into(),
+            up[2].clone().into(),
+        );
+        let (flag_a, flag_b, flag_c): (AB::Expr, AB::Expr, AB::Expr) = (
+            up[3].clone().into(),
+            up[4].clone().into(),
+            up[5].clone().into(),
+        );
+        let add: AB::Expr = up[6].clone().into();
+        let mul: AB::Expr = up[7].clone().into();
+        let deref: AB::Expr = up[8].clone().into();
+        let juz: AB::Expr = up[9].clone().into();
+        let aux: AB::Expr = up[10].clone().into();
+
+        let (pc, next_pc): (AB::Expr, AB::Expr) = (up[11].clone().into(), down[11].clone().into());
+        let (fp, next_fp): (AB::Expr, AB::Expr) = (up[12].clone().into(), down[12].clone().into());
+        let (addr_a, addr_b, addr_c): (AB::Expr, AB::Expr, AB::Expr) = (
+            up[13].clone().into(),
+            up[14].clone().into(),
+            up[15].clone().into(),
+        );
+        let (value_a, value_b, value_c): (AB::Expr, AB::Expr, AB::Expr) = (
+            up[16].clone().into(),
+            up[17].clone().into(),
+            up[18].clone().into(),
+        );
+
+        let nu_a =
+            flag_a.clone() * operand_a.clone() + value_a.clone() * (AB::Expr::ONE - flag_a.clone());
+        let nu_b =
+            flag_b.clone() * operand_b.clone() + value_b.clone() * (AB::Expr::ONE - flag_b.clone());
+        let nu_c = flag_c.clone() * fp.clone() + value_c.clone() * (AB::Expr::ONE - flag_c.clone());
+
+        builder.assert_zero(
+            (AB::Expr::ONE - flag_a.clone()) * (addr_a.clone() - (fp.clone() + operand_a.clone())),
+        );
+        builder.assert_zero(
+            (AB::Expr::ONE - flag_b.clone()) * (addr_b.clone() - (fp.clone() + operand_b.clone())),
+        );
+        builder.assert_zero(
+            (AB::Expr::ONE - flag_c.clone()) * (addr_c.clone() - (fp.clone() + operand_c.clone())),
+        );
+
+        builder.assert_zero(add.clone() * (nu_b.clone() - (nu_a.clone() + nu_c.clone())));
+        builder.assert_zero(mul.clone() * (nu_b.clone() - nu_a.clone() * nu_c.clone()));
+
+        builder
+            .assert_zero(deref.clone() * (addr_c.clone() - (value_a.clone() + operand_c.clone())));
+        builder.assert_zero(deref.clone() * aux.clone() * (value_c.clone() - nu_b.clone()));
+        builder.assert_zero(
+            deref.clone() * (AB::Expr::ONE - aux.clone()) * (value_c.clone() - fp.clone()),
+        );
+
+        builder.assert_zero(
+            (AB::Expr::ONE - juz.clone()) * (next_pc.clone() - (pc.clone() + AB::Expr::ONE)),
+        );
+        builder.assert_zero((AB::Expr::ONE - juz.clone()) * (next_fp.clone() - fp.clone()));
+
+        builder.assert_zero(nu_a.clone() * (AB::Expr::ONE - nu_a.clone()));
+        builder.assert_zero(juz.clone() * nu_a.clone() * (next_pc.clone() - nu_c.clone()));
+        builder.assert_zero(juz.clone() * nu_a.clone() * (next_fp.clone() - nu_b.clone()));
+        builder.assert_zero(
+            juz.clone()
+                * (AB::Expr::ONE - nu_a.clone())
+                * (next_pc.clone() - (pc.clone() + AB::Expr::ONE)),
+        );
+        builder.assert_zero(
+            juz.clone() * (AB::Expr::ONE - nu_a.clone()) * (next_fp.clone() - fp.clone()),
+        );
+    }
+}

@@ -5,6 +5,7 @@ use utils::{Poseidon16, Poseidon24};
 
 use crate::{compiler::compile_program, runner::execute_bytecode};
 
+pub mod air;
 pub mod bytecode;
 pub mod compiler;
 pub mod lang;
