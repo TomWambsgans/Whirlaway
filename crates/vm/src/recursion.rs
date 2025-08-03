@@ -146,14 +146,16 @@ pub fn run_whir_verif() {
                 temp = eq_mle_extension_base(expanded_from_univariate, folding_randomness_global, N_VARS - ffs_sums[i]); // 1415 cycles
                 copy_chunk_vec(temp, s6s + j + 1);
             }
-            s7 = dot_product_extension(s6s, combination_randomness_powers[i], num_queries[i] + 1);  // 10720 cycles
+            s7 = malloc_vec(1);
+            dot_product_extension_extension_dynamic(s6s, combination_randomness_powers[i], s7, num_queries[i] + 1);  // 10720 cycles
             wsum = add_extension_ret(weight_sums[i], s7);
             weight_sums[i+1] = wsum;
         }
 
         evaluation_of_weights = weight_sums[N_ROUNDS];
         poly_eq_final = poly_eq_extension(folding_randomness_5, FINAL_VARS, 2**FINAL_VARS);
-        final_value = dot_product_extension(poly_eq_final, final_coeffcients, 2**FINAL_VARS);
+        final_value = malloc_vec(1);
+        dot_product_extension_extension(poly_eq_final, final_coeffcients, final_value, 2**FINAL_VARS);
         evaluation_of_weights_times_final_value = mul_extension_ret(evaluation_of_weights, final_value);
         assert_eq_extension(evaluation_of_weights_times_final_value, end_sum);
         return;
@@ -334,8 +336,7 @@ pub fn run_whir_verif() {
             }
         } else {
             for i in 0..num_queries {
-                temp = dot_product_extension(answers[i], poly_eq, two_pow_folding_factor);
-                copy_chunk_vec(temp, (folds + i));
+                dot_product_extension_extension_dynamic(answers[i], poly_eq, folds + i, two_pow_folding_factor);
             }
         }
 
@@ -362,7 +363,8 @@ pub fn run_whir_verif() {
 
         combination_randomness_powers = powers(combination_randomness_gen, num_queries + 1); // "+ 1" because of one OOD sample
 
-        claimed_sum_supplement_side = dot_product_extension(folds, combination_randomness_powers + 1, num_queries);
+        claimed_sum_supplement_side = malloc_vec(1);
+        dot_product_extension_extension_dynamic(folds, combination_randomness_powers + 1, claimed_sum_supplement_side, num_queries);
         claimed_sum_supplement = add_extension_ret(claimed_sum_supplement_side, ood_eval);
         new_claimed_sum_b = add_extension_ret(claimed_sum_supplement, new_claimed_sum_a);
 
@@ -377,9 +379,8 @@ pub fn run_whir_verif() {
     }
 
     fn copy_chunk_vec(src, dst) {
-        src_ptr = src * 8;
-        dst_ptr = dst * 8;
-        for i in 0..8 unroll { dst_ptr[i] = src_ptr[i]; }
+        zero = 0; // TODO
+        add_extension(src, zero, dst);
         return;
     }
 
@@ -393,22 +394,6 @@ pub fn run_whir_verif() {
             mul_extension(res + i, alpha, res + i + 1);
         }
         return res;
-    }
-
-    fn dot_product_extension(a, b, n) -> 1 {
-
-        prods = malloc_vec(n);
-        for i in 0..n {
-            mul_extension(a + i, b + i, prods + i);
-        }
-
-        sums = malloc_vec(n);
-        copy_chunk_vec(prods, sums);
-        for i in 0..n - 1 {
-            add_extension(sums + i, prods + i + 1, sums + i + 1);
-        }
-
-        return sums + n - 1;
     }
 
     fn unit_root_pow(domain_size, index_bits) -> 1 {
@@ -450,6 +435,67 @@ pub fn run_whir_verif() {
         }
         return prods[domain_size - 1];
     }
+
+    fn dot_product_extension_extension_dynamic(a, b, res, n) {
+        if n == 16 {
+            dot_product_extension_extension(a, b, res, 16);
+            return;
+        }
+        if n == NUM_QUERIES_0 {
+            dot_product_extension_extension(a, b, res, NUM_QUERIES_0);
+            return;
+        }
+        if n == NUM_QUERIES_1 {
+            dot_product_extension_extension(a, b, res, NUM_QUERIES_1);
+            return;
+        }
+        if n == NUM_QUERIES_2 {
+            dot_product_extension_extension(a, b, res, NUM_QUERIES_2);
+            return;
+        }
+        if n == NUM_QUERIES_3 {
+            dot_product_extension_extension(a, b, res, NUM_QUERIES_3);
+            return;
+        }
+        if n == NUM_QUERIES_0 + 1 {
+            dot_product_extension_extension(a, b, res, NUM_QUERIES_0 + 1);
+            return;
+        }
+        if n == NUM_QUERIES_1 + 1 {
+            dot_product_extension_extension(a, b, res, NUM_QUERIES_1 + 1);
+            return;
+        }
+        if n == NUM_QUERIES_2 + 1 {
+            dot_product_extension_extension(a, b, res, NUM_QUERIES_2 + 1);
+            return;
+        }
+        if n == NUM_QUERIES_3 + 1 {
+            dot_product_extension_extension(a, b, res, NUM_QUERIES_3 + 1);
+            return;
+        }
+
+        TODO_dot_product_extension_extension_dynamic = 0;
+        print(TODO_dot_product_extension_extension_dynamic, n);
+        panic();
+    }
+
+    fn dot_product_extension_extension(a, b, res, const n) {
+        prods = malloc_vec(n);
+        for i in 0..n unroll {
+            mul_extension(a + i, b + i, prods + i);
+        }
+
+        sums = malloc_vec(n);
+        copy_chunk_vec(prods, sums);
+        for i in 0..n - 1 unroll {
+            add_extension(sums + i, prods + i + 1, sums + i + 1);
+        }
+
+        copy_chunk_vec(sums + n - 1, res);
+
+        return;
+    }
+
 
     fn dot_product_base_extension(a, b, res, const n) {
         // a is a pointer to n base field elements
@@ -789,7 +835,7 @@ pub fn run_whir_verif() {
         return c;
     }
 
-      fn add_extension(a, b, c) {
+    fn add_extension(a, b, c) {
         // c = a + b
 
         ap = a * 8;
