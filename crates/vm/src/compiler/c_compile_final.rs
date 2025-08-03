@@ -19,10 +19,21 @@ use crate::{
 
 impl IntermediateInstruction {
     fn is_hint(&self) -> bool {
-        matches!(
-            self,
-            Self::RequestMemory { .. } | Self::Print { .. } | Self::DecomposeBits { .. }
-        )
+        match self {
+            Self::RequestMemory { .. }
+            | Self::Print { .. }
+            | Self::DecomposeBits { .. }
+            | Self::Inverse { .. } => true,
+            Self::Computation { .. }
+            | Self::Panic
+            | Self::Deref { .. }
+            | Self::JumpIfNotZero { .. }
+            | Self::Jump { .. }
+            | Self::Poseidon2_16 { .. }
+            | Self::Poseidon2_24 { .. }
+            | Self::DotProductExtensionExtension { .. }
+            | Self::DotProductBaseExtension { .. } => false,
+        }
     }
 }
 
@@ -243,6 +254,13 @@ pub fn compile_to_low_level_bytecode(
                     let hint = Hint::DecomposeBits {
                         res_offset,
                         to_decompose: try_as_mem_or_constant(&to_decompose).unwrap(),
+                    };
+                    hints.entry(pc).or_insert_with(Vec::new).push(hint);
+                }
+                IntermediateInstruction::Inverse { arg, res_offset } => {
+                    let hint = Hint::Inverse {
+                        arg: try_as_mem_or_constant(&arg).unwrap(),
+                        res_offset,
                     };
                     hints.entry(pc).or_insert_with(Vec::new).push(hint);
                 }

@@ -120,16 +120,21 @@ pub enum IntermediateInstruction {
     DotProductExtensionExtension {
         arg0: IntermediateValue, // vectorized pointer
         arg1: IntermediateValue, // vectorized pointer
-        res: IntermediateValue, // vectorized pointer
+        res: IntermediateValue,  // vectorized pointer
         size: ConstExpression,
     },
     DotProductBaseExtension {
         arg_base: IntermediateValue, // normal pointer
-        arg_ext: IntermediateValue, // vectorized pointer
-        res: IntermediateValue, // vectorized pointer
+        arg_ext: IntermediateValue,  // vectorized pointer
+        res: IntermediateValue,      // vectorized pointer
         size: ConstExpression,
     },
     // HINTS (does not appears in the final bytecode)
+    Inverse {
+        // If the value is zero, it will return zero.
+        arg: IntermediateValue, // the value to invert
+        res_offset: usize,      // m[fp + res_offset] will contain the result
+    },
     RequestMemory {
         shift: ConstExpression,  // m[fp + shift] where the hint will be stored
         size: IntermediateValue, // the hint
@@ -224,7 +229,7 @@ impl ToString for IntermediateInstruction {
                 shift_0.to_string(),
                 shift_1.to_string()
             ),
-            Self::DotProductExtensionExtension { 
+            Self::DotProductExtensionExtension {
                 arg0,
                 arg1,
                 res,
@@ -236,7 +241,12 @@ impl ToString for IntermediateInstruction {
                 res.to_string(),
                 size.to_string()
             ),
-            Self::DotProductBaseExtension { arg_base, arg_ext, res, size } => format!(
+            Self::DotProductBaseExtension {
+                arg_base,
+                arg_ext,
+                res,
+                size,
+            } => format!(
                 "dot_product_base_extension({}, {}, {}, {})",
                 arg_base.to_string(),
                 arg_ext.to_string(),
@@ -310,6 +320,9 @@ impl ToString for IntermediateInstruction {
                     arg_a.to_string(),
                     arg_b.to_string(),
                 )
+            }
+            Self::Inverse { arg, res_offset } => {
+                format!("m[fp + {}] = inverse({})", res_offset, arg.to_string())
             }
             Self::RequestMemory {
                 shift,

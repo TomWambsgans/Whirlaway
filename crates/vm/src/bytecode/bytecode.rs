@@ -68,13 +68,13 @@ pub enum Instruction {
     DotProductExtensionExtension {
         arg0: MemOrConstant, // vectorized pointer
         arg1: MemOrConstant, // vectorized pointer
-        res: MemOrFp, // vectorized pointer, of size 1 (never Fp in practice)
+        res: MemOrFp,        // vectorized pointer, of size 1 (never Fp in practice)
         size: usize,
     },
     DotProductBaseExtension {
         arg_base: MemOrConstant, // normal pointer
-        arg_ext: MemOrConstant, // vectorized pointer
-        res: MemOrFp, // vectorized pointer, of size 1 (never Fp in practice)
+        arg_ext: MemOrConstant,  // vectorized pointer
+        res: MemOrFp,            // vectorized pointer, of size 1 (never Fp in practice)
         size: usize,
     },
 }
@@ -115,6 +115,10 @@ impl TryFrom<HighLevelOperation> for Operation {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Hint {
+    Inverse {
+        arg: MemOrConstant, // the value to invert (return 0 if arg is zero)
+        res_offset: usize,  // m[fp + res_offset] will contain the result
+    },
     RequestMemory {
         shift: usize,        // m[fp + shift] where the hint will be stored
         size: MemOrConstant, // the hint
@@ -216,7 +220,12 @@ impl ToString for Instruction {
             } => {
                 format!("{} = m[m[fp + {}] + {}]", res.to_string(), shift_0, shift_1)
             }
-            Self::DotProductExtensionExtension { arg0, arg1, res, size } => {
+            Self::DotProductExtensionExtension {
+                arg0,
+                arg1,
+                res,
+                size,
+            } => {
                 format!(
                     "dot_product_extension_extension({}, {}, {}, {})",
                     arg0.to_string(),
@@ -306,6 +315,9 @@ impl ToString for Hint {
                         .join(", "),
                     line_info,
                 )
+            }
+            Self::Inverse { arg, res_offset } => {
+                format!("m[fp + {}] = inverse({})", res_offset, arg.to_string())
             }
         }
     }

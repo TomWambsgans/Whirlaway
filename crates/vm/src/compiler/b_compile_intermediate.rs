@@ -222,8 +222,59 @@ fn compile_lines(
                     format!("@if_else_end_{}", if_id),
                 );
 
+                // c: condition
+                let condition_simplified = IntermediateValue::from_simple_expr(condition, compiler);
+
+                // 1/c (or 0 if c is zero)
+                let condition_inverse_offset = compiler.stack_size;
+                compiler.stack_size += 1;
+                instructions.push(IntermediateInstruction::Inverse {
+                    arg: condition_simplified.clone(),
+                    res_offset: condition_inverse_offset,
+                });
+
+                // c x 1/c
+                let product_offset = compiler.stack_size;
+                compiler.stack_size += 1;
+                instructions.push(IntermediateInstruction::Computation {
+                    operation: Operation::Mul,
+                    arg_a: condition_simplified.clone(),
+                    arg_b: IntermediateValue::MemoryAfterFp {
+                        shift: condition_inverse_offset.into(),
+                    },
+                    res: IntermediateValue::MemoryAfterFp {
+                        shift: product_offset.into(),
+                    },
+                });
+
+                // 1 - (c x 1/c)
+                let one_minus_product_offset = compiler.stack_size;
+                compiler.stack_size += 1;
+                instructions.push(IntermediateInstruction::Computation {
+                    operation: Operation::Add,
+                    arg_a: IntermediateValue::MemoryAfterFp {
+                        shift: one_minus_product_offset.into(),
+                    },
+                    arg_b: IntermediateValue::MemoryAfterFp {
+                        shift: product_offset.into(),
+                    },
+                    res: ConstExpression::one().into(),
+                });
+
+                // c x (1 - (c x 1/c)) = 0
+                instructions.push(IntermediateInstruction::Computation {
+                    operation: Operation::Mul,
+                    arg_a: IntermediateValue::MemoryAfterFp {
+                        shift: one_minus_product_offset.into(),
+                    },
+                    arg_b: condition_simplified.clone(),
+                    res: ConstExpression::zero().into(),
+                });
+
                 instructions.push(IntermediateInstruction::JumpIfNotZero {
-                    condition: IntermediateValue::from_simple_expr(condition, compiler),
+                    condition: IntermediateValue::MemoryAfterFp {
+                        shift: product_offset.into(),
+                    }, // c x 1/c
                     dest: IntermediateValue::label(if_label.clone()),
                     updated_fp: None,
                 });

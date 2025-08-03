@@ -283,6 +283,11 @@ fn execute_bytecode_helper(
                         memory.set(fp + *res_offset + i, bit)?;
                     }
                 }
+                Hint::Inverse { arg, res_offset } => {
+                    let value = arg.read_value(&memory, fp)?;
+                    let result = value.try_inverse().unwrap_or(F::ZERO);
+                    memory.set(fp + *res_offset, result)?;
+                }
                 Hint::Print { line_info, content } => {
                     let values = content
                         .iter()
@@ -383,7 +388,9 @@ fn execute_bytecode_helper(
                 dest,
                 updated_fp,
             } => {
-                if condition.read_value(&memory, fp)? != F::ZERO {
+                let condition_value = condition.read_value(&memory, fp)?;
+                assert!([F::ZERO, F::ONE].contains(&condition_value),);
+                if condition_value != F::ZERO {
                     pc = dest.read_value(&memory, fp)?.as_canonical_u64() as usize;
                     fp = updated_fp.read_value(&memory, fp)?.as_canonical_u64() as usize;
                 } else {
