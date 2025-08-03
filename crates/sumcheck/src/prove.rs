@@ -740,6 +740,7 @@ where
         )
         .unwrap();
     }
+    debug_assert_eq!(p.evaluate(EF::ZERO) + p.evaluate(EF::ONE), *sum);
 
     prover_state.add_extension_scalars(&p.coeffs);
 

@@ -450,7 +450,10 @@ fn parse_function_call(
             Ok(Line::Panic)
         }
         _ => {
-            if let Some(precompile) = PRECOMPILES.iter().find(|p| p.name.to_string() == function_name) {
+            if let Some(precompile) = PRECOMPILES
+                .iter()
+                .find(|p| p.name.to_string() == function_name)
+            {
                 assert!(
                     args.len() == precompile.n_inputs && return_data.len() == precompile.n_outputs,
                     "Invalid precompile call"

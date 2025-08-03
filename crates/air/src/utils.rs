@@ -1,6 +1,6 @@
 use p3_field::Field;
 use rayon::prelude::*;
-use whir_p3::poly::{multilinear::MultilinearPoint};
+use whir_p3::poly::multilinear::MultilinearPoint;
 
 pub(crate) fn matrix_up_lde<F: Field>(point: &[F]) -> F {
     /*
@@ -130,9 +130,7 @@ fn next_mle<F: Field>(point: &[F]) -> F {
         .sum()
 }
 
-pub(crate) fn columns_up_and_down<F: Field>(
-    columns: &[&Vec<F>],
-) -> Vec<Vec<F>> {
+pub(crate) fn columns_up_and_down<F: Field>(columns: &[&Vec<F>]) -> Vec<Vec<F>> {
     columns
         .par_iter()
         .map(|c| column_up(c))

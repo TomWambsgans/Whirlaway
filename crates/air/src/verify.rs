@@ -15,9 +15,7 @@ use whir_p3::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
 };
 
-use crate::{
-    utils::{column_down, column_up, matrix_down_lde, matrix_up_lde},
-};
+use crate::utils::{column_down, column_up, matrix_down_lde, matrix_up_lde};
 
 use super::table::AirTable;
 
@@ -74,7 +72,7 @@ impl<
             self.constraint_degree + 1,
             self.log_length,
             self.univariate_skips,
-        ).unwrap();
+        )?;
         if sc_sum != EF::ZERO {
             return Err(AirVerifError::SumMismatch);
         }
@@ -162,8 +160,7 @@ impl<
             *challenge = verifier_state.sample();
         }
 
-        let sub_evals =
-            verifier_state.next_extension_scalars_vec(1 << self.univariate_skips)?;
+        let sub_evals = verifier_state.next_extension_scalars_vec(1 << self.univariate_skips)?;
 
         if dot_product::<EF, _, _>(
             sub_evals.iter().copied(),
@@ -280,8 +277,7 @@ impl<
 
         let alpha: EF = verifier_state.sample();
 
-        let sub_evals =
-            verifier_state.next_extension_scalars_vec(1 << self.univariate_skips)?;
+        let sub_evals = verifier_state.next_extension_scalars_vec(1 << self.univariate_skips)?;
 
         if dot_product::<EF, _, _>(
             sub_evals.iter().copied(),

@@ -223,7 +223,7 @@ mod tests {
     use p3_field::extension::BinomialExtensionField;
     use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
-    use utils::{init_tracing, MyChallenger, Poseidon16};
+    use utils::{MyChallenger, Poseidon16, init_tracing};
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, 4>;

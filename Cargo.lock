@@ -1102,7 +1102,7 @@ dependencies = [
 [[package]]
 name = "whir-p3"
 version = "0.1.0"
-source = "git+https://github.com/TomWambsgans/whir-p3?branch=w#2e05a36880cb72eb73ca524d3a3de31acb8869c3"
+source = "git+https://github.com/TomWambsgans/whir-p3?branch=w#1702ff9b9444d4451085671d93c1f65b46bb5a0e"
 dependencies = [
  "clap",
  "itertools",

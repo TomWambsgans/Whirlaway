@@ -286,11 +286,7 @@ impl ToString for IntermediateInstruction {
                     )
                 }
             }
-            Self::Poseidon2_16 { 
-                arg_a,
-                arg_b,
-                res,
-            } => {
+            Self::Poseidon2_16 { arg_a, arg_b, res } => {
                 format!(
                     "{} = poseidon2_16({}, {})",
                     arg_a.to_string(),
@@ -298,11 +294,7 @@ impl ToString for IntermediateInstruction {
                     res.to_string(),
                 )
             }
-            Self::Poseidon2_24 {
-                arg_a,
-                arg_b,
-                res,
-            } => {
+            Self::Poseidon2_24 { arg_a, arg_b, res } => {
                 format!(
                     "{} = poseidon2_24({}, {})",
                     res.to_string(),

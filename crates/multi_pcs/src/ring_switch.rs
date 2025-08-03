@@ -360,8 +360,8 @@ mod tests {
     use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
     use utils::{
-        MyMerkleCompress, MyMerkleHash, build_merkle_compress,
-        build_merkle_hash, build_prover_state, build_verifier_state, init_tracing,
+        MyMerkleCompress, MyMerkleHash, build_merkle_compress, build_merkle_hash,
+        build_prover_state, build_verifier_state, init_tracing,
     };
     use whir_p3::{
         poly::{evals::EvaluationsList, multilinear::MultilinearPoint},

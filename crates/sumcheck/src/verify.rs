@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use p3_field::{ExtensionField, Field};
 use utils::{Evaluation, FSVerifier, PF};
 use whir_p3::{
-    fiat_shamir::{errors::ProofError, FSChallenger},
+    fiat_shamir::{FSChallenger, errors::ProofError},
     poly::{dense::WhirDensePolynomial, multilinear::MultilinearPoint},
 };
 
@@ -25,7 +25,7 @@ pub fn verify<EF>(
     degree: usize,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
-    EF: Field + ExtensionField<PF<EF>> ,
+    EF: Field + ExtensionField<PF<EF>>,
 {
     let sumation_sets = vec![(0..2).map(|i| EF::from_usize(i)).collect::<Vec<_>>(); n_vars];
     let max_degree_per_vars = vec![degree; n_vars];
@@ -54,7 +54,7 @@ pub fn verify_with_univariate_skip<EF>(
     skips: usize,
 ) -> Result<(EF, Evaluation<EF>), SumcheckError>
 where
-    EF: Field + ExtensionField<PF<EF>> ,
+    EF: Field + ExtensionField<PF<EF>>,
 {
     let mut max_degree_per_vars = vec![degree * ((1 << skips) - 1)];
     max_degree_per_vars.extend(vec![degree; n_vars - skips]);
@@ -82,13 +82,11 @@ where
     for (&deg, sumation_set) in max_degree_per_vars.iter().zip(sumation_sets) {
         let coeffs = verifier_state.next_extension_scalars_vec(deg + 1)?;
         let pol = WhirDensePolynomial::from_coefficients_vec(coeffs);
-        dbg!(1);
         let computed_sum = sumation_set.iter().map(|&s| pol.evaluate(s)).sum();
         if first_round {
             first_round = false;
             sum = computed_sum;
         } else if target != computed_sum {
-            dbg!(target, computed_sum);
             return Err(SumcheckError::InvalidRound);
         }
         let challenge = verifier_state.sample();

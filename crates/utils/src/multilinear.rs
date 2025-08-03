@@ -122,12 +122,7 @@ pub fn multilinears_linear_combination<
     assert!(pols.iter().all(|p| p.borrow().num_variables() == n_vars));
     (0..1 << n_vars)
         .into_par_iter()
-        .map(|i| {
-            dot_product(
-                scalars.iter().copied(),
-                pols.iter().map(|p| p.borrow()[i]),
-            )
-        })
+        .map(|i| dot_product(scalars.iter().copied(), pols.iter().map(|p| p.borrow()[i])))
         .collect::<Vec<_>>()
 }
 

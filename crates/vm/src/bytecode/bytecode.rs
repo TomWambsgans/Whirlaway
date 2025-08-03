@@ -238,11 +238,7 @@ impl ToString for Instruction {
                     updated_fp.to_string()
                 )
             }
-            Self::Poseidon2_16 {
-                arg_a,
-                arg_b,
-                res,
-            } => {
+            Self::Poseidon2_16 { arg_a, arg_b, res } => {
                 format!(
                     "{} = poseidon2_16({}, {})",
                     res.to_string(),
@@ -250,11 +246,7 @@ impl ToString for Instruction {
                     arg_b.to_string(),
                 )
             }
-            Self::Poseidon2_24 {
-                arg_a,
-                arg_b,
-                res,
-            } => {
+            Self::Poseidon2_24 { arg_a, arg_b, res } => {
                 format!(
                     "{} = poseidon2_24({}, {})",
                     res.to_string(),

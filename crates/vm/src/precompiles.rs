@@ -10,7 +10,7 @@ pub enum PrecompileName {
     Poseidon16,
     Poseidon24,
     MulExtension,
-    AddExtension
+    AddExtension,
 }
 
 impl ToString for PrecompileName {

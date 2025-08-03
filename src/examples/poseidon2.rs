@@ -109,7 +109,6 @@ pub fn prove_poseidon2(
         log_n_rows,
         univariate_skips,
         preprocessed_columns,
-        3,
     );
 
     let t = Instant::now();

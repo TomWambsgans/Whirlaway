@@ -16,7 +16,7 @@ where
     pub constraint_index: usize,
 }
 
-impl<'a, NF, EF> AirBuilder for ConstraintFolder<'a,  NF, EF>
+impl<'a, NF, EF> AirBuilder for ConstraintFolder<'a, NF, EF>
 where
     NF: ExtensionField<PF<EF>>,
     EF: Field + ExtensionField<NF>,

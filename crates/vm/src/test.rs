@@ -1,7 +1,7 @@
 use p3_field::{BasedVectorSpace, PrimeCharacteristicRing};
 use p3_symmetric::Permutation;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use utils::{poseidon16_kb, MyChallenger};
+use utils::{MyChallenger, poseidon16_kb};
 
 use whir_p3::fiat_shamir::{prover::ProverState, verifier::VerifierState};
 use xmss::{WotsSecretKey, XMSS_MERKLE_HEIGHT, XmssSecretKey, random_message};

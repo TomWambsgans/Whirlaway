@@ -1,7 +1,8 @@
 use std::{borrow::Borrow, marker::PhantomData};
 
 use p3_air::{Air, AirBuilder, BaseAir};
-use p3_field::{PrimeCharacteristicRing, extension::BinomialExtensionField};
+use p3_field::PrimeCharacteristicRing;
+use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::KoalaBear;
 use p3_matrix::Matrix;
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -11,11 +12,10 @@ use whir_p3::{
     whir::config::{FoldingFactor, SecurityAssumption, WhirConfigBuilder},
 };
 
-use crate::{AirSettings, table::AirTable};
+use crate::table::AirTable;
 
-const N_PREPROCESSED_COLUMNS: usize = 7;
-const N_WITNESS_COLUMNS: usize = 24;
-const TOTAL_COLUMNS: usize = N_PREPROCESSED_COLUMNS + N_WITNESS_COLUMNS;
+const N_PREPROCESSED_COLUMNS: usize = 3;
+const N_COLUMNS: usize = 24;
 
 type F = KoalaBear;
 type EF = BinomialExtensionField<F, 8>;
@@ -24,7 +24,7 @@ struct ExampleAir;
 
 impl<F> BaseAir<F> for ExampleAir {
     fn width(&self) -> usize {
-        N_PREPROCESSED_COLUMNS + N_WITNESS_COLUMNS
+        N_COLUMNS
     }
     fn structured(&self) -> bool {
         true
@@ -37,16 +37,19 @@ impl<AB: AirBuilder> Air<AB> for ExampleAir {
         let main = builder.main();
         let up = main.row_slice(0).expect("The matrix is empty?");
         let up = (*up).borrow();
+        assert_eq!(up.len(), N_COLUMNS);
         let down = main.row_slice(1).expect("The matrix is empty?");
         let down = (*down).borrow();
-        assert_eq!(up.len(), TOTAL_COLUMNS);
-        assert_eq!(down.len(), TOTAL_COLUMNS);
+        assert_eq!(down.len(), N_COLUMNS);
 
-        for i in N_PREPROCESSED_COLUMNS..TOTAL_COLUMNS {
+        for j in N_PREPROCESSED_COLUMNS..N_COLUMNS {
             builder.assert_eq(
-                down[i].clone(),
-                up[(i * 2 + 3) % TOTAL_COLUMNS].clone() * up[(i * 6 + 1) % TOTAL_COLUMNS].clone()
-                    + down[(i * 9 + 7) % N_PREPROCESSED_COLUMNS].clone(),
+                down[j].clone(),
+                up[j].clone()
+                    + AB::I::from(AB::F::from_usize(j))
+                    + (0..N_PREPROCESSED_COLUMNS)
+                        .map(|k| AB::Expr::from(down[k].clone()))
+                        .product::<AB::Expr>(),
             );
         }
     }
@@ -54,27 +57,29 @@ impl<AB: AirBuilder> Air<AB> for ExampleAir {
 
 fn generate_trace(log_length: usize) -> Vec<Vec<F>> {
     let n_rows = 1 << log_length;
-    let mut rng = StdRng::seed_from_u64(0);
     let mut trace = vec![];
+    let mut rng = StdRng::seed_from_u64(0);
     for _ in 0..N_PREPROCESSED_COLUMNS {
-        trace.push((0..n_rows).map(|_| rng.random()).collect());
+        trace.push((0..n_rows).map(|_| rng.random()).collect::<Vec<F>>());
     }
-    for _ in N_PREPROCESSED_COLUMNS..N_WITNESS_COLUMNS {
-        trace.push(F::zero_vec(n_rows));
-    }
+    let mut witness_cols = vec![vec![F::ZERO]; N_COLUMNS - N_PREPROCESSED_COLUMNS];
     for i in 1..n_rows {
-        for j in N_PREPROCESSED_COLUMNS..TOTAL_COLUMNS {
-            trace[j][i] = trace[(j * 2 + 3) % TOTAL_COLUMNS][i - 1]
-                * trace[(j * 6 + 1) % TOTAL_COLUMNS][i - 1]
-                + trace[(j * 9 + 7) % N_PREPROCESSED_COLUMNS][i - 1]
+        for j in 0..N_COLUMNS - N_PREPROCESSED_COLUMNS {
+            let witness_cols_j_i_min_1 = witness_cols[j][i - 1];
+            witness_cols[j].push(
+                witness_cols_j_i_min_1
+                    + F::from_usize(j + N_PREPROCESSED_COLUMNS)
+                    + (0..N_PREPROCESSED_COLUMNS).map(|k| trace[k][i]).product(),
+            );
         }
     }
+    trace.extend(witness_cols);
     trace
 }
 
 #[test]
 fn test_example_air() {
-    let log_n_rows = 10;
+    let log_n_rows = 12;
     let mut prover_state = build_prover_state::<EF>();
 
     let pcs = WhirConfigBuilder {
@@ -90,20 +95,16 @@ fn test_example_air() {
         base_field: PhantomData::<F>,
         extension_field: PhantomData::<EF>,
     };
+    let dft = EvalsDft::default();
 
     let mut witness = generate_trace(log_n_rows);
     let preprocessed_columns = witness.drain(..N_PREPROCESSED_COLUMNS).collect::<Vec<_>>();
 
-    let table = AirTable::<EF, _>::new(ExampleAir, true, log_n_rows, 3, preprocessed_columns, 2);
-    let dft = EvalsDft::default();
-    let settings = AirSettings {
-        univariate_skips: 3,
-    };
-    table.prove(&settings, &mut prover_state, witness, &pcs, &dft);
+    let table = AirTable::<EF, _>::new(ExampleAir, log_n_rows, 3, preprocessed_columns);
+    table.check_trace_validity(&witness).unwrap();
+    table.prove(&mut prover_state, witness, &pcs, &dft);
 
     let mut verifier_state = build_verifier_state(&prover_state);
 
-    table
-        .verify(&settings, &mut verifier_state, log_n_rows, &pcs)
-        .unwrap();
+    table.verify(&mut verifier_state, &pcs).unwrap();
 }
