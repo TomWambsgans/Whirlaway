@@ -117,11 +117,17 @@ pub enum IntermediateInstruction {
         arg_b: IntermediateValue, // vectorized pointer, of size 1 (3rd = last input)
         res: IntermediateValue,   // vectorized pointer, of size 1 (3rd = last output)
     },
-    ExtensionMul {
-        args: [ConstExpression; 3], // offset after fp
+    DotProductExtensionExtension {
+        arg0: IntermediateValue, // vectorized pointer
+        arg1: IntermediateValue, // vectorized pointer
+        res: IntermediateValue, // vectorized pointer
+        size: ConstExpression,
     },
-    ExtensionAdd {
-        args: [ConstExpression; 3], // offset after fp
+    DotProductBaseExtension {
+        arg_base: IntermediateValue, // normal pointer
+        arg_ext: IntermediateValue, // vectorized pointer
+        res: IntermediateValue, // vectorized pointer
+        size: ConstExpression,
     },
     // HINTS (does not appears in the final bytecode)
     RequestMemory {
@@ -218,22 +224,25 @@ impl ToString for IntermediateInstruction {
                 shift_0.to_string(),
                 shift_1.to_string()
             ),
-            Self::ExtensionMul { args } => {
-                format!(
-                    "extension_mul(m[fp + {}], m[fp + {}], m[fp + {}])",
-                    args[0].to_string(),
-                    args[1].to_string(),
-                    args[2].to_string()
-                )
-            }
-            Self::ExtensionAdd { args } => {
-                format!(
-                    "extension_add(m[fp + {}], m[fp + {}], m[fp + {}])",
-                    args[0].to_string(),
-                    args[1].to_string(),
-                    args[2].to_string()
-                )
-            }
+            Self::DotProductExtensionExtension { 
+                arg0,
+                arg1,
+                res,
+                size,
+            } => format!(
+                "dot_product_extension_extension({}, {}, {}, {})",
+                arg0.to_string(),
+                arg1.to_string(),
+                res.to_string(),
+                size.to_string()
+            ),
+            Self::DotProductBaseExtension { arg_base, arg_ext, res, size } => format!(
+                "dot_product_base_extension({}, {}, {}, {})",
+                arg_base.to_string(),
+                arg_ext.to_string(),
+                res.to_string(),
+                size.to_string()
+            ),
             Self::DecomposeBits {
                 res_offset,
                 to_decompose,

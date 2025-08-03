@@ -479,48 +479,48 @@ pub fn run_whir_verif() {
         panic();
     }
 
-    fn dot_product_extension_extension(a, b, res, const n) {
-        prods = malloc_vec(n);
-        for i in 0..n unroll {
-            mul_extension(a + i, b + i, prods + i);
-        }
+    // fn dot_product_extension_extension(a, b, res, const n) {
+    //     prods = malloc_vec(n);
+    //     for i in 0..n unroll {
+    //         mul_extension(a + i, b + i, prods + i);
+    //     }
 
-        sums = malloc_vec(n);
-        copy_chunk_vec(prods, sums);
-        for i in 0..n - 1 unroll {
-            add_extension(sums + i, prods + i + 1, sums + i + 1);
-        }
+    //     sums = malloc_vec(n);
+    //     copy_chunk_vec(prods, sums);
+    //     for i in 0..n - 1 unroll {
+    //         add_extension(sums + i, prods + i + 1, sums + i + 1);
+    //     }
 
-        copy_chunk_vec(sums + n - 1, res);
+    //     copy_chunk_vec(sums + n - 1, res);
 
-        return;
-    }
+    //     return;
+    // }
 
 
-    fn dot_product_base_extension(a, b, res, const n) {
-        // a is a pointer to n base field elements
-        // b is a pointer to n extension field elements
+    // fn dot_product_base_extension(a, b, res, const n) {
+    //     // a is a pointer to n base field elements
+    //     // b is a pointer to n extension field elements
 
-        b_ptr = b * 8;
-        res_ptr = res * 8;
+    //     b_ptr = b * 8;
+    //     res_ptr = res * 8;
            
-        prods = malloc(n * 8);
-        for i in 0..n unroll {
-            for j in 0..8 unroll {
-                prods[i * 8 + j] = a[i] * b_ptr[i * 8 + j];
-            }
-        }
-        my_buff = malloc(n * 8);
-        for i in 0..8 unroll {
-            my_buff[n * i] = prods[i];
-            for j in 0..n - 1 unroll {
-                my_buff[(n * i) + j + 1] = my_buff[(n * i) + j] + prods[i + ((j + 1) * 8)];
-            }
-            res_ptr[i] = my_buff[(n * i) + n - 1];
-        }
+    //     prods = malloc(n * 8);
+    //     for i in 0..n unroll {
+    //         for j in 0..8 unroll {
+    //             prods[i * 8 + j] = a[i] * b_ptr[i * 8 + j];
+    //         }
+    //     }
+    //     my_buff = malloc(n * 8);
+    //     for i in 0..8 unroll {
+    //         my_buff[n * i] = prods[i];
+    //         for j in 0..n - 1 unroll {
+    //             my_buff[(n * i) + j + 1] = my_buff[(n * i) + j] + prods[i + ((j + 1) * 8)];
+    //         }
+    //         res_ptr[i] = my_buff[(n * i) + n - 1];
+    //     }
 
-        return;
-    }
+    //     return;
+    // }
 
     fn poly_eq_extension(point, n, two_pow_n) -> 1 {
         // Example: for n = 2: eq(x, y) = [(1 - x)(1 - y), (1 - x)y, x(1 - y), xy]
@@ -810,22 +810,28 @@ pub fn run_whir_verif() {
         return c;
     }
 
+    // fn mul_extension(a, b, c) {
+    //     // c = a * b
+
+    //     ap = a * 8;
+    //     bp = b * 8;
+    //     cp = c * 8;
+       
+    //     cp[0] = (ap[0] * bp[0]) + W * ((ap[1] * bp[7]) + (ap[2] * bp[6]) + (ap[3] * bp[5]) + (ap[4] * bp[4]) + (ap[5] * bp[3]) + (ap[6] * bp[2]) + (ap[7] * bp[1]));
+    //     cp[1] = (ap[1] * bp[0]) + (ap[0] * bp[1]) + W * ((ap[2] * bp[7]) + (ap[3] * bp[6]) + (ap[4] * bp[5]) + (ap[5] * bp[4]) + (ap[6] * bp[3]) + (ap[7] * bp[2]));
+    //     cp[2] = (ap[2] * bp[0]) + (ap[1] * bp[1]) + (ap[0] * bp[2]) + W * ((ap[3] * bp[7]) + (ap[4] * bp[6]) + (ap[5] * bp[5]) + (ap[6] * bp[4]) + (ap[7] * bp[3]));
+    //     cp[3] = (ap[3] * bp[0]) + (ap[2] * bp[1]) + (ap[1] * bp[2]) + (ap[0] * bp[3]) + W * ((ap[4] * bp[7]) + (ap[5] * bp[6]) + (ap[6] * bp[5]) + (ap[7] * bp[4]));
+    //     cp[4] = (ap[4] * bp[0]) + (ap[3] * bp[1]) + (ap[2] * bp[2]) + (ap[1] * bp[3]) + (ap[0] * bp[4]) + W * ((ap[5] * bp[7]) + (ap[6] * bp[6]) + (ap[7] * bp[5]));
+    //     cp[5] = (ap[5] * bp[0]) + (ap[4] * bp[1]) + (ap[3] * bp[2]) + (ap[2] * bp[3]) + (ap[1] * bp[4]) + (ap[0] * bp[5]) + W * ((ap[6] * bp[7]) + (ap[7] * bp[6]));
+    //     cp[6] = (ap[6] * bp[0]) + (ap[5] * bp[1]) + (ap[4] * bp[2]) + (ap[3] * bp[3]) + (ap[2] * bp[4]) + (ap[1] * bp[5]) + (ap[0] * bp[6]) + W * (ap[7] * bp[7]);
+    //     cp[7] = (ap[7] * bp[0]) + (ap[6] * bp[1]) + (ap[5] * bp[2]) + (ap[4] * bp[3]) + (ap[3] * bp[4]) + (ap[2] * bp[5]) + (ap[1] * bp[6]) + (ap[0] * bp[7]);
+
+    //     return;
+    // }
+
     fn mul_extension(a, b, c) {
         // c = a * b
-
-        ap = a * 8;
-        bp = b * 8;
-        cp = c * 8;
-       
-        cp[0] = (ap[0] * bp[0]) + W * ((ap[1] * bp[7]) + (ap[2] * bp[6]) + (ap[3] * bp[5]) + (ap[4] * bp[4]) + (ap[5] * bp[3]) + (ap[6] * bp[2]) + (ap[7] * bp[1]));
-        cp[1] = (ap[1] * bp[0]) + (ap[0] * bp[1]) + W * ((ap[2] * bp[7]) + (ap[3] * bp[6]) + (ap[4] * bp[5]) + (ap[5] * bp[4]) + (ap[6] * bp[3]) + (ap[7] * bp[2]));
-        cp[2] = (ap[2] * bp[0]) + (ap[1] * bp[1]) + (ap[0] * bp[2]) + W * ((ap[3] * bp[7]) + (ap[4] * bp[6]) + (ap[5] * bp[5]) + (ap[6] * bp[4]) + (ap[7] * bp[3]));
-        cp[3] = (ap[3] * bp[0]) + (ap[2] * bp[1]) + (ap[1] * bp[2]) + (ap[0] * bp[3]) + W * ((ap[4] * bp[7]) + (ap[5] * bp[6]) + (ap[6] * bp[5]) + (ap[7] * bp[4]));
-        cp[4] = (ap[4] * bp[0]) + (ap[3] * bp[1]) + (ap[2] * bp[2]) + (ap[1] * bp[3]) + (ap[0] * bp[4]) + W * ((ap[5] * bp[7]) + (ap[6] * bp[6]) + (ap[7] * bp[5]));
-        cp[5] = (ap[5] * bp[0]) + (ap[4] * bp[1]) + (ap[3] * bp[2]) + (ap[2] * bp[3]) + (ap[1] * bp[4]) + (ap[0] * bp[5]) + W * ((ap[6] * bp[7]) + (ap[7] * bp[6]));
-        cp[6] = (ap[6] * bp[0]) + (ap[5] * bp[1]) + (ap[4] * bp[2]) + (ap[3] * bp[3]) + (ap[2] * bp[4]) + (ap[1] * bp[5]) + (ap[0] * bp[6]) + W * (ap[7] * bp[7]);
-        cp[7] = (ap[7] * bp[0]) + (ap[6] * bp[1]) + (ap[5] * bp[2]) + (ap[4] * bp[3]) + (ap[3] * bp[4]) + (ap[2] * bp[5]) + (ap[1] * bp[6]) + (ap[0] * bp[7]);
-
+        dot_product_extension_extension(a, b, c, 1);
         return;
     }
 

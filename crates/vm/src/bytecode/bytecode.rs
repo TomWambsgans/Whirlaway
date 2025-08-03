@@ -65,11 +65,17 @@ pub enum Instruction {
         arg_b: MemOrConstant, // vectorized pointer, of size 1 (3rd = last input)
         res: MemOrFp, // vectorized pointer, of size 1 (3rd = last output) (The Fp would never be used in practice)
     },
-    ExtensionMul {
-        args: [usize; 3], // offset after fp
+    DotProductExtensionExtension {
+        arg0: MemOrConstant, // vectorized pointer
+        arg1: MemOrConstant, // vectorized pointer
+        res: MemOrFp, // vectorized pointer, of size 1 (never Fp in practice)
+        size: usize,
     },
-    ExtensionAdd {
-        args: [usize; 3], // offset after fp
+    DotProductBaseExtension {
+        arg_base: MemOrConstant, // normal pointer
+        arg_ext: MemOrConstant, // vectorized pointer
+        res: MemOrFp, // vectorized pointer, of size 1 (never Fp in practice)
+        size: usize,
     },
 }
 
@@ -210,20 +216,27 @@ impl ToString for Instruction {
             } => {
                 format!("{} = m[m[fp + {}] + {}]", res.to_string(), shift_0, shift_1)
             }
-            Self::ExtensionMul { args } => {
+            Self::DotProductExtensionExtension { arg0, arg1, res, size } => {
                 format!(
-                    "extension_mul(m[fp + {}], m[fp + {}], m[fp + {}])",
-                    args[0].to_string(),
-                    args[1].to_string(),
-                    args[2].to_string()
+                    "dot_product_extension_extension({}, {}, {}, {})",
+                    arg0.to_string(),
+                    arg1.to_string(),
+                    res.to_string(),
+                    size
                 )
             }
-            Self::ExtensionAdd { args } => {
+            Self::DotProductBaseExtension {
+                arg_base,
+                arg_ext,
+                res,
+                size,
+            } => {
                 format!(
-                    "extension_add(m[fp + {}], m[fp + {}], m[fp + {}])",
-                    args[0].to_string(),
-                    args[1].to_string(),
-                    args[2].to_string()
+                    "dot_product_base_extension({}, {}, {}, {})",
+                    arg_base.to_string(),
+                    arg_ext.to_string(),
+                    res.to_string(),
+                    size
                 )
             }
             Self::JumpIfNotZero {

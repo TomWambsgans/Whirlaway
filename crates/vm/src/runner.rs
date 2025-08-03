@@ -1,5 +1,6 @@
 use p3_field::BasedVectorSpace;
 use p3_field::PrimeCharacteristicRing;
+use p3_field::dot_product;
 use utils::pretty_integer;
 
 use crate::Poseidon16;
@@ -9,8 +10,6 @@ use crate::bytecode::bytecode::Instruction;
 use crate::bytecode::bytecode::MemOrConstant;
 use crate::bytecode::bytecode::MemOrFp;
 use crate::bytecode::bytecode::MemOrFpOrConstant;
-use crate::precompiles::PRECOMPILES;
-use crate::precompiles::PrecompileName;
 use crate::{DIMENSION, EF, F, bytecode::bytecode::Bytecode};
 use p3_field::Field;
 use p3_field::PrimeField64;
@@ -114,10 +113,6 @@ impl MemOrFpOrConstant {
 }
 
 impl Memory {
-    // fn is_set(&self, index: usize) -> bool {
-    //     self.data.get(index).map_or(false, |opt| opt.is_some())
-    // }
-
     fn get(&self, index: usize) -> Result<F, RunnerError> {
         self.data
             .get(index)
@@ -239,8 +234,8 @@ fn execute_bytecode_helper(
 
     let mut poseidon16_calls = 0;
     let mut poseidon24_calls = 0;
-    let mut extension_mul_calls = 0;
-    let mut extension_add_calls = 0;
+    let mut dot_product_ext_ext_calls = 0;
+    let mut dot_product_base_ext_calls = 0;
     let mut cpu_cycles = 0;
 
     let mut last_checkpoint_cpu_cycles = 0;
@@ -443,43 +438,60 @@ fn execute_bytecode_helper(
 
                 pc += 1;
             }
-            Instruction::ExtensionMul { args } => {
-                assert!(
-                    PRECOMPILES
-                        .iter()
-                        .any(|p| p.name == PrecompileName::MulExtension)
-                );
+            Instruction::DotProductExtensionExtension {
+                arg0,
+                arg1,
+                res,
+                size,
+            } => {
+                dot_product_ext_ext_calls += 1;
 
-                extension_mul_calls += 1;
+                let ptr_arg_0 = arg0.read_value(&memory, fp)?.as_canonical_u64() as usize;
+                let ptr_arg_1 = arg1.read_value(&memory, fp)?.as_canonical_u64() as usize;
+                let ptr_res = res.read_value(&memory, fp)?.as_canonical_u64() as usize;
 
-                let ptr_arg_0 = memory.get(fp + args[0])?.as_canonical_u64() as usize;
-                let ptr_arg_1 = memory.get(fp + args[1])?.as_canonical_u64() as usize;
-                let ptr_arg_2 = memory.get(fp + args[2])?.as_canonical_u64() as usize;
+                let slice_0 = (ptr_arg_0..ptr_arg_0 + *size)
+                    .map(|i| Ok(EF::from_basis_coefficients_slice(&memory.get_vector(i)?).unwrap()))
+                    .collect::<Result<Vec<EF>, _>>()?;
 
-                let a = EF::from_basis_coefficients_slice(&memory.get_vector(ptr_arg_0)?).unwrap();
-                let b = EF::from_basis_coefficients_slice(&memory.get_vector(ptr_arg_1)?).unwrap();
-                let prod = (a * b).as_basis_coefficients_slice().try_into().unwrap();
-                memory.set_vector(ptr_arg_2, prod)?;
+                let slice_1 = (ptr_arg_1..ptr_arg_1 + *size)
+                    .map(|i| Ok(EF::from_basis_coefficients_slice(&memory.get_vector(i)?).unwrap()))
+                    .collect::<Result<Vec<EF>, _>>()?;
+
+                let dot_product = dot_product::<EF, _, _>(slice_0.into_iter(), slice_1.into_iter())
+                    .as_basis_coefficients_slice()
+                    .try_into()
+                    .unwrap();
+                memory.set_vector(ptr_res, dot_product)?;
 
                 pc += 1;
             }
-            Instruction::ExtensionAdd { args } => {
-                assert!(
-                    PRECOMPILES
-                        .iter()
-                        .any(|p| p.name == PrecompileName::AddExtension)
-                );
+            Instruction::DotProductBaseExtension {
+                arg_base,
+                arg_ext,
+                res,
+                size,
+            } => {
+                dot_product_base_ext_calls += 1;
 
-                extension_add_calls += 1;
+                let ptr_arg_base = arg_base.read_value(&memory, fp)?.as_canonical_u64() as usize;
+                let ptr_arg_ext = arg_ext.read_value(&memory, fp)?.as_canonical_u64() as usize;
+                let ptr_res = res.read_value(&memory, fp)?.as_canonical_u64() as usize;
 
-                let ptr_arg_0 = memory.get(fp + args[0])?.as_canonical_u64() as usize;
-                let ptr_arg_1 = memory.get(fp + args[1])?.as_canonical_u64() as usize;
-                let ptr_arg_2 = memory.get(fp + args[2])?.as_canonical_u64() as usize;
+                let slice_base = (ptr_arg_base..ptr_arg_base + *size)
+                    .map(|i| Ok(memory.get(i)?))
+                    .collect::<Result<Vec<F>, _>>()?;
 
-                let a = EF::from_basis_coefficients_slice(&memory.get_vector(ptr_arg_0)?).unwrap();
-                let b = EF::from_basis_coefficients_slice(&memory.get_vector(ptr_arg_1)?).unwrap();
-                let sum = (a + b).as_basis_coefficients_slice().try_into().unwrap();
-                memory.set_vector(ptr_arg_2, sum)?;
+                let slice_ext = (ptr_arg_ext..ptr_arg_ext + *size)
+                    .map(|i| Ok(EF::from_basis_coefficients_slice(&memory.get_vector(i)?).unwrap()))
+                    .collect::<Result<Vec<EF>, _>>()?;
+
+                let dot_product =
+                    dot_product::<EF, _, _>(slice_ext.into_iter(), slice_base.into_iter())
+                        .as_basis_coefficients_slice()
+                        .try_into()
+                        .unwrap();
+                memory.set_vector(ptr_res, dot_product)?;
 
                 pc += 1;
             }
@@ -515,16 +527,16 @@ fn execute_bytecode_helper(
                 cpu_cycles / (poseidon16_calls + poseidon24_calls)
             );
         }
-        if extension_mul_calls > 0 {
+        if dot_product_ext_ext_calls > 0 {
             println!(
-                "ExtensionMul calls: {}",
-                pretty_integer(extension_mul_calls)
+                "DotProductExtExt calls: {}",
+                pretty_integer(dot_product_ext_ext_calls)
             );
         }
-        if extension_add_calls > 0 {
+        if dot_product_base_ext_calls > 0 {
             println!(
-                "ExtensionAdd calls: {}",
-                pretty_integer(extension_add_calls)
+                "DotProductBaseExt calls: {}",
+                pretty_integer(dot_product_base_ext_calls)
             );
         }
         let used_memory_cells = memory

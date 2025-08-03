@@ -210,23 +210,31 @@ pub fn compile_to_low_level_bytecode(
                         res: try_as_mem_or_fp(&res).unwrap(),
                     });
                 }
-                IntermediateInstruction::ExtensionMul { args } => {
-                    let args = args
-                        .iter()
-                        .map(|arg| eval_const_expression_usize(arg, &compiler))
-                        .collect::<Vec<_>>()
-                        .try_into()
-                        .unwrap();
-                    low_level_bytecode.push(Instruction::ExtensionMul { args });
+                IntermediateInstruction::DotProductExtensionExtension {
+                    arg0,
+                    arg1,
+                    res,
+                    size,
+                } => {
+                    low_level_bytecode.push(Instruction::DotProductExtensionExtension {
+                        arg0: arg0.try_into_mem_or_constant(&compiler).unwrap(),
+                        arg1: arg1.try_into_mem_or_constant(&compiler).unwrap(),
+                        res: res.try_into_mem_or_fp(&compiler).unwrap(),
+                        size: eval_const_expression_usize(&size, &compiler),
+                    });
                 }
-                IntermediateInstruction::ExtensionAdd { args } => {
-                    let args = args
-                        .iter()
-                        .map(|arg| eval_const_expression_usize(arg, &compiler))
-                        .collect::<Vec<_>>()
-                        .try_into()
-                        .unwrap();
-                    low_level_bytecode.push(Instruction::ExtensionAdd { args });
+                IntermediateInstruction::DotProductBaseExtension {
+                    arg_base,
+                    arg_ext,
+                    res,
+                    size,
+                } => {
+                    low_level_bytecode.push(Instruction::DotProductBaseExtension {
+                        arg_base: arg_base.try_into_mem_or_constant(&compiler).unwrap(),
+                        arg_ext: arg_ext.try_into_mem_or_constant(&compiler).unwrap(),
+                        res: res.try_into_mem_or_fp(&compiler).unwrap(),
+                        size: eval_const_expression_usize(&size, &compiler),
+                    });
                 }
                 IntermediateInstruction::DecomposeBits {
                     res_offset,
@@ -321,5 +329,16 @@ impl IntermediateValue {
             Self::Fp => Ok(MemOrFp::Fp),
             _ => Err(format!("Cannot convert {:?} to MemOrFp", self)),
         }
+    }
+    fn try_into_mem_or_constant(&self, compiler: &Compiler) -> Result<MemOrConstant, String> {
+        if let Some(cst) = try_as_constant(self, compiler) {
+            return Ok(MemOrConstant::Constant(cst));
+        }
+        if let IntermediateValue::MemoryAfterFp { shift } = self {
+            return Ok(MemOrConstant::MemoryAfterFp {
+                shift: eval_const_expression_usize(shift, compiler),
+            });
+        }
+        Err(format!("Cannot convert {:?} to MemOrConstant", self))
     }
 }

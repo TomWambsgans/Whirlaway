@@ -359,36 +359,34 @@ fn compile_lines(
             SimpleLine::Precompile {
                 precompile:
                     Precompile {
-                        name: PrecompileName::MulExtension,
+                        name: PrecompileName::DotProductExtensionExtension,
                         ..
                     },
                 args,
                 ..
             } => {
-                let args = args
-                    .iter()
-                    .map(|arg| compiler.get_offset(&arg.clone().try_into().unwrap()))
-                    .collect::<Vec<_>>()
-                    .try_into()
-                    .unwrap();
-                instructions.push(IntermediateInstruction::ExtensionMul { args });
+                instructions.push(IntermediateInstruction::DotProductExtensionExtension {
+                    arg0: IntermediateValue::from_simple_expr(&args[0], compiler),
+                    arg1: IntermediateValue::from_simple_expr(&args[1], compiler),
+                    res: IntermediateValue::from_simple_expr(&args[2], compiler),
+                    size: args[3].as_constant().unwrap(),
+                });
             }
             SimpleLine::Precompile {
                 precompile:
                     Precompile {
-                        name: PrecompileName::AddExtension,
+                        name: PrecompileName::DotProductBaseExtension,
                         ..
                     },
                 args,
                 ..
             } => {
-                let args = args
-                    .iter()
-                    .map(|arg| compiler.get_offset(&arg.clone().try_into().unwrap()))
-                    .collect::<Vec<_>>()
-                    .try_into()
-                    .unwrap();
-                instructions.push(IntermediateInstruction::ExtensionAdd { args });
+                instructions.push(IntermediateInstruction::DotProductBaseExtension {
+                    arg_base: IntermediateValue::from_simple_expr(&args[0], compiler),
+                    arg_ext: IntermediateValue::from_simple_expr(&args[1], compiler),
+                    res: IntermediateValue::from_simple_expr(&args[2], compiler),
+                    size: args[3].as_constant().unwrap(),
+                });
             }
 
             SimpleLine::FunctionRet { return_data } => {
