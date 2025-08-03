@@ -239,7 +239,7 @@ fn compile_lines(
                 instructions.push(IntermediateInstruction::Computation {
                     operation: Operation::Mul,
                     arg_a: condition_simplified.clone(),
-                    arg_b: IntermediateValue::MemoryAfterFp {
+                    arg_c: IntermediateValue::MemoryAfterFp {
                         shift: condition_inverse_offset.into(),
                     },
                     res: IntermediateValue::MemoryAfterFp {
@@ -255,7 +255,7 @@ fn compile_lines(
                     arg_a: IntermediateValue::MemoryAfterFp {
                         shift: one_minus_product_offset.into(),
                     },
-                    arg_b: IntermediateValue::MemoryAfterFp {
+                    arg_c: IntermediateValue::MemoryAfterFp {
                         shift: product_offset.into(),
                     },
                     res: ConstExpression::one().into(),
@@ -267,7 +267,7 @@ fn compile_lines(
                     arg_a: IntermediateValue::MemoryAfterFp {
                         shift: one_minus_product_offset.into(),
                     },
-                    arg_b: condition_simplified.clone(),
+                    arg_c: condition_simplified.clone(),
                     res: ConstExpression::zero().into(),
                 });
 
@@ -520,7 +520,7 @@ fn handle_const_malloc(
     instructions.push(IntermediateInstruction::Computation {
         operation: Operation::Add,
         arg_a: IntermediateValue::Constant(compiler.stack_size.into()),
-        arg_b: IntermediateValue::Fp,
+        arg_c: IntermediateValue::Fp,
         res: IntermediateValue::MemoryAfterFp {
             shift: compiler.get_offset(&var.clone().into()),
         },

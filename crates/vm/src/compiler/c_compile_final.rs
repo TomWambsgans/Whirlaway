@@ -117,13 +117,13 @@ pub fn compile_to_low_level_bytecode(
                 IntermediateInstruction::Computation {
                     operation,
                     mut arg_a,
-                    mut arg_b,
+                    mut arg_c,
                     res,
                 } => {
                     let operation: Operation = operation.try_into().unwrap();
 
                     if let Some(arg_a_cst) = try_as_constant(&arg_a, &compiler) {
-                        if let Some(arg_b_cst) = try_as_constant(&arg_b, &compiler) {
+                        if let Some(arg_b_cst) = try_as_constant(&arg_c, &compiler) {
                             // res = constant +/x constant
 
                             let op_res = operation.compute(arg_a_cst, arg_b_cst);
@@ -133,7 +133,7 @@ pub fn compile_to_low_level_bytecode(
                             low_level_bytecode.push(Instruction::Computation {
                                 operation: Operation::Add,
                                 arg_a: MemOrConstant::zero(),
-                                arg_b: res,
+                                arg_c: res,
                                 res: MemOrConstant::Constant(op_res),
                             });
                             pc += 1;
@@ -141,14 +141,14 @@ pub fn compile_to_low_level_bytecode(
                         }
                     }
 
-                    if arg_b.is_constant() {
-                        std::mem::swap(&mut arg_a, &mut arg_b);
+                    if arg_c.is_constant() {
+                        std::mem::swap(&mut arg_a, &mut arg_c);
                     }
 
                     low_level_bytecode.push(Instruction::Computation {
                         operation,
                         arg_a: try_as_mem_or_constant(&arg_a).unwrap(),
-                        arg_b: try_as_mem_or_fp(&arg_b).unwrap(),
+                        arg_c: try_as_mem_or_fp(&arg_c).unwrap(),
                         res: try_as_mem_or_constant(&res).unwrap(),
                     });
                 }
@@ -157,7 +157,7 @@ pub fn compile_to_low_level_bytecode(
                         // fp x 0 = 1 is impossible, so we can use it to panic
                         operation: Operation::Mul,
                         arg_a: MemOrConstant::zero(),
-                        arg_b: MemOrFp::Fp,
+                        arg_c: MemOrFp::Fp,
                         res: MemOrConstant::one(),
                     });
                 }

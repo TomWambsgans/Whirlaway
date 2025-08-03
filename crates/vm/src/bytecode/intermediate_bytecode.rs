@@ -89,7 +89,7 @@ pub enum IntermediateInstruction {
     Computation {
         operation: Operation,
         arg_a: IntermediateValue,
-        arg_b: IntermediateValue,
+        arg_c: IntermediateValue,
         res: IntermediateValue,
     },
     Deref {
@@ -154,32 +154,32 @@ impl IntermediateInstruction {
     pub fn computation(
         operation: HighLevelOperation,
         arg_a: IntermediateValue,
-        arg_b: IntermediateValue,
+        arg_c: IntermediateValue,
         res: IntermediateValue,
     ) -> Self {
         match operation {
             HighLevelOperation::Add => Self::Computation {
                 operation: Operation::Add,
                 arg_a,
-                arg_b,
+                arg_c,
                 res,
             },
             HighLevelOperation::Mul => Self::Computation {
                 operation: Operation::Mul,
                 arg_a,
-                arg_b,
+                arg_c,
                 res,
             },
             HighLevelOperation::Sub => Self::Computation {
                 operation: Operation::Add,
                 arg_a: res,
-                arg_b: arg_b,
+                arg_c,
                 res: arg_a,
             },
             HighLevelOperation::Div => Self::Computation {
                 operation: Operation::Mul,
                 arg_a: res,
-                arg_b: arg_b,
+                arg_c,
                 res: arg_a,
             },
             HighLevelOperation::Exp => unreachable!(),
@@ -190,7 +190,7 @@ impl IntermediateInstruction {
         Self::Computation {
             operation: Operation::Add,
             arg_a: left,
-            arg_b: IntermediateValue::Constant(ConstExpression::zero()),
+            arg_c: IntermediateValue::Constant(ConstExpression::zero()),
             res: right,
         }
     }
@@ -266,7 +266,7 @@ impl ToString for IntermediateInstruction {
             Self::Computation {
                 operation,
                 arg_a,
-                arg_b,
+                arg_c,
                 res,
             } => {
                 format!(
@@ -274,7 +274,7 @@ impl ToString for IntermediateInstruction {
                     res.to_string(),
                     arg_a.to_string(),
                     operation.to_string(),
-                    arg_b.to_string()
+                    arg_c.to_string()
                 )
             }
             Self::Panic => "panic".to_string(),

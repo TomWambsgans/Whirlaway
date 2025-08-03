@@ -42,7 +42,7 @@ pub enum Instruction {
     Computation {
         operation: Operation,
         arg_a: MemOrConstant,
-        arg_b: MemOrFp,
+        arg_c: MemOrFp,
         res: MemOrConstant,
     },
     Deref {
@@ -202,7 +202,7 @@ impl ToString for Instruction {
             Self::Computation {
                 operation,
                 arg_a,
-                arg_b,
+                arg_c,
                 res,
             } => {
                 format!(
@@ -210,7 +210,7 @@ impl ToString for Instruction {
                     res.to_string(),
                     arg_a.to_string(),
                     operation.to_string(),
-                    arg_b.to_string()
+                    arg_c.to_string()
                 )
             }
             Self::Deref {

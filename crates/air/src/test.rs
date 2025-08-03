@@ -69,7 +69,7 @@ fn generate_trace(log_length: usize) -> Vec<Vec<F>> {
             witness_cols[j].push(
                 witness_cols_j_i_min_1
                     + F::from_usize(j + N_PREPROCESSED_COLUMNS)
-                    + (0..N_PREPROCESSED_COLUMNS).map(|k| trace[k][i]).product(),
+                    + (0..N_PREPROCESSED_COLUMNS).map(|k| trace[k][i]).product::<F>(),
             );
         }
     }

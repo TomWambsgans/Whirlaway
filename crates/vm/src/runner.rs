@@ -15,7 +15,7 @@ use p3_field::Field;
 use p3_field::PrimeField64;
 use p3_symmetric::Permutation;
 
-const MAX_MEMORY_SIZE: usize = 1 << 26;
+const MAX_MEMORY_SIZE: usize = 1 << 23;
 
 #[derive(Debug, Clone)]
 enum RunnerError {
@@ -45,10 +45,7 @@ impl ToString for RunnerError {
 }
 
 #[derive(Debug, Clone, Default)]
-struct Memory {
-    data: Vec<Option<F>>,
-    _extension: std::marker::PhantomData<EF>,
-}
+pub struct Memory(pub Vec<Option<F>>);
 
 impl MemOrConstant {
     fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
@@ -114,25 +111,25 @@ impl MemOrFpOrConstant {
 
 impl Memory {
     fn get(&self, index: usize) -> Result<F, RunnerError> {
-        self.data
+        self.0
             .get(index)
             .and_then(|opt| *opt)
             .ok_or(RunnerError::UndefinedMemory)
     }
 
     fn set(&mut self, index: usize, value: F) -> Result<(), RunnerError> {
-        if index >= self.data.len() {
+        if index >= self.0.len() {
             if index >= MAX_MEMORY_SIZE {
                 return Err(RunnerError::OutOfMemory);
             }
-            self.data.resize(index + 1, None);
+            self.0.resize(index + 1, None);
         }
-        if let Some(existing) = &mut self.data[index] {
+        if let Some(existing) = &mut self.0[index] {
             if *existing != value {
                 return Err(RunnerError::MemoryAlreadySet);
             }
         } else {
-            self.data[index] = Some(value);
+            self.0[index] = Some(value);
         }
         Ok(())
     }
@@ -160,9 +157,9 @@ pub fn execute_bytecode(
     private_input: &[F],
     poseidon_16: &Poseidon16,
     poseidon_24: &Poseidon24,
-) {
+) -> ExecutionResult {
     let mut std_out = String::new();
-    let no_vec_runtime_memory = match execute_bytecode_helper(
+    let first_exec = match execute_bytecode_helper(
         bytecode,
         public_input,
         private_input,
@@ -172,7 +169,7 @@ pub fn execute_bytecode(
         false,
         &mut std_out,
     ) {
-        Ok(no_vec_runtime_memory) => no_vec_runtime_memory,
+        Ok(first_exec) => first_exec,
         Err(err) => {
             if !std_out.is_empty() {
                 print!("{}", std_out);
@@ -186,11 +183,18 @@ pub fn execute_bytecode(
         private_input,
         poseidon_16,
         poseidon_24,
-        no_vec_runtime_memory,
+        first_exec.no_vec_runtime_memory,
         true,
         &mut String::new(),
     )
-    .unwrap();
+    .unwrap()
+}
+
+pub struct ExecutionResult {
+    pub no_vec_runtime_memory: usize,
+    pub memory: Memory,
+    pub pcs: Vec<usize>,
+    pub fps: Vec<usize>,
 }
 
 fn execute_bytecode_helper(
@@ -202,11 +206,11 @@ fn execute_bytecode_helper(
     no_vec_runtime_memory: usize,
     final_execution: bool,
     std_out: &mut String,
-) -> Result<usize, RunnerError> {
+) -> Result<ExecutionResult, RunnerError> {
     let mut memory = Memory::default();
 
     for _ in 0..8 {
-        memory.data.push(Some(F::ZERO)); // For "pointer_to_zero_vector"
+        memory.0.push(Some(F::ZERO)); // For "pointer_to_zero_vector"
     }
 
     for (i, value) in public_input.iter().enumerate() {
@@ -242,10 +246,16 @@ fn execute_bytecode_helper(
     let mut checkpoint_ap = initial_ap;
     let mut checkpoint_ap_vec = ap_vec;
 
+    let mut pcs = Vec::new();
+    let mut fps = Vec::new();
+
     while pc != bytecode.ending_pc {
         if pc >= bytecode.instructions.len() {
             return Err(RunnerError::PCOutOfBounds);
         }
+
+        pcs.push(pc);
+        fps.push(fp);
 
         cpu_cycles += 1;
 
@@ -329,25 +339,25 @@ fn execute_bytecode_helper(
             Instruction::Computation {
                 operation,
                 arg_a,
-                arg_b,
+                arg_c,
                 res,
             } => {
                 if res.is_value_unknown(&memory, fp) {
                     let memory_address_res = res.memory_address(fp)?;
                     let a_value = arg_a.read_value(&memory, fp)?;
-                    let b_value = arg_b.read_value(&memory, fp)?;
+                    let b_value = arg_c.read_value(&memory, fp)?;
                     let res_value = operation.compute(a_value, b_value);
                     memory.set(memory_address_res, res_value)?;
                 } else if arg_a.is_value_unknown(&memory, fp) {
                     let memory_address_a = arg_a.memory_address(fp)?;
                     let res_value = res.read_value(&memory, fp)?;
-                    let b_value = arg_b.read_value(&memory, fp)?;
+                    let b_value = arg_c.read_value(&memory, fp)?;
                     let a_value = operation
                         .inverse_compute(res_value, b_value)
                         .ok_or(RunnerError::DivByZero)?;
                     memory.set(memory_address_a, a_value)?;
-                } else if arg_b.is_value_unknown(&memory, fp) {
-                    let memory_address_b = arg_b.memory_address(fp)?;
+                } else if arg_c.is_value_unknown(&memory, fp) {
+                    let memory_address_b = arg_c.memory_address(fp)?;
                     let res_value = res.read_value(&memory, fp)?;
                     let a_value = arg_a.read_value(&memory, fp)?;
                     let b_value = operation
@@ -356,7 +366,7 @@ fn execute_bytecode_helper(
                     memory.set(memory_address_b, b_value)?;
                 } else {
                     let a_value = arg_a.read_value(&memory, fp)?;
-                    let b_value = arg_b.read_value(&memory, fp)?;
+                    let b_value = arg_c.read_value(&memory, fp)?;
                     let res_value = res.read_value(&memory, fp)?;
                     let computed_value = operation.compute(a_value, b_value);
                     if res_value != computed_value {
@@ -505,12 +515,16 @@ fn execute_bytecode_helper(
         }
     }
 
+    debug_assert_eq!(pc, bytecode.ending_pc);
+    pcs.push(pc);
+    fps.push(fp);
+
     if final_execution {
         if !std_out.is_empty() {
             print!("{}", std_out);
         }
         let runtime_memory_size =
-            memory.data.len() - (bytecode.public_input_start + public_input.len());
+            memory.0.len() - (bytecode.public_input_start + public_input.len());
         println!(
             "\nBytecode size: {}",
             pretty_integer(bytecode.instructions.len())
@@ -547,7 +561,7 @@ fn execute_bytecode_helper(
             );
         }
         let used_memory_cells = memory
-            .data
+            .0
             .iter()
             .skip(bytecode.public_input_start + public_input.len())
             .filter(|&&x| x.is_some())
@@ -557,6 +571,11 @@ fn execute_bytecode_helper(
             used_memory_cells as f64 / runtime_memory_size as f64 * 100.0
         );
     }
-
-    Ok(ap - initial_ap)
+    let no_vec_runtime_memory = ap - initial_ap;
+    Ok(ExecutionResult {
+        no_vec_runtime_memory,
+        memory,
+        pcs,
+        fps,
+    })
 }

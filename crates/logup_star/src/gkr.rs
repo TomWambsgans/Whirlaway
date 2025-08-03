@@ -60,7 +60,7 @@ where
     let mut layers_packed = Vec::new();
     let mut layers_not_packed = Vec::new();
     let last_packed = n
-        .checked_sub(8 + packing_log_width::<EF>())
+        .checked_sub(6 + packing_log_width::<EF>())
         .expect("TODO small GKR, no packing");
     layers_packed.push(final_layer);
     for i in 0..last_packed {
