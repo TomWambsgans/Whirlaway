@@ -16,18 +16,18 @@ pub struct Bytecode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MemOrConstant {
     Constant(F),
-    MemoryAfterFp { shift: usize }, // m[fp + shift]
+    MemoryAfterFp { offset: usize }, // m[fp + offset]
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MemOrFpOrConstant {
-    MemoryAfterFp { shift: usize }, // m[fp + shift]
+    MemoryAfterFp { offset: usize }, // m[fp + offset]
     Fp,
     Constant(F),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MemOrFp {
-    MemoryAfterFp { shift: usize }, // m[fp + shift]
+    MemoryAfterFp { offset: usize }, // m[fp + offset]
     Fp,
 }
 
@@ -120,7 +120,7 @@ pub enum Hint {
         res_offset: usize,  // m[fp + res_offset] will contain the result
     },
     RequestMemory {
-        shift: usize,        // m[fp + shift] where the hint will be stored
+        offset: usize,        // m[fp + offset] where the hint will be stored
         size: MemOrConstant, // the hint
         vectorized: bool,
     },
@@ -163,7 +163,7 @@ impl ToString for MemOrConstant {
     fn to_string(&self) -> String {
         match self {
             Self::Constant(c) => format!("{}", c),
-            Self::MemoryAfterFp { shift } => format!("m[fp + {}]", shift),
+            Self::MemoryAfterFp { offset } => format!("m[fp + {}]", offset),
         }
     }
 }
@@ -171,7 +171,7 @@ impl ToString for MemOrConstant {
 impl ToString for MemOrFp {
     fn to_string(&self) -> String {
         match self {
-            Self::MemoryAfterFp { shift } => format!("m[fp + {}]", shift),
+            Self::MemoryAfterFp { offset } => format!("m[fp + {}]", offset),
             Self::Fp => "fp".to_string(),
         }
     }
@@ -180,7 +180,7 @@ impl ToString for MemOrFp {
 impl ToString for MemOrFpOrConstant {
     fn to_string(&self) -> String {
         match self {
-            Self::MemoryAfterFp { shift } => format!("m[fp + {}]", shift),
+            Self::MemoryAfterFp { offset } => format!("m[fp + {}]", offset),
             Self::Fp => "fp".to_string(),
             Self::Constant(c) => format!("{}", c),
         }
@@ -284,13 +284,13 @@ impl ToString for Hint {
     fn to_string(&self) -> String {
         match self {
             Self::RequestMemory {
-                shift,
+                offset,
                 size,
                 vectorized,
             } => {
                 format!(
                     "m[fp + {}] = {}({})",
-                    shift,
+                    offset,
                     if *vectorized { "malloc_vec" } else { "malloc" },
                     size.to_string()
                 )

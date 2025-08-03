@@ -51,7 +51,7 @@ impl MemOrConstant {
     fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
         match self {
             MemOrConstant::Constant(c) => Ok(*c),
-            MemOrConstant::MemoryAfterFp { shift } => memory.get(fp + *shift),
+            MemOrConstant::MemoryAfterFp { offset } => memory.get(fp + *offset),
         }
     }
 
@@ -62,7 +62,7 @@ impl MemOrConstant {
     fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
         match self {
             MemOrConstant::Constant(_) => Err(RunnerError::NotAPointer),
-            MemOrConstant::MemoryAfterFp { shift } => Ok(fp + *shift),
+            MemOrConstant::MemoryAfterFp { offset } => Ok(fp + *offset),
         }
     }
 }
@@ -70,7 +70,7 @@ impl MemOrConstant {
 impl MemOrFp {
     fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
         match self {
-            MemOrFp::MemoryAfterFp { shift } => memory.get(fp + *shift),
+            MemOrFp::MemoryAfterFp { offset } => memory.get(fp + *offset),
             MemOrFp::Fp => Ok(F::from_usize(fp)),
         }
     }
@@ -81,7 +81,7 @@ impl MemOrFp {
 
     fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
         match self {
-            MemOrFp::MemoryAfterFp { shift } => Ok(fp + *shift),
+            MemOrFp::MemoryAfterFp { offset } => Ok(fp + *offset),
             MemOrFp::Fp => Err(RunnerError::NotAPointer),
         }
     }
@@ -90,7 +90,7 @@ impl MemOrFp {
 impl MemOrFpOrConstant {
     fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
         match self {
-            MemOrFpOrConstant::MemoryAfterFp { shift } => memory.get(fp + *shift),
+            MemOrFpOrConstant::MemoryAfterFp { offset } => memory.get(fp + *offset),
             MemOrFpOrConstant::Fp => Ok(F::from_usize(fp)),
             MemOrFpOrConstant::Constant(c) => Ok(*c),
         }
@@ -102,7 +102,7 @@ impl MemOrFpOrConstant {
 
     fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
         match self {
-            MemOrFpOrConstant::MemoryAfterFp { shift } => Ok(fp + *shift),
+            MemOrFpOrConstant::MemoryAfterFp { offset } => Ok(fp + *offset),
             MemOrFpOrConstant::Fp => Err(RunnerError::NotAPointer),
             MemOrFpOrConstant::Constant(_) => Err(RunnerError::NotAPointer),
         }
@@ -262,7 +262,7 @@ fn execute_bytecode_helper(
         for hint in bytecode.hints.get(&pc).unwrap_or(&vec![]) {
             match hint {
                 Hint::RequestMemory {
-                    shift,
+                    offset,
                     size,
                     vectorized,
                 } => {
@@ -270,10 +270,10 @@ fn execute_bytecode_helper(
 
                     if *vectorized {
                         // find the next multiple of 8
-                        memory.set(fp + *shift, F::from_usize(ap_vec))?;
+                        memory.set(fp + *offset, F::from_usize(ap_vec))?;
                         ap_vec += size;
                     } else {
-                        memory.set(fp + *shift, F::from_usize(ap))?;
+                        memory.set(fp + *offset, F::from_usize(ap))?;
                         ap += size;
                     }
                     // does not increase PC

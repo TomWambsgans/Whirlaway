@@ -4,6 +4,8 @@ use p3_air::{Air, AirBuilder, BaseAir};
 use p3_field::PrimeCharacteristicRing;
 use p3_matrix::Matrix;
 
+use crate::N_AIR_COLUMNS;
+
 /*
 
 Bytecode columns:
@@ -33,13 +35,11 @@ Execution columns:
 
 */
 
-const N_COLUMNS: usize = 18;
-
 pub struct VMAir;
 
 impl<F> BaseAir<F> for VMAir {
     fn width(&self) -> usize {
-        N_COLUMNS
+        N_AIR_COLUMNS
     }
     fn structured(&self) -> bool {
         true
@@ -52,10 +52,10 @@ impl<AB: AirBuilder> Air<AB> for VMAir {
         let main = builder.main();
         let up = main.row_slice(0).unwrap();
         let up = (*up).borrow();
-        assert_eq!(up.len(), N_COLUMNS);
+        assert_eq!(up.len(), N_AIR_COLUMNS);
         let down = main.row_slice(1).unwrap();
         let down = (*down).borrow();
-        assert_eq!(down.len(), N_COLUMNS);
+        assert_eq!(down.len(), N_AIR_COLUMNS);
 
         let (operand_a, operand_b, operand_c): (AB::Expr, AB::Expr, AB::Expr) = (
             up[0].clone().into(),

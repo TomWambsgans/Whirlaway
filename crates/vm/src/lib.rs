@@ -8,11 +8,13 @@ use crate::{compiler::compile_program, runner::execute_bytecode};
 pub mod air;
 pub mod bytecode;
 pub mod compiler;
+pub mod instruction_encoder;
 pub mod lang;
 pub mod parser;
 pub mod precompiles;
 pub mod recursion;
 pub mod runner;
+pub mod tracer;
 
 #[cfg(test)]
 mod test;
@@ -20,6 +22,9 @@ mod test;
 const DIMENSION: usize = 8;
 type F = KoalaBear;
 type EF = BinomialExtensionField<F, DIMENSION>;
+
+pub const N_AIR_COLUMNS: usize = 18;
+pub const N_INSTRUCTION_FIELDS: usize = 15;
 
 pub fn compile_and_run(program: &str, public_input: &[F], private_input: &[F]) {
     let bytecode = compile_program(program);

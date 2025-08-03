@@ -69,14 +69,14 @@ impl SimpleExpr {
     fn into_mem_after_fp_or_constant(&self, compiler: &Compiler) -> IntermediaryMemOrFpOrConstant {
         match self {
             SimpleExpr::Var(var) => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
-                shift: compiler.get_offset(&var.clone().into()),
+                offset: compiler.get_offset(&var.clone().into()),
             },
             SimpleExpr::Constant(c) => IntermediaryMemOrFpOrConstant::Constant(c.clone()),
             SimpleExpr::ConstMallocAccess {
                 malloc_label,
                 offset,
             } => IntermediaryMemOrFpOrConstant::MemoryAfterFp {
-                shift: compiler.get_offset(&VarOrConstMallocAccess::ConstMallocAccess {
+                offset: compiler.get_offset(&VarOrConstMallocAccess::ConstMallocAccess {
                     malloc_label: malloc_label.clone(),
                     offset: offset.clone(),
                 }),
@@ -89,14 +89,14 @@ impl IntermediateValue {
     fn from_simple_expr(expr: &SimpleExpr, compiler: &Compiler) -> Self {
         match expr {
             SimpleExpr::Var(var) => Self::MemoryAfterFp {
-                shift: compiler.get_offset(&var.clone().into()),
+                offset: compiler.get_offset(&var.clone().into()),
             },
             SimpleExpr::Constant(c) => Self::Constant(c.clone()),
             SimpleExpr::ConstMallocAccess {
                 malloc_label,
                 offset,
             } => Self::MemoryAfterFp {
-                shift: ConstExpression::Binary {
+                offset: ConstExpression::Binary {
                     left: Box::new(
                         compiler
                             .const_mallocs
@@ -240,10 +240,10 @@ fn compile_lines(
                     operation: Operation::Mul,
                     arg_a: condition_simplified.clone(),
                     arg_c: IntermediateValue::MemoryAfterFp {
-                        shift: condition_inverse_offset.into(),
+                        offset: condition_inverse_offset.into(),
                     },
                     res: IntermediateValue::MemoryAfterFp {
-                        shift: product_offset.into(),
+                        offset: product_offset.into(),
                     },
                 });
 
@@ -253,10 +253,10 @@ fn compile_lines(
                 instructions.push(IntermediateInstruction::Computation {
                     operation: Operation::Add,
                     arg_a: IntermediateValue::MemoryAfterFp {
-                        shift: one_minus_product_offset.into(),
+                        offset: one_minus_product_offset.into(),
                     },
                     arg_c: IntermediateValue::MemoryAfterFp {
-                        shift: product_offset.into(),
+                        offset: product_offset.into(),
                     },
                     res: ConstExpression::one().into(),
                 });
@@ -265,7 +265,7 @@ fn compile_lines(
                 instructions.push(IntermediateInstruction::Computation {
                     operation: Operation::Mul,
                     arg_a: IntermediateValue::MemoryAfterFp {
-                        shift: one_minus_product_offset.into(),
+                        offset: one_minus_product_offset.into(),
                     },
                     arg_c: condition_simplified.clone(),
                     res: ConstExpression::zero().into(),
@@ -273,7 +273,7 @@ fn compile_lines(
 
                 instructions.push(IntermediateInstruction::JumpIfNotZero {
                     condition: IntermediateValue::MemoryAfterFp {
-                        shift: product_offset.into(),
+                        offset: product_offset.into(),
                     }, // c x 1/c
                     dest: IntermediateValue::label(if_label.clone()),
                     updated_fp: None,
@@ -364,7 +364,7 @@ fn compile_lines(
                             shift_0: new_fp_pos.into(),
                             shift_1: (2 + args.len() + i).into(),
                             res: IntermediaryMemOrFpOrConstant::MemoryAfterFp {
-                                shift: compiler.get_offset(&ret_var.clone().into()),
+                                offset: compiler.get_offset(&ret_var.clone().into()),
                             },
                         });
                     }
@@ -458,7 +458,7 @@ fn compile_lines(
             } => {
                 declared_vars.insert(var.clone());
                 instructions.push(IntermediateInstruction::RequestMemory {
-                    shift: compiler.get_offset(&var.clone().into()),
+                    offset: compiler.get_offset(&var.clone().into()),
                     size: IntermediateValue::from_simple_expr(size, compiler),
                     vectorized: *vectorized,
                 });
@@ -522,7 +522,7 @@ fn handle_const_malloc(
         arg_a: IntermediateValue::Constant(compiler.stack_size.into()),
         arg_c: IntermediateValue::Fp,
         res: IntermediateValue::MemoryAfterFp {
-            shift: compiler.get_offset(&var.clone().into()),
+            offset: compiler.get_offset(&var.clone().into()),
         },
     });
     compiler
@@ -563,7 +563,7 @@ fn setup_function_call(
 ) -> Result<Vec<IntermediateInstruction>, String> {
     let mut instructions = vec![
         IntermediateInstruction::RequestMemory {
-            shift: new_fp_pos.into(),
+            offset: new_fp_pos.into(),
             size: ConstExpression::function_size(func_name.to_string()).into(),
             vectorized: false,
         },
@@ -593,7 +593,7 @@ fn setup_function_call(
     instructions.push(IntermediateInstruction::Jump {
         dest: IntermediateValue::label(format!("@function_{}", func_name)),
         updated_fp: Some(IntermediateValue::MemoryAfterFp {
-            shift: new_fp_pos.into(),
+            offset: new_fp_pos.into(),
         }),
     });
 
@@ -615,7 +615,7 @@ fn compile_poseidon(
     // Allocate memory for result
     if declared_vars.insert(res_var.clone()) {
         instructions.push(IntermediateInstruction::RequestMemory {
-            shift: compiler.get_offset(&res_var.clone().into()),
+            offset: compiler.get_offset(&res_var.clone().into()),
             size: ConstExpression::scalar(if over_16 { 2 } else { 1 }).into(),
             vectorized: true,
         });
@@ -650,14 +650,14 @@ fn compile_function_ret(
     for (i, ret_var) in return_data.iter().enumerate() {
         instructions.push(IntermediateInstruction::equality(
             IntermediateValue::MemoryAfterFp {
-                shift: (2 + compiler.args_count + i).into(),
+                offset: (2 + compiler.args_count + i).into(),
             },
             IntermediateValue::from_simple_expr(ret_var, compiler),
         ));
     }
     instructions.push(IntermediateInstruction::Jump {
-        dest: IntermediateValue::MemoryAfterFp { shift: 0.into() },
-        updated_fp: Some(IntermediateValue::MemoryAfterFp { shift: 1.into() }),
+        dest: IntermediateValue::MemoryAfterFp { offset: 0.into() },
+        updated_fp: Some(IntermediateValue::MemoryAfterFp { offset: 1.into() }),
     });
 }
 
