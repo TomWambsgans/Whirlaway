@@ -1,12 +1,15 @@
 use p3_field::{BasedVectorSpace, PrimeCharacteristicRing};
 use p3_symmetric::Permutation;
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use utils::{MyChallenger, poseidon16_kb};
+use utils::{
+    build_challenger, build_poseidon16, build_poseidon24, build_prover_state, build_verifier_state,
+    poseidon16_kb,
+};
 
-use whir_p3::fiat_shamir::{prover::ProverState, verifier::VerifierState};
+use whir_p3::fiat_shamir::verifier::VerifierState;
 use xmss::{WotsSecretKey, XMSS_MERKLE_HEIGHT, XmssSecretKey, random_message};
 
-use crate::{EF, F, Poseidon16, Poseidon24, compile_and_run};
+use crate::{compile_and_run,  EF, F};
 
 #[test]
 fn test_fibonacci_program() {
@@ -183,9 +186,7 @@ fn test_mini_program_3() {
         .unwrap();
     compile_and_run(program, &public_input, &[]);
 
-    let mut rng = StdRng::seed_from_u64(0);
-    let poseidon_16 = Poseidon16::new_from_rng_128(&mut rng);
-    poseidon_16.permute_mut(&mut public_input);
+    build_poseidon16().permute_mut(&mut public_input);
     dbg!(public_input);
 }
 
@@ -211,8 +212,7 @@ fn test_mini_program_4() {
         .unwrap();
     compile_and_run(program, &public_input, &[]);
 
-    let poseidon_24 = Poseidon24::new_from_rng_128(&mut StdRng::seed_from_u64(0));
-    poseidon_24.permute_mut(&mut public_input);
+    build_poseidon24().permute_mut(&mut public_input);
     dbg!(&public_input[16..]);
 }
 
@@ -1064,9 +1064,8 @@ fn test_fiat_shamir_complete() {
    "#;
     let n = 1000;
 
-    let poseidon16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
     let mut rng = StdRng::seed_from_u64(0);
-    let challenger = MyChallenger::new(poseidon16);
+    let challenger = build_challenger();
 
     let mut public_input = vec![F::from_usize(n)];
     let mut proof_data = vec![];
@@ -1330,16 +1329,14 @@ fn test_fiat_shamir_simple() {
    "#;
     let n = 8 * 1; // must be a multiple of 8 for padding
 
-    let poseidon16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
     let mut rng = StdRng::seed_from_u64(0);
-    let challenger = MyChallenger::new(poseidon16);
 
     let mut public_input = vec![];
     let mut is_samples = vec![];
     let mut sizes = vec![];
     let mut grinding_bits = vec![];
 
-    let mut prover_state = ProverState::<F, EF, _>::new(challenger.clone());
+    let mut prover_state = build_prover_state::<EF>();
 
     for _ in 0..n {
         let is_sample: bool = rng.random();
@@ -1361,7 +1358,7 @@ fn test_fiat_shamir_simple() {
 
     let proof_data = prover_state.proof_data().to_vec();
 
-    let mut verifier_state = VerifierState::<F, EF, _>::new(proof_data.clone(), challenger);
+    let mut verifier_state = build_verifier_state(&prover_state);
 
     for ((is_sample, size), pow_bits) in is_samples.iter().zip(&sizes).zip(&grinding_bits) {
         if *is_sample {

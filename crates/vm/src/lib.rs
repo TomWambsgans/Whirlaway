@@ -1,9 +1,12 @@
 use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::KoalaBear;
-use rand::{SeedableRng as _, rngs::StdRng};
-use utils::{Poseidon16, Poseidon24};
 
-use crate::{compiler::compile_program, runner::execute_bytecode};
+use crate::{
+    compiler::compile_program,
+    precompiles::PRECOMPILES,
+    runner::{ExecutionResult, execute_bytecode},
+    tracer::get_execution_trace,
+};
 
 pub mod air;
 pub mod bytecode;
@@ -23,20 +26,17 @@ const DIMENSION: usize = 8;
 type F = KoalaBear;
 type EF = BinomialExtensionField<F, DIMENSION>;
 
-pub const N_AIR_COLUMNS: usize = 18;
+pub const N_AIR_COLUMNS: usize = 19;
 pub const N_INSTRUCTION_FIELDS: usize = 15;
+pub const N_INSTRUCTION_FIELDS_IN_AIR: usize = N_INSTRUCTION_FIELDS - PRECOMPILES.len();
 
-pub fn compile_and_run(program: &str, public_input: &[F], private_input: &[F]) {
+pub fn compile_and_run(
+    program: &str,
+    public_input: &[F],
+    private_input: &[F],
+) -> (Vec<Vec<F>>, ExecutionResult) {
     let bytecode = compile_program(program);
-
-    let poseidon_16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
-    let poseidon_24 = Poseidon24::new_from_rng_128(&mut StdRng::seed_from_u64(0));
-
-    execute_bytecode(
-        &bytecode,
-        &public_input,
-        private_input,
-        &poseidon_16,
-        &poseidon_24,
-    );
+    let execution_result = execute_bytecode(&bytecode, &public_input, private_input);
+    let trace = get_execution_trace(&bytecode, &execution_result);
+    (trace, execution_result)
 }

@@ -34,7 +34,7 @@ impl Instruction {
             } => {
                 fields[3] = F::ZERO; // flag_A = 0
                 fields[0] = F::from_usize(*shift_0);
-                fields[5] = F::ZERO; // flag_C = 1
+                fields[5] = F::ONE; // flag_C = 1
                 fields[2] = F::from_usize(*shift_1);
                 match res {
                     MemOrFpOrConstant::Constant(cst) => {
@@ -49,6 +49,7 @@ impl Instruction {
                     }
                     MemOrFpOrConstant::Fp => {
                         fields[10] = F::ZERO; // AUX = 0
+                        fields[4] = F::ONE; // flag_B = 1
                     }
                 }
             }

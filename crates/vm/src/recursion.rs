@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::*;
 use p3_field::BasedVectorSpace;
-use rand::{Rng, rngs::StdRng};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use utils::{
     MyMerkleCompress, MyMerkleHash, build_merkle_compress, build_merkle_hash, build_prover_state,
     build_verifier_state,

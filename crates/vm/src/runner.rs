@@ -1,10 +1,10 @@
 use p3_field::BasedVectorSpace;
 use p3_field::PrimeCharacteristicRing;
 use p3_field::dot_product;
+use utils::build_poseidon16;
+use utils::build_poseidon24;
 use utils::pretty_integer;
 
-use crate::Poseidon16;
-use crate::Poseidon24;
 use crate::bytecode::bytecode::Hint;
 use crate::bytecode::bytecode::Instruction;
 use crate::bytecode::bytecode::MemOrConstant;
@@ -155,16 +155,12 @@ pub fn execute_bytecode(
     bytecode: &Bytecode,
     public_input: &[F],
     private_input: &[F],
-    poseidon_16: &Poseidon16,
-    poseidon_24: &Poseidon24,
 ) -> ExecutionResult {
     let mut std_out = String::new();
     let first_exec = match execute_bytecode_helper(
         bytecode,
         public_input,
         private_input,
-        poseidon_16,
-        poseidon_24,
         MAX_MEMORY_SIZE / 2,
         false,
         &mut std_out,
@@ -181,8 +177,6 @@ pub fn execute_bytecode(
         bytecode,
         public_input,
         private_input,
-        poseidon_16,
-        poseidon_24,
         first_exec.no_vec_runtime_memory,
         true,
         &mut String::new(),
@@ -201,13 +195,13 @@ fn execute_bytecode_helper(
     bytecode: &Bytecode,
     public_input: &[F],
     private_input: &[F],
-    poseidon_16: &Poseidon16,
-    poseidon_24: &Poseidon24,
     no_vec_runtime_memory: usize,
     final_execution: bool,
     std_out: &mut String,
 ) -> Result<ExecutionResult, RunnerError> {
     let mut memory = Memory::default();
+    let poseidon_16 = build_poseidon16(); // TODO avoid rebuilding each time
+    let poseidon_24 = build_poseidon24();
 
     for _ in 0..8 {
         memory.0.push(Some(F::ZERO)); // For "pointer_to_zero_vector"
