@@ -1,6 +1,6 @@
 use p3_field::PrimeCharacteristicRing;
-use p3_field::PrimeField64;
 use std::collections::BTreeMap;
+use utils::ToUsize;
 
 use crate::{
     F,
@@ -167,10 +167,8 @@ pub fn compile_to_low_level_bytecode(
                     res,
                 } => {
                     low_level_bytecode.push(Instruction::Deref {
-                        shift_0: eval_const_expression(&shift_0, &compiler).as_canonical_u64()
-                            as usize,
-                        shift_1: eval_const_expression(&shift_1, &compiler).as_canonical_u64()
-                            as usize,
+                        shift_0: eval_const_expression(&shift_0, &compiler).to_usize(),
+                        shift_1: eval_const_expression(&shift_1, &compiler).to_usize(),
                         res: match res {
                             IntermediaryMemOrFpOrConstant::MemoryAfterFp { offset } => {
                                 MemOrFpOrConstant::MemoryAfterFp {
@@ -327,7 +325,7 @@ fn eval_const_expression(constant: &ConstExpression, compiler: &Compiler) -> F {
 }
 
 fn eval_const_expression_usize(constant: &ConstExpression, compiler: &Compiler) -> usize {
-    eval_const_expression(constant, compiler).as_canonical_u64() as usize
+    eval_const_expression(constant, compiler).to_usize()
 }
 
 fn try_as_constant(value: &IntermediateValue, compiler: &Compiler) -> Option<F> {

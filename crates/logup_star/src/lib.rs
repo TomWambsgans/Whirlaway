@@ -7,6 +7,7 @@ https://eprint.iacr.org/2025/946.pdf
 
 use p3_field::{ExtensionField, Field, PrimeField64};
 use rayon::prelude::*;
+use utils::ToUsize;
 
 use p3_field::PrimeCharacteristicRing;
 use sumcheck::ProductComputation;
@@ -210,7 +211,7 @@ fn compute_pushforward<F: PrimeField64, EF: ExtensionField<EF>>(
     // TODO there are a lot of fun optimizations here
     let mut pushforward = EF::zero_vec(table_length);
     for (index, value) in indexes.iter().zip(poly_eq_point) {
-        let index_usize = index.as_canonical_u64() as usize;
+        let index_usize = index.to_usize();
         pushforward[index_usize] += *value;
     }
     pushforward

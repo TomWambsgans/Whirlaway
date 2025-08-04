@@ -26,9 +26,9 @@ type LinearLayers = GenericPoseidon2LinearLayersKoalaBear;
 const SBOX_DEGREE: u64 = 3;
 const SBOX_REGISTERS: usize = 0;
 const HALF_FULL_ROUNDS: usize = 4;
-const PARTIAL_ROUNDS: usize = 20;
+const PARTIAL_ROUNDS: usize = 23;
 
-const WIDTH: usize = 16;
+const WIDTH: usize = 24;
 
 #[derive(Clone, Debug)]
 pub struct Poseidon2Benchmark {

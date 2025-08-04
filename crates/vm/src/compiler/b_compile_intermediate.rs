@@ -9,11 +9,11 @@ use crate::{
     precompiles::{Precompile, PrecompileName},
 };
 use p3_field::Field;
-use p3_field::PrimeField64;
 use std::{
     borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
 };
+use utils::ToUsize;
 
 struct Compiler {
     bytecode: BTreeMap<Label, Vec<IntermediateInstruction>>,
@@ -464,7 +464,7 @@ fn compile_lines(
                 });
             }
             SimpleLine::ConstMalloc { var, size, label } => {
-                let size = size.naive_eval().unwrap().as_canonical_u64() as usize; // TODO not very good;
+                let size = size.naive_eval().unwrap().to_usize(); // TODO not very good;
                 handle_const_malloc(declared_vars, &mut instructions, compiler, var, size, label);
             }
             SimpleLine::DecomposeBits {

@@ -2,11 +2,11 @@ use crate::bytecode::intermediate_bytecode::*;
 use crate::precompiles::PRECOMPILES;
 use crate::{F, lang::*};
 use p3_field::PrimeCharacteristicRing;
-use p3_field::PrimeField64;
 use pest::Parser;
 use pest::iterators::Pair;
 use pest_derive::Parser;
 use std::collections::BTreeMap;
+use utils::ToUsize;
 
 #[derive(Parser)]
 #[grammar = "grammar.pest"]
@@ -93,7 +93,7 @@ fn parse_constant_declaration(
             &|_, _| None,
         )
         .unwrap_or_else(|| panic!("Failed to evaluate constant: {}", name))
-        .as_canonical_u64() as usize;
+        .to_usize();
     Ok((name, value))
 }
 

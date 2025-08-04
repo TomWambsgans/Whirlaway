@@ -1,6 +1,8 @@
 use p3_field::BasedVectorSpace;
+use p3_field::ExtensionField;
 use p3_field::PrimeCharacteristicRing;
 use p3_field::dot_product;
+use utils::ToUsize;
 use utils::build_poseidon16;
 use utils::build_poseidon24;
 use utils::pretty_integer;
@@ -12,13 +14,12 @@ use crate::bytecode::bytecode::MemOrFp;
 use crate::bytecode::bytecode::MemOrFpOrConstant;
 use crate::{DIMENSION, EF, F, bytecode::bytecode::Bytecode};
 use p3_field::Field;
-use p3_field::PrimeField64;
 use p3_symmetric::Permutation;
 
 const MAX_MEMORY_SIZE: usize = 1 << 23;
 
 #[derive(Debug, Clone)]
-enum RunnerError {
+pub enum RunnerError {
     OutOfMemory,
     MemoryAlreadySet,
     NotAPointer,
@@ -48,18 +49,18 @@ impl ToString for RunnerError {
 pub struct Memory(pub Vec<Option<F>>);
 
 impl MemOrConstant {
-    fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
+    pub fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
         match self {
             MemOrConstant::Constant(c) => Ok(*c),
             MemOrConstant::MemoryAfterFp { offset } => memory.get(fp + *offset),
         }
     }
 
-    fn is_value_unknown(&self, memory: &Memory, fp: usize) -> bool {
+    pub fn is_value_unknown(&self, memory: &Memory, fp: usize) -> bool {
         self.read_value(memory, fp).is_err()
     }
 
-    fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
+    pub fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
         match self {
             MemOrConstant::Constant(_) => Err(RunnerError::NotAPointer),
             MemOrConstant::MemoryAfterFp { offset } => Ok(fp + *offset),
@@ -68,18 +69,18 @@ impl MemOrConstant {
 }
 
 impl MemOrFp {
-    fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
+    pub fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
         match self {
             MemOrFp::MemoryAfterFp { offset } => memory.get(fp + *offset),
             MemOrFp::Fp => Ok(F::from_usize(fp)),
         }
     }
 
-    fn is_value_unknown(&self, memory: &Memory, fp: usize) -> bool {
+    pub fn is_value_unknown(&self, memory: &Memory, fp: usize) -> bool {
         self.read_value(memory, fp).is_err()
     }
 
-    fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
+    pub fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
         match self {
             MemOrFp::MemoryAfterFp { offset } => Ok(fp + *offset),
             MemOrFp::Fp => Err(RunnerError::NotAPointer),
@@ -88,7 +89,7 @@ impl MemOrFp {
 }
 
 impl MemOrFpOrConstant {
-    fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
+    pub fn read_value(&self, memory: &Memory, fp: usize) -> Result<F, RunnerError> {
         match self {
             MemOrFpOrConstant::MemoryAfterFp { offset } => memory.get(fp + *offset),
             MemOrFpOrConstant::Fp => Ok(F::from_usize(fp)),
@@ -96,11 +97,11 @@ impl MemOrFpOrConstant {
         }
     }
 
-    fn is_value_unknown(&self, memory: &Memory, fp: usize) -> bool {
+    pub fn is_value_unknown(&self, memory: &Memory, fp: usize) -> bool {
         self.read_value(memory, fp).is_err()
     }
 
-    fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
+    pub fn memory_address(&self, fp: usize) -> Result<usize, RunnerError> {
         match self {
             MemOrFpOrConstant::MemoryAfterFp { offset } => Ok(fp + *offset),
             MemOrFpOrConstant::Fp => Err(RunnerError::NotAPointer),
@@ -110,14 +111,14 @@ impl MemOrFpOrConstant {
 }
 
 impl Memory {
-    fn get(&self, index: usize) -> Result<F, RunnerError> {
+    pub fn get(&self, index: usize) -> Result<F, RunnerError> {
         self.0
             .get(index)
             .and_then(|opt| *opt)
             .ok_or(RunnerError::UndefinedMemory)
     }
 
-    fn set(&mut self, index: usize, value: F) -> Result<(), RunnerError> {
+    pub fn set(&mut self, index: usize, value: F) -> Result<(), RunnerError> {
         if index >= self.0.len() {
             if index >= MAX_MEMORY_SIZE {
                 return Err(RunnerError::OutOfMemory);
@@ -134,15 +135,40 @@ impl Memory {
         Ok(())
     }
 
-    fn get_vector(&self, index: usize) -> Result<[F; DIMENSION], RunnerError> {
-        let mut vector = [F::default(); DIMENSION];
-        for i in 0..DIMENSION {
-            vector[i] = self.get(index * DIMENSION + i)?;
+    pub fn get_vector(&self, index: usize) -> Result<[F; DIMENSION], RunnerError> {
+        Ok(self.vectorized_slice(index, 1)?.try_into().unwrap())
+    }
+
+    pub fn vectorized_slice(&self, index: usize, len: usize) -> Result<Vec<F>, RunnerError> {
+        let mut vector = Vec::with_capacity(len * DIMENSION);
+        for i in 0..len * DIMENSION {
+            vector.push(self.get(index * DIMENSION + i)?);
         }
         Ok(vector)
     }
 
-    fn set_vector(&mut self, index: usize, value: [F; DIMENSION]) -> Result<(), RunnerError> {
+    pub fn vectorized_slice_extension<EF: ExtensionField<F>>(
+        &self,
+        index: usize,
+        len: usize,
+    ) -> Result<Vec<EF>, RunnerError> {
+        let mut vector = Vec::with_capacity(len);
+        for i in 0..len {
+            let v = self.get_vector(index + i)?;
+            vector.push(EF::from_basis_coefficients_slice(&v).unwrap());
+        }
+        Ok(vector)
+    }
+
+    pub fn slice(&self, index: usize, len: usize) -> Result<Vec<F>, RunnerError> {
+        let mut vector = Vec::with_capacity(len);
+        for i in 0..len {
+            vector.push(self.get(index + i)?);
+        }
+        Ok(vector)
+    }
+
+    pub fn set_vector(&mut self, index: usize, value: [F; DIMENSION]) -> Result<(), RunnerError> {
         for (i, v) in value.iter().enumerate() {
             let idx = DIMENSION * index + i;
             self.set(idx, *v)?;
@@ -260,7 +286,7 @@ fn execute_bytecode_helper(
                     size,
                     vectorized,
                 } => {
-                    let size = size.read_value(&memory, fp)?.as_canonical_u64() as usize;
+                    let size = size.read_value(&memory, fp)?.to_usize();
 
                     if *vectorized {
                         // find the next multiple of 8
@@ -276,8 +302,7 @@ fn execute_bytecode_helper(
                     res_offset,
                     to_decompose,
                 } => {
-                    let to_decompose_value =
-                        to_decompose.read_value(&memory, fp)?.as_canonical_u64();
+                    let to_decompose_value = to_decompose.read_value(&memory, fp)?.to_usize();
                     for i in 0..F::bits() {
                         let bit = if to_decompose_value & (1 << i) != 0 {
                             F::ONE
@@ -378,12 +403,12 @@ fn execute_bytecode_helper(
                 if res.is_value_unknown(&memory, fp) {
                     let memory_address_res = res.memory_address(fp)?;
                     let ptr = memory.get(fp + shift_0)?;
-                    let value = memory.get(ptr.as_canonical_u64() as usize + shift_1)?;
+                    let value = memory.get(ptr.to_usize() + shift_1)?;
                     memory.set(memory_address_res, value)?;
                 } else {
                     let value = res.read_value(&memory, fp)?;
                     let ptr = memory.get(fp + shift_0)?;
-                    memory.set(ptr.as_canonical_u64() as usize + shift_1, value)?;
+                    memory.set(ptr.to_usize() + shift_1, value)?;
                 }
                 pc += 1;
             }
@@ -395,8 +420,8 @@ fn execute_bytecode_helper(
                 let condition_value = condition.read_value(&memory, fp)?;
                 assert!([F::ZERO, F::ONE].contains(&condition_value),);
                 if condition_value != F::ZERO {
-                    pc = dest.read_value(&memory, fp)?.as_canonical_u64() as usize;
-                    fp = updated_fp.read_value(&memory, fp)?.as_canonical_u64() as usize;
+                    pc = dest.read_value(&memory, fp)?.to_usize();
+                    fp = updated_fp.read_value(&memory, fp)?.to_usize();
                 } else {
                     pc += 1;
                 }
@@ -408,8 +433,8 @@ fn execute_bytecode_helper(
                 let b_value = arg_b.read_value(&memory, fp)?;
                 let res_value = res.read_value(&memory, fp)?;
 
-                let arg0 = memory.get_vector(a_value.as_canonical_u64() as usize)?;
-                let arg1 = memory.get_vector(b_value.as_canonical_u64() as usize)?;
+                let arg0 = memory.get_vector(a_value.to_usize())?;
+                let arg1 = memory.get_vector(b_value.to_usize())?;
 
                 let mut input = [F::ZERO; DIMENSION * 2];
                 input[..DIMENSION].copy_from_slice(&arg0);
@@ -420,8 +445,8 @@ fn execute_bytecode_helper(
                 let res0: [F; DIMENSION] = input[..DIMENSION].try_into().unwrap();
                 let res1: [F; DIMENSION] = input[DIMENSION..].try_into().unwrap();
 
-                memory.set_vector(res_value.as_canonical_u64() as usize, res0)?;
-                memory.set_vector(1 + res_value.as_canonical_u64() as usize, res1)?;
+                memory.set_vector(res_value.to_usize(), res0)?;
+                memory.set_vector(1 + res_value.to_usize(), res1)?;
 
                 pc += 1;
             }
@@ -432,9 +457,9 @@ fn execute_bytecode_helper(
                 let b_value = arg_b.read_value(&memory, fp)?;
                 let res_value = res.read_value(&memory, fp)?;
 
-                let arg0 = memory.get_vector(a_value.as_canonical_u64() as usize)?;
-                let arg1 = memory.get_vector(1 + a_value.as_canonical_u64() as usize)?;
-                let arg2 = memory.get_vector(b_value.as_canonical_u64() as usize)?;
+                let arg0 = memory.get_vector(a_value.to_usize())?;
+                let arg1 = memory.get_vector(1 + a_value.to_usize())?;
+                let arg2 = memory.get_vector(b_value.to_usize())?;
 
                 let mut input = [F::ZERO; DIMENSION * 3];
                 input[..DIMENSION].copy_from_slice(&arg0);
@@ -445,7 +470,7 @@ fn execute_bytecode_helper(
 
                 let res: [F; DIMENSION] = input[2 * DIMENSION..].try_into().unwrap();
 
-                memory.set_vector(res_value.as_canonical_u64() as usize, res)?;
+                memory.set_vector(res_value.to_usize(), res)?;
 
                 pc += 1;
             }
@@ -457,9 +482,9 @@ fn execute_bytecode_helper(
             } => {
                 dot_product_ext_ext_calls += 1;
 
-                let ptr_arg_0 = arg0.read_value(&memory, fp)?.as_canonical_u64() as usize;
-                let ptr_arg_1 = arg1.read_value(&memory, fp)?.as_canonical_u64() as usize;
-                let ptr_res = res.read_value(&memory, fp)?.as_canonical_u64() as usize;
+                let ptr_arg_0 = arg0.read_value(&memory, fp)?.to_usize();
+                let ptr_arg_1 = arg1.read_value(&memory, fp)?.to_usize();
+                let ptr_res = res.read_value(&memory, fp)?.to_usize();
 
                 let slice_0 = (ptr_arg_0..ptr_arg_0 + *size)
                     .map(|i| Ok(EF::from_basis_coefficients_slice(&memory.get_vector(i)?).unwrap()))
@@ -485,9 +510,9 @@ fn execute_bytecode_helper(
             } => {
                 dot_product_base_ext_calls += 1;
 
-                let ptr_arg_base = arg_base.read_value(&memory, fp)?.as_canonical_u64() as usize;
-                let ptr_arg_ext = arg_ext.read_value(&memory, fp)?.as_canonical_u64() as usize;
-                let ptr_res = res.read_value(&memory, fp)?.as_canonical_u64() as usize;
+                let ptr_arg_base = arg_base.read_value(&memory, fp)?.to_usize();
+                let ptr_arg_ext = arg_ext.read_value(&memory, fp)?.to_usize();
+                let ptr_res = res.read_value(&memory, fp)?.to_usize();
 
                 let slice_base = (ptr_arg_base..ptr_arg_base + *size)
                     .map(|i| Ok(memory.get(i)?))

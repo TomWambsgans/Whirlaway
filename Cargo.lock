@@ -1085,6 +1085,7 @@ dependencies = [
  "p3-koala-bear",
  "p3-matrix",
  "p3-poseidon2",
+ "p3-poseidon2-air",
  "p3-symmetric",
  "p3-util",
  "pcs",

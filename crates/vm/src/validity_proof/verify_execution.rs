@@ -1,7 +1,7 @@
 use ::air::table::AirTable;
-use p3_field::PrimeField64;
 use p3_util::log2_ceil_usize;
 use pcs::PCS;
+use utils::ToUsize;
 use utils::{PF, build_challenger};
 use whir_p3::fiat_shamir::{errors::ProofError, verifier::VerifierState};
 
@@ -18,7 +18,7 @@ pub fn verify_execution(
     let mut verifier_state = VerifierState::new(proof_data, build_challenger());
 
     let log_n_cycles = verifier_state.next_base_scalars_const::<1>()?[0];
-    let log_n_cycles = log_n_cycles.as_canonical_u64() as usize;
+    let log_n_cycles = log_n_cycles.to_usize();
     if log_n_cycles <= UNIVARIATE_SKIPS || log_n_cycles > 32 {
         return Err(ProofError::InvalidProof); // To avoid DDOS
     }

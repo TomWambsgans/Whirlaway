@@ -24,3 +24,4 @@ whir-p3.workspace = true
 tracing.workspace = true
 air.workspace = true
 pcs.workspace = true
+p3-poseidon2-air.workspace = true

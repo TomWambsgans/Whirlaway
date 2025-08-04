@@ -4,3 +4,5 @@
 - Extension field: dim 5/6
 - Structured AIR: often no all the columns use both up/down -> one can only provide the used columns to speed up the PIOP zerocheck
 - use RowMAjorMatrix instead of Vec<Vec> for witness
+- Fill Poseidon tables during bytecode execution
+- Use Univariate Skip to commit to tables with k.2^n rows (k small)

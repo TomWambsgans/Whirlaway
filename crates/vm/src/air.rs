@@ -51,10 +51,10 @@ impl<AB: AirBuilder> Air<AB> for VMAir {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
         let up = main.row_slice(0).unwrap();
-        let up = (*up).borrow();
+        let up: &[AB::Var] = (*up).borrow();
         assert_eq!(up.len(), N_AIR_COLUMNS);
         let down = main.row_slice(1).unwrap();
-        let down = (*down).borrow();
+        let down: &[AB::Var] = (*down).borrow();
         assert_eq!(down.len(), N_AIR_COLUMNS);
 
         let (operand_a, operand_b, operand_c): (AB::Expr, AB::Expr, AB::Expr) = (

@@ -7,8 +7,8 @@ use crate::{
     },
     precompiles::Precompile,
 };
-use p3_field::PrimeField64;
 use std::collections::{BTreeMap, BTreeSet};
+use utils::ToUsize;
 
 #[derive(Debug, Clone)]
 pub struct SimpleProgram {
@@ -382,8 +382,8 @@ fn simplify_lines(
                 if *unroll {
                     let (internal_variables, _) = find_variable_usage(&body);
                     let mut unrolled_lines = Vec::new();
-                    let start_evaluated = start.naive_eval().unwrap().as_canonical_u64() as usize;
-                    let end_evaluated = end.naive_eval().unwrap().as_canonical_u64() as usize;
+                    let start_evaluated = start.naive_eval().unwrap().to_usize();
+                    let end_evaluated = end.naive_eval().unwrap().to_usize();
 
                     for i in start_evaluated..end_evaluated {
                         let mut body_copy = body.clone();
@@ -1193,7 +1193,7 @@ fn replace_vars_by_const_in_expr(expr: &mut Expression, map: &BTreeMap<Var, F>) 
         Expression::Value(value) => match &value {
             SimpleExpr::Var(var) => {
                 if let Some(const_value) = map.get(var) {
-                    *value = SimpleExpr::scalar(const_value.as_canonical_u64() as usize);
+                    *value = SimpleExpr::scalar(const_value.to_usize());
                 }
             }
             SimpleExpr::ConstMallocAccess { .. } => {

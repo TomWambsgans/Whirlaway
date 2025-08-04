@@ -3,6 +3,7 @@ use p3_field::BasedVectorSpace;
 use p3_field::ExtensionField;
 use p3_field::PackedFieldExtension;
 use p3_field::PackedValue;
+use p3_field::PrimeField64;
 use p3_field::{Field, PrimeCharacteristicRing};
 use p3_koala_bear::KoalaBear;
 use p3_koala_bear::Poseidon2KoalaBear;
@@ -120,4 +121,14 @@ pub fn build_verifier_state<EF: ExtensionField<KoalaBear>>(
     prover_state: &ProverState<KoalaBear, EF, MyChallenger>,
 ) -> VerifierState<KoalaBear, EF, MyChallenger> {
     VerifierState::new(prover_state.proof_data().to_vec(), build_challenger())
+}
+
+pub trait ToUsize {
+    fn to_usize(self) -> usize;
+}
+
+impl<F: PrimeField64> ToUsize for F {
+    fn to_usize(self) -> usize {
+        self.as_canonical_u64() as usize
+    }
 }
