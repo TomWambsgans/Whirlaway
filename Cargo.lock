@@ -1090,6 +1090,7 @@ dependencies = [
  "pest",
  "pest_derive",
  "rand",
+ "tracing",
  "utils",
  "whir-p3",
  "xmss",

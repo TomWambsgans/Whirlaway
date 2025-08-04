@@ -9,7 +9,7 @@ use utils::{
 use whir_p3::fiat_shamir::verifier::VerifierState;
 use xmss::{WotsSecretKey, XMSS_MERKLE_HEIGHT, XmssSecretKey, random_message};
 
-use crate::{EF, F, compile_and_prove_execution, compile_and_run};
+use crate::{EF, F, compile_and_run};
 
 #[test]
 fn test_fibonacci_program() {
@@ -29,7 +29,7 @@ fn test_fibonacci_program() {
         return;
     }
    "#;
-    compile_and_prove_execution(program, &[], &[]);
+    compile_and_run(program, &[], &[]);
 }
 
 #[test]

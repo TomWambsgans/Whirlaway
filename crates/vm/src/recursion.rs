@@ -1,14 +1,17 @@
 use std::marker::PhantomData;
 
+use crate::prove_execution::prove_execution;
+use crate::verify_execution::verify_execution;
 use crate::*;
 use p3_field::BasedVectorSpace;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::{
     MyMerkleCompress, MyMerkleHash, build_merkle_compress, build_merkle_hash, build_prover_state,
-    build_verifier_state,
+    build_verifier_state, init_tracing,
 };
 use whir_p3::{
-    poly::multilinear::*,
+    dft::EvalsDft,
+    poly::{evals::EvaluationsList, multilinear::*},
     whir::{
         committer::{reader::*, writer::*},
         config::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder},
@@ -24,7 +27,7 @@ pub fn test_whir_verif() {
 }
 
 pub fn run_whir_verif() {
-    let program = r#"
+    let program_str = r#"
 
     // 1 OOD QUERY PER ROUND, 0 GRINDING
 
@@ -890,7 +893,7 @@ pub fn run_whir_verif() {
    "#;
 
     let num_variables = 22;
-    let whir_config_builder = WhirConfigBuilder {
+    let recursion_config_builder = WhirConfigBuilder {
         max_num_variables_to_send_coeffs: 6,
         security_level: 128,
         pow_bits: 17,
@@ -904,13 +907,13 @@ pub fn run_whir_verif() {
         extension_field: PhantomData,
     };
 
-    let config = WhirConfig::<EF, EF, MyMerkleHash, MyMerkleCompress, 8>::new(
-        whir_config_builder,
+    let recursion_config = WhirConfig::<EF, EF, MyMerkleHash, MyMerkleCompress, 8>::new(
+        recursion_config_builder,
         num_variables,
     );
-    assert_eq!(config.committment_ood_samples, 1);
+    assert_eq!(recursion_config.committment_ood_samples, 1);
     // println!("Whir parameters: {}", params.to_string());
-    for (i, round) in config.round_parameters.iter().enumerate() {
+    for (i, round) in recursion_config.round_parameters.iter().enumerate() {
         println!(
             "Round {}: {} queries, pow: {} bits",
             i, round.num_queries, round.pow_bits
@@ -918,7 +921,7 @@ pub fn run_whir_verif() {
     }
     println!(
         "Final round: {} queries, pow: {} bits",
-        config.final_queries, config.final_pow_bits
+        recursion_config.final_queries, recursion_config.final_pow_bits
     );
 
     let mut rng = StdRng::seed_from_u64(0);
@@ -935,9 +938,9 @@ pub fn run_whir_verif() {
     let mut prover_state = build_prover_state();
 
     // Commit to the polynomial and produce a witness
-    let committer = Commiter(&config);
+    let committer = Commiter(&recursion_config);
 
-    let dft = EvalsDft::<F>::new(1 << config.max_fft_size());
+    let dft = EvalsDft::<F>::new(1 << recursion_config.max_fft_size());
 
     let witness = committer
         .commit(&dft, &mut prover_state, &polynomial)
@@ -953,7 +956,7 @@ pub fn run_whir_verif() {
     );
     public_input.extend(<EF as BasedVectorSpace<F>>::as_basis_coefficients_slice(&eval).to_vec());
 
-    let prover = Prover(&config);
+    let prover = Prover(&recursion_config);
 
     prover
         .prove(
@@ -971,14 +974,32 @@ pub fn run_whir_verif() {
     let mut verifier_state = build_verifier_state(&prover_state);
 
     // Parse the commitment
-    let parsed_commitment = CommitmentReader(&config)
+    let parsed_commitment = CommitmentReader(&recursion_config)
         .parse_commitment(&mut verifier_state)
         .unwrap();
 
-    Verifier(&config)
+    Verifier(&recursion_config)
         .verify(&mut verifier_state, &parsed_commitment, &statement)
         .unwrap();
 
+    // Validity Proof:
+
     init_tracing();
-    compile_and_prove_execution(program, &public_input, &[]);
+    let base_pcs = WhirConfigBuilder {
+        folding_factor: FoldingFactor::ConstantFromSecondRound(7, 4),
+        soundness_type: SecurityAssumption::CapacityBound,
+        merkle_hash: build_merkle_hash(),
+        merkle_compress: build_merkle_compress(),
+        pow_bits: 16,
+        max_num_variables_to_send_coeffs: 6,
+        rs_domain_initial_reduction_factor: 5,
+        security_level: 128,
+        starting_log_inv_rate: 1,
+        base_field: PhantomData::<F>,
+        extension_field: PhantomData::<EF>,
+    };
+
+    let bytecode = compile_program(program_str);
+    let proof_data = prove_execution(&bytecode, &public_input, &[], &base_pcs);
+    verify_execution(&bytecode, &public_input, proof_data, &base_pcs).unwrap();
 }

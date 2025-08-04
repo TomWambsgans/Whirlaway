@@ -14,6 +14,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rayon::prelude::*;
 use whir_p3::fiat_shamir::{prover::ProverState, verifier::VerifierState};
+use whir_p3::whir::config::WhirConfigBuilder;
 
 pub type PF<F> = <F as PrimeCharacteristicRing>::PrimeSubfield;
 pub type PFPacking<F> = <PF<F> as Field>::Packing;
@@ -28,38 +29,39 @@ pub type Poseidon24 = Poseidon2KoalaBear<24>;
 pub type MyMerkleHash = PaddingFreeSponge<Poseidon24, 24, 16, 8>; // leaf hashing
 pub type MyMerkleCompress = TruncatedPermutation<Poseidon16, 2, 8, 16>; // 2-to-1 compression
 pub type MyChallenger = DuplexChallenger<KoalaBear, Poseidon16, 16, 8>;
+pub type MyWhirConfigBuilder<F, EF> =
+    WhirConfigBuilder<F, EF, MyMerkleHash, MyMerkleCompress, MY_DIGEST_ELEMS>;
+pub const MY_DIGEST_ELEMS: usize = 8;
 
-pub trait MerkleHasher<EF: Field, const DIGEST_ELEMS: usize>:
-    CryptographicHasher<PFPacking<EF>, [PFPacking<EF>; DIGEST_ELEMS]>
-    + CryptographicHasher<PF<EF>, [PF<EF>; DIGEST_ELEMS]>
+pub trait MerkleHasher<EF: Field>:
+    CryptographicHasher<PFPacking<EF>, [PFPacking<EF>; MY_DIGEST_ELEMS]>
+    + CryptographicHasher<PF<EF>, [PF<EF>; MY_DIGEST_ELEMS]>
     + Sync
 {
 }
 
-pub trait MerkleCompress<EF: Field, const DIGEST_ELEMS: usize>:
-    PseudoCompressionFunction<[PFPacking<EF>; DIGEST_ELEMS], 2>
-    + PseudoCompressionFunction<[PF<EF>; DIGEST_ELEMS], 2>
+pub trait MerkleCompress<EF: Field>:
+    PseudoCompressionFunction<[PFPacking<EF>; MY_DIGEST_ELEMS], 2>
+    + PseudoCompressionFunction<[PF<EF>; MY_DIGEST_ELEMS], 2>
     + Sync
 {
 }
 
 impl<
     EF: Field,
-    MH: CryptographicHasher<PFPacking<EF>, [PFPacking<EF>; DIGEST_ELEMS]>
-        + CryptographicHasher<PF<EF>, [PF<EF>; DIGEST_ELEMS]>
+    MH: CryptographicHasher<PFPacking<EF>, [PFPacking<EF>; MY_DIGEST_ELEMS]>
+        + CryptographicHasher<PF<EF>, [PF<EF>; MY_DIGEST_ELEMS]>
         + Sync,
-    const DIGEST_ELEMS: usize,
-> MerkleHasher<EF, DIGEST_ELEMS> for MH
+> MerkleHasher<EF> for MH
 {
 }
 
 impl<
     EF: Field,
-    MC: PseudoCompressionFunction<[PFPacking<EF>; DIGEST_ELEMS], 2>
-        + PseudoCompressionFunction<[PF<EF>; DIGEST_ELEMS], 2>
+    MC: PseudoCompressionFunction<[PFPacking<EF>; MY_DIGEST_ELEMS], 2>
+        + PseudoCompressionFunction<[PF<EF>; MY_DIGEST_ELEMS], 2>
         + Sync,
-    const DIGEST_ELEMS: usize,
-> MerkleCompress<EF, DIGEST_ELEMS> for MC
+> MerkleCompress<EF> for MC
 {
 }
 

@@ -1,9 +1,8 @@
 use p3_air::Air;
 use p3_field::{ExtensionField, TwoAdicField, cyclic_subgroup_known_order, dot_product};
 use p3_uni_stark::SymbolicAirBuilder;
-use std::fmt::Debug;
 use std::ops::Range;
-use sumcheck::{SumcheckComputation, SumcheckError};
+use sumcheck::SumcheckComputation;
 use tracing::instrument;
 use utils::{ConstraintFolder, shift_range};
 use utils::{Evaluation, log2_up};
@@ -19,28 +18,6 @@ use crate::utils::{matrix_down_lde, matrix_up_lde};
 
 use super::table::AirTable;
 
-#[derive(Debug, Clone)]
-pub enum AirVerifError {
-    InvalidPcsCommitment,
-    InvalidPcsOpening,
-    Fs(ProofError),
-    Sumcheck(SumcheckError),
-    InvalidBoundaryCondition,
-    SumMismatch,
-}
-
-impl From<ProofError> for AirVerifError {
-    fn from(e: ProofError) -> Self {
-        Self::Fs(e)
-    }
-}
-
-impl From<SumcheckError> for AirVerifError {
-    fn from(e: SumcheckError) -> Self {
-        Self::Sumcheck(e)
-    }
-}
-
 impl<
     EF: TwoAdicField + ExtensionField<PF<EF>>,
     A: Air<SymbolicAirBuilder<PF<EF>>> + for<'a> Air<ConstraintFolder<'a, EF, EF>>,
@@ -52,7 +29,7 @@ impl<
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
         log_n_rows: usize,
         column_groups: &[Range<usize>],
-    ) -> Result<Vec<Evaluation<EF>>, AirVerifError> {
+    ) -> Result<Vec<Evaluation<EF>>, ProofError> {
         let constraints_batching_scalar = verifier_state.sample();
 
         let mut zerocheck_challenges = vec![EF::ZERO; log_n_rows - self.univariate_skips + 1];
@@ -67,7 +44,7 @@ impl<
             self.univariate_skips,
         )?;
         if sc_sum != EF::ZERO {
-            return Err(AirVerifError::SumMismatch);
+            return Err(ProofError::InvalidProof);
         }
 
         let outer_selector_evals = self
@@ -129,7 +106,7 @@ impl<
         ) * global_constraint_eval
             != outer_sumcheck_challenge.value
         {
-            return Err(AirVerifError::SumMismatch);
+            return Err(ProofError::InvalidProof);
         }
 
         Ok(evaluations_remaining_to_verify)
@@ -141,7 +118,7 @@ impl<
         outer_sumcheck_challenge: &Evaluation<EF>,
         outer_selector_evals: &[EF],
         n_columns: usize,
-    ) -> Result<(Evaluation<EF>, Vec<EF>), AirVerifError> {
+    ) -> Result<(Evaluation<EF>, Vec<EF>), ProofError> {
         let log_n_columns = log2_up(n_columns);
         let witness_evals = verifier_state.next_extension_scalars_vec(n_columns)?;
 
@@ -161,7 +138,7 @@ impl<
                 .iter()
                 .copied(),
         ) {
-            return Err(AirVerifError::SumMismatch);
+            return Err(ProofError::InvalidProof);
         }
 
         let mut epsilons = vec![EF::ZERO; self.univariate_skips];
@@ -172,7 +149,7 @@ impl<
         let [final_value] = verifier_state.next_extension_scalars_const()?;
 
         if final_value != sub_evals.evaluate(&MultilinearPoint(epsilons.clone())) {
-            return Err(AirVerifError::SumMismatch);
+            return Err(ProofError::InvalidProof);
         }
 
         let final_point = MultilinearPoint(
@@ -200,7 +177,7 @@ impl<
         outer_selector_evals: &[EF],
         log_n_rows: usize,
         n_columns: usize,
-    ) -> Result<(Evaluation<EF>, Vec<EF>, Vec<EF>), AirVerifError> {
+    ) -> Result<(Evaluation<EF>, Vec<EF>, Vec<EF>), ProofError> {
         let log_n_columns = log2_up(n_columns);
 
         let witness_up = verifier_state.next_extension_scalars_vec(n_columns)?;
@@ -230,7 +207,7 @@ impl<
                 .copied(),
         ) * alpha
         {
-            return Err(AirVerifError::SumMismatch);
+            return Err(ProofError::InvalidProof);
         }
 
         let mut epsilons = vec![EF::ZERO; self.univariate_skips];
@@ -242,7 +219,7 @@ impl<
             sumcheck::verify::<EF>(verifier_state, log_n_rows, 2)?;
 
         if batched_inner_sum != sub_evals.evaluate(&MultilinearPoint(epsilons.clone())) {
-            return Err(AirVerifError::SumMismatch);
+            return Err(ProofError::InvalidProof);
         }
 
         let matrix_lde_point = [

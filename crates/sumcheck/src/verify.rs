@@ -1,5 +1,3 @@
-use std::fmt::Debug;
-
 use p3_field::{ExtensionField, Field};
 use utils::{Evaluation, FSVerifier, PF};
 use whir_p3::{
@@ -7,23 +5,11 @@ use whir_p3::{
     poly::{dense::WhirDensePolynomial, multilinear::MultilinearPoint},
 };
 
-#[derive(Debug, Clone)]
-pub enum SumcheckError {
-    Fs(ProofError),
-    InvalidRound,
-}
-
-impl From<ProofError> for SumcheckError {
-    fn from(e: ProofError) -> Self {
-        Self::Fs(e)
-    }
-}
-
 pub fn verify<EF>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     n_vars: usize,
     degree: usize,
-) -> Result<(EF, Evaluation<EF>), SumcheckError>
+) -> Result<(EF, Evaluation<EF>), ProofError>
 where
     EF: Field + ExtensionField<PF<EF>>,
 {
@@ -37,7 +23,7 @@ pub fn verify_with_custom_degree_at_first_round<EF>(
     n_vars: usize,
     intial_degree: usize,
     remaining_degree: usize,
-) -> Result<(EF, Evaluation<EF>), SumcheckError>
+) -> Result<(EF, Evaluation<EF>), ProofError>
 where
     EF: Field + ExtensionField<PF<EF>>,
 {
@@ -52,7 +38,7 @@ pub fn verify_with_univariate_skip<EF>(
     degree: usize,
     n_vars: usize,
     skips: usize,
-) -> Result<(EF, Evaluation<EF>), SumcheckError>
+) -> Result<(EF, Evaluation<EF>), ProofError>
 where
     EF: Field + ExtensionField<PF<EF>>,
 {
@@ -70,7 +56,7 @@ fn verify_core<EF>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     max_degree_per_vars: &[usize],
     sumation_sets: Vec<Vec<EF>>,
-) -> Result<(EF, Evaluation<EF>), SumcheckError>
+) -> Result<(EF, Evaluation<EF>), ProofError>
 where
     EF: Field + ExtensionField<PF<EF>>,
 {
@@ -87,7 +73,7 @@ where
             first_round = false;
             sum = computed_sum;
         } else if target != computed_sum {
-            return Err(SumcheckError::InvalidRound);
+            return Err(ProofError::InvalidProof);
         }
         let challenge = verifier_state.sample();
 
