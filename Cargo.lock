@@ -1077,6 +1077,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "vm"
 version = "0.1.0"
 dependencies = [
+ "air",
  "p3-air",
  "p3-challenger",
  "p3-field",
@@ -1084,6 +1085,7 @@ dependencies = [
  "p3-matrix",
  "p3-poseidon2",
  "p3-symmetric",
+ "p3-util",
  "pest",
  "pest_derive",
  "rand",

@@ -8,7 +8,6 @@ use utils::{
     build_verifier_state,
 };
 use whir_p3::{
-    dft::*,
     poly::{evals::*, multilinear::*},
     whir::{
         committer::{reader::*, writer::*},
@@ -980,5 +979,6 @@ pub fn run_whir_verif() {
         .verify(&mut verifier_state, &parsed_commitment, &statement)
         .unwrap();
 
-    compile_and_run(program, &public_input, &[]);
+    init_tracing();
+    compile_and_prove_execution(program, &public_input, &[]);
 }

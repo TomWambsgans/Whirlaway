@@ -117,9 +117,9 @@ impl<AB: AirBuilder> Air<AB> for VMAir {
         );
         builder.assert_zero((AB::Expr::ONE - juz.clone()) * (next_fp.clone() - fp.clone()));
 
-        builder.assert_zero(nu_a.clone() * (AB::Expr::ONE - nu_a.clone()));
-        builder.assert_zero(juz.clone() * nu_a.clone() * (next_pc.clone() - nu_c.clone()));
-        builder.assert_zero(juz.clone() * nu_a.clone() * (next_fp.clone() - nu_b.clone()));
+        builder.assert_zero(juz.clone() * nu_a.clone() * (AB::Expr::ONE - nu_a.clone()));
+        builder.assert_zero(juz.clone() * nu_a.clone() * (next_pc.clone() - nu_b.clone()));
+        builder.assert_zero(juz.clone() * nu_a.clone() * (next_fp.clone() - nu_c.clone()));
         builder.assert_zero(
             juz.clone()
                 * (AB::Expr::ONE - nu_a.clone())

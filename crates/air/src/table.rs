@@ -1,14 +1,10 @@
 use p3_air::Air;
-use p3_field::{ExtensionField, Field, TwoAdicField, cyclic_subgroup_known_order};
+use p3_field::{ExtensionField, Field, TwoAdicField};
 
+use p3_matrix::dense::RowMajorMatrixView;
 use p3_uni_stark::{SymbolicAirBuilder, get_symbolic_constraints};
-use rand::{
-    Rng, SeedableRng,
-    distr::{Distribution, StandardUniform},
-    rngs::StdRng,
-};
-use sumcheck::SumcheckComputation;
-use utils::{ConstraintFolder, PF, log2_up, univariate_selectors};
+use rand::distr::{Distribution, StandardUniform};
+use utils::{ConstraintChecker, PF, log2_up, univariate_selectors};
 use whir_p3::poly::dense::WhirDensePolynomial;
 
 pub struct AirTable<EF: Field, A> {
@@ -71,7 +67,7 @@ where
 
     pub fn check_trace_validity(&self, witness: &[Vec<PF<EF>>]) -> Result<(), String>
     where
-        A: for<'a> Air<ConstraintFolder<'a, EF, EF>>,
+        A: for<'a> Air<ConstraintChecker<'a, PF<EF>>>,
         StandardUniform: Distribution<EF>,
     {
         let mut trace = self.preprocessed_columns.clone();
@@ -83,45 +79,60 @@ where
                 self.n_columns()
             ));
         }
-        if trace[0].len() != (1 << self.log_length) {
-            return Err(format!(
-                "Trace has {} rows, expected {}",
-                trace[0].len(),
-                1 << self.log_length
-            ));
+        for i in 0..self.n_columns() {
+            if trace[i].len() != (1 << self.log_length) {
+                return Err(format!(
+                    "Column {} has {} rows, expected {}",
+                    i,
+                    trace[i].len(),
+                    1 << self.log_length
+                ));
+            }
         }
-        let alpha: EF = StdRng::seed_from_u64(0).random();
+        let handle_errors = |row: usize, constraint_checker: &mut ConstraintChecker<PF<EF>>| {
+            if constraint_checker.errors.len() > 0 {
+                return Err(format!(
+                    "Trace is not valid at row {}: contraints not respected: {}",
+                    row,
+                    constraint_checker
+                        .errors
+                        .iter()
+                        .map(|e| e.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+            Ok(())
+        };
         if self.air.structured() {
-            for i in 0..1 << self.log_length - 1 {
+            for row in 0..(1 << self.log_length) - 1 {
                 let up = (0..self.n_columns())
-                    .map(|j| EF::from(trace[j][i]))
+                    .map(|j| trace[j][row])
                     .collect::<Vec<_>>();
                 let down = (0..self.n_columns())
-                    .map(|j| EF::from(trace[j][i + 1]))
+                    .map(|j| trace[j][row + 1])
                     .collect::<Vec<_>>();
                 let up_and_down = [up, down].concat();
-                if SumcheckComputation::eval(
-                    &self.air,
-                    &up_and_down,
-                    &cyclic_subgroup_known_order(alpha, self.n_constraints).collect::<Vec<_>>(),
-                ) != EF::ZERO
-                {
-                    return Err(format!("Trace is not valid at row {}", i));
-                }
+                let mut constraints_checker = ConstraintChecker {
+                    main: RowMajorMatrixView::new(&up_and_down, self.air.width()),
+                    constraint_index: 0,
+                    errors: Vec::new(),
+                };
+                self.air.eval(&mut constraints_checker);
+                handle_errors(row, &mut constraints_checker)?;
             }
         } else {
-            for i in 0..1 << self.log_length - 1 {
+            for row in 0..1 << self.log_length {
                 let up = (0..self.n_columns())
-                    .map(|j| EF::from(trace[j][i]))
+                    .map(|j| trace[j][row])
                     .collect::<Vec<_>>();
-                if SumcheckComputation::eval(
-                    &self.air,
-                    &up,
-                    &cyclic_subgroup_known_order(alpha, self.n_constraints).collect::<Vec<_>>(),
-                ) != EF::ZERO
-                {
-                    return Err(format!("Trace is not valid at row {}", i));
-                }
+                let mut constraints_checker = ConstraintChecker {
+                    main: RowMajorMatrixView::new(&up, self.air.width()),
+                    constraint_index: 0,
+                    errors: Vec::new(),
+                };
+                self.air.eval(&mut constraints_checker);
+                handle_errors(row, &mut constraints_checker)?;
             }
         }
         Ok(())

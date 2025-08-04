@@ -9,9 +9,10 @@ use p3_field::PrimeField64;
 
 pub fn get_execution_trace(bytecode: &Bytecode, execution_result: &ExecutionResult) -> Vec<Vec<F>> {
     assert_eq!(execution_result.pcs.len(), execution_result.fps.len());
-    let log_n_rows = execution_result.pcs.len().next_power_of_two().ilog2() as usize;
+    let n_cycles = execution_result.pcs.len();
+    let log_n_cycles_rounded_up = n_cycles.next_power_of_two().ilog2() as usize;
     let mut trace = (0..N_AIR_COLUMNS)
-        .map(|_| F::zero_vec(1 << log_n_rows))
+        .map(|_| F::zero_vec(1 << log_n_cycles_rounded_up))
         .collect::<Vec<Vec<F>>>();
 
     for (i, (&pc, &fp)) in execution_result
@@ -22,6 +23,11 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: &ExecutionResu
     {
         let instruction = &bytecode.instructions[pc];
         let field_repr = instruction.field_representation();
+
+        // println!(
+        //     "Cycle {}: PC = {}, FP = {}, Instruction = {}",
+        //     i, pc, fp, instruction.to_string()
+        // );
 
         for (j, field) in field_repr
             .iter()
@@ -63,6 +69,14 @@ pub fn get_execution_trace(bytecode: &Bytecode, execution_result: &ExecutionResu
         trace[16][i] = addr_a;
         trace[17][i] = addr_b;
         trace[18][i] = addr_c;
+    }
+
+    // repeat the last row to get to a power of two
+    for j in 0..N_AIR_COLUMNS {
+        let last_value = trace[j][n_cycles - 1];
+        for i in n_cycles..(1 << log_n_cycles_rounded_up) {
+            trace[j][i] = last_value;
+        }
     }
 
     trace

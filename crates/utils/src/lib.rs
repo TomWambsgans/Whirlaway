@@ -29,3 +29,6 @@ pub use point::*;
 
 mod logs;
 pub use logs::*;
+
+mod constraints_checker;
+pub use constraints_checker::*;
