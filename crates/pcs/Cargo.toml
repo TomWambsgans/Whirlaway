@@ -1,5 +1,5 @@
 [package]
-name = "multi_pcs"
+name = "pcs"
 version.workspace = true
 edition.workspace = true
 
@@ -15,6 +15,7 @@ whir-p3.workspace = true
 rayon.workspace = true
 p3-symmetric.workspace = true
 serde.workspace = true
+p3-util.workspace = true
 
 [dev-dependencies]
 p3-koala-bear.workspace = true

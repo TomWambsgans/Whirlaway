@@ -313,22 +313,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a282da65faaf38286cf3be983213fcf1d2e2a58700e808f83f4ea9a4804bc0"
 
 [[package]]
-name = "multi_pcs"
-version = "0.1.0"
-dependencies = [
- "p3-field",
- "p3-koala-bear",
- "p3-symmetric",
- "rand",
- "rayon",
- "serde",
- "sumcheck",
- "tracing",
- "utils",
- "whir-p3",
-]
-
-[[package]]
 name = "nu-ansi-term"
 version = "0.46.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -625,6 +609,23 @@ name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
+
+[[package]]
+name = "pcs"
+version = "0.1.0"
+dependencies = [
+ "p3-field",
+ "p3-koala-bear",
+ "p3-symmetric",
+ "p3-util",
+ "rand",
+ "rayon",
+ "serde",
+ "sumcheck",
+ "tracing",
+ "utils",
+ "whir-p3",
+]
 
 [[package]]
 name = "pest"
@@ -1078,7 +1079,6 @@ name = "vm"
 version = "0.1.0"
 dependencies = [
  "air",
- "multi_pcs",
  "p3-air",
  "p3-challenger",
  "p3-field",
@@ -1087,6 +1087,7 @@ dependencies = [
  "p3-poseidon2",
  "p3-symmetric",
  "p3-util",
+ "pcs",
  "pest",
  "pest_derive",
  "rand",
@@ -1138,7 +1139,6 @@ name = "whirlaway"
 version = "0.1.0"
 dependencies = [
  "air",
- "multi_pcs",
  "p3-air",
  "p3-baby-bear",
  "p3-challenger",
@@ -1150,6 +1150,7 @@ dependencies = [
  "p3-symmetric",
  "p3-uni-stark",
  "p3-util",
+ "pcs",
  "rand",
  "utils",
  "whir-p3",

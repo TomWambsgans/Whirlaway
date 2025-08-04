@@ -1,7 +1,7 @@
 use ::air::table::AirTable;
-use multi_pcs::pcs::PCS;
 use p3_field::PrimeField64;
 use p3_util::log2_ceil_usize;
+use pcs::PCS;
 use utils::{PF, build_challenger};
 use whir_p3::fiat_shamir::{errors::ProofError, verifier::VerifierState};
 

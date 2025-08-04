@@ -1,7 +1,7 @@
 use ::air::{table::AirTable, witness::AirWitness};
-use multi_pcs::pcs::PCS;
 use p3_field::PrimeCharacteristicRing;
 use p3_util::log2_strict_usize;
+use pcs::PCS;
 use tracing::info_span;
 use utils::{PF, build_prover_state, padd_with_zero_to_next_power_of_two};
 use whir_p3::dft::EvalsDft;
@@ -33,25 +33,25 @@ pub fn prove_execution(
     let table = AirTable::<EF, _>::new(VMAir, UNIVARIATE_SKIPS);
     table.check_trace_validity(&witness).unwrap();
 
-    info_span!("Validity proof").in_scope(|| {
-        // 1) Commit
-        let commited_trace_polynomial = padd_with_zero_to_next_power_of_two(
-            &trace[N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS..].concat(),
-        );
-        let pcs_witness = base_pcs.commit(&dft, &mut prover_state, &commited_trace_polynomial);
+    let _validity_proof_span = info_span!("Validity proof generation").entered();
 
-        // 2) PIOP
-        let evaluations_remaining_to_prove = table.prove(&mut prover_state, witness);
+    // 1) Commit
+    let commited_trace_polynomial = padd_with_zero_to_next_power_of_two(
+        &trace[N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS..].concat(),
+    );
+    let pcs_witness = base_pcs.commit(&dft, &mut prover_state, &commited_trace_polynomial);
 
-        // 3) Open
-        base_pcs.open(
-            &dft,
-            &mut prover_state,
-            &[evaluations_remaining_to_prove[2].clone()],
-            pcs_witness,
-            &commited_trace_polynomial,
-        );
-    });
+    // 2) PIOP
+    let evaluations_remaining_to_prove = table.prove(&mut prover_state, witness);
+
+    // 3) Open
+    base_pcs.open(
+        &dft,
+        &mut prover_state,
+        &[evaluations_remaining_to_prove[2].clone()],
+        pcs_witness,
+        &commited_trace_polynomial,
+    );
 
     prover_state.proof_data().to_vec()
 }
