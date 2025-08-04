@@ -22,3 +22,4 @@ p3-symmetric.workspace = true
 p3-util.workspace = true
 whir-p3.workspace = true
 air.workspace = true
+multi_pcs.workspace = true

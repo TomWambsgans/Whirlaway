@@ -136,7 +136,7 @@ pub enum IntermediateInstruction {
         res_offset: usize,      // m[fp + res_offset] will contain the result
     },
     RequestMemory {
-        offset: ConstExpression,  // m[fp + offset] where the hint will be stored
+        offset: ConstExpression, // m[fp + offset] where the hint will be stored
         size: IntermediateValue, // the hint
         vectorized: bool, // if true, will be 8-alligned, and the returned pointer will be "divied" by 8 (i.e. everything is in chunks of 8 field elements)
     },
@@ -201,7 +201,9 @@ impl ToString for IntermediateValue {
         match self {
             IntermediateValue::Constant(value) => value.to_string(),
             IntermediateValue::Fp => "fp".to_string(),
-            IntermediateValue::MemoryAfterFp { offset } => format!("m[fp + {}]", offset.to_string()),
+            IntermediateValue::MemoryAfterFp { offset } => {
+                format!("m[fp + {}]", offset.to_string())
+            }
         }
     }
 }

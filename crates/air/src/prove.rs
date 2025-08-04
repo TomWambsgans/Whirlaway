@@ -1,22 +1,19 @@
-use multi_pcs::pcs::PCS;
 use p3_air::Air;
 use p3_field::PackedValue;
 use p3_field::{ExtensionField, TwoAdicField, cyclic_subgroup_known_order};
 use p3_uni_stark::SymbolicAirBuilder;
 use sumcheck::ProductComputation;
-use tracing::{Level, info_span, instrument, span};
+use tracing::{info_span, instrument};
 use utils::{
     ConstraintFolder, ConstraintFolderPackedBase, Evaluation, FSProver, PFPacking,
-    add_multilinears, multilinears_linear_combination, packed_multilinear,
+    add_multilinears, log2_up, multilinears_linear_combination, shift_range,
 };
 use utils::{ConstraintFolderPackedExtension, PF};
 use whir_p3::fiat_shamir::FSChallenger;
 use whir_p3::poly::evals::{eval_eq, fold_multilinear, scale_poly};
-use whir_p3::{
-    dft::EvalsDft,
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
-};
+use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
+use crate::witness::AirWitness;
 use crate::{
     uni_skip_utils::{matrix_down_folded, matrix_up_folded},
     utils::{column_down, column_up, columns_up_and_down},
@@ -41,27 +38,16 @@ where
         + for<'a> Air<ConstraintFolderPackedExtension<'a, EF>>,
 {
     #[instrument(name = "air: prove", skip_all)]
-    pub fn prove(
+    pub fn prove<'a>(
         &self,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-        witness: Vec<Vec<PF<EF>>>,
-        pcs: &impl PCS<PF<EF>, EF>,
-        dft: &EvalsDft<PF<EF>>,
-    ) {
+        witness: AirWitness<'a, PF<EF>>,
+    ) -> Vec<Evaluation<EF>> {
         assert!(
-            self.univariate_skips < self.log_length,
+            self.univariate_skips < witness.log_n_rows(),
             "TODO handle the case UNIVARIATE_SKIPS >= log_length"
         );
-        let log_length = self.log_length;
-        assert!(witness.iter().all(|w| w.num_variables() == log_length));
-
-        // 1) Commit to the witness columns
-
-        // TODO avoid cloning (use a row major matrix for the witness)
-
-        let packed_pol = packed_multilinear(&witness);
-
-        let packed_witness = pcs.commit(&dft, prover_state, &packed_pol);
+        let log_length = witness.log_n_rows();
 
         let constraints_batching_scalar = prover_state.sample();
 
@@ -74,14 +60,8 @@ where
             *challenge = prover_state.sample();
         }
 
-        let preprocessed_and_witness = self
-            .preprocessed_columns
-            .iter()
-            .chain(&witness)
-            .collect::<Vec<_>>();
-
         let columns_up_and_down_opt = if self.air.structured() {
-            Some(columns_up_and_down(&preprocessed_and_witness))
+            Some(columns_up_and_down(&witness))
         } else {
             None
         };
@@ -91,9 +71,10 @@ where
                 .as_ref()
                 .unwrap()
                 .iter()
+                .map(|c| c.as_slice())
                 .collect::<Vec<_>>()
         } else {
-            preprocessed_and_witness
+            witness.cols.clone()
         };
 
         let columns_for_zero_check = columns_for_zero_check
@@ -118,59 +99,60 @@ where
                 )
             });
 
-        if self.air.structured() {
-            self.open_structured_columns(
-                prover_state,
-                dft,
-                packed_witness,
-                &packed_pol,
-                &witness,
-                &all_inner_sums,
-                &outer_sumcheck_challenge,
-                pcs,
-            );
-        } else {
-            self.open_unstructured_columns(
-                prover_state,
-                dft,
-                packed_witness,
-                &packed_pol,
-                &witness,
-                &all_inner_sums,
-                &outer_sumcheck_challenge,
-                pcs,
-            );
+        let mut evaluations_remaining_to_prove = vec![];
+        for group in &witness.column_groups {
+            if self.air.structured() {
+                let columns = &witness.cols[group.clone()];
+                let inner_sums_up = all_inner_sums[group.clone()].to_vec();
+                let inner_sums_down =
+                    all_inner_sums[shift_range(group.clone(), self.n_columns())].to_vec();
+                evaluations_remaining_to_prove.push(self.open_structured_columns(
+                    prover_state,
+                    &columns,
+                    &inner_sums_up,
+                    &inner_sums_down,
+                    &outer_sumcheck_challenge,
+                ));
+            } else {
+                let columns = &witness.cols[group.clone()];
+                let inner_sums = &all_inner_sums[group.clone()];
+                evaluations_remaining_to_prove.push(self.open_unstructured_columns(
+                    prover_state,
+                    &columns,
+                    &inner_sums,
+                    &outer_sumcheck_challenge,
+                ));
+            }
         }
+        evaluations_remaining_to_prove
     }
 
-    fn open_unstructured_columns<Pcs: PCS<PF<EF>, EF>>(
+    #[instrument(skip_all)]
+    fn open_unstructured_columns(
         &self,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-        dft: &EvalsDft<PF<EF>>,
-        packed_witness: Pcs::Witness,
-        packed_pol: &[PF<EF>],
-        witness: &[Vec<PF<EF>>],
+        columns: &[&[PF<EF>]],
         all_inner_sums: &[EF],
-        zerocheck_challenges: &[EF],
-        pcs: &Pcs,
-    ) {
-        let span = span!(Level::INFO, "proving column MLEs for unstructured AIR").entered();
-        prover_state.add_extension_scalars(&all_inner_sums[self.n_preprocessed_columns()..]);
+        outer_sumcheck_challenge: &[EF],
+    ) -> Evaluation<EF> {
+        assert_eq!(columns.len(), all_inner_sums.len());
+        let log_n_columns = log2_up(columns.len());
+        prover_state.add_extension_scalars(all_inner_sums);
 
-        let mut columns_batching_scalars = vec![EF::ZERO; self.log_n_witness_columns()];
+        let mut columns_batching_scalars = vec![EF::ZERO; log_n_columns];
         for challenge in &mut columns_batching_scalars {
             *challenge = prover_state.sample();
         }
 
         let batched_column = multilinears_linear_combination(
-            &witness,
-            &eval_eq(&columns_batching_scalars)[..self.n_witness_columns()],
+            columns,
+            &eval_eq(&columns_batching_scalars)[..columns.len()],
         );
 
         // TODO opti
         let sub_evals = fold_multilinear(
             &batched_column,
-            &MultilinearPoint(zerocheck_challenges[1..].to_vec()),
+            &MultilinearPoint(outer_sumcheck_challenge[1..].to_vec()),
         );
 
         prover_state.add_extension_scalars(&sub_evals);
@@ -181,53 +163,42 @@ where
         }
 
         let point =
-            MultilinearPoint([epsilons.clone(), zerocheck_challenges[1..].to_vec()].concat());
+            MultilinearPoint([epsilons.clone(), outer_sumcheck_challenge[1..].to_vec()].concat());
 
         let final_value = sub_evals.evaluate(&MultilinearPoint(epsilons));
 
         prover_state.add_extension_scalar(final_value);
 
-        let statement = vec![Evaluation {
+        Evaluation {
             point: MultilinearPoint([columns_batching_scalars, point.0].concat()),
             value: final_value,
-        }];
-
-        span.exit();
-
-        pcs.open(&dft, prover_state, &statement, packed_witness, &packed_pol);
+        }
     }
 
-    fn open_structured_columns<Pcs: PCS<PF<EF>, EF>>(
+    #[instrument(skip_all)]
+    fn open_structured_columns(
         &self,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-        dft: &EvalsDft<PF<EF>>,
-        packed_witness: Pcs::Witness,
-        packed_pol: &[PF<EF>],
-        witness: &[Vec<PF<EF>>],
-        all_inner_sums: &[EF],
-        zerocheck_challenges: &[EF],
-        pcs: &Pcs,
-    ) {
-        let span = span!(
-            Level::INFO,
-            "proving column UP/DOWN MLEs for structured AIR"
-        )
-        .entered();
-
-        let inner_sums_up = &all_inner_sums[self.n_preprocessed_columns()..self.n_columns()];
-        let inner_sums_down = &all_inner_sums[self.n_columns() + self.n_preprocessed_columns()..];
+        columns: &[&[PF<EF>]],
+        inner_sums_up: &[EF],
+        inner_sums_down: &[EF],
+        outer_sumcheck_challenge: &[EF],
+    ) -> Evaluation<EF> {
+        assert_eq!(columns.len(), inner_sums_up.len());
+        assert_eq!(columns.len(), inner_sums_down.len());
+        let log_n_columns = log2_up(columns.len());
 
         prover_state.add_extension_scalars(&inner_sums_up);
         prover_state.add_extension_scalars(&inner_sums_down);
 
-        let mut columns_batching_scalars = vec![EF::ZERO; self.log_n_witness_columns()];
+        let mut columns_batching_scalars = vec![EF::ZERO; log_n_columns];
         for challenge in &mut columns_batching_scalars {
             *challenge = prover_state.sample();
         }
 
         let batched_column = multilinears_linear_combination(
-            &witness,
-            &eval_eq(&columns_batching_scalars)[..witness.len()],
+            columns,
+            &eval_eq(&columns_batching_scalars)[..columns.len()],
         );
 
         let alpha = prover_state.sample();
@@ -240,7 +211,7 @@ where
         // TODO opti
         let sub_evals = fold_multilinear(
             &batched_column_mixed,
-            &MultilinearPoint(zerocheck_challenges[1..].to_vec()),
+            &MultilinearPoint(outer_sumcheck_challenge[1..].to_vec()),
         );
 
         prover_state.add_extension_scalars(&sub_evals);
@@ -250,7 +221,7 @@ where
             *challenge = prover_state.sample();
         }
 
-        let point = [epsilons.clone(), zerocheck_challenges[1..].to_vec()].concat();
+        let point = [epsilons.clone(), outer_sumcheck_challenge[1..].to_vec()].concat();
         let mles_for_inner_sumcheck = vec![
             add_multilinears(
                 &matrix_up_folded(&point),
@@ -284,12 +255,9 @@ where
 
         let packed_value = inner_evals[1];
 
-        span.exit();
-
-        let statement = vec![Evaluation {
+        Evaluation {
             point: MultilinearPoint(final_point),
             value: packed_value,
-        }];
-        pcs.open(&dft, prover_state, &statement, packed_witness, &packed_pol);
+        }
     }
 }

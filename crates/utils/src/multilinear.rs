@@ -166,19 +166,19 @@ pub fn batch_fold_multilinear_in_small_field_packed<EF: Field + ExtensionField<P
         .collect()
 }
 
-pub fn packed_multilinear<F: Field>(pols: &[Vec<F>]) -> Vec<F> {
-    let n_vars = pols[0].num_variables();
-    assert!(pols.iter().all(|p| p.num_variables() == n_vars));
-    let packed_len = (pols.len() << n_vars).next_power_of_two();
-    let mut dst = F::zero_vec(packed_len);
-    let mut offset = 0;
-    // TODO parallelize
-    for pol in pols {
-        dst[offset..offset + pol.num_evals()].copy_from_slice(pol);
-        offset += pol.num_evals();
-    }
-    dst
-}
+// pub fn packed_multilinear<F: Field>(pols: &[Vec<F>]) -> Vec<F> {
+//     let n_vars = pols[0].num_variables();
+//     assert!(pols.iter().all(|p| p.num_variables() == n_vars));
+//     let packed_len = (pols.len() << n_vars).next_power_of_two();
+//     let mut dst = F::zero_vec(packed_len);
+//     let mut offset = 0;
+//     // TODO parallelize
+//     for pol in pols {
+//         dst[offset..offset + pol.num_evals()].copy_from_slice(pol);
+//         offset += pol.num_evals();
+//     }
+//     dst
+// }
 
 #[instrument(name = "add_multilinears", skip_all)]
 pub fn add_multilinears<F: Field>(pol1: &[F], pol2: &[F]) -> Vec<F> {
@@ -188,4 +188,11 @@ pub fn add_multilinears<F: Field>(pol1: &[F], pol2: &[F]) -> Vec<F> {
         .zip(pol2.par_iter())
         .for_each(|(a, b)| *a += *b);
     dst
+}
+
+pub fn padd_with_zero_to_next_power_of_two<F: Field>(pol: &[F]) -> Vec<F> {
+    let next_power_of_two = pol.len().next_power_of_two();
+    let mut padded = pol.to_vec();
+    padded.resize(next_power_of_two, F::ZERO);
+    padded
 }

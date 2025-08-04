@@ -2,13 +2,13 @@ use std::marker::PhantomData;
 
 use crate::*;
 use p3_field::BasedVectorSpace;
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::{
     MyMerkleCompress, MyMerkleHash, build_merkle_compress, build_merkle_hash, build_prover_state,
     build_verifier_state,
 };
 use whir_p3::{
-    poly::{evals::*, multilinear::*},
+    poly::multilinear::*,
     whir::{
         committer::{reader::*, writer::*},
         config::{FoldingFactor, SecurityAssumption, WhirConfig, WhirConfigBuilder},

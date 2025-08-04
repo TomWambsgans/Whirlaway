@@ -1,18 +1,22 @@
 use air::table::AirTable;
+use air::witness::AirWitness;
+use multi_pcs::pcs::PCS;
+use p3_air::BaseAir;
 use p3_field::PrimeField64;
 use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear};
-use p3_matrix::Matrix;
 use p3_poseidon2_air::{Poseidon2Air, RoundConstants, generate_trace_rows};
+use p3_util::log2_ceil_usize;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::fmt;
 use std::marker::PhantomData;
 use std::time::{Duration, Instant};
 use utils::{
     build_merkle_compress, build_merkle_hash, build_prover_state, build_verifier_state,
-    init_tracing,
+    init_tracing, padd_with_zero_to_next_power_of_two,
 };
 use whir_p3::dft::EvalsDft;
+use whir_p3::poly::evals::EvaluationsList;
 use whir_p3::whir::config::{FoldingFactor, SecurityAssumption, WhirConfigBuilder};
 
 const EXTENSION_DEGREE: usize = 8;
@@ -97,19 +101,18 @@ pub fn prove_poseidon2(
     >(inputs, &constants, 0)
     .transpose();
 
-    let mut witness = witness_matrix
-        .rows()
-        .map(|col| col.collect::<Vec<_>>())
+    let n_commited_columns = poseidon_air.width() - n_preprocessed_columns;
+
+    let witness_columns = (0..poseidon_air.width())
+        .map(|row| witness_matrix.values[row * n_rows..(row + 1) * n_rows].to_vec())
         .collect::<Vec<_>>();
+    let column_groups = vec![
+        0..n_preprocessed_columns,
+        n_preprocessed_columns..poseidon_air.width(),
+    ];
+    let witness = AirWitness::new(&witness_columns, &column_groups);
 
-    let preprocessed_columns = witness.drain(..n_preprocessed_columns).collect::<Vec<_>>();
-
-    let table = AirTable::<EF, _>::new(
-        poseidon_air,
-        log_n_rows,
-        univariate_skips,
-        preprocessed_columns,
-    );
+    let table = AirTable::<EF, _>::new(poseidon_air, univariate_skips);
 
     let t = Instant::now();
 
@@ -131,18 +134,46 @@ pub fn prove_poseidon2(
 
     // let pcs = RingSwitching::<F, EF, _, EXTENSION_DEGREE>::new(pcs);
     let dft = EvalsDft::new(
-        1 << (table.log_n_witness_columns() + log_n_rows + log_inv_rate
+        1 << (log2_ceil_usize(n_commited_columns) + log_n_rows + log_inv_rate
             - pcs.folding_factor.at_round(0)),
     );
 
-    table.prove(&mut prover_state, witness, &pcs, &dft);
+    let commited_trace_polynomial =
+        padd_with_zero_to_next_power_of_two(&witness_columns[n_preprocessed_columns..].concat());
+    let pcs_witness = pcs.commit(&dft, &mut prover_state, &commited_trace_polynomial);
+    let evaluations_remaining_to_prove = table.prove(&mut prover_state, witness);
+    pcs.open(
+        &dft,
+        &mut prover_state,
+        &[evaluations_remaining_to_prove[1].clone()],
+        pcs_witness,
+        &commited_trace_polynomial,
+    );
 
     let prover_time = t.elapsed();
     let time = Instant::now();
 
     let mut verifier_state = build_verifier_state(&prover_state);
-
-    table.verify(&mut verifier_state, &pcs).unwrap();
+    let parsed_commitment = pcs
+        .parse_commitment(
+            &mut verifier_state,
+            log_n_rows + log2_ceil_usize(n_commited_columns),
+        )
+        .unwrap();
+    let evaluations_remaining_to_verify = table
+        .verify(&mut verifier_state, log_n_rows, &column_groups)
+        .unwrap();
+    assert_eq!(
+        padd_with_zero_to_next_power_of_two(&witness_columns[..n_preprocessed_columns].concat())
+            .evaluate(&evaluations_remaining_to_verify[0].point),
+        evaluations_remaining_to_verify[0].value
+    );
+    pcs.verify(
+        &mut verifier_state,
+        &parsed_commitment,
+        &[evaluations_remaining_to_verify[1].clone()],
+    )
+    .unwrap();
     let verifier_time = time.elapsed();
 
     let proof_size = prover_state.proof_data().len() as f64 * (F::ORDER_U64 as f64).log2() / 8.0;

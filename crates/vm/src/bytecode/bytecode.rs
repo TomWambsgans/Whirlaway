@@ -120,7 +120,7 @@ pub enum Hint {
         res_offset: usize,  // m[fp + res_offset] will contain the result
     },
     RequestMemory {
-        offset: usize,        // m[fp + offset] where the hint will be stored
+        offset: usize,       // m[fp + offset] where the hint will be stored
         size: MemOrConstant, // the hint
         vectorized: bool,
     },

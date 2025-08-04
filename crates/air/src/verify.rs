@@ -1,12 +1,12 @@
-use multi_pcs::pcs::PCS;
 use p3_air::Air;
 use p3_field::{ExtensionField, TwoAdicField, cyclic_subgroup_known_order, dot_product};
 use p3_uni_stark::SymbolicAirBuilder;
 use std::fmt::Debug;
+use std::ops::Range;
 use sumcheck::{SumcheckComputation, SumcheckError};
 use tracing::instrument;
-use utils::Evaluation;
-use utils::{ConstraintFolder, fold_multilinear_in_large_field};
+use utils::{ConstraintFolder, shift_range};
+use utils::{Evaluation, log2_up};
 use utils::{FSVerifier, PF};
 use whir_p3::fiat_shamir::FSChallenger;
 use whir_p3::poly::evals::eval_eq;
@@ -15,7 +15,7 @@ use whir_p3::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
 };
 
-use crate::utils::{column_down, column_up, matrix_down_lde, matrix_up_lde};
+use crate::utils::{matrix_down_lde, matrix_up_lde};
 
 use super::table::AirTable;
 
@@ -50,19 +50,12 @@ impl<
     pub fn verify(
         &self,
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
-        pcs: &impl PCS<PF<EF>, EF>,
-    ) -> Result<(), AirVerifError>
-    where
-        PF<EF>: TwoAdicField,
-    {
-        let num_variables = self.log_length + self.log_n_witness_columns();
-        let parsed_commitment = pcs
-            .parse_commitment(verifier_state, num_variables)
-            .map_err(|_| AirVerifError::InvalidPcsCommitment)?;
-
+        log_n_rows: usize,
+        column_groups: &[Range<usize>],
+    ) -> Result<Vec<Evaluation<EF>>, AirVerifError> {
         let constraints_batching_scalar = verifier_state.sample();
 
-        let mut zerocheck_challenges = vec![EF::ZERO; self.log_length - self.univariate_skips + 1];
+        let mut zerocheck_challenges = vec![EF::ZERO; log_n_rows - self.univariate_skips + 1];
         for challenge in &mut zerocheck_challenges {
             *challenge = verifier_state.sample();
         }
@@ -70,7 +63,7 @@ impl<
         let (sc_sum, outer_sumcheck_challenge) = sumcheck::verify_with_univariate_skip::<EF>(
             verifier_state,
             self.constraint_degree + 1,
-            self.log_length,
+            log_n_rows,
             self.univariate_skips,
         )?;
         if sc_sum != EF::ZERO {
@@ -83,55 +76,39 @@ impl<
             .map(|s| s.evaluate(outer_sumcheck_challenge.point[0]))
             .collect::<Vec<_>>();
 
-        if self.air.structured() {
-            self.verify_structured_columns(
-                verifier_state,
-                pcs,
-                &parsed_commitment,
-                &outer_sumcheck_challenge,
-                &outer_selector_evals,
-                &zerocheck_challenges,
-                constraints_batching_scalar,
-                self.log_length,
-            )
+        let mut evaluations_remaining_to_verify = vec![];
+        let mut global_point = EF::zero_vec(if self.air.structured() {
+            2 * self.n_columns()
         } else {
-            self.verify_unstructured_columns(
-                verifier_state,
-                pcs,
-                &parsed_commitment,
-                &outer_sumcheck_challenge,
-                &outer_selector_evals,
-                &zerocheck_challenges,
-                constraints_batching_scalar,
-            )
+            self.n_columns()
+        });
+
+        for group in column_groups {
+            if self.air.structured() {
+                let (evaluation_remaining_to_verify, witness_evals_up, witness_evals_down) = self
+                    .verify_structured_columns(
+                    verifier_state,
+                    &outer_sumcheck_challenge,
+                    &outer_selector_evals,
+                    log_n_rows,
+                    group.len(),
+                )?;
+                evaluations_remaining_to_verify.push(evaluation_remaining_to_verify);
+                global_point[group.clone()].copy_from_slice(&witness_evals_up);
+                global_point[shift_range(group.clone(), self.n_columns())]
+                    .copy_from_slice(&witness_evals_down);
+            } else {
+                let (evaluation_remaining_to_verify, witness_evals) = self
+                    .verify_unstructured_columns(
+                        verifier_state,
+                        &outer_sumcheck_challenge,
+                        &outer_selector_evals,
+                        group.len(),
+                    )?;
+                evaluations_remaining_to_verify.push(evaluation_remaining_to_verify);
+                global_point[group.clone()].copy_from_slice(&witness_evals);
+            }
         }
-    }
-
-    fn verify_unstructured_columns<Pcs: PCS<PF<EF>, EF>>(
-        &self,
-        verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
-        pcs: &Pcs,
-        parsed_commitment: &Pcs::ParsedCommitment,
-        outer_sumcheck_challenge: &Evaluation<EF>,
-        outer_selector_evals: &[EF],
-        zerocheck_challenges: &[EF],
-        constraints_batching_scalar: EF,
-    ) -> Result<(), AirVerifError>
-    where
-        PF<EF>: TwoAdicField,
-    {
-        let witness_evals = verifier_state.next_extension_scalars_vec(self.n_witness_columns())?;
-        let preprocessed_evals = self
-            .preprocessed_columns
-            .iter()
-            .map(|c| {
-                fold_multilinear_in_large_field(c, &outer_selector_evals).evaluate(
-                    &MultilinearPoint(outer_sumcheck_challenge.point[1..].to_vec()),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        let global_point = [preprocessed_evals, witness_evals.clone()].concat();
 
         let global_constraint_eval = SumcheckComputation::eval(
             &self.air,
@@ -155,7 +132,20 @@ impl<
             return Err(AirVerifError::SumMismatch);
         }
 
-        let mut columns_batching_scalars = vec![EF::ZERO; self.log_n_witness_columns()];
+        Ok(evaluations_remaining_to_verify)
+    }
+
+    fn verify_unstructured_columns(
+        &self,
+        verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+        outer_sumcheck_challenge: &Evaluation<EF>,
+        outer_selector_evals: &[EF],
+        n_columns: usize,
+    ) -> Result<(Evaluation<EF>, Vec<EF>), AirVerifError> {
+        let log_n_columns = log2_up(n_columns);
+        let witness_evals = verifier_state.next_extension_scalars_vec(n_columns)?;
+
+        let mut columns_batching_scalars = vec![EF::ZERO; log_n_columns];
         for challenge in &mut columns_batching_scalars {
             *challenge = verifier_state.sample();
         }
@@ -167,7 +157,7 @@ impl<
             outer_selector_evals.iter().copied(),
         ) != dot_product::<EF, _, _>(
             witness_evals.iter().copied(),
-            eval_eq(&columns_batching_scalars)[..self.n_witness_columns()]
+            eval_eq(&columns_batching_scalars)[..n_columns]
                 .iter()
                 .copied(),
         ) {
@@ -194,83 +184,29 @@ impl<
             .concat(),
         );
 
-        let statement = vec![Evaluation {
-            point: final_point,
-            value: final_value,
-        }];
-        pcs.verify(verifier_state, &parsed_commitment, &statement)
-            .map_err(|_| AirVerifError::InvalidPcsOpening)?;
-
-        return Ok(());
+        Ok((
+            Evaluation {
+                point: final_point,
+                value: final_value,
+            },
+            witness_evals,
+        ))
     }
 
-    fn verify_structured_columns<Pcs: PCS<PF<EF>, EF>>(
+    fn verify_structured_columns(
         &self,
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
-        pcs: &Pcs,
-        parsed_commitment: &Pcs::ParsedCommitment,
         outer_sumcheck_challenge: &Evaluation<EF>,
         outer_selector_evals: &[EF],
-        zerocheck_challenges: &[EF],
-        constraints_batching_scalar: EF,
-        log_length: usize,
-    ) -> Result<(), AirVerifError>
-    where
-        PF<EF>: TwoAdicField,
-    {
-        let witness_up = verifier_state.next_extension_scalars_vec(self.n_witness_columns())?;
-        let witness_down = verifier_state.next_extension_scalars_vec(self.n_witness_columns())?;
+        log_n_rows: usize,
+        n_columns: usize,
+    ) -> Result<(Evaluation<EF>, Vec<EF>, Vec<EF>), AirVerifError> {
+        let log_n_columns = log2_up(n_columns);
 
-        let preprocessed_up = self
-            .preprocessed_columns
-            .iter()
-            .map(|c| {
-                fold_multilinear_in_large_field(&column_up(c), &outer_selector_evals).evaluate(
-                    &MultilinearPoint(outer_sumcheck_challenge.point[1..].to_vec()),
-                )
-            })
-            .collect::<Vec<_>>();
-        let preprocessed_down = self
-            .preprocessed_columns
-            .iter()
-            .map(|c| {
-                fold_multilinear_in_large_field(&column_down(c), &outer_selector_evals).evaluate(
-                    &MultilinearPoint(outer_sumcheck_challenge.point[1..].to_vec()),
-                )
-            })
-            .collect::<Vec<_>>();
+        let witness_up = verifier_state.next_extension_scalars_vec(n_columns)?;
+        let witness_down = verifier_state.next_extension_scalars_vec(n_columns)?;
 
-        let global_point = [
-            preprocessed_up,
-            witness_up.clone(),
-            preprocessed_down,
-            witness_down.clone(),
-        ]
-        .concat();
-
-        let global_constraint_eval = SumcheckComputation::eval(
-            &self.air,
-            &global_point,
-            &cyclic_subgroup_known_order(constraints_batching_scalar, self.n_constraints)
-                .collect::<Vec<_>>(),
-        );
-
-        let zerocheck_selector_evals = self
-            .univariate_selectors
-            .iter()
-            .map(|s| s.evaluate(zerocheck_challenges[0]));
-        if dot_product::<EF, _, _>(
-            zerocheck_selector_evals.clone(),
-            outer_selector_evals.iter().copied(),
-        ) * MultilinearPoint(zerocheck_challenges[1..].to_vec()).eq_poly_outside(
-            &MultilinearPoint(outer_sumcheck_challenge.point[1..].to_vec()),
-        ) * global_constraint_eval
-            != outer_sumcheck_challenge.value
-        {
-            return Err(AirVerifError::SumMismatch);
-        }
-
-        let mut columns_batching_scalars = vec![EF::ZERO; self.log_n_witness_columns()];
+        let mut columns_batching_scalars = vec![EF::ZERO; log_n_columns];
         for challenge in &mut columns_batching_scalars {
             *challenge = verifier_state.sample();
         }
@@ -284,12 +220,12 @@ impl<
             outer_selector_evals.iter().copied(),
         ) != dot_product::<EF, _, _>(
             witness_up.iter().copied(),
-            eval_eq(&columns_batching_scalars)[..self.n_witness_columns()]
+            eval_eq(&columns_batching_scalars)[..n_columns]
                 .iter()
                 .copied(),
         ) + dot_product::<EF, _, _>(
             witness_down.iter().copied(),
-            eval_eq(&columns_batching_scalars)[..self.n_witness_columns()]
+            eval_eq(&columns_batching_scalars)[..n_columns]
                 .iter()
                 .copied(),
         ) * alpha
@@ -303,7 +239,7 @@ impl<
         }
 
         let (batched_inner_sum, inner_sumcheck_challenge) =
-            sumcheck::verify::<EF>(verifier_state, log_length, 2)?;
+            sumcheck::verify::<EF>(verifier_state, log_n_rows, 2)?;
 
         if batched_inner_sum != sub_evals.evaluate(&MultilinearPoint(epsilons.clone())) {
             return Err(AirVerifError::SumMismatch);
@@ -326,13 +262,13 @@ impl<
         ]
         .concat();
 
-        let statement = vec![Evaluation {
-            point: MultilinearPoint(final_point),
-            value: expected_final_value,
-        }];
-        pcs.verify(verifier_state, &parsed_commitment, &statement)
-            .map_err(|_| AirVerifError::InvalidPcsOpening)?;
-
-        Ok(())
+        Ok((
+            Evaluation {
+                point: MultilinearPoint(final_point),
+                value: expected_final_value,
+            },
+            witness_up,
+            witness_down,
+        ))
     }
 }

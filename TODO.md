@@ -3,3 +3,4 @@
 - one can "move out" the variable of the eq(.) polynomials out of the sumcheck computation in WHIR (as done in the PIOP)
 - Extension field: dim 5/6
 - Structured AIR: often no all the columns use both up/down -> one can only provide the used columns to speed up the PIOP zerocheck
+- use RowMAjorMatrix instead of Vec<Vec> for witness

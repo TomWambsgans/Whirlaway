@@ -130,7 +130,7 @@ fn next_mle<F: Field>(point: &[F]) -> F {
         .sum()
 }
 
-pub(crate) fn columns_up_and_down<F: Field>(columns: &[&Vec<F>]) -> Vec<Vec<F>> {
+pub(crate) fn columns_up_and_down<F: Field>(columns: &[&[F]]) -> Vec<Vec<F>> {
     columns
         .par_iter()
         .map(|c| column_up(c))

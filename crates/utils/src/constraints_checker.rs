@@ -10,7 +10,7 @@ Debug purpose
 pub struct ConstraintChecker<'a, F> {
     pub main: RowMajorMatrixView<'a, F>,
     pub constraint_index: usize,
-    pub errors: Vec<usize>
+    pub errors: Vec<usize>,
 }
 
 impl<'a, F: Field> AirBuilder for ConstraintChecker<'a, F> {
