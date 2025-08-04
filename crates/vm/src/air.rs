@@ -24,14 +24,14 @@ Bytecode columns:
 
 Execution columns:
 
-11: PC
-12: FP
-13: ADDR_A
-14: ADDR_B
-15: ADDR_C
-16: VALUE_A (virtual)
-17: VALUE_B (virtual)
-18: VALUE_C (virtual)
+11: VALUE_A (virtual)
+12: VALUE_B (virtual)
+13: VALUE_C (virtual)
+14: PC
+15: FP
+16: ADDR_A
+17: ADDR_B
+18: ADDR_C
 
 */
 
@@ -73,14 +73,14 @@ impl<AB: AirBuilder> Air<AB> for VMAir {
         let juz: AB::Expr = up[9].clone().into();
         let aux: AB::Expr = up[10].clone().into();
 
-        let (pc, next_pc): (AB::Expr, AB::Expr) = (up[11].clone().into(), down[11].clone().into());
-        let (fp, next_fp): (AB::Expr, AB::Expr) = (up[12].clone().into(), down[12].clone().into());
-        let (addr_a, addr_b, addr_c): (AB::Expr, AB::Expr, AB::Expr) = (
-            up[13].clone().into(),
-            up[14].clone().into(),
-            up[15].clone().into(),
-        );
         let (value_a, value_b, value_c): (AB::Expr, AB::Expr, AB::Expr) = (
+            up[11].clone().into(),
+            up[12].clone().into(),
+            up[13].clone().into(),
+        );
+        let (pc, next_pc): (AB::Expr, AB::Expr) = (up[14].clone().into(), down[14].clone().into());
+        let (fp, next_fp): (AB::Expr, AB::Expr) = (up[15].clone().into(), down[15].clone().into());
+        let (addr_a, addr_b, addr_c): (AB::Expr, AB::Expr, AB::Expr) = (
             up[16].clone().into(),
             up[17].clone().into(),
             up[18].clone().into(),

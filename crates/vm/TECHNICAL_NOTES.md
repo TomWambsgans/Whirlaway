@@ -19,11 +19,11 @@ BYTECODE:
 EXECUTION TABLE:
 
 0..10: Initial opcodes columns
-11: PC
-12: FP
-13: ADDR_A
-14: ADDR_B
-15: ADDR_C
-16: VALUE_A (virtual)
-17: VALUE_B (virtual)
-18: VALUE_C (virtual)
+11: VALUE_A (virtual)
+12: VALUE_B (virtual)
+13: VALUE_C (virtual)
+14: PC
+15: FP
+16: ADDR_A
+17: ADDR_B
+18: ADDR_C
