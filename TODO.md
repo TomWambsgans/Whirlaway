@@ -3,6 +3,7 @@
 ## Perf
 
 - WHIR univariate skip
+- Opti recursion bytecode
 - inverse folding ordering in WHIR to enable Packing during sumcheck
 - one can "move out" the variable of the eq(.) polynomials out of the sumcheck computation in WHIR (as done in the PIOP)
 - Extension field: dim 5/6
@@ -14,4 +15,4 @@
 
 ## Not Perf
 
-- WHir batching: handle the case where the second polynomial is too small compared to the first one
+- Whir batching: handle the case where the second polynomial is too small compared to the first one

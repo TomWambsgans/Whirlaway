@@ -33,8 +33,7 @@ pub fn prove_logup_star<EF: Field>(
     table: &[PF<EF>],
     indexes: &[PF<EF>],
     values: &[PF<EF>],
-    point: &MultilinearPoint<EF>, // "r" in the paper
-    eval: EF,
+    claim: &Evaluation<EF>, // claim.point = "r" in the paper
     poly_eq_point: &[EF],
     pushforward: &[EF], // already commited
 ) -> LogupStarStatements<EF>
@@ -42,7 +41,7 @@ where
     EF: ExtensionField<PF<EF>>,
     PF<EF>: PrimeField64,
 {
-    assert_eq!(point.len(), log2_strict_usize(indexes.len()));
+    assert_eq!(claim.point.len(), log2_strict_usize(indexes.len()));
     assert!(values.len().is_power_of_two());
 
     let table_length = table.len();
@@ -71,7 +70,7 @@ where
                 None,
                 false,
                 prover_state,
-                eval,
+                claim.value,
                 None,
                 false,
             )
@@ -160,8 +159,7 @@ pub fn verify_logup_star<EF: Field>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     log_table_len: usize,
     log_indexes_len: usize,
-    point: &MultilinearPoint<EF>, // "r" in the paper
-    claimed_eval: EF,
+    claim: &Evaluation<EF>, // claim.point = "r" in the paper
 ) -> Result<LogupStarStatements<EF>, ProofError>
 where
     EF: ExtensionField<PF<EF>>,
@@ -170,7 +168,7 @@ where
     let (sum, postponed) =
         sumcheck::verify(verifier_state, log_table_len, 2).map_err(|_| ProofError::InvalidProof)?;
 
-    if sum != claimed_eval {
+    if sum != claim.value {
         return Err(ProofError::InvalidProof);
     }
 
@@ -207,7 +205,7 @@ where
     };
 
     if claim_left.value
-        != final_point_left.eq_poly_outside(point) * (EF::ONE - claim_left.point[0])
+        != final_point_left.eq_poly_outside(&claim.point) * (EF::ONE - claim_left.point[0])
             + (random_challenge - index_openined_value) * claim_left.point[0]
     {
         return Err(ProofError::InvalidProof);
@@ -234,6 +232,7 @@ where
         return Err(ProofError::InvalidProof);
     }
 
+    // these statements remained to be verified
     Ok(LogupStarStatements {
         on_indexes,
         on_table,
@@ -265,7 +264,7 @@ mod tests {
     use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
     use utils::{MyChallenger, build_poseidon16, init_tracing};
-    use whir_p3::poly::evals::{eval_eq, EvaluationsList};
+    use whir_p3::poly::evals::{EvaluationsList, eval_eq};
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, 8>;
@@ -313,28 +312,25 @@ mod tests {
         let time = std::time::Instant::now();
         let poly_eq_point = info_span!("eval_eq").in_scope(|| eval_eq(&point.0));
         let pushforward = compute_pushforward(&indexes, table_length, &poly_eq_point);
+        let claim = Evaluation {
+            point: point.clone(),
+            value: eval,
+        };
 
         prove_logup_star(
             &mut prover_state,
             &commited_table,
             &commited_indexes,
             &values,
-            &point,
-            eval,
+            &claim,
             &poly_eq_point,
             &pushforward,
         );
         println!("Proving logup_star took {} ms", time.elapsed().as_millis());
 
         let mut verifier_state = FSVerifier::new(prover_state.proof_data().to_vec(), challenger);
-        let statements = verify_logup_star(
-            &mut verifier_state,
-            log_table_len,
-            log_indexes_len,
-            &point,
-            eval,
-        )
-        .unwrap();
+        let statements =
+            verify_logup_star(&mut verifier_state, log_table_len, log_indexes_len, &claim).unwrap();
 
         assert_eq!(
             indexes.evaluate(&statements.on_indexes.point),

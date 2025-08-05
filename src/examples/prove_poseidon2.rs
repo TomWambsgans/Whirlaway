@@ -152,7 +152,7 @@ pub fn prove_poseidon2(
 
     let packed_commitment_witness = packed_pcs_commit(
         &pcs,
-        &[commited_trace_polynomial_16, commited_trace_polynomial_24],
+        &[&commited_trace_polynomial_16, &commited_trace_polynomial_24],
         &dft,
         &mut prover_state,
     );

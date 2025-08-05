@@ -140,8 +140,12 @@ pub fn prove_execution(
     );
 
     // 1) Commit A
-    let commited_main_trace = padd_with_zero_to_next_power_of_two(
-        &main_trace[N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS..].concat(),
+    let commited_pc_fp = main_trace[N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS
+        ..N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS + 2].concat();
+    let commited_memory_addreses = padd_with_zero_to_next_power_of_two(
+        &main_trace[N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS + 2
+            ..N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS + N_COMMITTED_EXEC_COLUMNS]
+            .concat(),
     );
 
     assert!(private_memory.len() % public_memory.len() == 0);
@@ -150,11 +154,12 @@ pub fn prove_execution(
         .map(|i| &private_memory[i * public_memory.len()..(i + 1) * public_memory.len()])
         .collect::<Vec<_>>();
 
-    let packed_pcs_witness = packed_pcs_commit(
+    let packed_pcs_witness_base = packed_pcs_commit(
         pcs.pcs_a(),
         &[
             vec![
-                commited_main_trace.as_slice(),
+                commited_pc_fp.as_slice(),
+                commited_memory_addreses.as_slice(),
                 commited_poseidon_16.as_slice(),
                 commited_poseidon_24.as_slice(),
             ],
@@ -187,32 +192,34 @@ pub fn prove_execution(
         &memory_poly_eq_point,
     );
 
-    // packed_pcs_commit(
-    //     pcs.pcs_b(),
-    //     &[memory_pushforward.as_slice()],
-    //     &dft,
-    //     &mut prover_state,
-    // );
+    let packed_pcs_witness_extension = packed_pcs_commit(
+        pcs.pcs_b(),
+        &[memory_pushforward.as_slice()],
+        &dft,
+        &mut prover_state,
+    );
 
-    // prove_logup_star(
-    //     &mut prover_state,
-    //     &padded_memory,
-    //     &exec_memory_indexes,
-    //     &exec_memory_values,
-    //     &main_table_evals_to_prove[1].point,
-    //     main_table_evals_to_prove[1].value,
-    //     &memory_poly_eq_point,
-    //     &memory_pushforward,
-    // );
+    let logup_star_statements = prove_logup_star(
+        &mut prover_state,
+        &padded_memory,
+        &exec_memory_indexes,
+        &exec_memory_values,
+        &main_table_evals_to_prove[1],
+        &memory_poly_eq_point,
+        &memory_pushforward,
+    );
+
+    // TODO open remaining logup_star_statements statements
 
     let private_memory_statements = vec![vec![]; n_private_memory_chunks];
 
     // 3) Open A
     let global_statements_base_polynomial = packed_pcs_global_statements(
-        &packed_pcs_witness.tree,
+        &packed_pcs_witness_base.tree,
         &[
             vec![
-                vec![main_table_evals_to_prove[2].clone()],
+                vec![main_table_evals_to_prove[2].clone()], // pc, fp
+                vec![main_table_evals_to_prove[3].clone(), logup_star_statements.on_indexes], // memory addresses
                 vec![poseidon16_evals_to_prove[1].clone()],
                 vec![poseidon24_evals_to_prove[1].clone()],
             ],
@@ -224,8 +231,8 @@ pub fn prove_execution(
         &dft,
         &mut prover_state,
         &global_statements_base_polynomial,
-        packed_pcs_witness.inner_witness,
-        &packed_pcs_witness.packed_polynomial,
+        packed_pcs_witness_base.inner_witness,
+        &packed_pcs_witness_base.packed_polynomial,
     );
 
     prover_state.proof_data().to_vec()

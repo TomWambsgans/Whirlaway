@@ -41,10 +41,12 @@ const POSEIDON_16_NULL_HASH_PTR: usize = 1; // convention (vectorized pointer of
 const POSEIDON_24_NULL_HASH_PTR: usize = 3; // convention (vectorized pointer of size 1, = the last 8 elements of poseidon_24(0))
 const PUBLIC_INPUT_START: usize = 4 * 8; // normal pointer
 
-const COLUMN_GROUPS_EXEC: [Range<usize>; 3] = [
+const COLUMN_GROUPS_EXEC: [Range<usize>; 4] = [
     0..N_INSTRUCTION_FIELDS_IN_AIR,
     N_INSTRUCTION_FIELDS_IN_AIR..N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS,
     N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS
+        ..N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS + 2, // pc, fp
+    N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS + 2
         ..N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS + N_COMMITTED_EXEC_COLUMNS,
 ];
 

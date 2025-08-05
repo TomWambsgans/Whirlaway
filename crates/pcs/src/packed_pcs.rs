@@ -22,7 +22,7 @@ pub struct MultiCommitmentWitness<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, E
 
 pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
     pcs: &Pcs,
-    polynomials: &[impl Borrow<[F]>],
+    polynomials: &[&[F]],
     dft: &EvalsDft<PF<EF>>,
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
 ) -> MultiCommitmentWitness<F, EF, Pcs> {
@@ -220,7 +220,8 @@ mod tests {
         let mut prover_state = build_prover_state();
         let dft = EvalsDft::<F>::default();
 
-        let witness = packed_pcs_commit(&pcs, &polynomials, &dft, &mut prover_state);
+        let polynomials_refs = polynomials.iter().map(|p| p.as_slice()).collect::<Vec<_>>();
+        let witness = packed_pcs_commit(&pcs, &polynomials_refs, &dft, &mut prover_state);
 
         let packed_statements =
             packed_pcs_global_statements(&witness.tree, &statements_per_polynomial);
