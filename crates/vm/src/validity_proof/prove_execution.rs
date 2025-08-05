@@ -30,6 +30,8 @@ pub fn prove_execution(
         poseidons_24,
         dot_products_ee,
         dot_products_be,
+        public_memory,
+        private_memory
     } = info_span!("Witness generation").in_scope(|| {
         let execution_result = execute_bytecode(&bytecode, &public_input, private_input);
         get_execution_trace(&bytecode, &execution_result)

@@ -8,7 +8,7 @@ use utils::{
 use whir_p3::fiat_shamir::verifier::VerifierState;
 use xmss::{WotsSecretKey, XMSS_MERKLE_HEIGHT, XmssSecretKey, random_message};
 
-use crate::{EF, F, compile_and_run};
+use crate::{EF, F, PUBLIC_INPUT_START, compile_and_run};
 
 #[test]
 fn test_fibonacci_program() {
@@ -221,10 +221,11 @@ fn test_verify_merkle_path() {
     const HEIGHT = 8;
 
     fn main() {
-        private_input_start = public_input_start + 24; // leaf + root + "neighbours_are_left bits"
-        thing_to_hash = public_input_start / 8;
+        public_input_start_ = public_input_start;
+        private_input_start = public_input_start_[0];
+        thing_to_hash = (public_input_start + 8) / 8;
         claimed_merkle_root = thing_to_hash + 1;
-        are_left = public_input_start + 16;
+        are_left = (public_input_start + 8) + 16;
         neighbours = private_input_start / 8;
         merkle_root = merkle_step(0, HEIGHT, thing_to_hash, are_left, neighbours);
         print_chunk_of_8(merkle_root);
@@ -307,6 +308,11 @@ fn test_verify_merkle_path() {
             public_input.push(F::ZERO);
         }
     }
+    public_input.insert(
+        0,
+        F::from_usize((public_input.len() + 8 + PUBLIC_INPUT_START).next_power_of_two()),
+    );
+    public_input.splice(1..1, F::zero_vec(7));
 
     compile_and_run(program, &public_input, &private_input);
 
@@ -331,9 +337,10 @@ fn test_verify_wots_signature() {
     const CHAIN_LENGTH = 8;
 
     fn main() {
-        private_input_start = public_input_start + 72; // wots public key hash + message: 8 + 64 = 72
-        wots_public_key_hash = public_input_start / 8;
-        message = public_input_start + 8;
+        public_input_start_ = public_input_start;
+        private_input_start = public_input_start_[0];
+        wots_public_key_hash = (public_input_start + 8) / 8;
+        message = public_input_start + 16;
         signature = private_input_start / 8;
         wots_public_key_recovered = recover_wots_public_key(message, signature);
         wots_public_key_hash_recovered = hash_wots_public_key(wots_public_key_recovered);
@@ -427,6 +434,12 @@ fn test_verify_wots_signature() {
         .flat_map(|digest| digest.to_vec())
         .collect::<Vec<F>>();
 
+    public_input.insert(
+        0,
+        F::from_usize((public_input.len() + 8 + PUBLIC_INPUT_START).next_power_of_two()),
+    );
+    public_input.splice(1..1, F::zero_vec(7));
+
     compile_and_run(program, &public_input, &private_input);
 
     dbg!(&public_key_hashed);
@@ -443,9 +456,10 @@ fn test_verify_xmss_signature() {
     const XMSS_MERKLE_HEIGHT = 5;
 
     fn main() {
-        private_input_start = public_input_start + 72; // wots public key hash + message: 8 + 64 = 72
-        xmss_public_key = public_input_start / 8;
-        message = public_input_start + 8;
+        public_input_start_ = public_input_start;
+        private_input_start = public_input_start_[0];
+        xmss_public_key = (public_input_start + 8) / 8;
+        message = public_input_start + 16;
         wots_signature = private_input_start / 8;
         merkle_path = wots_signature + N_CHAINS;
         xmss_public_key_recovered = verify_xmss(message, wots_signature, merkle_path);
@@ -582,6 +596,12 @@ fn test_verify_xmss_signature() {
             .map(|(is_left, _)| F::new(*is_left as u32)),
     );
 
+    public_input.insert(
+        0,
+        F::from_usize((public_input.len() + 8 + PUBLIC_INPUT_START).next_power_of_two()),
+    );
+    public_input.splice(1..1, F::zero_vec(7));
+
     compile_and_run(program, &public_input, &private_input);
 
     dbg!(xmss_secret_key.public_key().root);
@@ -605,10 +625,11 @@ fn test_aggregate_xmss_signatures() {
     const VERIF_SUCCESSFUL = 1;
 
     fn main() {
-        private_input_start = public_input_start + 160;
-        message = public_input_start;
-        xmss_public_keys = (public_input_start + N_CHAINS) / 8;
-        bitfield = public_input_start + 144; // message + N_PUBLIC_KEYS x 8
+        public_input_start_ = public_input_start;
+        private_input_start = public_input_start_[0];
+        message = public_input_start + 8;
+        xmss_public_keys = (public_input_start + N_CHAINS + 8) / 8;
+        bitfield = public_input_start + 8 + 144; // message + N_PUBLIC_KEYS x 8
 
         bitfield_counter = malloc(N_PUBLIC_KEYS + 1);
         bitfield_counter[0] = 0;
@@ -795,6 +816,12 @@ fn test_aggregate_xmss_signatures() {
         let padding = vec![F::ZERO; (8 - (private_input.len() % 8)) % 8];
         private_input.extend(padding);
     }
+
+    public_input.insert(
+        0,
+        F::from_usize((public_input.len() + 8 + PUBLIC_INPUT_START).next_power_of_two()),
+    );
+    public_input.splice(1..1, F::zero_vec(7));
 
     compile_and_run(program, &public_input, &private_input);
 }

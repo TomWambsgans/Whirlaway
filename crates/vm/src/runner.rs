@@ -222,6 +222,7 @@ pub fn execute_bytecode(
 
 pub struct ExecutionResult {
     pub no_vec_runtime_memory: usize,
+    pub public_memory_size: usize,
     pub memory: Memory,
     pub pcs: Vec<usize>,
     pub fps: Vec<usize>,
@@ -260,10 +261,8 @@ fn execute_bytecode_helper(
         memory.set(PUBLIC_INPUT_START + i, *value)?;
     }
 
-    let mut fp = PUBLIC_INPUT_START + public_input.len();
-    if fp % 8 != 0 {
-        fp += 8 - (fp % 8); // Align to 8 field elements
-    }
+    let public_memory_size = (PUBLIC_INPUT_START + public_input.len()).next_power_of_two();
+    let mut fp = public_memory_size;
 
     for (i, value) in private_input.iter().enumerate() {
         memory.set(fp + i, *value)?;
@@ -615,6 +614,7 @@ fn execute_bytecode_helper(
     let no_vec_runtime_memory = ap - initial_ap;
     Ok(ExecutionResult {
         no_vec_runtime_memory,
+        public_memory_size,
         memory,
         pcs,
         fps,
