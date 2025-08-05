@@ -46,29 +46,14 @@ pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
     }
 }
 
-pub fn packed_pcs_open<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
-    pcs: &Pcs,
-    dft: &EvalsDft<PF<EF>>,
-    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    witness: MultiCommitmentWitness<F, EF, Pcs>,
+pub fn packed_pcs_global_statements<EF: Field>(
+    tree: &TreeOfVariables,
     statements_per_polynomial: &[Vec<Evaluation<EF>>],
-) {
-    check_tree(&witness.tree, statements_per_polynomial)
-        .expect("Invalid tree structure for multi-open");
+) -> Vec<Evaluation<EF>> {
+    check_tree(&tree, statements_per_polynomial).expect("Invalid tree structure for multi-open");
 
-    let global_statements = witness.tree.root.global_statement(
-        &witness.tree.vars_per_polynomial,
-        statements_per_polynomial,
-        &[],
-    );
-
-    pcs.open(
-        dft,
-        prover_state,
-        &global_statements,
-        witness.inner_witness,
-        &witness.packed_polynomial,
-    );
+    tree.root
+        .global_statement(&tree.vars_per_polynomial, statements_per_polynomial, &[])
 }
 
 pub struct ParsedMultiCommitment<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>> {
@@ -87,29 +72,6 @@ pub fn packed_pcs_parse_commitment<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, 
         tree,
         inner_parsed_commitment,
     })
-}
-
-pub fn packed_pcs_verify<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
-    pcs: &Pcs,
-    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
-    parsed_commitment: &ParsedMultiCommitment<F, EF, Pcs>,
-    statements_per_polynomial: &[Vec<Evaluation<EF>>],
-) -> Result<(), ProofError> {
-    check_tree(&parsed_commitment.tree, statements_per_polynomial)?;
-
-    let global_statements = parsed_commitment.tree.root.global_statement(
-        &parsed_commitment.tree.vars_per_polynomial,
-        statements_per_polynomial,
-        &[],
-    );
-
-    pcs.verify(
-        verifier_state,
-        &parsed_commitment.inner_parsed_commitment,
-        &global_statements,
-    )?;
-
-    Ok(())
 }
 
 fn check_tree<EF: Field>(
@@ -260,12 +222,14 @@ mod tests {
 
         let witness = packed_pcs_commit(&pcs, &polynomials, &dft, &mut prover_state);
 
-        packed_pcs_open(
-            &pcs,
+        let packed_statements =
+            packed_pcs_global_statements(&witness.tree, &statements_per_polynomial);
+        pcs.open(
             &dft,
             &mut prover_state,
-            witness,
-            &statements_per_polynomial,
+            &packed_statements,
+            witness.inner_witness,
+            &witness.packed_polynomial,
         );
 
         let mut verifier_state = build_verifier_state(&prover_state);
@@ -273,11 +237,12 @@ mod tests {
         let parsed_commitment =
             packed_pcs_parse_commitment(&pcs, &mut verifier_state, vars_per_polynomial.to_vec())
                 .unwrap();
-        packed_pcs_verify(
-            &pcs,
+        let packed_statements =
+            packed_pcs_global_statements(&parsed_commitment.tree, &statements_per_polynomial);
+        pcs.verify(
             &mut verifier_state,
-            &parsed_commitment,
-            &statements_per_polynomial,
+            &parsed_commitment.inner_parsed_commitment,
+            &packed_statements,
         )
         .unwrap();
     }

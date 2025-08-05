@@ -1,7 +1,8 @@
 use ::air::table::AirTable;
 use p3_air::BaseAir;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
-use pcs::{BatchPCS, packed_pcs_parse_commitment, packed_pcs_verify};
+use pcs::{packed_pcs_global_statements, PCS};
+use pcs::{BatchPCS, packed_pcs_parse_commitment};
 use utils::{PF, build_challenger};
 use utils::{ToUsize, build_poseidon_16_air, build_poseidon_24_air};
 use whir_p3::fiat_shamir::{errors::ProofError, verifier::VerifierState};
@@ -65,7 +66,7 @@ pub fn verify_execution(
     ]
     .concat();
 
-    let parsed_commitment =
+    let packed_parsed_commitment =
         packed_pcs_parse_commitment(pcs.pcs_a(), &mut verifier_state, vars_per_polynomial)?;
 
     let main_table_evals_to_verify =
@@ -92,10 +93,8 @@ pub fn verify_execution(
     // TODO
     let private_memory_statements = vec![vec![]; n_private_memory_chunks];
 
-    packed_pcs_verify(
-        pcs.pcs_a(),
-        &mut verifier_state,
-        &parsed_commitment,
+    let global_statements_base_polynomial = packed_pcs_global_statements(
+        &packed_parsed_commitment.tree,
         &[
             vec![
                 vec![main_table_evals_to_verify[2].clone()],
@@ -105,6 +104,11 @@ pub fn verify_execution(
             private_memory_statements,
         ]
         .concat(),
+    );
+    pcs.pcs_a().verify(
+        &mut verifier_state,
+        &packed_parsed_commitment.inner_parsed_commitment,
+        &global_statements_base_polynomial,
     )?;
 
     Ok(())

@@ -3,7 +3,7 @@ use lookup::compute_pushforward;
 use p3_air::BaseAir;
 use p3_field::PrimeCharacteristicRing;
 use p3_util::log2_strict_usize;
-use pcs::{BatchPCS, packed_pcs_commit, packed_pcs_open};
+use pcs::{BatchPCS, PCS, packed_pcs_commit, packed_pcs_global_statements};
 use tracing::info_span;
 use utils::{
     PF, build_poseidon_16_air, build_poseidon_24_air, build_prover_state,
@@ -150,7 +150,7 @@ pub fn prove_execution(
         .map(|i| &private_memory[i * public_memory.len()..(i + 1) * public_memory.len()])
         .collect::<Vec<_>>();
 
-    let pcs_witness = packed_pcs_commit(
+    let packed_pcs_witness = packed_pcs_commit(
         pcs.pcs_a(),
         &[
             vec![
@@ -172,24 +172,20 @@ pub fn prove_execution(
 
     // Main memory lookup
     let exec_memory_indexes = padd_with_zero_to_next_power_of_two(
-        &main_trace
-            [N_INSTRUCTION_FIELDS_IN_AIR..N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS]
-            .concat(),
+        &main_trace[COL_INDEX_MEM_ADDRESS_A..=COL_INDEX_MEM_ADDRESS_C].concat(),
     );
     let poly_eq_point =
         info_span!("eval_eq for logup*").in_scope(|| eval_eq(&main_table_evals_to_prove[1].point));
     // TODO avoid this padding
     let padded_memory = padd_with_zero_to_next_power_of_two(&memory);
-    let memory_pushforward = compute_pushforward(&exec_memory_indexes, padded_memory.len(), &poly_eq_point);
+    let memory_pushforward =
+        compute_pushforward(&exec_memory_indexes, padded_memory.len(), &poly_eq_point);
 
     let private_memory_statements = vec![vec![]; n_private_memory_chunks];
 
     // 3) Open A
-    packed_pcs_open(
-        pcs.pcs_a(),
-        &dft,
-        &mut prover_state,
-        pcs_witness,
+    let global_statements_base_polynomial = packed_pcs_global_statements(
+        &packed_pcs_witness.tree,
         &[
             vec![
                 vec![main_table_evals_to_prove[2].clone()],
@@ -199,6 +195,13 @@ pub fn prove_execution(
             private_memory_statements,
         ]
         .concat(),
+    );
+    pcs.pcs_a().open(
+        &dft,
+        &mut prover_state,
+        &global_statements_base_polynomial,
+        packed_pcs_witness.inner_witness,
+        &packed_pcs_witness.packed_polynomial,
     );
 
     prover_state.proof_data().to_vec()
