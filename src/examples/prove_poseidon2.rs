@@ -3,8 +3,7 @@ use air::witness::AirWitness;
 use p3_air::BaseAir;
 use p3_field::PrimeField64;
 use p3_field::extension::BinomialExtensionField;
-use p3_koala_bear::{GenericPoseidon2LinearLayersKoalaBear, KoalaBear};
-use p3_poseidon2_air::{Poseidon2Air, RoundConstants, generate_trace_rows};
+use p3_koala_bear::KoalaBear;
 use p3_symmetric::Permutation;
 use p3_util::log2_ceil_usize;
 use pcs::{multi_commit, multi_open, parse_multi_commitment, verify_multi_commitment};
@@ -13,9 +12,10 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::time::{Duration, Instant};
 use utils::{
-    HALF_FULL_ROUNDS_16, HALF_FULL_ROUNDS_24, PARTIAL_ROUNDS_16, PARTIAL_ROUNDS_24,
-    build_merkle_compress, build_merkle_hash, build_poseidon16, build_poseidon24,
-    build_prover_state, build_verifier_state, init_tracing, padd_with_zero_to_next_power_of_two,
+    build_merkle_compress, build_merkle_hash, build_poseidon_16_air, build_poseidon_24_air,
+    build_poseidon16, build_poseidon24, build_prover_state, build_verifier_state,
+    generate_trace_poseidon_16, generate_trace_poseidon_24, init_tracing,
+    padd_with_zero_to_next_power_of_two,
 };
 use whir_p3::dft::EvalsDft;
 use whir_p3::whir::config::{FoldingFactor, SecurityAssumption, WhirConfigBuilder};
@@ -23,9 +23,6 @@ use whir_p3::whir::config::{FoldingFactor, SecurityAssumption, WhirConfigBuilder
 const EXTENSION_DEGREE: usize = 8;
 type F = KoalaBear;
 type EF = BinomialExtensionField<F, EXTENSION_DEGREE>;
-type LinearLayers = GenericPoseidon2LinearLayersKoalaBear;
-const SBOX_DEGREE: u64 = 3;
-const SBOX_REGISTERS: usize = 0;
 
 #[derive(Clone, Debug)]
 pub struct Poseidon2Benchmark {
@@ -73,31 +70,9 @@ pub fn prove_poseidon2(
     let n_poseidons_16 = 1 << log_n_poseidons_16;
     let n_poseidons_24 = 1 << log_n_poseidons_24;
 
-    let constants_16 = RoundConstants::<F, 16, HALF_FULL_ROUNDS_16, PARTIAL_ROUNDS_16>::from_rng(
-        &mut StdRng::seed_from_u64(0),
-    );
-    let constants_24 = RoundConstants::<F, 24, HALF_FULL_ROUNDS_24, PARTIAL_ROUNDS_24>::from_rng(
-        &mut StdRng::seed_from_u64(0),
-    );
+    let poseidon_air_16 = build_poseidon_16_air();
+    let poseidon_air_24 = build_poseidon_24_air();
 
-    let poseidon_air_16 = Poseidon2Air::<
-        F,
-        LinearLayers,
-        16,
-        SBOX_DEGREE,
-        SBOX_REGISTERS,
-        HALF_FULL_ROUNDS_16,
-        PARTIAL_ROUNDS_16,
-    >::new(constants_16.clone());
-    let poseidon_air_24 = Poseidon2Air::<
-        F,
-        LinearLayers,
-        24,
-        SBOX_DEGREE,
-        SBOX_REGISTERS,
-        HALF_FULL_ROUNDS_24,
-        PARTIAL_ROUNDS_24,
-    >::new(constants_24.clone());
     let n_columns_16 = poseidon_air_16.width();
     let n_columns_24 = poseidon_air_24.width();
     let log_table_area_16 = log_n_poseidons_16 + log2_ceil_usize(n_columns_16);
@@ -109,25 +84,8 @@ pub fn prove_poseidon2(
         .map(|_| std::array::from_fn(|_| rng.random()))
         .collect();
 
-    let witness_matrix_16 = generate_trace_rows::<
-        F,
-        LinearLayers,
-        16,
-        SBOX_DEGREE,
-        SBOX_REGISTERS,
-        HALF_FULL_ROUNDS_16,
-        PARTIAL_ROUNDS_16,
-    >(inputs_16, &constants_16, 0);
-
-    let witness_matrix_24 = generate_trace_rows::<
-        F,
-        LinearLayers,
-        24,
-        SBOX_DEGREE,
-        SBOX_REGISTERS,
-        HALF_FULL_ROUNDS_24,
-        PARTIAL_ROUNDS_24,
-    >(inputs_24, &constants_24, 0);
+    let witness_matrix_16 = generate_trace_poseidon_16(inputs_16);
+    let witness_matrix_24 = generate_trace_poseidon_24(inputs_24);
 
     assert_eq!(
         &witness_matrix_16.values[n_columns_16 - 16..n_columns_16],

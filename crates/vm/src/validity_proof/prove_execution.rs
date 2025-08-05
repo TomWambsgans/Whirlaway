@@ -3,7 +3,7 @@ use p3_field::PrimeCharacteristicRing;
 use p3_util::log2_strict_usize;
 use pcs::PCS;
 use tracing::info_span;
-use utils::{PF, build_prover_state, padd_with_zero_to_next_power_of_two};
+use utils::{build_poseidon_16_air, build_poseidon_24_air, build_prover_state, padd_with_zero_to_next_power_of_two, PF};
 use whir_p3::dft::EvalsDft;
 
 use crate::{
@@ -11,7 +11,6 @@ use crate::{
     bytecode::bytecode::Bytecode,
     runner::execute_bytecode,
     tracer::{ExecutionTrace, get_execution_trace},
-    validity_proof::build_poseidon_16_air,
     *,
 };
 
@@ -48,6 +47,7 @@ pub fn prove_execution(
     let _validity_proof_span = info_span!("Validity proof generation").entered();
 
     let poseidon_16_air = build_poseidon_16_air();
+    let poseidon_24_air = build_poseidon_24_air();
 
     // 1) Commit
     let commited_trace_polynomial = padd_with_zero_to_next_power_of_two(

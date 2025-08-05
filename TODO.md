@@ -6,4 +6,4 @@
 - use RowMAjorMatrix instead of Vec<Vec> for witness
 - Fill Precompile tables during bytecode execution
 - Use Univariate Skip to commit to tables with k.2^n rows (k small)
-- increase density of multi commitments -> we can almost gain 2x for commitment costs of Poseidon16
+- increase density of multi commitments -> we can almost gain 2x for commitment costs of Poseidon16 + main table

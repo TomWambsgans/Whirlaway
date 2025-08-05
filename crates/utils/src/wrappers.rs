@@ -6,18 +6,19 @@ use p3_field::PackedValue;
 use p3_field::PrimeField64;
 use p3_field::{Field, PrimeCharacteristicRing};
 use p3_koala_bear::KoalaBear;
-use p3_koala_bear::Poseidon2KoalaBear;
-use p3_poseidon2::ExternalLayerConstants;
 use p3_symmetric::CryptographicHasher;
 use p3_symmetric::PaddingFreeSponge;
 use p3_symmetric::PseudoCompressionFunction;
 use p3_symmetric::TruncatedPermutation;
-use rand::Rng;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
+
 use rayon::prelude::*;
 use whir_p3::fiat_shamir::{prover::ProverState, verifier::VerifierState};
 use whir_p3::whir::config::WhirConfigBuilder;
+
+use crate::Poseidon16;
+use crate::Poseidon24;
+use crate::build_poseidon16;
+use crate::build_poseidon24;
 
 pub type PF<F> = <F as PrimeCharacteristicRing>::PrimeSubfield;
 pub type PFPacking<F> = <PF<F> as Field>::Packing;
@@ -25,9 +26,6 @@ pub type EFPacking<EF> = <EF as ExtensionField<PF<EF>>>::ExtensionPacking;
 
 pub type FSProver<EF, Challenger> = ProverState<PF<EF>, EF, Challenger>;
 pub type FSVerifier<EF, Challenger> = VerifierState<PF<EF>, EF, Challenger>;
-
-pub type Poseidon16 = Poseidon2KoalaBear<16>;
-pub type Poseidon24 = Poseidon2KoalaBear<24>;
 
 pub type MyMerkleHash = PaddingFreeSponge<Poseidon24, 24, 16, 8>; // leaf hashing
 pub type MyMerkleCompress = TruncatedPermutation<Poseidon16, 2, 8, 16>; // 2-to-1 compression
@@ -92,42 +90,6 @@ pub const fn packing_log_width<EF: Field>() -> usize {
 
 pub const fn packing_width<EF: Field>() -> usize {
     PFPacking::<EF>::WIDTH
-}
-
-pub const HALF_FULL_ROUNDS_16: usize = 4;
-pub const PARTIAL_ROUNDS_16: usize = 20;
-
-pub fn build_poseidon16() -> Poseidon16 {
-    let mut rng = StdRng::seed_from_u64(0);
-    let beginning_full_round_constants: [[KoalaBear; 16]; HALF_FULL_ROUNDS_16] =
-        core::array::from_fn(|_| rng.random());
-    let partial_round_constants: [KoalaBear; PARTIAL_ROUNDS_16] =
-        core::array::from_fn(|_| rng.random());
-    let ending_full_round_constants: [[KoalaBear; 16]; HALF_FULL_ROUNDS_16] =
-        core::array::from_fn(|_| rng.random());
-    let external_constants = ExternalLayerConstants::new(
-        beginning_full_round_constants.to_vec(),
-        ending_full_round_constants.to_vec(),
-    );
-    Poseidon16::new(external_constants, partial_round_constants.to_vec())
-}
-
-pub const HALF_FULL_ROUNDS_24: usize = 4;
-pub const PARTIAL_ROUNDS_24: usize = 23;
-
-pub fn build_poseidon24() -> Poseidon24 {
-    let mut rng = StdRng::seed_from_u64(0);
-    let beginning_full_round_constants: [[KoalaBear; 24]; HALF_FULL_ROUNDS_24] =
-        core::array::from_fn(|_| rng.random());
-    let partial_round_constants: [KoalaBear; PARTIAL_ROUNDS_24] =
-        core::array::from_fn(|_| rng.random());
-    let ending_full_round_constants: [[KoalaBear; 24]; HALF_FULL_ROUNDS_24] =
-        core::array::from_fn(|_| rng.random());
-    let external_constants = ExternalLayerConstants::new(
-        beginning_full_round_constants.to_vec(),
-        ending_full_round_constants.to_vec(),
-    );
-    Poseidon24::new(external_constants, partial_round_constants.to_vec())
 }
 
 pub fn build_challenger() -> MyChallenger {

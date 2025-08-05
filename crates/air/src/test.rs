@@ -33,10 +33,10 @@ impl<AB: AirBuilder> Air<AB> for ExampleStructuredAir {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
         let up = main.row_slice(0).expect("The matrix is empty?");
-        let up = (*up).borrow();
+        let up: &[AB::Var] = (*up).borrow();
         assert_eq!(up.len(), N_COLUMNS);
         let down = main.row_slice(1).expect("The matrix is empty?");
-        let down = (*down).borrow();
+        let down: &[AB::Var] = (*down).borrow();
         assert_eq!(down.len(), N_COLUMNS);
 
         for j in N_PREPROCESSED_COLUMNS..N_COLUMNS {
@@ -68,7 +68,7 @@ impl<AB: AirBuilder> Air<AB> for ExampleUnstructuredAir {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
         let up = main.row_slice(0).expect("The matrix is empty?");
-        let up = (*up).borrow();
+        let up: &[AB::Var] = (*up).borrow();
         assert_eq!(up.len(), N_COLUMNS);
 
         for j in N_PREPROCESSED_COLUMNS..N_COLUMNS {

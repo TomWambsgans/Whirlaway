@@ -2,7 +2,7 @@
 
 mod examples;
 
-use crate::examples::poseidon2::prove_poseidon2;
+use crate::examples::prove_poseidon2::prove_poseidon2;
 use whir_p3::whir::config::{FoldingFactor, SecurityAssumption};
 
 fn main() {
