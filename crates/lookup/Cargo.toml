@@ -16,3 +16,4 @@ sumcheck.workspace = true
 whir-p3.workspace = true
 p3-challenger.workspace = true
 tracing.workspace = true
+p3-util.workspace = true

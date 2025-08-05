@@ -6,7 +6,7 @@ use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::KoalaBear;
 use p3_symmetric::Permutation;
 use p3_util::log2_ceil_usize;
-use pcs::{multi_commit, multi_open, parse_multi_commitment, verify_multi_commitment};
+use pcs::{packed_pcs_commit, packed_pcs_open, packed_pcs_parse_commitment, packed_pcs_verify};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::fmt;
 use std::marker::PhantomData;
@@ -150,7 +150,7 @@ pub fn prove_poseidon2(
     let commited_trace_polynomial_24 =
         padd_with_zero_to_next_power_of_two(&witness_columns_24.concat());
 
-    let commitment_witness = multi_commit(
+    let commitment_witness = packed_pcs_commit(
         &pcs,
         &[commited_trace_polynomial_16, commited_trace_polynomial_24],
         &dft,
@@ -160,7 +160,7 @@ pub fn prove_poseidon2(
     let evaluations_remaining_to_prove_16 = table_16.prove(&mut prover_state, witness_16);
     let evaluations_remaining_to_prove_24 = table_24.prove(&mut prover_state, witness_24);
 
-    multi_open(
+    packed_pcs_open(
         &pcs,
         &dft,
         &mut prover_state,
@@ -176,7 +176,7 @@ pub fn prove_poseidon2(
 
     let mut verifier_state = build_verifier_state(&prover_state);
 
-    let multi_parsed_commitment = parse_multi_commitment(
+    let multi_parsed_commitment = packed_pcs_parse_commitment(
         &pcs,
         &mut verifier_state,
         vec![log_table_area_16, log_table_area_24],
@@ -190,7 +190,7 @@ pub fn prove_poseidon2(
         .verify(&mut verifier_state, log_n_poseidons_24, &column_groups_24)
         .unwrap();
 
-    verify_multi_commitment(
+    packed_pcs_verify(
         &pcs,
         &mut verifier_state,
         &multi_parsed_commitment,

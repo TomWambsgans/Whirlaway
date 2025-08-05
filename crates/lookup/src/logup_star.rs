@@ -6,6 +6,7 @@ https://eprint.iacr.org/2025/946.pdf
 */
 
 use p3_field::{ExtensionField, Field, PrimeField64};
+use p3_util::log2_strict_usize;
 use rayon::prelude::*;
 use utils::ToUsize;
 
@@ -21,7 +22,6 @@ use whir_p3::{fiat_shamir::errors::ProofError, utils::uninitialized_vec};
 
 use crate::gkr::{prove_gkr, verify_gkr};
 
-
 #[instrument(skip_all)]
 pub fn prove_logup_star<EF: Field>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
@@ -33,6 +33,9 @@ pub fn prove_logup_star<EF: Field>(
     EF: ExtensionField<PF<EF>>,
     PF<EF>: PrimeField64,
 {
+    assert_eq!(point.len(), log2_strict_usize(indexes.len()));
+    assert!(values.len().is_power_of_two());
+
     let table_length = table.len();
     let indexes_length = indexes.len();
     let eval = values.evaluate(&point);

@@ -1,7 +1,7 @@
 use ::air::table::AirTable;
 use p3_air::BaseAir;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
-use pcs::{PCS, parse_multi_commitment, verify_multi_commitment};
+use pcs::{BatchPCS, packed_pcs_parse_commitment, packed_pcs_verify};
 use utils::{PF, build_challenger};
 use utils::{ToUsize, build_poseidon_16_air, build_poseidon_24_air};
 use whir_p3::fiat_shamir::{errors::ProofError, verifier::VerifierState};
@@ -12,7 +12,7 @@ pub fn verify_execution(
     _bytecode: &Bytecode,
     public_input: &[F],
     proof_data: Vec<PF<EF>>,
-    base_pcs: &impl PCS<PF<EF>, EF>,
+    pcs: &impl BatchPCS<PF<EF>, EF, EF>,
 ) -> Result<(), ProofError> {
     let table = AirTable::<EF, _>::new(VMAir, UNIVARIATE_SKIPS);
 
@@ -66,7 +66,7 @@ pub fn verify_execution(
     .concat();
 
     let parsed_commitment =
-        parse_multi_commitment(base_pcs, &mut verifier_state, vars_per_polynomial)?;
+        packed_pcs_parse_commitment(pcs.pcs_a(), &mut verifier_state, vars_per_polynomial)?;
 
     let main_table_evals_to_verify =
         table.verify(&mut verifier_state, log_n_cycles, &COLUMN_GROUPS_EXEC)?;
@@ -92,8 +92,8 @@ pub fn verify_execution(
     // TODO
     let private_memory_statements = vec![vec![]; n_private_memory_chunks];
 
-    verify_multi_commitment(
-        base_pcs,
+    packed_pcs_verify(
+        pcs.pcs_a(),
         &mut verifier_state,
         &parsed_commitment,
         &[

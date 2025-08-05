@@ -2,7 +2,7 @@ use ::air::{table::AirTable, witness::AirWitness};
 use p3_air::BaseAir;
 use p3_field::PrimeCharacteristicRing;
 use p3_util::log2_strict_usize;
-use pcs::{PCS, multi_commit, multi_open};
+use pcs::{BatchPCS, packed_pcs_commit, packed_pcs_open};
 use tracing::info_span;
 use utils::{
     PF, build_poseidon_16_air, build_poseidon_24_air, build_prover_state,
@@ -22,7 +22,7 @@ pub fn prove_execution(
     bytecode: &Bytecode,
     public_input: &[F],
     private_input: &[F],
-    base_pcs: &impl PCS<PF<EF>, EF>,
+    pcs: &impl BatchPCS<PF<EF>, EF, EF>,
 ) -> Vec<PF<EF>> {
     let ExecutionTrace {
         main_trace,
@@ -145,8 +145,8 @@ pub fn prove_execution(
         .map(|i| &private_memory[i * public_memory.len()..(i + 1) * public_memory.len()])
         .collect::<Vec<_>>();
 
-    let pcs_witness = multi_commit(
-        base_pcs,
+    let pcs_witness = packed_pcs_commit(
+        pcs.pcs_a(),
         &[
             vec![
                 commited_main_trace.as_slice(),
@@ -169,8 +169,8 @@ pub fn prove_execution(
     let private_memory_statements = vec![vec![]; n_private_memory_chunks];
 
     // 3) Open A
-    multi_open(
-        base_pcs,
+    packed_pcs_open(
+        pcs.pcs_a(),
         &dft,
         &mut prover_state,
         pcs_witness,

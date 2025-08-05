@@ -20,7 +20,7 @@ pub struct MultiCommitmentWitness<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, E
     pub packed_polynomial: Vec<F>,
 }
 
-pub fn multi_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
+pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
     pcs: &Pcs,
     polynomials: &[impl Borrow<[F]>],
     dft: &EvalsDft<PF<EF>>,
@@ -46,7 +46,7 @@ pub fn multi_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
     }
 }
 
-pub fn multi_open<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
+pub fn packed_pcs_open<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
     pcs: &Pcs,
     dft: &EvalsDft<PF<EF>>,
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
@@ -76,7 +76,7 @@ pub struct ParsedMultiCommitment<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF
     pub inner_parsed_commitment: Pcs::ParsedCommitment,
 }
 
-pub fn parse_multi_commitment<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
+pub fn packed_pcs_parse_commitment<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
     pcs: &Pcs,
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     vars_per_polynomial: Vec<usize>,
@@ -89,7 +89,7 @@ pub fn parse_multi_commitment<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
     })
 }
 
-pub fn verify_multi_commitment<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
+pub fn packed_pcs_verify<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
     pcs: &Pcs,
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     parsed_commitment: &ParsedMultiCommitment<F, EF, Pcs>,
@@ -258,9 +258,9 @@ mod tests {
         let mut prover_state = build_prover_state();
         let dft = EvalsDft::<F>::default();
 
-        let witness = multi_commit(&pcs, &polynomials, &dft, &mut prover_state);
+        let witness = packed_pcs_commit(&pcs, &polynomials, &dft, &mut prover_state);
 
-        multi_open(
+        packed_pcs_open(
             &pcs,
             &dft,
             &mut prover_state,
@@ -271,9 +271,9 @@ mod tests {
         let mut verifier_state = build_verifier_state(&prover_state);
 
         let parsed_commitment =
-            parse_multi_commitment(&pcs, &mut verifier_state, vars_per_polynomial.to_vec())
+            packed_pcs_parse_commitment(&pcs, &mut verifier_state, vars_per_polynomial.to_vec())
                 .unwrap();
-        verify_multi_commitment(
+        packed_pcs_verify(
             &pcs,
             &mut verifier_state,
             &parsed_commitment,

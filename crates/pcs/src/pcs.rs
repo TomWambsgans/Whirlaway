@@ -110,7 +110,6 @@ where
             .prove(dft, prover_state, whir_statements, witness, polynomial)
             .unwrap();
     }
-
     fn parse_commitment(
         &self,
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,

@@ -4,6 +4,7 @@ use crate::prove_execution::prove_execution;
 use crate::verify_execution::verify_execution;
 use crate::*;
 use p3_field::BasedVectorSpace;
+use pcs::WhirBatchPcs;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::{
     MyMerkleCompress, MyMerkleHash, build_merkle_compress, build_merkle_hash, build_prover_state,
@@ -999,7 +1000,22 @@ pub fn run_whir_verif() {
         extension_field: PhantomData::<EF>,
     };
 
+    let extension_pcs = WhirConfigBuilder {
+        folding_factor: FoldingFactor::ConstantFromSecondRound(4, 4),
+        soundness_type: SecurityAssumption::CapacityBound,
+        merkle_hash: build_merkle_hash(),
+        merkle_compress: build_merkle_compress(),
+        pow_bits: 16,
+        max_num_variables_to_send_coeffs: 6,
+        rs_domain_initial_reduction_factor: 2,
+        security_level: 128,
+        starting_log_inv_rate: 1,
+        base_field: PhantomData::<EF>,
+        extension_field: PhantomData::<EF>,
+    };
+
     let bytecode = compile_program(program_str);
-    let proof_data = prove_execution(&bytecode, &public_input, &[], &base_pcs);
-    verify_execution(&bytecode, &public_input, proof_data, &base_pcs).unwrap();
+    let batch_pcs = WhirBatchPcs(base_pcs, extension_pcs);
+    let proof_data = prove_execution(&bytecode, &public_input, &[], &batch_pcs);
+    verify_execution(&bytecode, &public_input, proof_data, &batch_pcs).unwrap();
 }

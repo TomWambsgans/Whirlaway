@@ -8,5 +8,8 @@ pub use ring_switch::*;
 
 mod combinatorics;
 
-mod multi_pcs;
-pub use multi_pcs::*;
+mod packed_pcs;
+pub use packed_pcs::*;
+
+mod batch_pcs;
+pub use batch_pcs::*;
