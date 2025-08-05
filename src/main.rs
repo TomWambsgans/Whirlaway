@@ -7,7 +7,8 @@ use whir_p3::whir::config::{FoldingFactor, SecurityAssumption};
 
 fn main() {
     let benchmark = prove_poseidon2(
-        17,
+        16,
+        16,
         4,
         FoldingFactor::ConstantFromSecondRound(7, 4),
         1,
@@ -15,7 +16,6 @@ fn main() {
         16,
         128,
         5,
-        6,
         3,
         true,
     );

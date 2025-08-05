@@ -7,10 +7,12 @@ use p3_field::PrimeField64;
 use p3_field::{Field, PrimeCharacteristicRing};
 use p3_koala_bear::KoalaBear;
 use p3_koala_bear::Poseidon2KoalaBear;
+use p3_poseidon2::ExternalLayerConstants;
 use p3_symmetric::CryptographicHasher;
 use p3_symmetric::PaddingFreeSponge;
 use p3_symmetric::PseudoCompressionFunction;
 use p3_symmetric::TruncatedPermutation;
+use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rayon::prelude::*;
@@ -92,12 +94,40 @@ pub const fn packing_width<EF: Field>() -> usize {
     PFPacking::<EF>::WIDTH
 }
 
+pub const HALF_FULL_ROUNDS_16: usize = 4;
+pub const PARTIAL_ROUNDS_16: usize = 20;
+
 pub fn build_poseidon16() -> Poseidon16 {
-    Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0))
+    let mut rng = StdRng::seed_from_u64(0);
+    let beginning_full_round_constants: [[KoalaBear; 16]; HALF_FULL_ROUNDS_16] =
+        core::array::from_fn(|_| rng.random());
+    let partial_round_constants: [KoalaBear; PARTIAL_ROUNDS_16] =
+        core::array::from_fn(|_| rng.random());
+    let ending_full_round_constants: [[KoalaBear; 16]; HALF_FULL_ROUNDS_16] =
+        core::array::from_fn(|_| rng.random());
+    let external_constants = ExternalLayerConstants::new(
+        beginning_full_round_constants.to_vec(),
+        ending_full_round_constants.to_vec(),
+    );
+    Poseidon16::new(external_constants, partial_round_constants.to_vec())
 }
 
+pub const HALF_FULL_ROUNDS_24: usize = 4;
+pub const PARTIAL_ROUNDS_24: usize = 23;
+
 pub fn build_poseidon24() -> Poseidon24 {
-    Poseidon24::new_from_rng_128(&mut StdRng::seed_from_u64(0))
+    let mut rng = StdRng::seed_from_u64(0);
+    let beginning_full_round_constants: [[KoalaBear; 24]; HALF_FULL_ROUNDS_24] =
+        core::array::from_fn(|_| rng.random());
+    let partial_round_constants: [KoalaBear; PARTIAL_ROUNDS_24] =
+        core::array::from_fn(|_| rng.random());
+    let ending_full_round_constants: [[KoalaBear; 24]; HALF_FULL_ROUNDS_24] =
+        core::array::from_fn(|_| rng.random());
+    let external_constants = ExternalLayerConstants::new(
+        beginning_full_round_constants.to_vec(),
+        ending_full_round_constants.to_vec(),
+    );
+    Poseidon24::new(external_constants, partial_round_constants.to_vec())
 }
 
 pub fn build_challenger() -> MyChallenger {
