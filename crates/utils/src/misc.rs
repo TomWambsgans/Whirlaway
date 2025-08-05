@@ -25,3 +25,7 @@ pub fn shift_range(range: Range<usize>, shift: usize) -> Range<usize> {
         end: range.end + shift,
     }
 }
+
+pub fn diff_to_next_power_of_two(n: usize) -> usize {
+    n.next_power_of_two() - n
+}

@@ -89,11 +89,11 @@ pub fn prove_poseidon2(
 
     assert_eq!(
         &witness_matrix_16.values[n_columns_16 - 16..n_columns_16],
-        build_poseidon16().permute(witness_matrix_16.values[1..17].try_into().unwrap())
+        build_poseidon16().permute(witness_matrix_16.values[0..16].try_into().unwrap())
     );
     assert_eq!(
         &witness_matrix_24.values[n_columns_24 - 24..n_columns_24],
-        build_poseidon24().permute(witness_matrix_24.values[1..25].try_into().unwrap())
+        build_poseidon24().permute(witness_matrix_24.values[0..24].try_into().unwrap())
     );
 
     let witness_matrix_16_transposed = witness_matrix_16.transpose();

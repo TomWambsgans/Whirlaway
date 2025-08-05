@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use utils::ToUsize;
 
 use crate::{
-    F,
+    F, PUBLIC_INPUT_START, ZERO_VEC_PTR,
     bytecode::{
         bytecode::{
             Bytecode, Hint, Instruction, Label, MemOrConstant, MemOrFp, MemOrFpOrConstant,
@@ -38,8 +38,6 @@ impl IntermediateInstruction {
 }
 
 struct Compiler {
-    public_input_start: usize,
-    pointer_to_zero_vector: usize,
     memory_size_per_function: BTreeMap<String, usize>,
     label_to_pc: BTreeMap<Label, usize>,
 }
@@ -59,9 +57,6 @@ pub fn compile_to_low_level_bytecode(
         .memory_size_per_function
         .get("main")
         .unwrap();
-
-    let pointer_to_zero_vector = 0; // convention
-    let public_input_start = 8;
 
     let mut label_to_pc = BTreeMap::new();
     label_to_pc.insert("@function_main".to_string(), 0);
@@ -84,8 +79,6 @@ pub fn compile_to_low_level_bytecode(
     let mut hints = BTreeMap::new();
 
     let compiler = Compiler {
-        public_input_start,
-        pointer_to_zero_vector,
         memory_size_per_function: intermediate_bytecode.memory_size_per_function,
         label_to_pc,
     };
@@ -296,7 +289,6 @@ pub fn compile_to_low_level_bytecode(
     return Ok(Bytecode {
         instructions: low_level_bytecode,
         hints,
-        public_input_start,
         starting_frame_memory,
         ending_pc,
     });
@@ -305,8 +297,8 @@ pub fn compile_to_low_level_bytecode(
 fn eval_constant_value(constant: &ConstantValue, compiler: &Compiler) -> usize {
     match constant {
         ConstantValue::Scalar(scalar) => *scalar,
-        ConstantValue::PublicInputStart => compiler.public_input_start,
-        ConstantValue::PointerToZeroVector => compiler.pointer_to_zero_vector,
+        ConstantValue::PublicInputStart => PUBLIC_INPUT_START,
+        ConstantValue::PointerToZeroVector => ZERO_VEC_PTR,
         ConstantValue::FunctionSize { function_name } => *compiler
             .memory_size_per_function
             .get(function_name)

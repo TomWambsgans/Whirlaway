@@ -136,7 +136,7 @@ pub fn get_execution_trace(
                 let addr_input_a = arg_a.read_value(&memory, fp).unwrap().to_usize();
                 let addr_input_b = arg_b.read_value(&memory, fp).unwrap().to_usize();
                 let addr_output = res.read_value(&memory, fp).unwrap().to_usize();
-                let value_a = memory.vectorized_slice(addr_input_a, 2).unwrap();
+                let value_a = memory.get_vectorized_slice(addr_input_a, 2).unwrap();
                 let value_b = memory.get_vector(addr_input_b).unwrap().to_vec();
                 poseidons_24.push(WitnessPoseidon24 {
                     addr_input_a,
@@ -154,8 +154,12 @@ pub fn get_execution_trace(
                 let addr_0 = arg0.read_value(&memory, fp).unwrap().to_usize();
                 let addr_1 = arg1.read_value(&memory, fp).unwrap().to_usize();
                 let addr_res = res.read_value(&memory, fp).unwrap().to_usize();
-                let slice_0 = memory.vectorized_slice_extension(addr_0, *size).unwrap();
-                let slice_1 = memory.vectorized_slice_extension(addr_1, *size).unwrap();
+                let slice_0 = memory
+                    .get_vectorized_slice_extension(addr_0, *size)
+                    .unwrap();
+                let slice_1 = memory
+                    .get_vectorized_slice_extension(addr_1, *size)
+                    .unwrap();
                 dot_products_ee.push(WitnessDotProductEE {
                     addr_0,
                     addr_1,
@@ -177,7 +181,9 @@ pub fn get_execution_trace(
                 let slice_base = (0..*size)
                     .map(|i| memory.get(addr_base + i).unwrap())
                     .collect::<Vec<F>>();
-                let slice_ext = memory.vectorized_slice_extension(addr_ext, *size).unwrap();
+                let slice_ext = memory
+                    .get_vectorized_slice_extension(addr_ext, *size)
+                    .unwrap();
                 dot_products_be.push(WitnessDotProductBE {
                     addr_base,
                     addr_ext,

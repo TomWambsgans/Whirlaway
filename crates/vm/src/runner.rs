@@ -7,12 +7,13 @@ use utils::build_poseidon16;
 use utils::build_poseidon24;
 use utils::pretty_integer;
 
+use crate::bytecode::bytecode::Bytecode;
 use crate::bytecode::bytecode::Hint;
 use crate::bytecode::bytecode::Instruction;
 use crate::bytecode::bytecode::MemOrConstant;
 use crate::bytecode::bytecode::MemOrFp;
 use crate::bytecode::bytecode::MemOrFpOrConstant;
-use crate::{DIMENSION, EF, F, bytecode::bytecode::Bytecode};
+use crate::*;
 use p3_field::Field;
 use p3_symmetric::Permutation;
 
@@ -136,10 +137,10 @@ impl Memory {
     }
 
     pub fn get_vector(&self, index: usize) -> Result<[F; DIMENSION], RunnerError> {
-        Ok(self.vectorized_slice(index, 1)?.try_into().unwrap())
+        Ok(self.get_vectorized_slice(index, 1)?.try_into().unwrap())
     }
 
-    pub fn vectorized_slice(&self, index: usize, len: usize) -> Result<Vec<F>, RunnerError> {
+    pub fn get_vectorized_slice(&self, index: usize, len: usize) -> Result<Vec<F>, RunnerError> {
         let mut vector = Vec::with_capacity(len * DIMENSION);
         for i in 0..len * DIMENSION {
             vector.push(self.get(index * DIMENSION + i)?);
@@ -147,7 +148,7 @@ impl Memory {
         Ok(vector)
     }
 
-    pub fn vectorized_slice_extension<EF: ExtensionField<F>>(
+    pub fn get_vectorized_slice_extension<EF: ExtensionField<F>>(
         &self,
         index: usize,
         len: usize,
@@ -169,6 +170,15 @@ impl Memory {
     }
 
     pub fn set_vector(&mut self, index: usize, value: [F; DIMENSION]) -> Result<(), RunnerError> {
+        for (i, v) in value.iter().enumerate() {
+            let idx = DIMENSION * index + i;
+            self.set(idx, *v)?;
+        }
+        Ok(())
+    }
+
+    pub fn set_vectorized_slice(&mut self, index: usize, value: &[F]) -> Result<(), RunnerError> {
+        assert!(value.len() % DIMENSION == 0);
         for (i, v) in value.iter().enumerate() {
             let idx = DIMENSION * index + i;
             self.set(idx, *v)?;
@@ -229,15 +239,28 @@ fn execute_bytecode_helper(
     let poseidon_16 = build_poseidon16(); // TODO avoid rebuilding each time
     let poseidon_24 = build_poseidon24();
 
-    for _ in 0..8 {
-        memory.0.push(Some(F::ZERO)); // For "pointer_to_zero_vector"
-    }
+    // convention
+    memory
+        .set_vector(ZERO_VEC_PTR, [F::ZERO; DIMENSION])
+        .unwrap(); // pointer_to_zero_vec
+    memory
+        .set_vectorized_slice(
+            POSEIDON_16_NULL_HASH_PTR,
+            &poseidon_16.permute([F::ZERO; 16]),
+        )
+        .unwrap();
+    memory
+        .set_vectorized_slice(
+            POSEIDON_24_NULL_HASH_PTR,
+            &poseidon_24.permute([F::ZERO; 24])[16..],
+        )
+        .unwrap();
 
     for (i, value) in public_input.iter().enumerate() {
-        memory.set(bytecode.public_input_start + i, *value)?;
+        memory.set(PUBLIC_INPUT_START + i, *value)?;
     }
 
-    let mut fp = bytecode.public_input_start + public_input.len();
+    let mut fp = PUBLIC_INPUT_START + public_input.len();
     if fp % 8 != 0 {
         fp += 8 - (fp % 8); // Align to 8 field elements
     }
@@ -542,8 +565,7 @@ fn execute_bytecode_helper(
         if !std_out.is_empty() {
             print!("{}", std_out);
         }
-        let runtime_memory_size =
-            memory.0.len() - (bytecode.public_input_start + public_input.len());
+        let runtime_memory_size = memory.0.len() - (PUBLIC_INPUT_START + public_input.len());
         println!(
             "\nBytecode size: {}",
             pretty_integer(bytecode.instructions.len())
@@ -582,7 +604,7 @@ fn execute_bytecode_helper(
         let used_memory_cells = memory
             .0
             .iter()
-            .skip(bytecode.public_input_start + public_input.len())
+            .skip(PUBLIC_INPUT_START + public_input.len())
             .filter(|&&x| x.is_some())
             .count();
         println!(

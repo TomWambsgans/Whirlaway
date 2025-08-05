@@ -455,7 +455,7 @@ mod tests {
     use p3_field::extension::BinomialExtensionField;
     use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
-    use utils::{MyChallenger, Poseidon16};
+    use utils::{MyChallenger, build_poseidon16};
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, 8>;
@@ -486,7 +486,7 @@ mod tests {
         let point = MultilinearPoint((0..log_n - 1).map(|_| rng.random()).collect::<Vec<EF>>());
         let eval = small.evaluate(&point);
 
-        let poseidon16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
+        let poseidon16 = build_poseidon16();
         let challenger = MyChallenger::new(poseidon16);
         let mut prover_state = FSProver::new(challenger.clone());
 
@@ -510,7 +510,7 @@ mod tests {
         let layer = (0..n).map(|_| rng.random()).collect::<Vec<EF>>();
         let real_quotient = sum_all_quotients(&layer);
 
-        let poseidon16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
+        let poseidon16 = build_poseidon16();
         let challenger = MyChallenger::new(poseidon16);
         let mut prover_state = FSProver::<EF, _>::new(challenger.clone());
 

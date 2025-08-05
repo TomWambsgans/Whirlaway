@@ -224,7 +224,7 @@ mod tests {
     use p3_field::extension::BinomialExtensionField;
     use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
-    use utils::{MyChallenger, Poseidon16, init_tracing};
+    use utils::{MyChallenger, build_poseidon16, init_tracing};
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, 4>;
@@ -256,7 +256,7 @@ mod tests {
         // commit to the indexes
         let commited_indexes = indexes.clone(); // Phony commitment for the example
 
-        let poseidon16 = Poseidon16::new_from_rng_128(&mut StdRng::seed_from_u64(0));
+        let poseidon16 = build_poseidon16();
 
         let challenger = MyChallenger::new(poseidon16);
 

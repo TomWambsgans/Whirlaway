@@ -3,7 +3,6 @@ use p3_symmetric::Permutation;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::{
     build_challenger, build_poseidon16, build_poseidon24, build_prover_state, build_verifier_state,
-    poseidon16_kb,
 };
 
 use whir_p3::fiat_shamir::verifier::VerifierState;
@@ -281,12 +280,17 @@ fn test_verify_merkle_path() {
     let mut private_input = vec![];
 
     let mut to_hash = leaf.clone();
+    let poseidon16 = build_poseidon16();
     for i in 0..height {
         let neighbour = random_digest(&mut rng);
         if is_left[i] {
-            to_hash = poseidon16_kb(to_hash, neighbour).0;
+            to_hash = poseidon16.permute([to_hash, neighbour].concat().try_into().unwrap())[0..8]
+                .try_into()
+                .unwrap();
         } else {
-            to_hash = poseidon16_kb(neighbour, to_hash).0;
+            to_hash = poseidon16.permute([neighbour, to_hash].concat().try_into().unwrap())[0..8]
+                .try_into()
+                .unwrap();
         }
         private_input.extend(neighbour);
     }
@@ -410,9 +414,9 @@ fn test_verify_wots_signature() {
 
     let mut rng = StdRng::seed_from_u64(0);
     let mesage = random_message(&mut rng);
-    let wots_secret_key = WotsSecretKey::random(&mut rng);
-    let signature = wots_secret_key.sign(&mesage);
-    let public_key_hashed = wots_secret_key.public_key().hash();
+    let wots_secret_key = WotsSecretKey::random(&mut rng, &build_poseidon16());
+    let signature = wots_secret_key.sign(&mesage, &build_poseidon16());
+    let public_key_hashed = wots_secret_key.public_key().hash(&build_poseidon24());
 
     let mut public_input = public_key_hashed.to_vec();
     public_input.extend(mesage.iter().map(|&x| F::new(x as u32)));
@@ -551,9 +555,10 @@ fn test_verify_xmss_signature() {
 
     let mut rng = StdRng::seed_from_u64(0);
     let mesage = random_message(&mut rng);
-    let xmss_secret_key: XmssSecretKey = XmssSecretKey::random(&mut rng);
+    let xmss_secret_key: XmssSecretKey =
+        XmssSecretKey::random(&mut rng, &build_poseidon16(), &build_poseidon24());
     let index = rng.random_range(0..1 << XMSS_MERKLE_HEIGHT);
-    let signature = xmss_secret_key.sign(&mesage, index);
+    let signature = xmss_secret_key.sign(&mesage, index, &build_poseidon16());
 
     let mut public_input = xmss_secret_key.public_key().root.to_vec();
     public_input.extend(mesage.iter().map(|&x| F::new(x as u32)));
@@ -733,7 +738,7 @@ fn test_aggregate_xmss_signatures() {
     assert!(bitfield.iter().filter(|&&x| x).count() >= 3, "change seed");
 
     let xmss_secret_keys = (0..N_PUBLIC_KEYS)
-        .map(|_| XmssSecretKey::random(&mut rng))
+        .map(|_| XmssSecretKey::random(&mut rng, &build_poseidon16(), &build_poseidon24()))
         .collect::<Vec<_>>();
     let mut xmss_public_keys = vec![];
     for xmss_secret_key in &xmss_secret_keys {
@@ -746,7 +751,7 @@ fn test_aggregate_xmss_signatures() {
         .filter_map(|(i, &bit)| {
             if bit {
                 let index = rng.random_range(0..1 << XMSS_MERKLE_HEIGHT);
-                Some(xmss_secret_keys[i].sign(&mesage, index))
+                Some(xmss_secret_keys[i].sign(&mesage, index, &build_poseidon16()))
             } else {
                 None
             }

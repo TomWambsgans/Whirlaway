@@ -8,7 +8,6 @@ pub type Label = String;
 pub struct Bytecode {
     pub instructions: Vec<Instruction>,
     pub hints: BTreeMap<usize, Vec<Hint>>, // pc -> hints
-    pub public_input_start: usize,
     pub starting_frame_memory: usize,
     pub ending_pc: usize,
 }

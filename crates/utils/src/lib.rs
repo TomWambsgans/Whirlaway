@@ -12,9 +12,6 @@ pub use univariate::*;
 mod multilinear;
 pub use multilinear::*;
 
-mod poseidon_koala_bear;
-pub use poseidon_koala_bear::*;
-
 mod packed_constraints_folder;
 pub use packed_constraints_folder::*;
 
