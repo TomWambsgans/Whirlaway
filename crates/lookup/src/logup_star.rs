@@ -15,7 +15,7 @@ use sumcheck::ProductComputation;
 use tracing::{info_span, instrument};
 use utils::{EFPacking, FSProver, FSVerifier, PF, pack_extension, packing_width};
 use whir_p3::fiat_shamir::FSChallenger;
-use whir_p3::poly::evals::{EvaluationsList, eval_eq};
+use whir_p3::poly::evals::EvaluationsList;
 use whir_p3::poly::multilinear::MultilinearPoint;
 use whir_p3::utils::parallel_clone;
 use whir_p3::{fiat_shamir::errors::ProofError, utils::uninitialized_vec};
@@ -29,6 +29,9 @@ pub fn prove_logup_star<EF: Field>(
     indexes: &[PF<EF>],
     values: &[PF<EF>],
     point: &MultilinearPoint<EF>, // "r" in the paper
+    eval: EF,
+    poly_eq_point: &[EF],
+    pushforward: &[EF], // already commited
 ) where
     EF: ExtensionField<PF<EF>>,
     PF<EF>: PrimeField64,
@@ -38,14 +41,6 @@ pub fn prove_logup_star<EF: Field>(
 
     let table_length = table.len();
     let indexes_length = indexes.len();
-    let eval = values.evaluate(&point);
-    prover_state.add_extension_scalar(eval);
-
-    let poly_eq_point = info_span!("eval_eq").in_scope(|| eval_eq(&point.0));
-    let pushforward = compute_pushforward(indexes, table_length, &poly_eq_point);
-
-    // commit to pushforward
-    // TODO
 
     let table_embedded = info_span!("embedding")
         .in_scope(|| table.par_iter().map(|&x| EF::from(x)).collect::<Vec<_>>()); // TODO avoid embedding
@@ -141,16 +136,12 @@ pub fn verify_logup_star<EF: Field>(
     log_table_len: usize,
     log_indexes_len: usize,
     point: &MultilinearPoint<EF>, // "r" in the paper
+    claimed_eval: EF,
 ) -> Result<EF, ProofError>
 where
     EF: ExtensionField<PF<EF>>,
     PF<EF>: PrimeField64,
 {
-    let claimed_eval = verifier_state.next_extension_scalar()?;
-
-    // receive commitment of pushforward
-    // TODO
-
     let (sum, postponed) =
         sumcheck::verify(verifier_state, log_table_len, 2).map_err(|_| ProofError::InvalidProof)?;
 
@@ -204,7 +195,7 @@ where
 }
 
 #[instrument(skip_all)]
-fn compute_pushforward<F: PrimeField64, EF: ExtensionField<EF>>(
+pub fn compute_pushforward<F: PrimeField64, EF: ExtensionField<EF>>(
     indexes: &[F],
     table_length: usize,
     poly_eq_point: &[EF],
@@ -227,28 +218,29 @@ mod tests {
     use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
     use utils::{MyChallenger, build_poseidon16, init_tracing};
+    use whir_p3::poly::evals::eval_eq;
 
     type F = KoalaBear;
-    type EF = BinomialExtensionField<F, 4>;
+    type EF = BinomialExtensionField<F, 8>;
 
     #[test]
     fn test_logup_star() {
         init_tracing();
 
         let log_table_len = 19;
-        let table_len = 1 << log_table_len;
+        let table_length = 1 << log_table_len;
 
         let log_indexes_len = log_table_len + 2;
         let indexes_len = 1 << log_indexes_len;
 
         let mut rng = StdRng::seed_from_u64(0);
 
-        let table = (0..table_len).map(|_| rng.random()).collect::<Vec<F>>();
+        let table = (0..table_length).map(|_| rng.random()).collect::<Vec<F>>();
 
         let mut indexes = vec![];
         let mut values = vec![];
         for _ in 0..indexes_len {
-            let index = rng.random_range(0..table_len);
+            let index = rng.random_range(0..table_length);
             indexes.push(F::from_usize(index));
             values.push(table[index]);
         }
@@ -269,20 +261,33 @@ mod tests {
         );
 
         let mut prover_state = FSProver::new(challenger.clone());
+        let eval = values.evaluate(&point);
 
         let time = std::time::Instant::now();
+        let poly_eq_point = info_span!("eval_eq").in_scope(|| eval_eq(&point.0));
+        let pushforward = compute_pushforward(&indexes, table_length, &poly_eq_point);
+
         prove_logup_star(
             &mut prover_state,
             &commited_table,
             &commited_indexes,
             &values,
             &point,
+            eval,
+            &poly_eq_point,
+            &pushforward,
         );
         println!("Proving logup_star took {} ms", time.elapsed().as_millis());
 
         let mut verifier_state = FSVerifier::new(prover_state.proof_data().to_vec(), challenger);
-        let result =
-            verify_logup_star(&mut verifier_state, log_table_len, log_indexes_len, &point).unwrap();
+        let result = verify_logup_star(
+            &mut verifier_state,
+            log_table_len,
+            log_indexes_len,
+            &point,
+            eval,
+        )
+        .unwrap();
 
         assert_eq!(result, values.evaluate(&point));
     }

@@ -1,5 +1,5 @@
 [package]
-name = "logup_star"
+name = "lookup"
 version.workspace = true
 edition.workspace = true
 

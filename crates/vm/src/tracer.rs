@@ -46,8 +46,8 @@ pub struct ExecutionTrace {
     pub poseidons_24: Vec<WitnessPoseidon24>,
     pub dot_products_ee: Vec<WitnessDotProductEE>,
     pub dot_products_be: Vec<WitnessDotProductBE>,
-    pub public_memory: Vec<F>, // includes the initial 4 * 8 "convention" fields, of length a power of two
-    pub private_memory: Vec<F>, // of length a multiple of `public_memory`
+    pub public_memory_size: usize,
+    pub memory: Vec<F>, // of length a multiple of public_memory_size
 }
 
 pub fn get_execution_trace(
@@ -208,25 +208,23 @@ pub fn get_execution_trace(
         }
     }
 
-    let public_memory = memory.0[0..execution_result.public_memory_size]
+    let mut memory = memory
+        .0
         .par_iter()
         .map(|&v| v.unwrap_or(F::ZERO))
         .collect::<Vec<F>>();
-    let mut private_memory = memory.0[execution_result.public_memory_size..]
-        .par_iter()
-        .map(|&v| v.unwrap_or(F::ZERO))
-        .collect::<Vec<F>>();
-    private_memory.resize(
-        private_memory.len().next_multiple_of(public_memory.len()),
+    memory.resize(
+        memory.len().next_multiple_of(execution_result.public_memory_size),
         F::ZERO,
     );
+   
     ExecutionTrace {
         main_trace: trace,
         poseidons_16,
         poseidons_24,
         dot_products_ee,
         dot_products_be,
-        public_memory,
-        private_memory,
+        public_memory_size: execution_result.public_memory_size,
+        memory
     }
 }

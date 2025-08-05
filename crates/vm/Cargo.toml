@@ -26,3 +26,4 @@ tracing.workspace = true
 air.workspace = true
 pcs.workspace = true
 p3-poseidon2-air.workspace = true
+lookup.workspace = true

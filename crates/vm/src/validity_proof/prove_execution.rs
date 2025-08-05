@@ -1,4 +1,5 @@
 use ::air::{table::AirTable, witness::AirWitness};
+use lookup::compute_pushforward;
 use p3_air::BaseAir;
 use p3_field::PrimeCharacteristicRing;
 use p3_util::log2_strict_usize;
@@ -9,6 +10,7 @@ use utils::{
     generate_trace_poseidon_16, generate_trace_poseidon_24, padd_with_zero_to_next_power_of_two,
 };
 use whir_p3::dft::EvalsDft;
+use whir_p3::poly::evals::eval_eq;
 
 use crate::{
     air::VMAir,
@@ -30,12 +32,15 @@ pub fn prove_execution(
         poseidons_24,
         dot_products_ee,
         dot_products_be,
-        public_memory,
-        private_memory,
+        public_memory_size,
+        memory,
     } = info_span!("Witness generation").in_scope(|| {
         let execution_result = execute_bytecode(&bytecode, &public_input, private_input);
         get_execution_trace(&bytecode, &execution_result)
     });
+
+    let public_memory = &memory[..public_memory_size];
+    let private_memory = &memory[public_memory_size..];
 
     let log_n_rows = log2_strict_usize(main_trace[0].len());
     assert!(main_trace.iter().all(|col| col.len() == (1 << log_n_rows)));
@@ -165,7 +170,18 @@ pub fn prove_execution(
     let poseidon16_evals_to_prove = table_poseidon_16.prove(&mut prover_state, witness_poseidon_16);
     let poseidon24_evals_to_prove = table_poseidon_24.prove(&mut prover_state, witness_poseidon_24);
 
-    // TODO
+    // Main memory lookup
+    let exec_memory_indexes = padd_with_zero_to_next_power_of_two(
+        &main_trace
+            [N_INSTRUCTION_FIELDS_IN_AIR..N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS]
+            .concat(),
+    );
+    let poly_eq_point =
+        info_span!("eval_eq for logup*").in_scope(|| eval_eq(&main_table_evals_to_prove[1].point));
+    // TODO avoid this padding
+    let padded_memory = padd_with_zero_to_next_power_of_two(&memory);
+    let memory_pushforward = compute_pushforward(&exec_memory_indexes, padded_memory.len(), &poly_eq_point);
+
     let private_memory_statements = vec![vec![]; n_private_memory_chunks];
 
     // 3) Open A
