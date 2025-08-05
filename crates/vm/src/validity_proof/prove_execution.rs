@@ -134,7 +134,7 @@ pub fn prove_execution(
         &witness_columns_poseidon_24[24..poseidon_24_air.width() - 24].concat(),
     );
 
-    // 1) Commit
+    // 1) Commit A
     let commited_main_trace = padd_with_zero_to_next_power_of_two(
         &main_trace[N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS..].concat(),
     );
@@ -168,7 +168,7 @@ pub fn prove_execution(
     // TODO
     let private_memory_statements = vec![vec![]; n_private_memory_chunks];
 
-    // 3) Open
+    // 3) Open A
     multi_open(
         base_pcs,
         &dft,

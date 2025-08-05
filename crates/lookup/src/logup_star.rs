@@ -21,7 +21,6 @@ use whir_p3::{fiat_shamir::errors::ProofError, utils::uninitialized_vec};
 
 use crate::gkr::{prove_gkr, verify_gkr};
 
-pub mod gkr;
 
 #[instrument(skip_all)]
 pub fn prove_logup_star<EF: Field>(
