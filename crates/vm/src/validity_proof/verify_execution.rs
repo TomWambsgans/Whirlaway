@@ -1,6 +1,6 @@
 use ::air::table::AirTable;
 use p3_air::BaseAir;
-use p3_util::log2_ceil_usize;
+use p3_util::{log2_ceil_usize, log2_strict_usize};
 use pcs::{PCS, parse_multi_commitment, verify_multi_commitment};
 use utils::{PF, build_challenger};
 use utils::{ToUsize, build_poseidon_16_air, build_poseidon_24_air};
@@ -10,7 +10,7 @@ use crate::{air::VMAir, bytecode::bytecode::Bytecode, *};
 
 pub fn verify_execution(
     _bytecode: &Bytecode,
-    _public_input: &[F],
+    public_input: &[F],
     proof_data: Vec<PF<EF>>,
     base_pcs: &impl PCS<PF<EF>, EF>,
 ) -> Result<(), ProofError> {
@@ -29,8 +29,9 @@ pub fn verify_execution(
         n_poseidons_24,
         n_dot_products_ee,
         n_dot_products_be,
+        private_memory_len,
     ] = verifier_state
-        .next_base_scalars_const::<5>()?
+        .next_base_scalars_const::<6>()?
         .into_iter()
         .map(|x| {
             if x.to_usize() > 1 << 32 {
@@ -43,13 +44,26 @@ pub fn verify_execution(
         .try_into()
         .unwrap();
 
+    let public_memory_len = (PUBLIC_INPUT_START + public_input.len()).next_power_of_two();
+    if private_memory_len % public_memory_len != 0 {
+        return Err(ProofError::InvalidProof);
+    }
+    let n_private_memory_chunks = private_memory_len / public_memory_len;
+
     let vars_main_table = log_n_cycles + log2_ceil_usize(N_COMMITTED_EXEC_COLUMNS);
     let vars_poseidon_16 =
         log2_ceil_usize(n_poseidons_16) + log2_ceil_usize(poseidon_16_air.width() - 16 * 2);
     let vars_poseidon_24 =
         log2_ceil_usize(n_poseidons_24) + log2_ceil_usize(poseidon_24_air.width() - 24 * 2);
 
-    let vars_per_polynomial = vec![vars_main_table, vars_poseidon_16, vars_poseidon_24];
+    let vars_for_private_memory =
+        vec![log2_strict_usize(public_memory_len); n_private_memory_chunks];
+
+    let vars_per_polynomial = [
+        vec![vars_main_table, vars_poseidon_16, vars_poseidon_24],
+        vars_for_private_memory,
+    ]
+    .concat();
 
     let parsed_commitment =
         parse_multi_commitment(base_pcs, &mut verifier_state, vars_per_polynomial)?;
@@ -75,15 +89,22 @@ pub fn verify_execution(
         ],
     )?;
 
+    // TODO
+    let private_memory_statements = vec![vec![]; n_private_memory_chunks];
+
     verify_multi_commitment(
         base_pcs,
         &mut verifier_state,
         &parsed_commitment,
         &[
-            vec![main_table_evals_to_verify[2].clone()],
-            vec![poseidon16_evals_to_verify[1].clone()],
-            vec![poseidon24_evals_to_verify[1].clone()],
-        ],
+            vec![
+                vec![main_table_evals_to_verify[2].clone()],
+                vec![poseidon16_evals_to_verify[1].clone()],
+                vec![poseidon24_evals_to_verify[1].clone()],
+            ],
+            private_memory_statements,
+        ]
+        .concat(),
     )?;
 
     Ok(())

@@ -31,7 +31,7 @@ pub fn prove_execution(
         dot_products_ee,
         dot_products_be,
         public_memory,
-        private_memory
+        private_memory,
     } = info_span!("Witness generation").in_scope(|| {
         let execution_result = execute_bytecode(&bytecode, &public_input, private_input);
         get_execution_trace(&bytecode, &execution_result)
@@ -47,6 +47,7 @@ pub fn prove_execution(
             poseidons_24.len(),
             dot_products_ee.len(),
             dot_products_be.len(),
+            private_memory.len(),
         ]
         .into_iter()
         .map(F::from_usize)
@@ -137,13 +138,24 @@ pub fn prove_execution(
     let commited_main_trace = padd_with_zero_to_next_power_of_two(
         &main_trace[N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS..].concat(),
     );
+
+    assert!(private_memory.len() % public_memory.len() == 0);
+    let n_private_memory_chunks = private_memory.len() / public_memory.len();
+    let private_memory_commited_chunks = (0..n_private_memory_chunks)
+        .map(|i| &private_memory[i * public_memory.len()..(i + 1) * public_memory.len()])
+        .collect::<Vec<_>>();
+
     let pcs_witness = multi_commit(
         base_pcs,
         &[
-            commited_main_trace,
-            commited_poseidon_16,
-            commited_poseidon_24,
-        ],
+            vec![
+                commited_main_trace.as_slice(),
+                commited_poseidon_16.as_slice(),
+                commited_poseidon_24.as_slice(),
+            ],
+            private_memory_commited_chunks,
+        ]
+        .concat(),
         &dft,
         &mut prover_state,
     );
@@ -153,6 +165,9 @@ pub fn prove_execution(
     let poseidon16_evals_to_prove = table_poseidon_16.prove(&mut prover_state, witness_poseidon_16);
     let poseidon24_evals_to_prove = table_poseidon_24.prove(&mut prover_state, witness_poseidon_24);
 
+    // TODO
+    let private_memory_statements = vec![vec![]; n_private_memory_chunks];
+
     // 3) Open
     multi_open(
         base_pcs,
@@ -160,10 +175,14 @@ pub fn prove_execution(
         &mut prover_state,
         pcs_witness,
         &[
-            vec![main_table_evals_to_prove[2].clone()],
-            vec![poseidon16_evals_to_prove[1].clone()],
-            vec![poseidon24_evals_to_prove[1].clone()],
-        ],
+            vec![
+                vec![main_table_evals_to_prove[2].clone()],
+                vec![poseidon16_evals_to_prove[1].clone()],
+                vec![poseidon24_evals_to_prove[1].clone()],
+            ],
+            private_memory_statements,
+        ]
+        .concat(),
     );
 
     prover_state.proof_data().to_vec()

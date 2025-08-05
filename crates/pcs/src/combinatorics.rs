@@ -1,16 +1,37 @@
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
+
 #[derive(Debug, Clone)]
 pub struct TreeOfVariables {
     pub vars_per_polynomial: Vec<usize>,
     pub root: TreeOfVariablesInner,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TreeOfVariablesInner {
     Polynomial(usize),
     Composed {
         left: Box<TreeOfVariablesInner>,
         right: Box<TreeOfVariablesInner>,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TreeNode {
+    tree: TreeOfVariablesInner,
+    var_count: usize,
+}
+
+impl PartialOrd for TreeNode {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for TreeNode {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.var_count.cmp(&other.var_count)
+    }
 }
 
 impl TreeOfVariables {
@@ -37,55 +58,56 @@ impl TreeOfVariables {
         let n = vars_per_polynomial.len();
         assert!(n > 0);
 
-        let polynomial_indices: Vec<usize> = (0..n).collect();
-        let all_trees = Self::generate_all_trees(&polynomial_indices);
-
-        let mut best_tree = None;
-        let mut min_vars = usize::MAX;
-
-        for tree in all_trees {
-            let total = tree.total_vars(&vars_per_polynomial);
-            if total < min_vars {
-                min_vars = total;
-                best_tree = Some(tree);
-            }
-        }
+        let root = Self::compute_greedy(&vars_per_polynomial);
 
         Self {
-            root: best_tree.unwrap(),
+            root,
             vars_per_polynomial,
         }
     }
 
-    fn generate_all_trees(indices: &[usize]) -> Vec<TreeOfVariablesInner> {
-        if indices.len() == 1 {
-            return vec![TreeOfVariablesInner::Polynomial(indices[0])];
-        }
-        let mut trees = Vec::new();
-        for split_point in 1..indices.len() {
-            let left_indices = &indices[0..split_point];
-            let right_indices = &indices[split_point..];
+    fn compute_greedy(vars_per_polynomial: &[usize]) -> TreeOfVariablesInner {
+        let mut heap: BinaryHeap<Reverse<TreeNode>> = vars_per_polynomial
+            .iter()
+            .enumerate()
+            .map(|(i, &var_count)| {
+                Reverse(TreeNode {
+                    tree: TreeOfVariablesInner::Polynomial(i),
+                    var_count,
+                })
+            })
+            .collect();
 
-            let left_trees = Self::generate_all_trees(left_indices);
-            let right_trees = Self::generate_all_trees(right_indices);
+        while heap.len() > 1 {
+            let Reverse(left_node) = heap.pop().unwrap();
+            let Reverse(right_node) = heap.pop().unwrap();
 
-            for left_tree in &left_trees {
-                for right_tree in &right_trees {
-                    trees.push(TreeOfVariablesInner::Composed {
-                        left: Box::new(left_tree.clone()),
-                        right: Box::new(right_tree.clone()),
-                    });
-                }
-            }
+            let combined_var_count = 1 + left_node.var_count.max(right_node.var_count);
+
+            let combined_tree = TreeOfVariablesInner::Composed {
+                left: Box::new(left_node.tree),
+                right: Box::new(right_node.tree),
+            };
+
+            heap.push(Reverse(TreeNode {
+                tree: combined_tree,
+                var_count: combined_var_count,
+            }));
         }
-        trees
+
+        heap.pop().unwrap().0.tree
     }
 }
 
 #[cfg(test)]
-#[test]
-fn test_tree_of_variables() {
-    let vars_per_polynomial = vec![2, 3, 1, 4, 7, 2, 7];
-    let tree = TreeOfVariables::compute_optimal(vars_per_polynomial.clone());
-    dbg!(&tree, tree.total_vars());
+mod tests {
+    use super::*;
+
+    #[cfg(test)]
+    #[test]
+    fn test_tree_of_variables() {
+        let vars_per_polynomial = vec![2];
+        let tree = TreeOfVariables::compute_optimal(vars_per_polynomial.clone());
+        dbg!(&tree, tree.total_vars());
+    }
 }
