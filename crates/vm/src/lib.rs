@@ -34,6 +34,8 @@ const N_MEMORY_VALUE_COLUMNS: usize = 3; // virtual (lookup into memory, with lo
 const N_COMMITTED_EXEC_COLUMNS: usize = 5;
 const COL_INDEX_MEM_ADDRESS_A: usize = 16;
 const COL_INDEX_MEM_ADDRESS_C: usize = 18;
+const COL_INDEX_MEM_VALUE_A: usize = 11;
+const COL_INDEX_MEM_VALUE_C: usize = 13;
 const ZERO_VEC_PTR: usize = 0; // convention (vectorized pointer of size 1, pointing to 8 zeros)
 const POSEIDON_16_NULL_HASH_PTR: usize = 1; // convention (vectorized pointer of size 2, = the 16 elements of poseidon_16(0))
 const POSEIDON_24_NULL_HASH_PTR: usize = 3; // convention (vectorized pointer of size 1, = the last 8 elements of poseidon_24(0))

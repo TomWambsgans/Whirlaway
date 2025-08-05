@@ -1,5 +1,5 @@
 use ::air::{table::AirTable, witness::AirWitness};
-use lookup::compute_pushforward;
+use lookup::{compute_pushforward, prove_logup_star};
 use p3_air::BaseAir;
 use p3_field::PrimeCharacteristicRing;
 use p3_util::log2_strict_usize;
@@ -174,12 +174,36 @@ pub fn prove_execution(
     let exec_memory_indexes = padd_with_zero_to_next_power_of_two(
         &main_trace[COL_INDEX_MEM_ADDRESS_A..=COL_INDEX_MEM_ADDRESS_C].concat(),
     );
-    let poly_eq_point =
+    let exec_memory_values = padd_with_zero_to_next_power_of_two(
+        &main_trace[COL_INDEX_MEM_VALUE_A..=COL_INDEX_MEM_VALUE_C].concat(),
+    );
+    let memory_poly_eq_point =
         info_span!("eval_eq for logup*").in_scope(|| eval_eq(&main_table_evals_to_prove[1].point));
     // TODO avoid this padding
     let padded_memory = padd_with_zero_to_next_power_of_two(&memory);
-    let memory_pushforward =
-        compute_pushforward(&exec_memory_indexes, padded_memory.len(), &poly_eq_point);
+    let memory_pushforward = compute_pushforward(
+        &exec_memory_indexes,
+        padded_memory.len(),
+        &memory_poly_eq_point,
+    );
+
+    // packed_pcs_commit(
+    //     pcs.pcs_b(),
+    //     &[memory_pushforward.as_slice()],
+    //     &dft,
+    //     &mut prover_state,
+    // );
+
+    // prove_logup_star(
+    //     &mut prover_state,
+    //     &padded_memory,
+    //     &exec_memory_indexes,
+    //     &exec_memory_values,
+    //     &main_table_evals_to_prove[1].point,
+    //     main_table_evals_to_prove[1].value,
+    //     &memory_poly_eq_point,
+    //     &memory_pushforward,
+    // );
 
     let private_memory_statements = vec![vec![]; n_private_memory_chunks];
 

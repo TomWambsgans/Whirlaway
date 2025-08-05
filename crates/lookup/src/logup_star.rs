@@ -8,19 +8,24 @@ https://eprint.iacr.org/2025/946.pdf
 use p3_field::{ExtensionField, Field, PrimeField64};
 use p3_util::log2_strict_usize;
 use rayon::prelude::*;
-use utils::ToUsize;
+use utils::{Evaluation, ToUsize};
 
 use p3_field::PrimeCharacteristicRing;
 use sumcheck::ProductComputation;
 use tracing::{info_span, instrument};
 use utils::{EFPacking, FSProver, FSVerifier, PF, pack_extension, packing_width};
 use whir_p3::fiat_shamir::FSChallenger;
-use whir_p3::poly::evals::EvaluationsList;
 use whir_p3::poly::multilinear::MultilinearPoint;
 use whir_p3::utils::parallel_clone;
 use whir_p3::{fiat_shamir::errors::ProofError, utils::uninitialized_vec};
 
 use crate::gkr::{prove_gkr, verify_gkr};
+
+pub struct LogupStarStatements<EF> {
+    pub on_indexes: Evaluation<EF>,
+    pub on_table: Evaluation<EF>,
+    pub on_pushforward: Vec<Evaluation<EF>>,
+}
 
 #[instrument(skip_all)]
 pub fn prove_logup_star<EF: Field>(
@@ -32,7 +37,8 @@ pub fn prove_logup_star<EF: Field>(
     eval: EF,
     poly_eq_point: &[EF],
     pushforward: &[EF], // already commited
-) where
+) -> LogupStarStatements<EF>
+where
     EF: ExtensionField<PF<EF>>,
     PF<EF>: PrimeField64,
 {
@@ -54,7 +60,7 @@ pub fn prove_logup_star<EF: Field>(
             )
         });
 
-    let (_sc_point, inner_evals, prod) =
+    let (sc_point, inner_evals, prod) =
         info_span!("logup_star sumcheck", table_length, indexes_length).in_scope(|| {
             sumcheck::prove_extension_packed::<EF, _>(
                 1,
@@ -71,13 +77,21 @@ pub fn prove_logup_star<EF: Field>(
             )
         });
 
-    // open table at sc_point
     let table_eval = inner_evals[0];
-    prover_state.add_extension_scalar(table_eval); // phony opening for now
+    prover_state.add_extension_scalar(table_eval);
+    // delayed opening
+    let on_table = Evaluation {
+        point: sc_point.clone(),
+        value: table_eval,
+    };
 
-    // open pushforward at sc_point
     let pushforwardt_eval = inner_evals[1];
-    prover_state.add_extension_scalar(pushforwardt_eval); // phony opening for now
+    prover_state.add_extension_scalar(pushforwardt_eval);
+    // delayed opening
+    let mut on_pushforward = vec![Evaluation {
+        point: sc_point.clone(),
+        value: pushforwardt_eval,
+    }];
 
     // sanity check
     assert_eq!(prod, table_eval * pushforwardt_eval);
@@ -101,7 +115,7 @@ pub fn prove_logup_star<EF: Field>(
         layer
     });
 
-    let claim_left = prove_gkr(prover_state, gkr_layer_left);
+    let (claim_left, _, eval_c_minux_indexes) = prove_gkr(prover_state, gkr_layer_left);
 
     let gkr_layer_right = info_span!("building right").in_scope(|| {
         let mut layer =
@@ -117,18 +131,29 @@ pub fn prove_logup_star<EF: Field>(
         parallel_clone(&challenge_minus_increment, &mut layer[half_len_packed..]);
         layer
     });
-    let claim_right = prove_gkr(prover_state, gkr_layer_right);
+    let (claim_right, pushforward_final_eval, _) = prove_gkr(prover_state, gkr_layer_right);
 
-    // open Indexes at claim_left.point[1..]
-    // phony opening for now
-    prover_state
-        .add_extension_scalar(indexes.evaluate(&MultilinearPoint(claim_left.point[1..].to_vec())));
+    let final_point_left = MultilinearPoint(claim_left.point[1..].to_vec());
+    let indexes_final_eval = random_challenge - eval_c_minux_indexes;
+    prover_state.add_extension_scalar(indexes_final_eval);
+    let on_indexes = Evaluation {
+        point: final_point_left,
+        value: indexes_final_eval,
+    };
 
-    // open pushforward at claim_right.point[1..]
-    // phony opening for now
-    prover_state.add_extension_scalar(
-        pushforward.evaluate(&MultilinearPoint(claim_right.point[1..].to_vec())),
-    );
+    let final_point_right = MultilinearPoint(claim_right.point[1..].to_vec());
+    prover_state.add_extension_scalar(pushforward_final_eval);
+    on_pushforward.push(Evaluation {
+        point: final_point_right,
+        value: pushforward_final_eval,
+    });
+
+    // These statements remained to be proven
+    LogupStarStatements {
+        on_indexes,
+        on_table,
+        on_pushforward,
+    }
 }
 
 pub fn verify_logup_star<EF: Field>(
@@ -137,7 +162,7 @@ pub fn verify_logup_star<EF: Field>(
     log_indexes_len: usize,
     point: &MultilinearPoint<EF>, // "r" in the paper
     claimed_eval: EF,
-) -> Result<EF, ProofError>
+) -> Result<LogupStarStatements<EF>, ProofError>
 where
     EF: ExtensionField<PF<EF>>,
     PF<EF>: PrimeField64,
@@ -149,8 +174,17 @@ where
         return Err(ProofError::InvalidProof);
     }
 
-    let table_eval = verifier_state.next_extension_scalar()?; // should be done by opening a commitment
-    let pushforward_eval = verifier_state.next_extension_scalar()?; // should be done by opening a commitment
+    let table_eval = verifier_state.next_extension_scalar()?;
+    let pushforward_eval = verifier_state.next_extension_scalar()?;
+
+    let on_table = Evaluation {
+        point: postponed.point.clone(),
+        value: table_eval,
+    };
+    let mut on_pushforward = vec![Evaluation {
+        point: postponed.point,
+        value: pushforward_eval,
+    }];
 
     if table_eval * pushforward_eval != postponed.value {
         return Err(ProofError::InvalidProof);
@@ -165,19 +199,28 @@ where
         return Err(ProofError::InvalidProof);
     }
 
-    let index_openined_value = verifier_state.next_extension_scalar()?; // Phony opening for now (at claim_left.point[1..])
+    let final_point_left = MultilinearPoint(claim_left.point[1..].to_vec());
+    let index_openined_value = verifier_state.next_extension_scalar()?;
+    let on_indexes = Evaluation {
+        point: final_point_left.clone(),
+        value: index_openined_value,
+    };
 
     if claim_left.value
-        != MultilinearPoint(claim_left.point[1..].to_vec()).eq_poly_outside(point)
-            * (EF::ONE - claim_left.point[0])
+        != final_point_left.eq_poly_outside(point) * (EF::ONE - claim_left.point[0])
             + (random_challenge - index_openined_value) * claim_left.point[0]
     {
         return Err(ProofError::InvalidProof);
     }
 
-    let pushforward_openined_value = verifier_state.next_extension_scalar()?; // Phony opening for now (at claim_right.point[1..])
+    let final_point_right = MultilinearPoint(claim_right.point[1..].to_vec());
+    let pushforward_opening_value = verifier_state.next_extension_scalar()?;
+    on_pushforward.push(Evaluation {
+        point: final_point_right.clone(),
+        value: pushforward_opening_value,
+    });
 
-    let big_endian_mle = claim_right.point[1..]
+    let big_endian_mle = final_point_right
         .iter()
         .rev()
         .enumerate()
@@ -185,13 +228,17 @@ where
         .sum::<EF>();
 
     if claim_right.value
-        != pushforward_openined_value * (EF::ONE - claim_right.point[0])
+        != pushforward_opening_value * (EF::ONE - claim_right.point[0])
             + (random_challenge - big_endian_mle) * claim_right.point[0]
     {
         return Err(ProofError::InvalidProof);
     }
 
-    Ok(claimed_eval)
+    Ok(LogupStarStatements {
+        on_indexes,
+        on_table,
+        on_pushforward,
+    })
 }
 
 #[instrument(skip_all)]
@@ -218,7 +265,7 @@ mod tests {
     use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
     use utils::{MyChallenger, build_poseidon16, init_tracing};
-    use whir_p3::poly::evals::eval_eq;
+    use whir_p3::poly::evals::{eval_eq, EvaluationsList};
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, 8>;
@@ -280,7 +327,7 @@ mod tests {
         println!("Proving logup_star took {} ms", time.elapsed().as_millis());
 
         let mut verifier_state = FSVerifier::new(prover_state.proof_data().to_vec(), challenger);
-        let result = verify_logup_star(
+        let statements = verify_logup_star(
             &mut verifier_state,
             log_table_len,
             log_indexes_len,
@@ -289,6 +336,16 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result, values.evaluate(&point));
+        assert_eq!(
+            indexes.evaluate(&statements.on_indexes.point),
+            statements.on_indexes.value
+        );
+        assert_eq!(
+            table.evaluate(&statements.on_table.point),
+            statements.on_table.value
+        );
+        for eval in &statements.on_pushforward {
+            assert_eq!(pushforward.evaluate(&eval.point), eval.value);
+        }
     }
 }
