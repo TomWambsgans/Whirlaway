@@ -8,7 +8,7 @@ use pcs::WhirBatchPcs;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::{
     MyMerkleCompress, MyMerkleHash, build_merkle_compress, build_merkle_hash, build_prover_state,
-    build_verifier_state, init_tracing,
+    build_verifier_state, 
 };
 use whir_p3::{
     dft::EvalsDft,
@@ -985,7 +985,7 @@ pub fn run_whir_verif() {
 
     // Validity Proof:
 
-    init_tracing();
+    // init_tracing();
     let base_pcs = WhirConfigBuilder {
         folding_factor: FoldingFactor::ConstantFromSecondRound(7, 4),
         soundness_type: SecurityAssumption::CapacityBound,

@@ -29,3 +29,15 @@ pub fn shift_range(range: Range<usize>, shift: usize) -> Range<usize> {
 pub fn diff_to_next_power_of_two(n: usize) -> usize {
     n.next_power_of_two() - n
 }
+
+pub fn left_mut<A>(slice: &mut [A]) -> &mut [A] {
+    assert!(slice.len() % 2 == 0);
+    let mid = slice.len() / 2;
+    &mut slice[..mid]
+}
+
+pub fn right_mut<A>(slice: &mut [A]) -> &mut [A] {
+    assert!(slice.len() % 2 == 0);
+    let mid = slice.len() / 2;
+    &mut slice[mid..]
+}

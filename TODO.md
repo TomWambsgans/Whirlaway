@@ -12,6 +12,7 @@
 - Fill Precompile tables during bytecode execution
 - Use Univariate Skip to commit to tables with k.2^n rows (k small)
 - increase density of multi commitments -> we can almost gain 2x for commitment costs of Poseidon16 + main table
+- avoid field embedding in the initial sumcheck of logup*, when table / values are in base field 
 
 ## Not Perf
 

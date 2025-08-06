@@ -77,12 +77,12 @@ pub fn prove_execution(
 
     let mut poseidon_16_data_padded = poseidons_16
         .iter()
-        .map(|w| w.hashed_data)
+        .map(|w| w.input)
         .collect::<Vec<_>>();
     poseidon_16_data_padded.resize(poseidons_16.len().next_power_of_two(), [F::ZERO; 16]);
     let mut poseidon_24_data_padded = poseidons_24
         .iter()
-        .map(|w| w.hashed_data)
+        .map(|w| w.input)
         .collect::<Vec<_>>();
     poseidon_24_data_padded.resize(poseidons_24.len().next_power_of_two(), [F::ZERO; 24]);
     let witness_matrix_poseidon_16 = generate_trace_poseidon_16(poseidon_16_data_padded);
@@ -182,9 +182,6 @@ pub fn prove_execution(
     let exec_memory_indexes = padd_with_zero_to_next_power_of_two(
         &main_trace[COL_INDEX_MEM_ADDRESS_A..=COL_INDEX_MEM_ADDRESS_C].concat(),
     );
-    let exec_memory_values = padd_with_zero_to_next_power_of_two(
-        &main_trace[COL_INDEX_MEM_VALUE_A..=COL_INDEX_MEM_VALUE_C].concat(),
-    );
     let memory_poly_eq_point =
         info_span!("eval_eq for logup*").in_scope(|| eval_eq(&main_table_evals_to_prove[1].point));
     // TODO avoid this padding
@@ -212,7 +209,6 @@ pub fn prove_execution(
         &mut prover_state,
         &padded_memory,
         &exec_memory_indexes,
-        &exec_memory_values,
         &main_table_evals_to_prove[1],
         &memory_poly_eq_point,
         &memory_pushforward,

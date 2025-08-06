@@ -28,11 +28,10 @@ pub struct LogupStarStatements<EF> {
 }
 
 #[instrument(skip_all)]
-pub fn prove_logup_star<EF: Field>(
+pub fn prove_logup_star<IF: Field, EF: ExtensionField<IF>>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    table: &[PF<EF>],
+    table: &[IF],
     indexes: &[PF<EF>],
-    values: &[PF<EF>],
     claim: &Evaluation<EF>, // claim.point = "r" in the paper
     poly_eq_point: &[EF],
     pushforward: &[EF], // already commited
@@ -42,13 +41,12 @@ where
     PF<EF>: PrimeField64,
 {
     assert_eq!(claim.point.len(), log2_strict_usize(indexes.len()));
-    assert!(values.len().is_power_of_two());
 
     let table_length = table.len();
     let indexes_length = indexes.len();
 
     let table_embedded = info_span!("embedding")
-        .in_scope(|| table.par_iter().map(|&x| EF::from(x)).collect::<Vec<_>>()); // TODO avoid embedding
+        .in_scope(|| table.par_iter().map(|&x| EF::from(x)).collect::<Vec<_>>());
 
     let (table_embedded_packed, poly_eq_point_packed, pushforward_packed) = info_span!("packing")
         .in_scope(|| {
@@ -321,7 +319,6 @@ mod tests {
             &mut prover_state,
             &commited_table,
             &commited_indexes,
-            &values,
             &claim,
             &poly_eq_point,
             &pushforward,

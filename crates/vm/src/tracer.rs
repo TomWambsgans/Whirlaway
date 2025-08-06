@@ -30,14 +30,16 @@ pub struct WitnessPoseidon16 {
     pub addr_input_a: usize, // vectorized pointer (of size 1)
     pub addr_input_b: usize, // vectorized pointer (of size 1)
     pub addr_output: usize,  // vectorized pointer (of size 2)
-    pub hashed_data: [F; 16],
+    pub input: [F; 16],
+    pub output: [F; 16],
 }
 
 pub struct WitnessPoseidon24 {
     pub addr_input_a: usize, // vectorized pointer (of size 2)
     pub addr_input_b: usize, // vectorized pointer (of size 1)
     pub addr_output: usize,  // vectorized pointer (of size 1)
-    pub hashed_data: [F; 24],
+    pub input: [F; 24],
+    pub output: [F; 8], // last 8 elements of the output
 }
 
 pub struct ExecutionTrace {
@@ -128,11 +130,13 @@ pub fn get_execution_trace(
                 let addr_output = res.read_value(&memory, fp).unwrap().to_usize();
                 let value_a = memory.get_vector(addr_input_a).unwrap();
                 let value_b = memory.get_vector(addr_input_b).unwrap();
+                let output = memory.get_vectorized_slice(addr_output, 2).unwrap();
                 poseidons_16.push(WitnessPoseidon16 {
                     addr_input_a,
                     addr_input_b,
                     addr_output,
-                    hashed_data: [value_a, value_b].concat().try_into().unwrap(),
+                    input: [value_a, value_b].concat().try_into().unwrap(),
+                    output: output.try_into().unwrap(),
                 });
             }
             Instruction::Poseidon2_24 { arg_a, arg_b, res } => {
@@ -141,11 +145,13 @@ pub fn get_execution_trace(
                 let addr_output = res.read_value(&memory, fp).unwrap().to_usize();
                 let value_a = memory.get_vectorized_slice(addr_input_a, 2).unwrap();
                 let value_b = memory.get_vector(addr_input_b).unwrap().to_vec();
+                let output = memory.get_vector(addr_output).unwrap();
                 poseidons_24.push(WitnessPoseidon24 {
                     addr_input_a,
                     addr_input_b,
                     addr_output,
-                    hashed_data: [value_a, value_b].concat().try_into().unwrap(),
+                    input: [value_a, value_b].concat().try_into().unwrap(),
+                    output,
                 });
             }
             Instruction::DotProductExtensionExtension {

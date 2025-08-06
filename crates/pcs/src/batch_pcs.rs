@@ -1,7 +1,6 @@
 use crate::pcs::PCS;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
-use p3_util::log2_strict_usize;
 use serde::{Deserialize, Serialize};
 use utils::{Evaluation, FSProver, FSVerifier, PF, PFPacking};
 use whir_p3::{
