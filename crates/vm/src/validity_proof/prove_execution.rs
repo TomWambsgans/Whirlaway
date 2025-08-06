@@ -6,11 +6,12 @@ use p3_util::log2_strict_usize;
 use pcs::{BatchPCS, PCS, packed_pcs_commit, packed_pcs_global_statements};
 use tracing::info_span;
 use utils::{
-    PF, build_poseidon_16_air, build_poseidon_24_air, build_prover_state,
+    Evaluation, PF, build_poseidon_16_air, build_poseidon_24_air, build_prover_state,
     generate_trace_poseidon_16, generate_trace_poseidon_24, padd_with_zero_to_next_power_of_two,
 };
 use whir_p3::dft::EvalsDft;
 use whir_p3::poly::evals::eval_eq;
+use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
 use crate::{
     air::VMAir,
@@ -141,7 +142,8 @@ pub fn prove_execution(
 
     // 1) Commit A
     let commited_pc_fp = main_trace[N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS
-        ..N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS + 2].concat();
+        ..N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS + 2]
+        .concat();
     let commited_memory_addreses = padd_with_zero_to_next_power_of_two(
         &main_trace[N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS + 2
             ..N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS + N_COMMITTED_EXEC_COLUMNS]
@@ -163,7 +165,7 @@ pub fn prove_execution(
                 commited_poseidon_16.as_slice(),
                 commited_poseidon_24.as_slice(),
             ],
-            private_memory_commited_chunks,
+            private_memory_commited_chunks.clone(),
         ]
         .concat(),
         &dft,
@@ -191,6 +193,8 @@ pub fn prove_execution(
         padded_memory.len(),
         &memory_poly_eq_point,
     );
+    let log_padded_memory = log2_strict_usize(padded_memory.len());
+    let log_public_memory = log2_strict_usize(public_memory_size);
 
     let packed_pcs_witness_extension = packed_pcs_commit(
         pcs.pcs_b(),
@@ -209,9 +213,27 @@ pub fn prove_execution(
         &memory_pushforward,
     );
 
-    // TODO open remaining logup_star_statements statements
+    // open memory at point logup_star_statements.on_table.point
+    let private_memory_chunk_point = MultilinearPoint(
+        logup_star_statements.on_table.point[log_padded_memory - log_public_memory..].to_vec(),
+    );
+    let mut private_memory_statements = vec![];
+    for private_memory_chunk in &private_memory_commited_chunks {
+        let chunk_eval = private_memory_chunk.evaluate(&private_memory_chunk_point);
+        private_memory_statements.push(chunk_eval);
+    }
+    prover_state.add_extension_scalars(&private_memory_statements);
+    let private_memory_statements = private_memory_statements
+        .into_iter()
+        .map(|value| {
+            vec![Evaluation {
+                point: private_memory_chunk_point.clone(),
+                value,
+            }]
+        })
+        .collect::<Vec<_>>();
 
-    let private_memory_statements = vec![vec![]; n_private_memory_chunks];
+    // TODO open remaining logup_star_statements statements
 
     // 3) Open A
     let global_statements_base_polynomial = packed_pcs_global_statements(
@@ -219,7 +241,10 @@ pub fn prove_execution(
         &[
             vec![
                 vec![main_table_evals_to_prove[2].clone()], // pc, fp
-                vec![main_table_evals_to_prove[3].clone(), logup_star_statements.on_indexes], // memory addresses
+                vec![
+                    main_table_evals_to_prove[3].clone(),
+                    logup_star_statements.on_indexes,
+                ], // memory addresses
                 vec![poseidon16_evals_to_prove[1].clone()],
                 vec![poseidon24_evals_to_prove[1].clone()],
             ],
