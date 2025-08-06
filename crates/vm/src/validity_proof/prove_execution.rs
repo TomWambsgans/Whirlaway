@@ -2,8 +2,8 @@ use ::air::{table::AirTable, witness::AirWitness};
 use lookup::{compute_pushforward, prove_logup_star};
 use p3_air::BaseAir;
 use p3_field::PrimeCharacteristicRing;
-use p3_util::log2_strict_usize;
-use pcs::{BatchPCS, PCS, packed_pcs_commit, packed_pcs_global_statements};
+use p3_util::{log2_ceil_usize, log2_strict_usize};
+use pcs::{BatchPCS, packed_pcs_commit, packed_pcs_global_statements};
 use tracing::info_span;
 use utils::{
     Evaluation, PF, build_poseidon_16_air, build_poseidon_24_air, build_prover_state,
@@ -140,7 +140,7 @@ pub fn prove_execution(
         &witness_columns_poseidon_24[24..poseidon_24_air.width() - 24].concat(),
     );
 
-    // 1) Commit A
+    // Commit A
     let commited_pc_fp = main_trace[N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS
         ..N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS + 2]
         .concat();
@@ -156,6 +156,7 @@ pub fn prove_execution(
         .map(|i| &private_memory[i * public_memory.len()..(i + 1) * public_memory.len()])
         .collect::<Vec<_>>();
 
+    // Commit A
     let packed_pcs_witness_base = packed_pcs_commit(
         pcs.pcs_a(),
         &[
@@ -172,7 +173,7 @@ pub fn prove_execution(
         &mut prover_state,
     );
 
-    // 2) PIOP
+    // PIOP
     let main_table_evals_to_prove = main_table.prove(&mut prover_state, main_witness);
     let poseidon16_evals_to_prove = table_poseidon_16.prove(&mut prover_state, witness_poseidon_16);
     let poseidon24_evals_to_prove = table_poseidon_24.prove(&mut prover_state, witness_poseidon_24);
@@ -196,8 +197,12 @@ pub fn prove_execution(
     let log_padded_memory = log2_strict_usize(padded_memory.len());
     let log_public_memory = log2_strict_usize(public_memory_size);
 
+    // Commit B
     let packed_pcs_witness_extension = packed_pcs_commit(
-        pcs.pcs_b(),
+        &pcs.pcs_b(
+            log2_strict_usize(packed_pcs_witness_base.packed_polynomial.len()),
+            log2_ceil_usize(private_memory.len()),
+        ),
         &[memory_pushforward.as_slice()],
         &dft,
         &mut prover_state,
@@ -235,7 +240,7 @@ pub fn prove_execution(
 
     // TODO open remaining logup_star_statements statements
 
-    // 3) Open A
+    // Open A
     let global_statements_base_polynomial = packed_pcs_global_statements(
         &packed_pcs_witness_base.tree,
         &[
@@ -252,12 +257,38 @@ pub fn prove_execution(
         ]
         .concat(),
     );
-    pcs.pcs_a().open(
+
+    // Open B
+    let global_statements_extension_polynomial = packed_pcs_global_statements(
+        &packed_pcs_witness_extension.tree,
+        &vec![logup_star_statements.on_pushforward],
+    );
+
+    // pcs.pcs_a().open(
+    //     &dft,
+    //     &mut prover_state,
+    //     &global_statements_base_polynomial,
+    //     packed_pcs_witness_base.inner_witness,
+    //     &packed_pcs_witness_base.packed_polynomial,
+    // );
+
+    // pcs.pcs_b().open(
+    //     &dft,
+    //     &mut prover_state,
+    //     &global_statements_extension_polynomial,
+    //     packed_pcs_witness_extension.inner_witness,
+    //     &packed_pcs_witness_extension.packed_polynomial,
+    // );
+
+    pcs.batch_open(
         &dft,
         &mut prover_state,
         &global_statements_base_polynomial,
         packed_pcs_witness_base.inner_witness,
         &packed_pcs_witness_base.packed_polynomial,
+        &global_statements_extension_polynomial,
+        packed_pcs_witness_extension.inner_witness,
+        &packed_pcs_witness_extension.packed_polynomial,
     );
 
     prover_state.proof_data().to_vec()

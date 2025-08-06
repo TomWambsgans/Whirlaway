@@ -2,8 +2,8 @@ use ::air::table::AirTable;
 use lookup::verify_logup_star;
 use p3_air::BaseAir;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
-use pcs::{BatchPCS, packed_pcs_parse_commitment};
-use pcs::{PCS, packed_pcs_global_statements};
+use pcs::packed_pcs_global_statements;
+use pcs::{BatchPCS, NumVariables as _, packed_pcs_parse_commitment};
 use utils::{Evaluation, PF, build_challenger, padd_with_zero_to_next_power_of_two};
 use utils::{ToUsize, build_poseidon_16_air, build_poseidon_24_air};
 use whir_p3::fiat_shamir::{errors::ProofError, verifier::VerifierState};
@@ -110,7 +110,11 @@ pub fn verify_execution(
     let main_pushforward_variables = log2_strict_usize(padded_memory_len);
     let vars_per_polynomial_extension = vec![main_pushforward_variables];
     let packed_parsed_commitment_extension = packed_pcs_parse_commitment(
-        pcs.pcs_b(),
+        &pcs.pcs_b(
+            packed_parsed_commitment_base
+                .inner_parsed_commitment
+                .num_variables(), log2_ceil_usize(private_memory_len)
+        ),
         &mut verifier_state,
         vars_per_polynomial_extension,
     )
@@ -163,10 +167,31 @@ pub fn verify_execution(
         ]
         .concat(),
     );
-    pcs.pcs_a().verify(
+
+    // Open B
+    let global_statements_extension_polynomial = packed_pcs_global_statements(
+        &packed_parsed_commitment_extension.tree,
+        &vec![logup_star_statements.on_pushforward],
+    );
+
+    // pcs.pcs_a().verify(
+    //     &mut verifier_state,
+    //     &packed_parsed_commitment_base.inner_parsed_commitment,
+    //     &global_statements_base_polynomial,
+    // )?;
+
+    // pcs.pcs_b().verify(
+    //     &mut verifier_state,
+    //     &packed_parsed_commitment_extension.inner_parsed_commitment,
+    //     &global_statements_extension_polynomial,
+    // )?;
+
+    pcs.batch_verify(
         &mut verifier_state,
         &packed_parsed_commitment_base.inner_parsed_commitment,
         &global_statements_base_polynomial,
+        &packed_parsed_commitment_extension.inner_parsed_commitment,
+        &global_statements_extension_polynomial,
     )?;
 
     Ok(())
