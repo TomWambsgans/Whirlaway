@@ -6,8 +6,9 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use rayon::prelude::*;
 use tracing::instrument;
 use utils::{
-    batch_fold_multilinear_in_large_field, batch_fold_multilinear_in_small_field,
-    batch_fold_multilinear_in_small_field_no_skip, univariate_selectors,
+    batch_fold_multilinear_in_large_field, batch_fold_multilinear_in_large_field_no_skip,
+    batch_fold_multilinear_in_small_field, batch_fold_multilinear_in_small_field_no_skip,
+    univariate_selectors,
 };
 use whir_p3::{
     fiat_shamir::prover::ProverState,
@@ -71,8 +72,7 @@ where
     );
 
     for i in 1..n_rounds {
-        folded_multilinears = sc_round(
-            1,
+        folded_multilinears = sc_round_no_skip(
             &folded_multilinears.iter().collect::<Vec<_>>(),
             &mut n_vars,
             computation,
@@ -227,7 +227,6 @@ where
 {
     let eq_mle = eq_factor.map(|eq_factor| EvaluationsList::eval_eq(&eq_factor[1 + round..]));
 
-    // let selectors = univariate_selectors::<F>(skips);
     // S_0(x) = 1 - x
     // S_1(x) = x
 
@@ -275,16 +274,7 @@ where
     if let Some(eq_factor) = &eq_factor {
         // https://eprint.iacr.org/2024/108.pdf Section 3.2
         // We do not take advantage of this trick to send less data, but we could do so in the future (TODO)
-        // p *= &WhirDensePolynomial::lagrange_interpolation(
-        //     vec![
-        //         (F::ZERO, EF::ONE - eq_factor[round]),
-        //         (F::ONE, eq_factor[round]),
-        //     ], // &(0..2)
-        //        //     .into_par_iter()
-        //        //     .map(|i| (F::from_usize(i), selectors[i].evaluate(eq_factor[round])))
-        //        //     .collect::<Vec<_>>(),
-        // )
-        //.unwrap();
+
         // El polinomio que quiero interpolar es uno lineal por lo que lo busco directamente
         // El P(x) = y0 + (y1 - y0) * x entonces en nuestro caso y0 = 1 - eq_factor[round]
         // y y1 = eq_factor[round], al sustituir nos queda algo como
@@ -308,29 +298,20 @@ where
     let pow_bits = grinding.pow_bits::<EF>(comp_degree + usize::from(eq_factor.is_some()));
     fs_prover.pow_grinding(pow_bits);
 
-    // let folding_scalars = selectors
-    //     .iter()
-    //     .map(|s| s.evaluate(challenge))
-    //     .collect::<Vec<_>>();
     let folding_scalars = vec![EF::ONE - challenge, challenge];
+
     // Aca se puuede hacer una manipulacion similar a la de arriba cuando interpolamos
     //  sum = selector[0](eq_factor[round]) * selector[0](challenge) +
     //       selector[1](eq_factor[round]) * selector[1](challenge)
     // let sum = (1 - eq_factor[round]) * (1 - challenge) + eq_factor[round] * challenge
-
     if let Some(eq_factor) = eq_factor {
-        let sum =
-            (EF::ONE - eq_factor[round]) * (EF::ONE - challenge) + eq_factor[round] * challenge;
-        *missing_mul_factor = Some(sum * missing_mul_factor.unwrap_or(EF::ONE));
-        // selectors
-        //     .iter()
-        //     .map(|s| s.evaluate(eq_factor[round]) * s.evaluate(challenge))
-        //     .sum::<EF>()
-        //*missing_mul_factor.unwrap_or(EF::ONE),
-        // );
+        *missing_mul_factor = Some(
+            ((EF::ONE - eq_factor[round]) * (EF::ONE - challenge) + eq_factor[round] * challenge)
+                * missing_mul_factor.unwrap_or(EF::ONE),
+        );
     }
     // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication below: TODO not urgent)
-    batch_fold_multilinear_in_large_field(multilinears, &folding_scalars)
+    batch_fold_multilinear_in_large_field_no_skip(multilinears, &folding_scalars)
 }
 
 fn compute_over_hypercube<F, NF, EF, SC>(

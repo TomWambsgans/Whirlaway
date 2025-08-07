@@ -110,6 +110,23 @@ pub fn fold_multilinear_in_large_field<F: Field, EF: ExtensionField<F>>(
     )
 }
 
+pub fn fold_multilinear_in_large_field_no_skip<F: Field, EF: ExtensionField<F>>(
+    m: &EvaluationsList<F>,
+    scalars: &[EF],
+) -> EvaluationsList<EF> {
+    assert!(m.num_evals() >= 2);
+    let new_size = m.num_evals() / 2;
+    let (first_half, second_half) = m.evals().split_at(new_size);
+
+    EvaluationsList::new(
+        first_half
+            .iter()
+            .zip(second_half.iter())
+            .map(|(&a, &b)| scalars[0] * a + scalars[1] * b)
+            .collect(),
+    )
+}
+
 #[instrument(name = "multilinears_linear_combination", skip_all)]
 pub fn multilinears_linear_combination<
     F: Field,
@@ -141,6 +158,16 @@ pub fn batch_fold_multilinear_in_large_field<F: Field, EF: ExtensionField<F>>(
     polys
         .par_iter()
         .map(|poly| fold_multilinear_in_large_field(poly, scalars))
+        .collect()
+}
+
+pub fn batch_fold_multilinear_in_large_field_no_skip<F: Field, EF: ExtensionField<F>>(
+    polys: &[&EvaluationsList<F>],
+    scalars: &[EF],
+) -> Vec<EvaluationsList<EF>> {
+    polys
+        .par_iter()
+        .map(|poly| fold_multilinear_in_large_field_no_skip(poly, scalars))
         .collect()
 }
 
