@@ -96,7 +96,6 @@ impl<
                 1,
                 vec![&packed_transmuted_pol, &packed_a_pol],
                 &ProductComputation,
-                2,
                 &[],
                 None,
                 false,

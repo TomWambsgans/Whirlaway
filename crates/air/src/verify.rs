@@ -39,7 +39,7 @@ impl<
 
         let (sc_sum, outer_sumcheck_challenge) = sumcheck::verify_with_univariate_skip::<EF>(
             verifier_state,
-            self.constraint_degree + 1,
+            self.air.degree() + 1,
             log_n_rows,
             self.univariate_skips,
         )?;

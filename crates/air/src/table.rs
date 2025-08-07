@@ -12,7 +12,6 @@ use crate::witness::AirWitness;
 pub struct AirTable<EF: Field, A> {
     pub air: A,
     pub n_constraints: usize,
-    pub constraint_degree: usize,
     pub univariate_skips: usize,
     pub univariate_selectors: Vec<WhirDensePolynomial<PF<EF>>>,
 
@@ -25,10 +24,10 @@ impl<EF: ExtensionField<PF<EF>>, A: Air<SymbolicAirBuilder<PF<EF>>>> AirTable<EF
         let n_constraints = symbolic_constraints.len();
         let constraint_degree =
             Iterator::max(symbolic_constraints.iter().map(|c| c.degree_multiple())).unwrap();
+        assert_eq!(constraint_degree, air.degree());
         Self {
             air,
             n_constraints,
-            constraint_degree,
             univariate_skips,
             univariate_selectors: univariate_selectors(univariate_skips),
             _phantom: std::marker::PhantomData,

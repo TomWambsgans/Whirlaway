@@ -26,6 +26,9 @@ impl<F> BaseAir<F> for ExampleStructuredAir {
     fn structured(&self) -> bool {
         true
     }
+    fn degree(&self) -> usize {
+        N_PREPROCESSED_COLUMNS
+    }
 }
 
 impl<AB: AirBuilder> Air<AB> for ExampleStructuredAir {
@@ -60,6 +63,9 @@ impl<F> BaseAir<F> for ExampleUnstructuredAir {
     }
     fn structured(&self) -> bool {
         false
+    }
+    fn degree(&self) -> usize {
+        N_PREPROCESSED_COLUMNS
     }
 }
 

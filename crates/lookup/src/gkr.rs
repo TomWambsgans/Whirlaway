@@ -178,7 +178,6 @@ where
                     1,
                     [u0_folded, u1_folded, u2_folded, u3_folded].to_vec(),
                     &GKRQuotientComputation { u4_const, u5_const },
-                    2,
                     &[EF::ONE],
                     Some((&claim.point.0[1..], None)),
                     false,
@@ -311,7 +310,6 @@ where
                 u3_folded_packed,
             ],
             &GKRQuotientComputation { u4_const, u5_const },
-            2,
             &[],
             Some((&claim.point.0[1..], Some(eq_poly_packed))),
             false,
@@ -431,16 +429,21 @@ impl<EF: Field> SumcheckComputation<EF, EF> for GKRQuotientComputation<EF> {
         self.u4_const * point[2] * point[3]
             + self.u5_const * (point[0] * point[3] + point[1] * point[2])
     }
+    fn degree(&self) -> usize {
+        2
+    }
 }
 
 impl<EF: ExtensionField<PF<EF>>> SumcheckComputationPacked<EF> for GKRQuotientComputation<EF> {
     fn eval_packed_base(&self, _: &[PFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
         todo!()
     }
-
     fn eval_packed_extension(&self, point: &[EFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
         point[2] * point[3] * self.u4_const
             + (point[0] * point[3] + point[1] * point[2]) * self.u5_const
+    }
+    fn degree(&self) -> usize {
+        2
     }
 }
 

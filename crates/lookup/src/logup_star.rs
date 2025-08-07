@@ -63,7 +63,6 @@ where
                 1,
                 vec![&table_embedded_packed, &pushforward_packed],
                 &ProductComputation,
-                2,
                 &[],
                 None,
                 false,

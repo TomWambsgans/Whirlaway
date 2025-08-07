@@ -25,7 +25,6 @@ pub fn prove_generic<NF, EF, SC>(
     skips: usize, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
     multilinears: Vec<&[NF]>,
     computation: &SC,
-    constraints_degree: usize,
     batching_scalars: &[EF],
     mut eq_factor: Option<(&[EF], Option<Vec<EF>>)>, // (a, b, c ...), eq_poly(b, c, ...)
     is_zerofier: bool,
@@ -63,7 +62,6 @@ where
         batching_scalars,
         is_zerofier,
         prover_state,
-        constraints_degree,
         &mut sum,
         &mut challenges,
         &mut missing_mul_factor,
@@ -83,7 +81,6 @@ where
             batching_scalars,
             false,
             prover_state,
-            constraints_degree,
             &mut sum,
             &mut challenges,
             &mut missing_mul_factor,
@@ -107,7 +104,6 @@ pub fn prove_extension_packed<EF, SC>(
     skips: usize, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
     multilinears: Vec<&[EFPacking<EF>]>,
     computation: &SC,
-    constraints_degree: usize,
     batching_scalars: &[EF],
     eq_factor: Option<(&[EF], Option<Vec<EFPacking<EF>>>)>, // (a, b, c ...), eq_poly(b, c, ...)
     is_zerofier: bool,
@@ -158,7 +154,6 @@ where
         batching_scalars,
         is_zerofier,
         prover_state,
-        constraints_degree,
         &mut sum,
         &mut challenges,
         &mut missing_mul_factor,
@@ -179,7 +174,6 @@ where
             batching_scalars,
             false,
             prover_state,
-            constraints_degree,
             &mut sum,
             &mut challenges,
             &mut missing_mul_factor,
@@ -203,7 +197,6 @@ where
         1,
         folded_multilinears,
         computation,
-        constraints_degree,
         batching_scalars,
         unpacked_eq_factor,
         false,
@@ -223,7 +216,6 @@ pub fn prove_base_packed<EF, SC>(
     skips: usize, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
     multilinears: Vec<&[PFPacking<EF>]>,
     computation: &SC,
-    constraints_degree: usize,
     batching_scalars: &[EF],
     eq_factor: Option<(&[EF], Option<Vec<EFPacking<EF>>>)>, // (a, b, c ...), eq_poly(b, c, ...)
     is_zerofier: bool,
@@ -273,7 +265,6 @@ where
         batching_scalars,
         is_zerofier,
         prover_state,
-        constraints_degree,
         &mut sum,
         &mut challenges,
         &mut missing_mul_factor,
@@ -292,7 +283,6 @@ where
         1,
         folded_multilinears,
         computation,
-        constraints_degree,
         batching_scalars,
         eq_factor,
         false,
@@ -316,7 +306,6 @@ fn sc_round_generic<NF, EF, SC>(
     batching_scalars: &[EF],
     is_zerofier: bool,
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    comp_degree: usize,
     sum: &mut EF,
     challenges: &mut Vec<EF>,
     missing_mul_factor: &mut Option<EF>,
@@ -339,7 +328,7 @@ where
         0
     };
 
-    let zs = (start..=comp_degree * ((1 << skips) - 1))
+    let zs = (start..=computation.degree() * ((1 << skips) - 1))
         .filter(|&i| i != (1 << skips) - 1)
         .collect::<Vec<_>>();
 
@@ -463,7 +452,6 @@ fn sc_round_packed_base<EF, SC>(
     batching_scalars: &[EF],
     is_zerofier: bool,
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    comp_degree: usize,
     sum: &mut EF,
     challenges: &mut Vec<EF>,
     missing_mul_factor: &mut Option<EF>,
@@ -485,7 +473,7 @@ where
         0
     };
 
-    let zs = (start..=comp_degree * ((1 << skips) - 1))
+    let zs = (start..=computation.degree() * ((1 << skips) - 1))
         .filter(|&i| i != (1 << skips) - 1)
         .collect::<Vec<_>>();
 
@@ -625,7 +613,6 @@ fn sc_round_packed_extension<EF, SC>(
     batching_scalars: &[EF],
     is_zerofier: bool,
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    comp_degree: usize,
     sum: &mut EF,
     challenges: &mut Vec<EF>,
     missing_mul_factor: &mut Option<EF>,
@@ -647,7 +634,7 @@ where
         0
     };
 
-    let zs = (start..=comp_degree * ((1 << skips) - 1))
+    let zs = (start..=computation.degree() * ((1 << skips) - 1))
         .filter(|&i| i != (1 << skips) - 1)
         .collect::<Vec<_>>();
 

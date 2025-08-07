@@ -88,7 +88,6 @@ where
                     self.univariate_skips,
                     columns_for_zero_check,
                     &self.air,
-                    self.constraint_degree,
                     &constraints_batching_scalars,
                     Some((&zerocheck_challenges, None)),
                     true,
@@ -241,7 +240,6 @@ where
                 .map(|m| m.as_slice())
                 .collect::<Vec<_>>(),
             &ProductComputation,
-            2,
             &[EF::ONE],
             None,
             false,

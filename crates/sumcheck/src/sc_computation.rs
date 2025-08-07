@@ -7,6 +7,7 @@ use utils::{
 };
 
 pub trait SumcheckComputation<NF, EF>: Sync {
+    fn degree(&self) -> usize;
     fn eval(&self, point: &[NF], alpha_powers: &[EF]) -> EF;
 }
 
@@ -31,6 +32,9 @@ where
         self.eval(&mut folder);
         folder.accumulator
     }
+    fn degree(&self) -> usize {
+        self.degree()
+    }
 }
 
 pub trait SumcheckComputationPacked<EF>: Sync
@@ -38,8 +42,8 @@ where
     EF: Field + ExtensionField<PF<EF>>,
 {
     fn eval_packed_base(&self, point: &[PFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF>;
-
     fn eval_packed_extension(&self, point: &[EFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF>;
+    fn degree(&self) -> usize;
 }
 
 impl<EF: Field, A> SumcheckComputationPacked<EF> for A
@@ -81,6 +85,11 @@ where
 
         folder.accumulator
     }
+
+    fn degree(&self) -> usize {
+        self.degree()
+    }
+    
 }
 
 pub struct ProductComputation;
@@ -88,6 +97,9 @@ pub struct ProductComputation;
 impl<EF: Field> SumcheckComputation<EF, EF> for ProductComputation {
     fn eval(&self, point: &[EF], _: &[EF]) -> EF {
         unsafe { *point.get_unchecked(0) * *point.get_unchecked(1) }
+    }
+    fn degree(&self) -> usize {
+        2
     }
 }
 
@@ -97,5 +109,8 @@ impl<EF: Field + ExtensionField<PF<EF>>> SumcheckComputationPacked<EF> for Produ
     }
     fn eval_packed_extension(&self, point: &[EFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
         unsafe { *point.get_unchecked(0) * *point.get_unchecked(1) }
+    }
+    fn degree(&self) -> usize {
+        2
     }
 }
