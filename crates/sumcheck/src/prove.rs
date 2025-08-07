@@ -7,7 +7,7 @@ use rayon::prelude::*;
 use tracing::instrument;
 use utils::{
     batch_fold_multilinear_in_large_field, batch_fold_multilinear_in_small_field,
-    univariate_selectors,
+    batch_fold_multilinear_in_small_field_no_skip, univariate_selectors,
 };
 use whir_p3::{
     fiat_shamir::prover::ProverState,
@@ -255,7 +255,7 @@ where
                     .collect()
             } else {
                 let folding_scalars = vec![F::ONE - F::from_usize(z), F::from_usize(z)];
-                batch_fold_multilinear_in_small_field(multilinears, &folding_scalars)
+                batch_fold_multilinear_in_small_field_no_skip(multilinears, &folding_scalars)
             };
             let mut sum_z =
                 compute_over_hypercube(&folded, computation, batching_scalars, eq_mle.as_ref());
@@ -275,16 +275,27 @@ where
     if let Some(eq_factor) = &eq_factor {
         // https://eprint.iacr.org/2024/108.pdf Section 3.2
         // We do not take advantage of this trick to send less data, but we could do so in the future (TODO)
-        p *= &WhirDensePolynomial::lagrange_interpolation(
-            vec![
-                (F::ZERO, EF::ONE - eq_factor[round]),
-                (F::ONE, eq_factor[round]),
-            ], // &(0..2)
-               //     .into_par_iter()
-               //     .map(|i| (F::from_usize(i), selectors[i].evaluate(eq_factor[round])))
-               //     .collect::<Vec<_>>(),
-        )
-        .unwrap();
+        // p *= &WhirDensePolynomial::lagrange_interpolation(
+        //     vec![
+        //         (F::ZERO, EF::ONE - eq_factor[round]),
+        //         (F::ONE, eq_factor[round]),
+        //     ], // &(0..2)
+        //        //     .into_par_iter()
+        //        //     .map(|i| (F::from_usize(i), selectors[i].evaluate(eq_factor[round])))
+        //        //     .collect::<Vec<_>>(),
+        // )
+        //.unwrap();
+        // El polinomio que quiero interpolar es uno lineal por lo que lo busco directamente
+        // El P(x) = y0 + (y1 - y0) * x entonces en nuestro caso y0 = 1 - eq_factor[round]
+        // y y1 = eq_factor[round], al sustituir nos queda algo como
+        // P(x) = (1 - eq_factor[round]) + (eq_factor[round] - (1 - eq_factor[round])) * x
+        // P(x) = (1 - eq_factor[round]) + (eq_factor[round] - 1 + eq_factor[round]) * x
+        // P(x) = (1 - eq_factor[round]) + (2 * eq_factor[round] - 1) * x
+
+        let a = EF::ONE - eq_factor[round];
+        let b = EF::from_usize(2) * eq_factor[round] - EF::ONE;
+        let selector_poly = WhirDensePolynomial::from_coefficients_vec(vec![a, b]);
+        p *= &selector_poly;
     }
 
     fs_prover.add_extension_scalars(&p.coeffs);
@@ -292,24 +303,31 @@ where
     let challenge = fs_prover.sample();
     challenges.push(challenge);
     *sum = p.evaluate(challenge);
-    *n_vars -= skips;
+    *n_vars -= 1;
 
-    let pow_bits = grinding
-        .pow_bits::<EF>((comp_degree + usize::from(eq_factor.is_some())) * ((1 << skips) - 1));
+    let pow_bits = grinding.pow_bits::<EF>(comp_degree + usize::from(eq_factor.is_some()));
     fs_prover.pow_grinding(pow_bits);
 
-    let folding_scalars = selectors
-        .iter()
-        .map(|s| s.evaluate(challenge))
-        .collect::<Vec<_>>();
+    // let folding_scalars = selectors
+    //     .iter()
+    //     .map(|s| s.evaluate(challenge))
+    //     .collect::<Vec<_>>();
+    let folding_scalars = vec![EF::ONE - challenge, challenge];
+    // Aca se puuede hacer una manipulacion similar a la de arriba cuando interpolamos
+    //  sum = selector[0](eq_factor[round]) * selector[0](challenge) +
+    //       selector[1](eq_factor[round]) * selector[1](challenge)
+    // let sum = (1 - eq_factor[round]) * (1 - challenge) + eq_factor[round] * challenge
+
     if let Some(eq_factor) = eq_factor {
-        *missing_mul_factor = Some(
-            selectors
-                .iter()
-                .map(|s| s.evaluate(eq_factor[round]) * s.evaluate(challenge))
-                .sum::<EF>()
-                * missing_mul_factor.unwrap_or(EF::ONE),
-        );
+        let sum =
+            (EF::ONE - eq_factor[round]) * (EF::ONE - challenge) + eq_factor[round] * challenge;
+        *missing_mul_factor = Some(sum * missing_mul_factor.unwrap_or(EF::ONE));
+        // selectors
+        //     .iter()
+        //     .map(|s| s.evaluate(eq_factor[round]) * s.evaluate(challenge))
+        //     .sum::<EF>()
+        //*missing_mul_factor.unwrap_or(EF::ONE),
+        // );
     }
     // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication below: TODO not urgent)
     batch_fold_multilinear_in_large_field(multilinears, &folding_scalars)
