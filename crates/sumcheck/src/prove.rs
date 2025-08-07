@@ -54,8 +54,8 @@ where
         assert_eq!(eq_factor.len(), n_vars - skips + 1);
     }
 
-    let mut folded_multilinears = sc_round(
-        skips,
+    let mut folded_multilinears = sc_round_no_skip(
+        // skips,
         &multilinears,
         &mut n_vars,
         computation,
@@ -72,8 +72,8 @@ where
     );
 
     for i in 1..n_rounds {
-        folded_multilinears = sc_round(
-            1,
+        folded_multilinears = sc_round_no_skip(
+            // 1,
             &folded_multilinears.iter().collect::<Vec<_>>(),
             &mut n_vars,
             computation,
