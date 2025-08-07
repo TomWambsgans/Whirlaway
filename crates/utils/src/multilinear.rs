@@ -37,6 +37,23 @@ pub fn fold_multilinear_in_small_field<F: Field, EF: ExtensionField<F>>(
     )
 }
 
+pub fn fold_multilinear_in_small_field_no_skip<F: Field, EF: ExtensionField<F>>(
+    m: &EvaluationsList<EF>,
+    scalars: &[F],
+) -> EvaluationsList<EF> {
+    assert!(m.num_evals() >= 2);
+    let new_size = m.num_evals() / 2;
+    let (first_half, second_half) = m.evals().split_at(new_size);
+
+    EvaluationsList::new(
+        first_half
+            .iter()
+            .zip(second_half.iter())
+            .map(|(&a, &b)| a * scalars[0] + b * scalars[1])
+            .collect(),
+    )
+}
+
 // TODO packing for all the cases
 pub fn fold_multilinear_packed<F: Field>(
     m: &EvaluationsList<F>,
@@ -134,6 +151,16 @@ pub fn batch_fold_multilinear_in_small_field<F: Field, EF: ExtensionField<F>>(
     polys
         .par_iter()
         .map(|poly| fold_multilinear_in_small_field(poly, scalars))
+        .collect()
+}
+
+pub fn batch_fold_multilinear_in_small_field_no_skip<F: Field, EF: ExtensionField<F>>(
+    polys: &[&EvaluationsList<EF>],
+    scalars: &[F],
+) -> Vec<EvaluationsList<EF>> {
+    polys
+        .par_iter()
+        .map(|poly| fold_multilinear_in_small_field_no_skip(poly, scalars))
         .collect()
 }
 
