@@ -72,7 +72,8 @@ where
     );
 
     for i in 1..n_rounds {
-        folded_multilinears = sc_round_no_skip(
+        folded_multilinears = sc_round(
+            1,
             &folded_multilinears.iter().collect::<Vec<_>>(),
             &mut n_vars,
             computation,
@@ -196,6 +197,7 @@ where
                 * missing_mul_factor.unwrap_or(EF::ONE),
         );
     }
+
     // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication below: TODO not urgent)
     batch_fold_multilinear_in_large_field(multilinears, &folding_scalars)
 }
@@ -242,7 +244,7 @@ where
     for z in start..=comp_degree {
         let sum_z = if z == 1 {
             if let Some(eq_factor) = eq_factor {
-                *sum - p_evals[0].1 * (EF::ONE - eq_factor[round]) / eq_factor[round]
+                (*sum - p_evals[0].1 * (EF::ONE - eq_factor[round])) / eq_factor[round]
             } else {
                 *sum - p_evals[0].1
             }
