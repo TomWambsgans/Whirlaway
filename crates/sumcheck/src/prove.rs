@@ -1,5 +1,5 @@
+use p3_field::ExtensionField;
 use p3_field::PrimeCharacteristicRing;
-use p3_field::{ExtensionField, Field};
 use rayon::prelude::*;
 use utils::pack_extension;
 use utils::packing_log_width;
@@ -10,9 +10,9 @@ use whir_p3::poly::dense::WhirDensePolynomial;
 use whir_p3::poly::evals::eval_eq;
 use whir_p3::poly::multilinear::MultilinearPoint;
 
-use crate::Mle;
 use crate::MleGroup;
-use crate::{SumcheckComputation, SumcheckComputationPacked};
+use crate::SumcheckComputation;
+use crate::{Mle, MySumcheckComputation};
 
 #[allow(clippy::too_many_arguments)]
 pub fn prove<'a, EF, SC>(
@@ -27,10 +27,8 @@ pub fn prove<'a, EF, SC>(
     missing_mul_factor: Option<EF>,
 ) -> (MultilinearPoint<EF>, Vec<EF>, EF)
 where
-    EF: Field + ExtensionField<PF<EF>>,
-    SC: SumcheckComputationPacked<EF>
-        + SumcheckComputation<EF, EF>
-        + SumcheckComputation<PF<EF>, EF>,
+    EF: ExtensionField<PF<EF>>,
+    SC: MySumcheckComputation<EF>,
 {
     let (challenges, mut final_folds, mut sum) = prove_in_parallel(
         vec![skips],
@@ -62,10 +60,8 @@ pub fn prove_in_parallel<'a, EF, SC, M: Into<MleGroup<'a, EF>>>(
     share_initial_challenges: bool, // otherwise, share the final challenges
 ) -> (MultilinearPoint<EF>, Vec<Vec<EF>>, Vec<EF>)
 where
-    EF: Field + ExtensionField<PF<EF>>,
-    SC: SumcheckComputationPacked<EF>
-        + SumcheckComputation<EF, EF>
-        + SumcheckComputation<PF<EF>, EF>,
+    EF: ExtensionField<PF<EF>>,
+    SC: MySumcheckComputation<EF>,
 {
     let n_sumchecks = multilinears.len();
     assert_eq!(n_sumchecks, skips.len());
@@ -194,10 +190,8 @@ fn compute_and_send_polynomial<'a, EF, SC>(
     missing_mul_factor: Option<EF>,
 ) -> WhirDensePolynomial<EF>
 where
-    EF: Field + ExtensionField<PF<EF>>,
-    SC: SumcheckComputationPacked<EF>
-        + SumcheckComputation<EF, EF>
-        + SumcheckComputation<PF<EF>, EF>,
+    EF: ExtensionField<PF<EF>>,
+    SC: MySumcheckComputation<EF>,
 {
     let selectors = univariate_selectors::<PF<EF>>(skips);
 
@@ -286,7 +280,7 @@ fn on_challenge_received<'a, EF>(
     challenge: EF,
     p: &WhirDensePolynomial<EF>,
 ) where
-    EF: Field + ExtensionField<PF<EF>>,
+    EF: ExtensionField<PF<EF>>,
 {
     *sum = p.evaluate(challenge);
     *n_vars -= skips;

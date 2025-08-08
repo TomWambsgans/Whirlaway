@@ -89,7 +89,7 @@ pub fn fold_multilinear_in_large_field<F: Field, EF: ExtensionField<F>>(
         .collect()
 }
 
-pub fn fold_extension_packed<EF: Field + ExtensionField<PF<EF>>>(
+pub fn fold_extension_packed<EF: ExtensionField<PF<EF>>>(
     m: &[EFPacking<EF>],
     scalars: &[EF],
 ) -> Vec<EFPacking<EF>> {
@@ -136,7 +136,7 @@ pub fn batch_fold_multilinear_in_large_field<F: Field, EF: ExtensionField<F>>(
         .collect()
 }
 
-pub fn batch_fold_multilinear_in_large_field_packed<EF: Field + ExtensionField<PF<EF>>>(
+pub fn batch_fold_multilinear_in_large_field_packed<EF: ExtensionField<PF<EF>>>(
     polys: &[&[EFPacking<EF>]],
     scalars: &[EF],
 ) -> Vec<Vec<EFPacking<EF>>> {
@@ -156,7 +156,7 @@ pub fn batch_fold_multilinear_in_small_field<F: Field, EF: ExtensionField<F>>(
         .collect()
 }
 
-pub fn batch_fold_multilinear_in_small_field_packed<EF: Field + ExtensionField<PF<EF>>>(
+pub fn batch_fold_multilinear_in_small_field_packed<EF: ExtensionField<PF<EF>>>(
     polys: &[&[EFPacking<EF>]],
     scalars: &[PF<EF>],
 ) -> Vec<Vec<EF>> {

@@ -2,18 +2,18 @@ use crate::EFPacking;
 use crate::PF;
 use crate::PFPacking;
 use p3_air::AirBuilder;
-use p3_field::{ExtensionField, Field};
+use p3_field::ExtensionField;
 use p3_matrix::dense::RowMajorMatrixView;
 
 #[derive(Debug)]
-pub struct ConstraintFolderPackedBase<'a, EF: Field + ExtensionField<PF<EF>>> {
+pub struct ConstraintFolderPackedBase<'a, EF: ExtensionField<PF<EF>>> {
     pub main: RowMajorMatrixView<'a, PFPacking<EF>>,
     pub alpha_powers: &'a [EF],
     pub accumulator: EFPacking<EF>,
     pub constraint_index: usize,
 }
 
-impl<'a, EF: Field + ExtensionField<PF<EF>>> AirBuilder for ConstraintFolderPackedBase<'a, EF> {
+impl<'a, EF: ExtensionField<PF<EF>>> AirBuilder for ConstraintFolderPackedBase<'a, EF> {
     type F = PF<EF>;
     type I = PF<EF>;
     type Expr = PFPacking<EF>;
@@ -66,16 +66,14 @@ impl<'a, EF: Field + ExtensionField<PF<EF>>> AirBuilder for ConstraintFolderPack
 }
 
 #[derive(Debug)]
-pub struct ConstraintFolderPackedExtension<'a, EF: Field + ExtensionField<PF<EF>>> {
+pub struct ConstraintFolderPackedExtension<'a, EF: ExtensionField<PF<EF>>> {
     pub main: RowMajorMatrixView<'a, EFPacking<EF>>,
     pub alpha_powers: &'a [EF],
     pub accumulator: EFPacking<EF>,
     pub constraint_index: usize,
 }
 
-impl<'a, EF: Field + ExtensionField<PF<EF>>> AirBuilder
-    for ConstraintFolderPackedExtension<'a, EF>
-{
+impl<'a, EF: ExtensionField<PF<EF>>> AirBuilder for ConstraintFolderPackedExtension<'a, EF> {
     type F = PF<EF>;
     type I = PFPacking<EF>;
     type Expr = EFPacking<EF>;

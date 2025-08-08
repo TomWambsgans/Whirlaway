@@ -8,6 +8,20 @@ use utils::{
     PFPacking,
 };
 
+pub trait MySumcheckComputation<EF: ExtensionField<PF<EF>>>:
+    SumcheckComputationPacked<EF> + SumcheckComputation<EF, EF> + SumcheckComputation<PF<EF>, EF>
+{
+}
+
+impl<EF, SC> MySumcheckComputation<EF> for SC
+where
+    EF: ExtensionField<PF<EF>>,
+    SC: SumcheckComputationPacked<EF>
+        + SumcheckComputation<EF, EF>
+        + SumcheckComputation<PF<EF>, EF>,
+{
+}
+
 pub trait SumcheckComputation<NF, EF>: Sync {
     fn degree(&self) -> usize;
     fn eval(&self, point: &[NF], alpha_powers: &[EF]) -> EF;
@@ -41,7 +55,7 @@ where
 
 pub trait SumcheckComputationPacked<EF>: Sync
 where
-    EF: Field + ExtensionField<PF<EF>>,
+    EF: ExtensionField<PF<EF>>,
 {
     fn eval_packed_base(&self, point: &[PFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF>;
     fn eval_packed_extension(&self, point: &[EFPacking<EF>], alpha_powers: &[EF]) -> EFPacking<EF>;
@@ -111,7 +125,7 @@ impl<IF: ExtensionField<PF<EF>>, EF: ExtensionField<IF>> SumcheckComputation<IF,
     }
 }
 
-impl<EF: Field + ExtensionField<PF<EF>>> SumcheckComputationPacked<EF> for ProductComputation {
+impl<EF: ExtensionField<PF<EF>>> SumcheckComputationPacked<EF> for ProductComputation {
     fn eval_packed_base(&self, _: &[PFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
         unreachable!()
     }

@@ -66,14 +66,14 @@ impl<
 {
 }
 
-pub fn pack_extension<EF: Field + ExtensionField<PF<EF>>>(slice: &[EF]) -> Vec<EFPacking<EF>> {
+pub fn pack_extension<EF: ExtensionField<PF<EF>>>(slice: &[EF]) -> Vec<EFPacking<EF>> {
     slice
         .par_chunks_exact(packing_width::<EF>())
         .map(EFPacking::<EF>::from_ext_slice)
         .collect::<Vec<_>>()
 }
 
-pub fn unpack_extension<EF: Field + ExtensionField<PF<EF>>>(vec: &[EFPacking<EF>]) -> Vec<EF> {
+pub fn unpack_extension<EF: ExtensionField<PF<EF>>>(vec: &[EFPacking<EF>]) -> Vec<EF> {
     vec.into_iter()
         .flat_map(|x| {
             let packed_coeffs = x.as_basis_coefficients_slice();

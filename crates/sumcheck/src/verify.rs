@@ -1,4 +1,4 @@
-use p3_field::{ExtensionField, Field};
+use p3_field::ExtensionField;
 use utils::{Evaluation, FSVerifier, PF};
 use whir_p3::{
     fiat_shamir::{FSChallenger, errors::ProofError},
@@ -11,7 +11,7 @@ pub fn verify<EF>(
     degree: usize,
 ) -> Result<(EF, Evaluation<EF>), ProofError>
 where
-    EF: Field + ExtensionField<PF<EF>>,
+    EF: ExtensionField<PF<EF>>,
 {
     let sumation_sets = vec![vec![EF::ZERO, EF::ONE]; n_vars];
     let max_degree_per_vars = vec![degree; n_vars];
@@ -25,7 +25,7 @@ pub fn verify_in_parallel<EF>(
     share_initial_challenges: bool,
 ) -> Result<(Vec<EF>, MultilinearPoint<EF>, Vec<EF>), ProofError>
 where
-    EF: Field + ExtensionField<PF<EF>>,
+    EF: ExtensionField<PF<EF>>,
 {
     let n_sumchecks = n_vars.len();
     assert_eq!(n_sumchecks, degrees.len(),);
@@ -50,7 +50,7 @@ pub fn verify_with_custom_degree_at_first_round<EF>(
     remaining_degree: usize,
 ) -> Result<(EF, Evaluation<EF>), ProofError>
 where
-    EF: Field + ExtensionField<PF<EF>>,
+    EF: ExtensionField<PF<EF>>,
 {
     let sumation_sets = vec![vec![EF::ZERO, EF::ONE]; n_vars];
     let mut max_degree_per_vars = vec![intial_degree; 1];
@@ -65,7 +65,7 @@ pub fn verify_with_univariate_skip<EF>(
     skips: usize,
 ) -> Result<(EF, Evaluation<EF>), ProofError>
 where
-    EF: Field + ExtensionField<PF<EF>>,
+    EF: ExtensionField<PF<EF>>,
 {
     let mut max_degree_per_vars = vec![degree * ((1 << skips) - 1)];
     max_degree_per_vars.extend(vec![degree; n_vars - skips]);
@@ -83,7 +83,7 @@ fn verify_core<EF>(
     sumation_sets: Vec<Vec<EF>>,
 ) -> Result<(EF, Evaluation<EF>), ProofError>
 where
-    EF: Field + ExtensionField<PF<EF>>,
+    EF: ExtensionField<PF<EF>>,
 {
     let (sum, challenge_point, challenge_value) = verify_core_in_parallel(
         verifier_state,
@@ -107,7 +107,7 @@ fn verify_core_in_parallel<EF>(
     share_initial_challenges: bool, // otherwise, share the final challenges
 ) -> Result<(Vec<EF>, MultilinearPoint<EF>, Vec<EF>), ProofError>
 where
-    EF: Field + ExtensionField<PF<EF>>,
+    EF: ExtensionField<PF<EF>>,
 {
     let n_sumchecks = max_degree_per_vars.len();
     assert_eq!(n_sumchecks, sumation_sets.len(),);

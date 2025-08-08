@@ -1,8 +1,9 @@
-use crate::{SumcheckComputation, SumcheckComputationPacked};
+use crate::MySumcheckComputation;
+use crate::SumcheckComputation;
+use p3_field::ExtensionField;
 use p3_field::PackedFieldExtension;
 use p3_field::PackedValue;
 use p3_field::PrimeCharacteristicRing;
-use p3_field::{ExtensionField, Field};
 use p3_util::log2_strict_usize;
 use rayon::prelude::*;
 use utils::batch_fold_multilinear_in_large_field;
@@ -13,31 +14,31 @@ use utils::{EFPacking, PF, PFPacking, packing_width};
 use whir_p3::utils::uninitialized_vec;
 
 #[derive(Debug, Clone)]
-pub enum Mle<EF: Field + ExtensionField<PF<EF>>> {
+pub enum Mle<EF: ExtensionField<PF<EF>>> {
     Base(Vec<PF<EF>>),
     Extension(Vec<EF>),
     PackedBase(Vec<PFPacking<EF>>),
     ExtensionPacked(Vec<EFPacking<EF>>),
 }
 
-pub enum MleGroup<'a, EF: Field + ExtensionField<PF<EF>>> {
+pub enum MleGroup<'a, EF: ExtensionField<PF<EF>>> {
     Owned(MleGroupOwned<EF>),
     Ref(MleGroupRef<'a, EF>),
 }
 
-impl<'a, EF: Field + ExtensionField<PF<EF>>> From<MleGroupOwned<EF>> for MleGroup<'a, EF> {
+impl<'a, EF: ExtensionField<PF<EF>>> From<MleGroupOwned<EF>> for MleGroup<'a, EF> {
     fn from(owned: MleGroupOwned<EF>) -> Self {
         MleGroup::Owned(owned)
     }
 }
 
-impl<'a, EF: Field + ExtensionField<PF<EF>>> From<MleGroupRef<'a, EF>> for MleGroup<'a, EF> {
+impl<'a, EF: ExtensionField<PF<EF>>> From<MleGroupRef<'a, EF>> for MleGroup<'a, EF> {
     fn from(r: MleGroupRef<'a, EF>) -> Self {
         MleGroup::Ref(r)
     }
 }
 
-pub enum MleGroupOwned<EF: Field + ExtensionField<PF<EF>>> {
+pub enum MleGroupOwned<EF: ExtensionField<PF<EF>>> {
     Base(Vec<Vec<PF<EF>>>),
     Extension(Vec<Vec<EF>>),
     BasePacked(Vec<Vec<PFPacking<EF>>>),
@@ -45,14 +46,14 @@ pub enum MleGroupOwned<EF: Field + ExtensionField<PF<EF>>> {
 }
 
 #[derive(Clone, Debug)]
-pub enum MleGroupRef<'a, EF: Field + ExtensionField<PF<EF>>> {
+pub enum MleGroupRef<'a, EF: ExtensionField<PF<EF>>> {
     Base(Vec<&'a [PF<EF>]>),
     Extension(Vec<&'a [EF]>),
     BasePacked(Vec<&'a [PFPacking<EF>]>),
     ExtensionPacked(Vec<&'a [EFPacking<EF>]>),
 }
 
-impl<'a, EF: Field + ExtensionField<PF<EF>>> MleGroup<'a, EF> {
+impl<'a, EF: ExtensionField<PF<EF>>> MleGroup<'a, EF> {
     pub fn by_ref(&'a self) -> MleGroupRef<'a, EF> {
         match self {
             Self::Owned(owned) => owned.by_ref(),
@@ -61,7 +62,7 @@ impl<'a, EF: Field + ExtensionField<PF<EF>>> MleGroup<'a, EF> {
     }
 }
 
-impl<EF: Field + ExtensionField<PF<EF>>> MleGroupOwned<EF> {
+impl<EF: ExtensionField<PF<EF>>> MleGroupOwned<EF> {
     pub fn by_ref<'a>(&'a self) -> MleGroupRef<'a, EF> {
         match self {
             Self::Base(base) => MleGroupRef::Base(base.iter().map(|v| v.as_slice()).collect()),
@@ -78,7 +79,7 @@ impl<EF: Field + ExtensionField<PF<EF>>> MleGroupOwned<EF> {
     }
 }
 
-impl<EF: Field + ExtensionField<PF<EF>>> Mle<EF> {
+impl<EF: ExtensionField<PF<EF>>> Mle<EF> {
     pub fn packed_len(&self) -> usize {
         match self {
             Self::Base(v) => v.len(),
@@ -145,7 +146,7 @@ impl<EF: Field + ExtensionField<PF<EF>>> Mle<EF> {
     }
 }
 
-impl<'a, EF: Field + ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
+impl<'a, EF: ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
     pub fn group_size(&self) -> usize {
         match self {
             Self::Base(v) => v.len(),
@@ -256,9 +257,7 @@ impl<'a, EF: Field + ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
         missing_mul_factor: Option<EF>,
     ) -> Vec<(PF<EF>, EF)>
     where
-        SC: SumcheckComputation<PF<EF>, EF>
-            + SumcheckComputation<EF, EF>
-            + SumcheckComputationPacked<EF>,
+        SC: MySumcheckComputation<EF>,
     {
         let fold_size = 1 << (self.n_vars() - skips);
         let packed_fold_size = if self.is_packed() {
@@ -408,7 +407,7 @@ impl<'a, EF: Field + ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
 }
 
 pub fn sumcheck_compute_not_packed<
-    EF: Field + ExtensionField<PF<EF>> + ExtensionField<IF>,
+    EF: ExtensionField<PF<EF>> + ExtensionField<IF>,
     IF: ExtensionField<PF<EF>>,
     SC,
 >(
