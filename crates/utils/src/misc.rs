@@ -1,14 +1,5 @@
 use std::ops::Range;
 
-#[inline(always)]
-pub const fn log2_up(x: usize) -> usize {
-    if x == 0 {
-        0
-    } else {
-        usize::BITS as usize - (x - 1).leading_zeros() as usize
-    }
-}
-
 pub fn transmute_slice<Before, After>(slice: &[Before]) -> &[After] {
     let new_len = slice.len() * std::mem::size_of::<Before>() / std::mem::size_of::<After>();
     assert_eq!(
@@ -40,4 +31,9 @@ pub fn right_mut<A>(slice: &mut [A]) -> &mut [A] {
     assert!(slice.len() % 2 == 0);
     let mid = slice.len() / 2;
     &mut slice[mid..]
+}
+
+pub fn from_end<A>(slice: &[A], n: usize) -> &[A] {
+    assert!(n <= slice.len());
+    &slice[slice.len() - n..]
 }

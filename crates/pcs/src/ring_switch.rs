@@ -102,7 +102,6 @@ impl<
                 prover_state,
                 s0,
                 None,
-                false,
             )
         });
 

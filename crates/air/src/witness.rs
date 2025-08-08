@@ -5,7 +5,7 @@ use std::{
     ops::{Deref, Range},
 };
 
-use p3_util::log2_strict_usize;
+use p3_util::{log2_ceil_usize, log2_strict_usize};
 
 pub struct AirWitness<'a, F> {
     pub cols: Vec<&'a [F]>,
@@ -46,5 +46,13 @@ impl<'a, F> AirWitness<'a, F> {
 
     pub fn log_n_rows(&self) -> usize {
         log2_strict_usize(self.n_rows())
+    }
+
+    pub fn max_columns_per_group(&self) -> usize {
+        self.column_groups.iter().map(|g| g.len()).max().unwrap()
+    }
+
+    pub fn log_max_columns_per_group(&self) -> usize {
+        log2_ceil_usize(self.max_columns_per_group())
     }
 }

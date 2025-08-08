@@ -4,8 +4,7 @@ use p3_field::{ExtensionField, Field};
 use p3_matrix::dense::RowMajorMatrixView;
 use p3_uni_stark::{SymbolicAirBuilder, get_symbolic_constraints};
 use rand::distr::{Distribution, StandardUniform};
-use utils::{ConstraintChecker, PF, univariate_selectors};
-use whir_p3::poly::dense::WhirDensePolynomial;
+use utils::{ConstraintChecker, PF};
 
 use crate::witness::AirWitness;
 
@@ -13,7 +12,6 @@ pub struct AirTable<EF: Field, A> {
     pub air: A,
     pub n_constraints: usize,
     pub univariate_skips: usize,
-    pub univariate_selectors: Vec<WhirDensePolynomial<PF<EF>>>,
 
     _phantom: std::marker::PhantomData<EF>,
 }
@@ -29,7 +27,6 @@ impl<EF: ExtensionField<PF<EF>>, A: Air<SymbolicAirBuilder<PF<EF>>>> AirTable<EF
             air,
             n_constraints,
             univariate_skips,
-            univariate_selectors: univariate_selectors(univariate_skips),
             _phantom: std::marker::PhantomData,
         }
     }

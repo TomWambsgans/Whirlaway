@@ -146,11 +146,15 @@ fn test_structured_air() {
 
     let table = AirTable::<EF, _>::new(ExampleStructuredAir, 3);
     table.check_trace_validity(&witness).unwrap();
-    let _evaluations_remaining_to_prove = table.prove(&mut prover_state, witness);
+    let evaluations_remaining_to_prove = table.prove(&mut prover_state, witness);
     let mut verifier_state = build_verifier_state(&prover_state);
     let evaluations_remaining_to_verify = table
         .verify(&mut verifier_state, log_n_rows, &column_groups)
         .unwrap();
+    assert_eq!(
+        &evaluations_remaining_to_prove,
+        &evaluations_remaining_to_verify
+    );
     assert_eq!(
         padd_with_zero_to_next_power_of_two(&columns[..N_PREPROCESSED_COLUMNS].concat())
             .evaluate(&evaluations_remaining_to_verify[0].point),
@@ -174,11 +178,15 @@ fn test_unstructured_air() {
 
     let table = AirTable::<EF, _>::new(ExampleUnstructuredAir, 4);
     table.check_trace_validity(&witness).unwrap();
-    let _evaluations_remaining_to_prove = table.prove(&mut prover_state, witness);
+    let evaluations_remaining_to_prove = table.prove(&mut prover_state, witness);
     let mut verifier_state = build_verifier_state(&prover_state);
     let evaluations_remaining_to_verify = table
         .verify(&mut verifier_state, log_n_rows, &column_groups)
         .unwrap();
+    assert_eq!(
+        &evaluations_remaining_to_prove,
+        &evaluations_remaining_to_verify
+    );
     assert_eq!(
         padd_with_zero_to_next_power_of_two(&columns[..N_PREPROCESSED_COLUMNS].concat())
             .evaluate(&evaluations_remaining_to_verify[0].point),

@@ -69,7 +69,6 @@ where
                 prover_state,
                 claim.value,
                 None,
-                false,
             )
         });
 

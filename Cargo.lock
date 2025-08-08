@@ -873,7 +873,6 @@ dependencies = [
  "p3-util",
  "rand",
  "rayon",
- "tracing",
  "utils",
  "whir-p3",
 ]

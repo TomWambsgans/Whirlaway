@@ -186,7 +186,6 @@ where
                     prover_state,
                     next_sum,
                     Some(missing_mul_factor),
-                    false,
                 )
             });
         sc_point.insert(0, first_sumcheck_challenge);
@@ -321,7 +320,6 @@ where
             prover_state,
             next_sum,
             Some(missing_mul_factor),
-            false,
         )
     });
     sc_point.insert(0, first_sumcheck_challenge);
