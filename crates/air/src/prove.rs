@@ -47,33 +47,19 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
 
         let zerocheck_challenges = prover_state.sample_vec(log_length + 1 - self.univariate_skips);
 
-        let columns_up_and_down_opt = if self.air.structured() {
-            Some(columns_up_and_down(&witness))
+        let columns_for_zero_check: MleGroup<EF> = if self.air.structured() {
+            MleGroupOwned::Base(columns_up_and_down(&witness)).into()
         } else {
-            None
+            MleGroupRef::Base(witness.cols.clone()).into()
         };
 
-        let columns_for_zero_check = if self.air.structured() {
-            columns_up_and_down_opt
-                .as_ref()
-                .unwrap()
-                .iter()
-                .map(|c| c.as_slice())
-                .collect::<Vec<_>>()
-        } else {
-            witness.cols.clone()
-        };
-
-        let columns_for_zero_check = columns_for_zero_check
-            .iter()
-            .map(|col| PFPacking::<EF>::pack_slice(col))
-            .collect::<Vec<_>>();
+        let columns_for_zero_check_packed = columns_for_zero_check.by_ref().pack();
 
         let (outer_sumcheck_challenge, all_inner_sums, _) =
             info_span!("zerocheck").in_scope(|| {
                 sumcheck::prove::<EF, _>(
                     self.univariate_skips,
-                    MleGroupRef::BasePacked(columns_for_zero_check),
+                    columns_for_zero_check_packed,
                     &self.air,
                     &constraints_batching_scalars,
                     Some((zerocheck_challenges, None)),

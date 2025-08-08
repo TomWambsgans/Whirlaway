@@ -200,6 +200,23 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
         }
     }
 
+    pub fn pack(&self) -> MleGroup<'a, EF> {
+        match self {
+            Self::Base(base) => MleGroupRef::BasePacked(
+                base.iter()
+                    .map(|v| PFPacking::<EF>::pack_slice(v))
+                    .collect(),
+            )
+            .into(),
+            Self::Extension(ext) => {
+                // the only case where there is real work
+                MleGroupOwned::ExtensionPacked(ext.iter().map(|v| pack_extension(v)).collect())
+                    .into()
+            }
+            Self::BasePacked(_) | Self::ExtensionPacked(_) => self.clone().into(),
+        }
+    }
+
     // Clone everything in the group, should not be used when n_vars is large
     pub fn unpack(&self) -> MleGroupOwned<EF> {
         match self {
