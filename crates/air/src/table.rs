@@ -10,13 +10,12 @@ use crate::{MyAir, witness::AirWitness};
 pub struct AirTable<EF: Field, A> {
     pub air: A,
     pub n_constraints: usize,
-    pub univariate_skips: usize,
 
     _phantom: std::marker::PhantomData<EF>,
 }
 
 impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
-    pub fn new(air: A, univariate_skips: usize) -> Self {
+    pub fn new(air: A) -> Self {
         let symbolic_constraints = get_symbolic_constraints(&air, 0, 0);
         let n_constraints = symbolic_constraints.len();
         let constraint_degree =
@@ -25,7 +24,6 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
         Self {
             air,
             n_constraints,
-            univariate_skips,
             _phantom: std::marker::PhantomData,
         }
     }

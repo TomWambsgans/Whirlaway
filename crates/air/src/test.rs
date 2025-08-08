@@ -13,6 +13,7 @@ use crate::{table::AirTable, witness::AirWitness};
 
 const N_PREPROCESSED_COLUMNS: usize = 3;
 const N_COLUMNS: usize = 24;
+const UNIVARIATE_SKIPS: usize = 3;
 
 type F = KoalaBear;
 type EF = BinomialExtensionField<F, 8>;
@@ -144,12 +145,17 @@ fn test_structured_air() {
     let column_groups = vec![0..N_PREPROCESSED_COLUMNS, N_PREPROCESSED_COLUMNS..N_COLUMNS];
     let witness = AirWitness::new(&columns, &column_groups);
 
-    let table = AirTable::<EF, _>::new(ExampleStructuredAir, 3);
+    let table = AirTable::<EF, _>::new(ExampleStructuredAir);
     table.check_trace_validity(&witness).unwrap();
-    let evaluations_remaining_to_prove = table.prove(&mut prover_state, witness);
+    let evaluations_remaining_to_prove = table.prove(&mut prover_state, UNIVARIATE_SKIPS, witness);
     let mut verifier_state = build_verifier_state(&prover_state);
     let evaluations_remaining_to_verify = table
-        .verify(&mut verifier_state, log_n_rows, &column_groups)
+        .verify(
+            &mut verifier_state,
+            UNIVARIATE_SKIPS,
+            log_n_rows,
+            &column_groups,
+        )
         .unwrap();
     assert_eq!(
         &evaluations_remaining_to_prove,
@@ -176,12 +182,17 @@ fn test_unstructured_air() {
     let column_groups = vec![0..N_PREPROCESSED_COLUMNS, N_PREPROCESSED_COLUMNS..N_COLUMNS];
     let witness = AirWitness::new(&columns, &column_groups);
 
-    let table = AirTable::<EF, _>::new(ExampleUnstructuredAir, 4);
+    let table = AirTable::<EF, _>::new(ExampleUnstructuredAir);
     table.check_trace_validity(&witness).unwrap();
-    let evaluations_remaining_to_prove = table.prove(&mut prover_state, witness);
+    let evaluations_remaining_to_prove = table.prove(&mut prover_state, UNIVARIATE_SKIPS, witness);
     let mut verifier_state = build_verifier_state(&prover_state);
     let evaluations_remaining_to_verify = table
-        .verify(&mut verifier_state, log_n_rows, &column_groups)
+        .verify(
+            &mut verifier_state,
+            UNIVARIATE_SKIPS,
+            log_n_rows,
+            &column_groups,
+        )
         .unwrap();
     assert_eq!(
         &evaluations_remaining_to_prove,

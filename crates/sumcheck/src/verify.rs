@@ -20,25 +20,18 @@ where
 
 pub fn verify_in_parallel<EF>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
-    n_vars: Vec<usize>,
-    degrees: Vec<usize>,
+    n_vars: &[usize],
+    degrees: &[usize],
     share_initial_challenges: bool,
 ) -> Result<(Vec<EF>, MultilinearPoint<EF>, Vec<EF>), ProofError>
 where
     EF: ExtensionField<PF<EF>>,
 {
-    let n_sumchecks = n_vars.len();
-    assert_eq!(n_sumchecks, degrees.len(),);
-    let sumation_sets = (0..n_sumchecks)
-        .map(|i| vec![vec![EF::ZERO, EF::ONE]; n_vars[i]])
-        .collect::<Vec<_>>();
-    let max_degree_per_vars = (0..n_sumchecks)
-        .map(|i| vec![degrees[i]; n_vars[i]])
-        .collect::<Vec<_>>();
-    verify_core_in_parallel(
+    verify_with_univariate_skip_in_parallel(
         verifier_state,
-        max_degree_per_vars,
-        sumation_sets,
+        1,
+        n_vars,
+        degrees,
         share_initial_challenges,
     )
 }
@@ -70,11 +63,47 @@ where
     let mut max_degree_per_vars = vec![degree * ((1 << skips) - 1)];
     max_degree_per_vars.extend(vec![degree; n_vars - skips]);
     let mut sumation_sets = vec![(0..1 << skips).map(EF::from_usize).collect::<Vec<_>>()];
-    sumation_sets.extend(vec![
-        (0..2).map(EF::from_usize).collect::<Vec<_>>();
-        n_vars - skips
-    ]);
+    sumation_sets.extend(vec![vec![EF::ZERO, EF::ONE]; n_vars - skips]);
     verify_core(verifier_state, max_degree_per_vars, sumation_sets)
+}
+
+pub fn verify_with_univariate_skip_in_parallel<EF>(
+    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+    skips: usize,
+    n_vars: &[usize],
+    degrees: &[usize],
+    share_initial_challenges: bool,
+) -> Result<(Vec<EF>, MultilinearPoint<EF>, Vec<EF>), ProofError>
+where
+    EF: ExtensionField<PF<EF>>,
+{
+    let n_sumchecks = n_vars.len();
+    assert_eq!(n_sumchecks, degrees.len(),);
+    let sumation_sets = (0..n_sumchecks)
+        .map(|i| {
+            [
+                vec![(0..1 << skips).map(EF::from_usize).collect::<Vec<_>>()],
+                vec![vec![EF::ZERO, EF::ONE]; n_vars[i] - skips],
+            ]
+            .concat()
+        })
+        .collect::<Vec<_>>();
+    let max_degree_per_vars = (0..n_sumchecks)
+        .map(|i| {
+            [
+                vec![degrees[i] * ((1 << skips) - 1)],
+                vec![degrees[i]; n_vars[i] - skips],
+            ]
+            .concat()
+        })
+        .collect::<Vec<_>>();
+
+    verify_core_in_parallel(
+        verifier_state,
+        max_degree_per_vars,
+        sumation_sets,
+        share_initial_challenges,
+    )
 }
 
 fn verify_core<EF>(

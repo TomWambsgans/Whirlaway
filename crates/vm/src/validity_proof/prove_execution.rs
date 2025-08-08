@@ -1,3 +1,4 @@
+use ::air::prove_many_air;
 use ::air::{table::AirTable, witness::AirWitness};
 use lookup::{compute_pushforward, prove_logup_star};
 use p3_air::BaseAir;
@@ -63,7 +64,7 @@ pub fn prove_execution(
     let dft = EvalsDft::default();
 
     let main_witness = AirWitness::<PF<EF>>::new(&main_trace, &COLUMN_GROUPS_EXEC);
-    let main_table = AirTable::<EF, _>::new(VMAir, UNIVARIATE_SKIPS);
+    let main_table = AirTable::<EF, _>::new(VMAir);
 
     #[cfg(test)]
     main_table.check_trace_validity(&main_witness).unwrap();
@@ -72,8 +73,8 @@ pub fn prove_execution(
 
     let poseidon_16_air = build_poseidon_16_air();
     let poseidon_24_air = build_poseidon_24_air();
-    let table_poseidon_16 = AirTable::<EF, _>::new(poseidon_16_air.clone(), UNIVARIATE_SKIPS);
-    let table_poseidon_24 = AirTable::<EF, _>::new(poseidon_24_air.clone(), UNIVARIATE_SKIPS);
+    let table_poseidon_16 = AirTable::<EF, _>::new(poseidon_16_air.clone());
+    let table_poseidon_24 = AirTable::<EF, _>::new(poseidon_24_air.clone());
 
     let mut poseidon_16_data_padded = poseidons_16.iter().map(|w| w.input).collect::<Vec<_>>();
     poseidon_16_data_padded.resize(poseidons_16.len().next_power_of_two(), [F::ZERO; 16]);
@@ -168,9 +169,18 @@ pub fn prove_execution(
     );
 
     // PIOP
-    let main_table_evals_to_prove = main_table.prove(&mut prover_state, main_witness);
-    let poseidon16_evals_to_prove = table_poseidon_16.prove(&mut prover_state, witness_poseidon_16);
-    let poseidon24_evals_to_prove = table_poseidon_24.prove(&mut prover_state, witness_poseidon_24);
+    let main_table_evals_to_prove =
+        main_table.prove(&mut prover_state, UNIVARIATE_SKIPS, main_witness);
+
+    let poseidon_evals_to_prove = prove_many_air(
+        &mut prover_state,
+        UNIVARIATE_SKIPS,
+        &[&table_poseidon_16],
+        &[&table_poseidon_24],
+        &[&witness_poseidon_16, &witness_poseidon_24],
+    );
+    let poseidon16_evals_to_prove = &poseidon_evals_to_prove[0];
+    let poseidon24_evals_to_prove = &poseidon_evals_to_prove[1];
 
     // Main memory lookup
     let exec_memory_indexes = padd_with_zero_to_next_power_of_two(

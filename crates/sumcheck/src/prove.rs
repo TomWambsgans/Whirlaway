@@ -177,7 +177,7 @@ where
                 ps[i] = compute_and_send_polynomial(
                     skips[i],
                     &multilinears[i],
-                    computations_2[i],
+                    computations_2[i - computations_1.len()],
                     &eq_factors[i],
                     batching_scalars[i],
                     is_zerofier[i],

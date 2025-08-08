@@ -116,8 +116,8 @@ pub fn prove_poseidon2(
     let witness_16 = AirWitness::new(&witness_columns_16, &column_groups_16);
     let witness_24 = AirWitness::new(&witness_columns_24, &column_groups_24);
 
-    let table_16 = AirTable::<EF, _>::new(poseidon_air_16, univariate_skips);
-    let table_24 = AirTable::<EF, _>::new(poseidon_air_24, univariate_skips);
+    let table_16 = AirTable::<EF, _>::new(poseidon_air_16);
+    let table_24 = AirTable::<EF, _>::new(poseidon_air_24);
 
     let t = Instant::now();
 
@@ -157,8 +157,10 @@ pub fn prove_poseidon2(
         &mut prover_state,
     );
 
-    let evaluations_remaining_to_prove_16 = table_16.prove(&mut prover_state, witness_16);
-    let evaluations_remaining_to_prove_24 = table_24.prove(&mut prover_state, witness_24);
+    let evaluations_remaining_to_prove_16 =
+        table_16.prove(&mut prover_state, univariate_skips, witness_16);
+    let evaluations_remaining_to_prove_24 =
+        table_24.prove(&mut prover_state, univariate_skips, witness_24);
 
     let global_statements_to_prove = packed_pcs_global_statements(
         &packed_commitment_witness.tree,
@@ -188,10 +190,20 @@ pub fn prove_poseidon2(
     .unwrap();
 
     let evaluations_remaining_to_verify_16 = table_16
-        .verify(&mut verifier_state, log_n_poseidons_16, &column_groups_16)
+        .verify(
+            &mut verifier_state,
+            univariate_skips,
+            log_n_poseidons_16,
+            &column_groups_16,
+        )
         .unwrap();
     let evaluations_remaining_to_verify_24 = table_24
-        .verify(&mut verifier_state, log_n_poseidons_24, &column_groups_24)
+        .verify(
+            &mut verifier_state,
+            univariate_skips,
+            log_n_poseidons_24,
+            &column_groups_24,
+        )
         .unwrap();
 
     let global_statements_to_verify = packed_pcs_global_statements(

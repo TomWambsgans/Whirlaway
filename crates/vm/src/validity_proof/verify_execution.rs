@@ -1,4 +1,5 @@
 use ::air::table::AirTable;
+use ::air::verify_many_air;
 use lookup::verify_logup_star;
 use p3_air::BaseAir;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
@@ -18,14 +19,14 @@ pub fn verify_execution(
     proof_data: Vec<PF<EF>>,
     pcs: &impl BatchPCS<PF<EF>, EF, EF>,
 ) -> Result<(), ProofError> {
-    let table = AirTable::<EF, _>::new(VMAir, UNIVARIATE_SKIPS);
+    let table = AirTable::<EF, _>::new(VMAir);
 
     let mut verifier_state = VerifierState::new(proof_data, build_challenger());
 
     let poseidon_16_air = build_poseidon_16_air();
     let poseidon_24_air = build_poseidon_24_air();
-    let table_poseidon_16 = AirTable::<EF, _>::new(poseidon_16_air.clone(), UNIVARIATE_SKIPS);
-    let table_poseidon_24 = AirTable::<EF, _>::new(poseidon_24_air.clone(), UNIVARIATE_SKIPS);
+    let table_poseidon_16 = AirTable::<EF, _>::new(poseidon_16_air.clone());
+    let table_poseidon_24 = AirTable::<EF, _>::new(poseidon_24_air.clone());
 
     let [
         log_n_cycles,
@@ -85,26 +86,37 @@ pub fn verify_execution(
     let packed_parsed_commitment_base =
         packed_pcs_parse_commitment(pcs.pcs_a(), &mut verifier_state, vars_per_polynomial_base)?;
 
-    let main_table_evals_to_verify =
-        table.verify(&mut verifier_state, log_n_cycles, &COLUMN_GROUPS_EXEC)?;
-    let poseidon16_evals_to_verify = table_poseidon_16.verify(
+    let main_table_evals_to_verify = table.verify(
         &mut verifier_state,
-        log2_ceil_usize(n_poseidons_16),
+        UNIVARIATE_SKIPS,
+        log_n_cycles,
+        &COLUMN_GROUPS_EXEC,
+    )?;
+
+    let poseidon_evals_to_verify = verify_many_air(
+        &mut verifier_state,
+        &[&table_poseidon_16],
+        &[&table_poseidon_24],
+        UNIVARIATE_SKIPS,
         &[
-            0..16,
-            16..poseidon_16_air.width() - 16,
-            poseidon_16_air.width() - 16..poseidon_16_air.width(),
+            log2_ceil_usize(n_poseidons_16),
+            log2_ceil_usize(n_poseidons_24),
+        ],
+        &[
+            &[
+                0..16,
+                16..poseidon_16_air.width() - 16,
+                poseidon_16_air.width() - 16..poseidon_16_air.width(),
+            ],
+            &[
+                0..24,
+                24..poseidon_24_air.width() - 24,
+                poseidon_24_air.width() - 24..poseidon_24_air.width(),
+            ],
         ],
     )?;
-    let poseidon24_evals_to_verify = table_poseidon_24.verify(
-        &mut verifier_state,
-        log2_ceil_usize(n_poseidons_24),
-        &[
-            0..24,
-            24..poseidon_24_air.width() - 24,
-            poseidon_24_air.width() - 24..poseidon_24_air.width(),
-        ],
-    )?;
+    let poseidon16_evals_to_verify = &poseidon_evals_to_verify[0];
+    let poseidon24_evals_to_verify = &poseidon_evals_to_verify[1];
 
     let padded_memory_len = (public_memory_len + private_memory_len).next_power_of_two();
     let main_pushforward_variables = log2_strict_usize(padded_memory_len);
