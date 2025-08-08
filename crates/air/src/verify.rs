@@ -1,11 +1,9 @@
-use p3_air::Air;
-use p3_field::{ExtensionField, TwoAdicField, cyclic_subgroup_known_order, dot_product};
-use p3_uni_stark::SymbolicAirBuilder;
+use p3_field::{ExtensionField, cyclic_subgroup_known_order, dot_product};
 use p3_util::log2_ceil_usize;
 use std::ops::Range;
 use sumcheck::SumcheckComputation;
 use tracing::instrument;
-use utils::{ConstraintFolder, univariate_selectors};
+use utils::univariate_selectors;
 use utils::{Evaluation, from_end};
 use utils::{FSVerifier, PF};
 use whir_p3::fiat_shamir::FSChallenger;
@@ -15,15 +13,12 @@ use whir_p3::{
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
 };
 
+use crate::MyAir;
 use crate::utils::{matrix_down_lde, matrix_up_lde};
 
 use super::table::AirTable;
 
-impl<
-    EF: TwoAdicField + ExtensionField<PF<EF>>,
-    A: Air<SymbolicAirBuilder<PF<EF>>> + for<'a> Air<ConstraintFolder<'a, EF, EF>>,
-> AirTable<EF, A>
-{
+impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
     #[instrument(name = "air table: verify", skip_all)]
     pub fn verify(
         &self,

@@ -1,19 +1,17 @@
-use p3_air::Air;
 use p3_field::PackedValue;
-use p3_field::{ExtensionField, TwoAdicField, cyclic_subgroup_known_order};
-use p3_uni_stark::SymbolicAirBuilder;
+use p3_field::{ExtensionField, cyclic_subgroup_known_order};
 use p3_util::log2_ceil_usize;
 use sumcheck::{MleGroupOwned, MleGroupRef, ProductComputation};
 use tracing::{info_span, instrument};
+use utils::PF;
 use utils::{
-    ConstraintFolder, ConstraintFolderPackedBase, Evaluation, FSProver, PFPacking,
-    add_multilinears, from_end, multilinears_linear_combination,
+    Evaluation, FSProver, PFPacking, add_multilinears, from_end, multilinears_linear_combination,
 };
-use utils::{ConstraintFolderPackedExtension, PF};
 use whir_p3::fiat_shamir::FSChallenger;
 use whir_p3::poly::evals::{eval_eq, fold_multilinear, scale_poly};
 use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
+use crate::MyAir;
 use crate::witness::AirWitness;
 use crate::{
     uni_skip_utils::{matrix_down_folded, matrix_up_folded},
@@ -28,16 +26,7 @@ cf https://eprint.iacr.org/2023/552.pdf and https://solvable.group/posts/super-a
 
 */
 
-impl<EF, A> AirTable<EF, A>
-where
-    EF: TwoAdicField + ExtensionField<PF<EF>>,
-    PF<EF>: TwoAdicField,
-    A: Air<SymbolicAirBuilder<PF<EF>>>
-        + for<'a> Air<ConstraintFolder<'a, PF<EF>, EF>>
-        + for<'a> Air<ConstraintFolder<'a, EF, EF>>
-        + for<'a> Air<ConstraintFolderPackedBase<'a, EF>>
-        + for<'a> Air<ConstraintFolderPackedExtension<'a, EF>>,
-{
+impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
     #[instrument(name = "air: prove", skip_all)]
     pub fn prove<'a>(
         &self,
@@ -215,7 +204,7 @@ where
             all_inner_sums.push(inner_sum);
         }
         let n_groups = witness.column_groups.len();
-        let (inner_challenges, all_inner_evals, _) = sumcheck::prove_in_parallel::<EF, _, _>(
+        let (inner_challenges, all_inner_evals, _) = sumcheck::prove_in_parallel_1::<EF, _, _>(
             vec![1; n_groups],
             all_inner_mles,
             vec![&ProductComputation; n_groups],

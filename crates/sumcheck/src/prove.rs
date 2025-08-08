@@ -30,7 +30,7 @@ where
     EF: ExtensionField<PF<EF>>,
     SC: MySumcheckComputation<EF>,
 {
-    let (challenges, mut final_folds, mut sum) = prove_in_parallel(
+    let (challenges, mut final_folds, mut sum) = prove_in_parallel_1(
         vec![skips],
         vec![multilinears],
         vec![computation],
@@ -47,10 +47,43 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn prove_in_parallel<'a, EF, SC, M: Into<MleGroup<'a, EF>>>(
-    mut skips: Vec<usize>, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
+pub fn prove_in_parallel_1<'a, EF, SC, M: Into<MleGroup<'a, EF>>>(
+    skips: Vec<usize>, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
     multilinears: Vec<M>,
     computations: Vec<&SC>,
+    batching_scalars: Vec<&[EF]>,
+    eq_factors: Vec<Option<(Vec<EF>, Option<Mle<EF>>)>>, // (a, b, c ...), eq_poly(b, c, ...)
+    is_zerofier: Vec<bool>,
+    prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+    sums: Vec<EF>,
+    missing_mul_factors: Vec<Option<EF>>,
+    share_initial_challenges: bool, // otherwise, share the final challenges
+) -> (MultilinearPoint<EF>, Vec<Vec<EF>>, Vec<EF>)
+where
+    EF: ExtensionField<PF<EF>>,
+    SC: MySumcheckComputation<EF>,
+{
+    prove_in_parallel_2::<EF, SC, SC, M>(
+        skips,
+        multilinears,
+        computations,
+        vec![],
+        batching_scalars,
+        eq_factors,
+        is_zerofier,
+        prover_state,
+        sums,
+        missing_mul_factors,
+        share_initial_challenges,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn prove_in_parallel_2<'a, EF, SC1, SC2, M: Into<MleGroup<'a, EF>>>(
+    mut skips: Vec<usize>, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
+    multilinears: Vec<M>,
+    computations_1: Vec<&SC1>,
+    computations_2: Vec<&SC2>,
     batching_scalars: Vec<&[EF]>,
     mut eq_factors: Vec<Option<(Vec<EF>, Option<Mle<EF>>)>>, // (a, b, c ...), eq_poly(b, c, ...)
     mut is_zerofier: Vec<bool>,
@@ -61,11 +94,12 @@ pub fn prove_in_parallel<'a, EF, SC, M: Into<MleGroup<'a, EF>>>(
 ) -> (MultilinearPoint<EF>, Vec<Vec<EF>>, Vec<EF>)
 where
     EF: ExtensionField<PF<EF>>,
-    SC: MySumcheckComputation<EF>,
+    SC1: MySumcheckComputation<EF>,
+    SC2: MySumcheckComputation<EF>,
 {
     let n_sumchecks = multilinears.len();
     assert_eq!(n_sumchecks, skips.len());
-    assert_eq!(n_sumchecks, computations.len());
+    assert_eq!(n_sumchecks, computations_1.len() + computations_2.len());
     assert_eq!(n_sumchecks, batching_scalars.len());
     assert_eq!(n_sumchecks, eq_factors.len());
     assert_eq!(n_sumchecks, is_zerofier.len());
@@ -127,17 +161,31 @@ where
 
         let mut ps = vec![WhirDensePolynomial::default(); n_sumchecks];
         for &i in &concerned_sumchecks {
-            ps[i] = compute_and_send_polynomial(
-                skips[i],
-                &multilinears[i],
-                computations[i],
-                &eq_factors[i],
-                batching_scalars[i],
-                is_zerofier[i],
-                prover_state,
-                sums[i],
-                missing_mul_factors[i],
-            );
+            if i < computations_1.len() {
+                ps[i] = compute_and_send_polynomial(
+                    skips[i],
+                    &multilinears[i],
+                    computations_1[i],
+                    &eq_factors[i],
+                    batching_scalars[i],
+                    is_zerofier[i],
+                    prover_state,
+                    sums[i],
+                    missing_mul_factors[i],
+                );
+            } else {
+                ps[i] = compute_and_send_polynomial(
+                    skips[i],
+                    &multilinears[i],
+                    computations_2[i],
+                    &eq_factors[i],
+                    batching_scalars[i],
+                    is_zerofier[i],
+                    prover_state,
+                    sums[i],
+                    missing_mul_factors[i],
+                );
+            }
         }
 
         let challenge = prover_state.sample();

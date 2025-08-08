@@ -1,12 +1,11 @@
-use p3_air::Air;
 use p3_field::{ExtensionField, Field};
 
 use p3_matrix::dense::RowMajorMatrixView;
-use p3_uni_stark::{SymbolicAirBuilder, get_symbolic_constraints};
+use p3_uni_stark::get_symbolic_constraints;
 use rand::distr::{Distribution, StandardUniform};
 use utils::{ConstraintChecker, PF};
 
-use crate::witness::AirWitness;
+use crate::{MyAir, witness::AirWitness};
 
 pub struct AirTable<EF: Field, A> {
     pub air: A,
@@ -16,7 +15,7 @@ pub struct AirTable<EF: Field, A> {
     _phantom: std::marker::PhantomData<EF>,
 }
 
-impl<EF: ExtensionField<PF<EF>>, A: Air<SymbolicAirBuilder<PF<EF>>>> AirTable<EF, A> {
+impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
     pub fn new(air: A, univariate_skips: usize) -> Self {
         let symbolic_constraints = get_symbolic_constraints(&air, 0, 0);
         let n_constraints = symbolic_constraints.len();
@@ -37,7 +36,7 @@ impl<EF: ExtensionField<PF<EF>>, A: Air<SymbolicAirBuilder<PF<EF>>>> AirTable<EF
 
     pub fn check_trace_validity(&self, witness: &AirWitness<PF<EF>>) -> Result<(), String>
     where
-        A: for<'a> Air<ConstraintChecker<'a, PF<EF>>>,
+        A: MyAir<EF>,
         StandardUniform: Distribution<EF>,
     {
         if witness.n_columns() != self.n_columns() {
