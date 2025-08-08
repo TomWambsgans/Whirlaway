@@ -33,10 +33,8 @@ impl<
     ) -> Result<Vec<Evaluation<EF>>, ProofError> {
         let constraints_batching_scalar = verifier_state.sample();
 
-        let mut zerocheck_challenges = vec![EF::ZERO; log_n_rows - self.univariate_skips + 1];
-        for challenge in &mut zerocheck_challenges {
-            *challenge = verifier_state.sample();
-        }
+        let zerocheck_challenges =
+            verifier_state.sample_vec(log_n_rows + 1 - self.univariate_skips);
 
         let (sc_sum, outer_sumcheck_challenge) = sumcheck::verify_with_univariate_skip::<EF>(
             verifier_state,

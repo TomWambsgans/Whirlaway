@@ -35,7 +35,7 @@ where
     let max_degree_per_vars = (0..n_sumchecks)
         .map(|i| vec![degrees[i]; n_vars[i]])
         .collect::<Vec<_>>();
-    verify_in_parallel_core(
+    verify_core_in_parallel(
         verifier_state,
         max_degree_per_vars,
         sumation_sets,
@@ -85,36 +85,22 @@ fn verify_core<EF>(
 where
     EF: Field + ExtensionField<PF<EF>>,
 {
-    assert_eq!(max_degree_per_vars.len(), sumation_sets.len(),);
-    let mut challenges = Vec::new();
-    let mut first_round = true;
-    let (mut sum, mut target) = (EF::ZERO, EF::ZERO);
-
-    for (&deg, sumation_set) in max_degree_per_vars.iter().zip(sumation_sets) {
-        let coeffs = verifier_state.next_extension_scalars_vec(deg + 1)?;
-        let pol = WhirDensePolynomial::from_coefficients_vec(coeffs);
-        let computed_sum = sumation_set.iter().map(|&s| pol.evaluate(s)).sum();
-        if first_round {
-            first_round = false;
-            sum = computed_sum;
-        } else if target != computed_sum {
-            return Err(ProofError::InvalidProof);
-        }
-        let challenge = verifier_state.sample();
-
-        target = pol.evaluate(challenge);
-        challenges.push(challenge);
-    }
+    let (sum, challenge_point, challenge_value) = verify_core_in_parallel(
+        verifier_state,
+        vec![max_degree_per_vars],
+        vec![sumation_sets],
+        true,
+    )?;
     Ok((
-        sum,
+        sum[0],
         Evaluation {
-            point: MultilinearPoint(challenges),
-            value: target,
+            point: challenge_point,
+            value: challenge_value[0],
         },
     ))
 }
 
-fn verify_in_parallel_core<EF>(
+fn verify_core_in_parallel<EF>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     max_degree_per_vars: Vec<Vec<usize>>,
     sumation_sets: Vec<Vec<Vec<EF>>>,

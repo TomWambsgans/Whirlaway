@@ -56,10 +56,7 @@ where
             cyclic_subgroup_known_order(constraints_batching_scalar, self.n_constraints)
                 .collect::<Vec<_>>();
 
-        let mut zerocheck_challenges = vec![EF::ZERO; log_length + 1 - self.univariate_skips];
-        for challenge in &mut zerocheck_challenges {
-            *challenge = prover_state.sample();
-        }
+        let zerocheck_challenges = prover_state.sample_vec(log_length + 1 - self.univariate_skips);
 
         let columns_up_and_down_opt = if self.air.structured() {
             Some(columns_up_and_down(&witness))

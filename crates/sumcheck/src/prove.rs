@@ -16,15 +16,15 @@ use crate::{SumcheckComputation, SumcheckComputationPacked};
 
 #[allow(clippy::too_many_arguments)]
 pub fn prove<'a, EF, SC>(
-    mut skips: usize, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
+    skips: usize, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
     multilinears: impl Into<MleGroup<'a, EF>>,
     computation: &SC,
     batching_scalars: &[EF],
     eq_factor: Option<(Vec<EF>, Option<Mle<EF>>)>, // (a, b, c ...), eq_poly(b, c, ...)
-    mut is_zerofier: bool,
+    is_zerofier: bool,
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
-    mut sum: EF,
-    mut missing_mul_factor: Option<EF>,
+    sum: EF,
+    missing_mul_factor: Option<EF>,
 ) -> (MultilinearPoint<EF>, Vec<EF>, EF)
 where
     EF: Field + ExtensionField<PF<EF>>,
@@ -32,82 +32,20 @@ where
         + SumcheckComputation<EF, EF>
         + SumcheckComputation<PF<EF>, EF>,
 {
-    let mut multilinears: MleGroup<'a, EF> = multilinears.into();
-    let mut eq_factor: Option<(Vec<EF>, Mle<EF>)> = eq_factor.map(|(eq_point, eq_mle)| {
-        let eq_mle = eq_mle.unwrap_or_else(|| {
-            let eval_eq_ext = eval_eq(&eq_point[1..]);
-            if multilinears.by_ref().is_packed() {
-                Mle::ExtensionPacked(pack_extension(&eval_eq_ext))
-            } else {
-                Mle::Extension(eval_eq_ext)
-            }
-        });
-        (eq_point, eq_mle)
-    });
-    let mut n_vars = multilinears.by_ref().n_vars();
-    if let Some((eq_point, eq_mle)) = &eq_factor {
-        assert_eq!(eq_point.len(), n_vars - skips + 1);
-        assert_eq!(eq_mle.n_vars(), eq_point.len() - 1);
-        assert_eq!(eq_mle.is_packed(), multilinears.by_ref().is_packed());
-    }
+    let (challenges, mut final_folds, mut sum) = prove_in_parallel(
+        vec![skips],
+        vec![multilinears],
+        vec![computation],
+        vec![batching_scalars],
+        vec![eq_factor],
+        vec![is_zerofier],
+        prover_state,
+        vec![sum],
+        vec![missing_mul_factor],
+        true,
+    );
 
-    let n_rounds = n_vars - skips + 1;
-    let mut challenges = Vec::new();
-    for _ in 0..n_rounds {
-        // If Packing is enables, and there are too little variables, we unpack everything:
-        if multilinears.by_ref().is_packed() {
-            if n_vars <= 1 + packing_log_width::<EF>() {
-                // unpack
-                multilinears = multilinears.by_ref().unpack().into();
-                if let Some((_, eq_mle)) = &mut eq_factor {
-                    *eq_mle =
-                        Mle::Extension(unpack_extension(eq_mle.as_extension_packed().unwrap()));
-                }
-            }
-        }
-
-        let p = compute_and_send_polynomial(
-            skips,
-            &multilinears,
-            computation,
-            &eq_factor,
-            batching_scalars,
-            is_zerofier,
-            prover_state,
-            sum,
-            missing_mul_factor,
-        );
-
-        let challenge = prover_state.sample();
-        challenges.push(challenge);
-
-        on_challenge_received(
-            skips,
-            &mut multilinears,
-            &mut n_vars,
-            &mut eq_factor,
-            &mut sum,
-            &mut missing_mul_factor,
-            challenge,
-            &p,
-        );
-
-        skips = 1;
-        is_zerofier = false;
-    }
-
-    let final_folds = multilinears
-        .by_ref()
-        .as_extension()
-        .unwrap()
-        .into_iter()
-        .map(|m| {
-            assert_eq!(m.len(), 1);
-            m[0]
-        })
-        .collect::<Vec<_>>();
-
-    (MultilinearPoint(challenges), final_folds, sum)
+    (challenges, final_folds.pop().unwrap(), sum.pop().unwrap())
 }
 
 #[allow(clippy::too_many_arguments)]
