@@ -2,7 +2,7 @@ use p3_air::Air;
 use p3_field::PackedValue;
 use p3_field::{ExtensionField, TwoAdicField, cyclic_subgroup_known_order};
 use p3_uni_stark::SymbolicAirBuilder;
-use sumcheck::ProductComputation;
+use sumcheck::{MleGroupOwned, MleGroupRef, ProductComputation};
 use tracing::{info_span, instrument};
 use utils::{
     ConstraintFolder, ConstraintFolderPackedBase, Evaluation, FSProver, PFPacking,
@@ -84,12 +84,12 @@ where
 
         let (outer_sumcheck_challenge, all_inner_sums, _) =
             info_span!("zerocheck").in_scope(|| {
-                sumcheck::prove_base_packed::<EF, _>(
+                sumcheck::prove::<EF, _>(
                     self.univariate_skips,
-                    columns_for_zero_check,
+                    MleGroupRef::BasePacked(columns_for_zero_check),
                     &self.air,
                     &constraints_batching_scalars,
-                    Some((&zerocheck_challenges, None)),
+                    Some((zerocheck_challenges, None)),
                     true,
                     prover_state,
                     EF::ZERO,
@@ -233,12 +233,9 @@ where
         let inner_sum = info_span!("inner sum evaluation")
             .in_scope(|| batched_column_mixed.evaluate(&MultilinearPoint(point.clone())));
 
-        let (inner_challenges, inner_evals, _) = sumcheck::prove_generic::<EF, EF, _>(
+        let (inner_challenges, inner_evals, _) = sumcheck::prove::<EF, _>(
             1,
-            mles_for_inner_sumcheck
-                .iter()
-                .map(|m| m.as_slice())
-                .collect::<Vec<_>>(),
+            MleGroupOwned::Extension(mles_for_inner_sumcheck),
             &ProductComputation,
             &[EF::ONE],
             None,

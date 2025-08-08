@@ -1,3 +1,5 @@
+use std::any::TypeId;
+
 use p3_air::Air;
 use p3_field::{ExtensionField, Field};
 use p3_matrix::dense::RowMajorMatrixView;
@@ -89,14 +91,20 @@ where
     fn degree(&self) -> usize {
         self.degree()
     }
-    
 }
 
 pub struct ProductComputation;
 
-impl<EF: Field> SumcheckComputation<EF, EF> for ProductComputation {
-    fn eval(&self, point: &[EF], _: &[EF]) -> EF {
-        unsafe { *point.get_unchecked(0) * *point.get_unchecked(1) }
+impl<IF: ExtensionField<PF<EF>>, EF: ExtensionField<IF>> SumcheckComputation<IF, EF>
+    for ProductComputation
+{
+    fn eval(&self, point: &[IF], _: &[EF]) -> EF {
+        if TypeId::of::<IF>() == TypeId::of::<EF>() {
+            let point = unsafe { std::mem::transmute::<&[IF], &[EF]>(point) };
+            unsafe { *point.get_unchecked(0) * *point.get_unchecked(1) }
+        } else {
+            todo!("There would be embedding overhead ...?")
+        }
     }
     fn degree(&self) -> usize {
         2

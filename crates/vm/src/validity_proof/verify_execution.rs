@@ -113,7 +113,8 @@ pub fn verify_execution(
         &pcs.pcs_b(
             packed_parsed_commitment_base
                 .inner_parsed_commitment
-                .num_variables(), log2_ceil_usize(private_memory_len)
+                .num_variables(),
+            log2_ceil_usize(private_memory_len),
         ),
         &mut verifier_state,
         vars_per_polynomial_extension,

@@ -11,7 +11,7 @@ use rayon::prelude::*;
 use utils::{Evaluation, ToUsize};
 
 use p3_field::PrimeCharacteristicRing;
-use sumcheck::ProductComputation;
+use sumcheck::{MleGroupRef, ProductComputation};
 use tracing::{info_span, instrument};
 use utils::{EFPacking, FSProver, FSVerifier, PF, pack_extension, packing_width};
 use whir_p3::fiat_shamir::FSChallenger;
@@ -59,9 +59,9 @@ where
 
     let (sc_point, inner_evals, prod) =
         info_span!("logup_star sumcheck", table_length, indexes_length).in_scope(|| {
-            sumcheck::prove_extension_packed::<EF, _>(
+            sumcheck::prove::<EF, _>(
                 1,
-                vec![&table_embedded_packed, &pushforward_packed],
+                MleGroupRef::ExtensionPacked(vec![&table_embedded_packed, &pushforward_packed]),
                 &ProductComputation,
                 &[],
                 None,

@@ -220,10 +220,12 @@ pub fn get_execution_trace(
         .map(|&v| v.unwrap_or(F::ZERO))
         .collect::<Vec<F>>();
     memory.resize(
-        memory.len().next_multiple_of(execution_result.public_memory_size),
+        memory
+            .len()
+            .next_multiple_of(execution_result.public_memory_size),
         F::ZERO,
     );
-   
+
     ExecutionTrace {
         main_trace: trace,
         poseidons_16,
@@ -231,6 +233,6 @@ pub fn get_execution_trace(
         dot_products_ee,
         dot_products_be,
         public_memory_size: execution_result.public_memory_size,
-        memory
+        memory,
     }
 }

@@ -1,6 +1,6 @@
 use rayon::prelude::*;
 use std::{iter::Sum, marker::PhantomData, ops::Add};
-use sumcheck::ProductComputation;
+use sumcheck::{MleGroupRef, ProductComputation};
 use tracing::{info_span, instrument};
 
 use p3_field::dot_product;
@@ -92,9 +92,9 @@ impl<
             .in_scope(|| (pack_extension(transmuted_pol), pack_extension(&a_pol)));
 
         let (r_p, _, sc_value) = info_span!("sumcheck").in_scope(|| {
-            sumcheck::prove_extension_packed(
+            sumcheck::prove(
                 1,
-                vec![&packed_transmuted_pol, &packed_a_pol],
+                MleGroupRef::ExtensionPacked(vec![&packed_transmuted_pol, &packed_a_pol]),
                 &ProductComputation,
                 &[],
                 None,

@@ -11,6 +11,8 @@ use p3_field::PackedFieldExtension;
 use p3_field::PrimeCharacteristicRing;
 use p3_field::{ExtensionField, Field, PrimeField64, dot_product};
 use rayon::prelude::*;
+use sumcheck::Mle;
+use sumcheck::MleGroupRef;
 use sumcheck::{SumcheckComputation, SumcheckComputationPacked};
 use tracing::{info_span, instrument};
 use utils::pack_extension;
@@ -174,12 +176,12 @@ where
     } else {
         let (mut sc_point, inner_evals, _) =
             info_span!("remaining sumcheck rounds").in_scope(|| {
-                sumcheck::prove_generic::<EF, EF, _>(
+                sumcheck::prove::<EF, _>(
                     1,
-                    [u0_folded, u1_folded, u2_folded, u3_folded].to_vec(),
+                    MleGroupRef::Extension(vec![u0_folded, u1_folded, u2_folded, u3_folded]),
                     &GKRQuotientComputation { u4_const, u5_const },
                     &[EF::ONE],
-                    Some((&claim.point.0[1..], None)),
+                    Some((claim.point.0[1..].to_vec(), None)),
                     false,
                     prover_state,
                     next_sum,
@@ -301,17 +303,20 @@ where
     eq_poly_packed.resize(eq_poly_packed.len() / 2, Default::default());
 
     let (mut sc_point, quarter_evals, _) = info_span!("remaining sumcheck rounds").in_scope(|| {
-        sumcheck::prove_extension_packed::<EF, _>(
+        sumcheck::prove::<EF, _>(
             1,
-            vec![
+            MleGroupRef::ExtensionPacked(vec![
                 u0_folded_packed,
                 u1_folded_packed,
                 u2_folded_packed,
                 u3_folded_packed,
-            ],
+            ]),
             &GKRQuotientComputation { u4_const, u5_const },
             &[],
-            Some((&claim.point.0[1..], Some(eq_poly_packed))),
+            Some((
+                claim.point.0[1..].to_vec(),
+                Some(Mle::ExtensionPacked(eq_poly_packed)),
+            )),
             false,
             prover_state,
             next_sum,
@@ -423,8 +428,10 @@ pub struct GKRQuotientComputation<EF> {
     u5_const: EF,
 }
 
-impl<EF: Field> SumcheckComputation<EF, EF> for GKRQuotientComputation<EF> {
-    fn eval(&self, point: &[EF], _: &[EF]) -> EF {
+impl<IF: ExtensionField<PF<EF>>, EF: ExtensionField<IF>> SumcheckComputation<IF, EF>
+    for GKRQuotientComputation<EF>
+{
+    fn eval(&self, point: &[IF], _: &[EF]) -> EF {
         // U4.U2.U3 + U5.[U0.U3 + U1.U2]
         self.u4_const * point[2] * point[3]
             + self.u5_const * (point[0] * point[3] + point[1] * point[2])

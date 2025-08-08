@@ -8,7 +8,7 @@ use pcs::WhirBatchPcs;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::{
     MyMerkleCompress, MyMerkleHash, build_merkle_compress, build_merkle_hash, build_prover_state,
-    build_verifier_state, 
+    build_verifier_state,
 };
 use whir_p3::{
     dft::EvalsDft,

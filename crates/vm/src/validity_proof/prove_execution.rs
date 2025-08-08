@@ -75,15 +75,9 @@ pub fn prove_execution(
     let table_poseidon_16 = AirTable::<EF, _>::new(poseidon_16_air.clone(), UNIVARIATE_SKIPS);
     let table_poseidon_24 = AirTable::<EF, _>::new(poseidon_24_air.clone(), UNIVARIATE_SKIPS);
 
-    let mut poseidon_16_data_padded = poseidons_16
-        .iter()
-        .map(|w| w.input)
-        .collect::<Vec<_>>();
+    let mut poseidon_16_data_padded = poseidons_16.iter().map(|w| w.input).collect::<Vec<_>>();
     poseidon_16_data_padded.resize(poseidons_16.len().next_power_of_two(), [F::ZERO; 16]);
-    let mut poseidon_24_data_padded = poseidons_24
-        .iter()
-        .map(|w| w.input)
-        .collect::<Vec<_>>();
+    let mut poseidon_24_data_padded = poseidons_24.iter().map(|w| w.input).collect::<Vec<_>>();
     poseidon_24_data_padded.resize(poseidons_24.len().next_power_of_two(), [F::ZERO; 24]);
     let witness_matrix_poseidon_16 = generate_trace_poseidon_16(poseidon_16_data_padded);
     let witness_matrix_poseidon_24 = generate_trace_poseidon_24(poseidon_24_data_padded);
