@@ -17,6 +17,7 @@ use whir_p3::dft::EvalsDft;
 use whir_p3::poly::evals::{eval_eq, fold_multilinear};
 use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
+use crate::validity_proof::common::poseidon_lookup_value;
 use crate::{
     air::VMAir,
     bytecode::bytecode::Bytecode,
@@ -294,45 +295,13 @@ pub fn prove_execution(
                 &poseidon24_evals_to_prove[0].point[3..]
             }
         });
-        let poseidon_lookup_value = if poseidons_16.len() > poseidons_24.len() {
-            let missing_factor: EF = from_end(
-                &poseidon16_evals_to_prove[0].point,
-                log2_strict_usize(max_n_poseidons) - log2_strict_usize(min_n_poseidons),
-            )
-            .iter()
-            .map(|&f| EF::ONE - f)
-            .product();
-            [
-                poseidon16_evals_to_prove[0].value,
-                poseidon16_evals_to_prove[1].value,
-                poseidon16_evals_to_prove[3].value,
-                poseidon16_evals_to_prove[4].value,
-                poseidon24_evals_to_prove[0].value * missing_factor,
-                poseidon24_evals_to_prove[1].value * missing_factor,
-                poseidon24_evals_to_prove[2].value * missing_factor,
-                poseidon24_evals_to_prove[5].value * missing_factor,
-            ]
-            .evaluate(&poseidon_lookup_batching_chalenges)
-        } else {
-            let missing_factor: EF = from_end(
-                &poseidon24_evals_to_prove[0].point,
-                log2_strict_usize(max_n_poseidons) - log2_strict_usize(min_n_poseidons),
-            )
-            .iter()
-            .map(|&f| EF::ONE - f)
-            .product();
-            [
-                poseidon16_evals_to_prove[0].value * missing_factor,
-                poseidon16_evals_to_prove[1].value * missing_factor,
-                poseidon16_evals_to_prove[3].value * missing_factor,
-                poseidon16_evals_to_prove[4].value * missing_factor,
-                poseidon24_evals_to_prove[0].value,
-                poseidon24_evals_to_prove[1].value,
-                poseidon24_evals_to_prove[2].value,
-                poseidon24_evals_to_prove[5].value,
-            ]
-            .evaluate(&poseidon_lookup_batching_chalenges)
-        };
+        let poseidon_lookup_value = poseidon_lookup_value(
+            n_poseidons_16,
+            n_poseidons_24,
+            poseidon16_evals_to_prove,
+            poseidon24_evals_to_prove,
+            &poseidon_lookup_batching_chalenges,
+        );
         let poseidon_lookup_challenge = Evaluation {
             point: MultilinearPoint(poseidon_lookup_point),
             value: poseidon_lookup_value,
