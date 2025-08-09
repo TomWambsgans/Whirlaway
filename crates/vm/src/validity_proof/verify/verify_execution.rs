@@ -2,6 +2,7 @@ use ::air::table::AirTable;
 use ::air::verify_many_air;
 use lookup::verify_logup_star;
 use p3_air::BaseAir;
+use p3_field::PrimeCharacteristicRing;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use pcs::packed_pcs_global_statements;
 use pcs::{BatchPCS, NumVariables as _, packed_pcs_parse_commitment};
@@ -11,6 +12,7 @@ use whir_p3::fiat_shamir::{errors::ProofError, verifier::VerifierState};
 use whir_p3::poly::evals::EvaluationsList;
 use whir_p3::poly::multilinear::MultilinearPoint;
 
+use crate::runner::build_public_memory;
 use crate::validity_proof::common::{
     poseidon_16_column_groups, poseidon_24_column_groups, poseidon_lookup_value,
 };
@@ -56,13 +58,14 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
-    let public_memory_len = (PUBLIC_INPUT_START + public_input.len()).next_power_of_two();
+    let public_memory = build_public_memory(public_input);
+    let public_memory_len = public_memory.len();
     if private_memory_len % public_memory_len != 0 {
         return Err(ProofError::InvalidProof);
     }
     let n_private_memory_chunks = private_memory_len / public_memory_len;
-    let log_memory = log2_ceil_usize(public_memory_len + private_memory_len);
     let log_public_memory = log2_strict_usize(public_memory_len);
+    let log_memory = log2_ceil_usize(public_memory_len + private_memory_len);
     let log_n_p16 = log2_ceil_usize(n_poseidons_16);
     let log_n_p24 = log2_ceil_usize(n_poseidons_24);
 
@@ -166,22 +169,21 @@ pub fn verify_execution(
     )
     .unwrap();
 
-    let private_memory_statements =
-        verifier_state.next_extension_scalars_vec(n_private_memory_chunks)?;
-    if exec_logup_star_statements.on_table.value
-        != padd_with_zero_to_next_power_of_two(&private_memory_statements).evaluate(
-            &MultilinearPoint(
-                exec_logup_star_statements.on_table.point[..log_memory - log_public_memory]
-                    .to_vec(),
-            ),
-        )
-    {
-        // TODO
-    }
     let private_memory_chunk_point = MultilinearPoint(
         exec_logup_star_statements.on_table.point[log_memory - log_public_memory..].to_vec(),
     );
-    let private_memory_statements = private_memory_statements
+    let private_memory_evals =
+        verifier_state.next_extension_scalars_vec(n_private_memory_chunks)?;
+    let public_memory_eval = public_memory.evaluate(&private_memory_chunk_point);
+    let all_memory_chunk_evals = [vec![public_memory_eval], private_memory_evals.clone()].concat();
+    if exec_logup_star_statements.on_table.value
+        != padd_with_zero_to_next_power_of_two(&all_memory_chunk_evals).evaluate(&MultilinearPoint(
+            exec_logup_star_statements.on_table.point[..log_memory - log_public_memory].to_vec(),
+        ))
+    {
+        return Err(ProofError::InvalidProof);
+    }
+    let private_memory_statements = private_memory_evals
         .into_iter()
         .map(|value| {
             vec![Evaluation {

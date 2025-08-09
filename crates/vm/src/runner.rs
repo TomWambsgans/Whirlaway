@@ -2,6 +2,7 @@ use p3_field::BasedVectorSpace;
 use p3_field::ExtensionField;
 use p3_field::PrimeCharacteristicRing;
 use p3_field::dot_product;
+use rayon::prelude::*;
 use utils::ToUsize;
 use utils::build_poseidon16;
 use utils::build_poseidon24;
@@ -112,6 +113,9 @@ impl MemOrFpOrConstant {
 }
 
 impl Memory {
+    pub fn new(public_memory: Vec<F>) -> Self {
+        Self(public_memory.into_par_iter().map(Some).collect::<Vec<_>>())
+    }
     pub fn get(&self, index: usize) -> Result<F, RunnerError> {
         self.0
             .get(index)
@@ -228,6 +232,21 @@ pub struct ExecutionResult {
     pub fps: Vec<usize>,
 }
 
+pub(crate) fn build_public_memory(public_input: &[F]) -> Vec<F> {
+    // padded to a power of two
+    let public_memory_len = (PUBLIC_INPUT_START + public_input.len()).next_power_of_two();
+    let mut public_memory = F::zero_vec(public_memory_len);
+    public_memory[PUBLIC_INPUT_START..][..public_input.len()].copy_from_slice(public_input);
+    for i in ZERO_VEC_PTR * 8..(ZERO_VEC_PTR + 2) * 8 {
+        public_memory[i] = F::ZERO; // zero vector
+    }
+    public_memory[POSEIDON_16_NULL_HASH_PTR * 8..(POSEIDON_16_NULL_HASH_PTR + 2) * 8]
+        .copy_from_slice(&build_poseidon16().permute([F::ZERO; 16]));
+    public_memory[POSEIDON_24_NULL_HASH_PTR * 8..(POSEIDON_24_NULL_HASH_PTR + 1) * 8]
+        .copy_from_slice(&build_poseidon24().permute([F::ZERO; 24])[16..]);
+    public_memory
+}
+
 fn execute_bytecode_helper(
     bytecode: &Bytecode,
     public_input: &[F],
@@ -236,30 +255,11 @@ fn execute_bytecode_helper(
     final_execution: bool,
     std_out: &mut String,
 ) -> Result<ExecutionResult, RunnerError> {
-    let mut memory = Memory::default();
     let poseidon_16 = build_poseidon16(); // TODO avoid rebuilding each time
     let poseidon_24 = build_poseidon24();
 
-    // convention
-    memory
-        .set_vectorized_slice(ZERO_VEC_PTR, &[F::ZERO; 16])
-        .unwrap(); // pointer_to_zero_vec
-    memory
-        .set_vectorized_slice(
-            POSEIDON_16_NULL_HASH_PTR,
-            &poseidon_16.permute([F::ZERO; 16]),
-        )
-        .unwrap();
-    memory
-        .set_vectorized_slice(
-            POSEIDON_24_NULL_HASH_PTR,
-            &poseidon_24.permute([F::ZERO; 24])[16..],
-        )
-        .unwrap();
-
-    for (i, value) in public_input.iter().enumerate() {
-        memory.set(PUBLIC_INPUT_START + i, *value)?;
-    }
+    // set public memory
+    let mut memory = Memory::new(build_public_memory(public_input));
 
     let public_memory_size = (PUBLIC_INPUT_START + public_input.len()).next_power_of_two();
     let mut fp = public_memory_size;
