@@ -379,7 +379,10 @@ pub fn prove_execution(
     // Second Opening
     let global_statements_extension = packed_pcs_global_statements(
         &packed_pcs_witness_extension.tree,
-        &vec![exec_logup_star_statements.on_pushforward, vec![]],
+        &vec![
+            exec_logup_star_statements.on_pushforward,
+            poseidon_logup_star_statements.on_pushforward,
+        ],
     );
 
     pcs.batch_open(

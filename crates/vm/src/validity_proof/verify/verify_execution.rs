@@ -121,7 +121,7 @@ pub fn verify_execution(
 
     let poseidon_lookup_log_length = 3 + log_n_p16.max(log_n_p24);
 
-    let vars_pcs_extension = vec![log_memory, poseidon_lookup_log_length];
+    let vars_pcs_extension = vec![log_memory, log_memory - 3];
     let packed_parsed_commitment_extension = packed_pcs_parse_commitment(
         &pcs.pcs_b(
             parsed_commitment_base
@@ -247,7 +247,10 @@ pub fn verify_execution(
 
     let global_statements_extension = packed_pcs_global_statements(
         &packed_parsed_commitment_extension.tree,
-        &vec![exec_logup_star_statements.on_pushforward, vec![]],
+        &vec![
+            exec_logup_star_statements.on_pushforward,
+            poseidon_logup_star_statements.on_pushforward,
+        ],
     );
 
     pcs.batch_verify(
