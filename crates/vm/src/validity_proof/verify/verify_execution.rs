@@ -2,7 +2,6 @@ use ::air::table::AirTable;
 use ::air::verify_many_air;
 use lookup::verify_logup_star;
 use p3_air::BaseAir;
-use p3_field::PrimeCharacteristicRing;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use pcs::packed_pcs_global_statements;
 use pcs::{BatchPCS, NumVariables as _, packed_pcs_parse_commitment};
@@ -115,6 +114,7 @@ pub fn verify_execution(
     )?;
     let p16_evals_to_verify = &poseidon_evals_to_verify[0];
     let p24_evals_to_verify = &poseidon_evals_to_verify[1];
+    let memory_folding_challenges = MultilinearPoint(p16_evals_to_verify[0].point[..3].to_vec());
 
     // Poseidons 16/24 memory addresses lookup
     let poseidon_lookup_batching_chalenges = MultilinearPoint(verifier_state.sample_vec(3));
@@ -169,31 +169,64 @@ pub fn verify_execution(
     )
     .unwrap();
 
-    let private_memory_chunk_point = MultilinearPoint(
+    let poseidon_lookup_memory_point = MultilinearPoint(
+        [
+            poseidon_logup_star_statements.on_table.point.0.clone(),
+            memory_folding_challenges.0.clone(),
+        ]
+        .concat(),
+    );
+
+    let exec_lookup_chunk_point = MultilinearPoint(
         exec_logup_star_statements.on_table.point[log_memory - log_public_memory..].to_vec(),
     );
-    let private_memory_evals =
-        verifier_state.next_extension_scalars_vec(n_private_memory_chunks)?;
-    let public_memory_eval = public_memory.evaluate(&private_memory_chunk_point);
-    let all_memory_chunk_evals = [vec![public_memory_eval], private_memory_evals.clone()].concat();
+    let poseidon_lookup_chunk_point =
+        MultilinearPoint(poseidon_lookup_memory_point[log_memory - log_public_memory..].to_vec());
+
+    let mut chunk_evals_exec_lookup = vec![public_memory.evaluate(&exec_lookup_chunk_point)];
+    let mut chunk_evals_poseidon_lookup =
+        vec![public_memory.evaluate(&poseidon_lookup_chunk_point)];
+
+    let mut private_memory_statements = vec![];
+    for _ in 0..n_private_memory_chunks {
+        let chunk_eval_exec_lookup = verifier_state.next_extension_scalar()?;
+        let chunk_eval_poseidon_lookup = verifier_state.next_extension_scalar()?;
+        chunk_evals_exec_lookup.push(chunk_eval_exec_lookup);
+        chunk_evals_poseidon_lookup.push(chunk_eval_poseidon_lookup);
+        private_memory_statements.push(vec![
+            Evaluation {
+                point: exec_lookup_chunk_point.clone(),
+                value: chunk_eval_exec_lookup,
+            },
+            Evaluation {
+                point: poseidon_lookup_chunk_point.clone(),
+                value: chunk_eval_poseidon_lookup,
+            },
+        ]);
+    }
+
     if exec_logup_star_statements.on_table.value
-        != padd_with_zero_to_next_power_of_two(&all_memory_chunk_evals).evaluate(&MultilinearPoint(
-            exec_logup_star_statements.on_table.point[..log_memory - log_public_memory].to_vec(),
-        ))
+        != padd_with_zero_to_next_power_of_two(&chunk_evals_exec_lookup).evaluate(
+            &MultilinearPoint(
+                exec_logup_star_statements.on_table.point[..log_memory - log_public_memory]
+                    .to_vec(),
+            ),
+        )
     {
         return Err(ProofError::InvalidProof);
     }
-    let private_memory_statements = private_memory_evals
-        .into_iter()
-        .map(|value| {
-            vec![Evaluation {
-                point: private_memory_chunk_point.clone(),
-                value,
-            }]
-        })
-        .collect::<Vec<_>>();
+    if poseidon_logup_star_statements.on_table.value
+        != padd_with_zero_to_next_power_of_two(&chunk_evals_poseidon_lookup).evaluate(
+            &MultilinearPoint(
+                poseidon_logup_star_statements.on_table.point[..log_memory - log_public_memory]
+                    .to_vec(),
+            ),
+        )
+    {
+        return Err(ProofError::InvalidProof);
+    }
 
-    let global_statements_base_polynomial = packed_pcs_global_statements(
+    let global_statements_base = packed_pcs_global_statements(
         &parsed_commitment_base.tree,
         &[
             vec![
@@ -212,8 +245,7 @@ pub fn verify_execution(
         .concat(),
     );
 
-    // Open B
-    let global_statements_extension_polynomial = packed_pcs_global_statements(
+    let global_statements_extension = packed_pcs_global_statements(
         &packed_parsed_commitment_extension.tree,
         &vec![exec_logup_star_statements.on_pushforward, vec![]],
     );
@@ -221,9 +253,9 @@ pub fn verify_execution(
     pcs.batch_verify(
         &mut verifier_state,
         &parsed_commitment_base.inner_parsed_commitment,
-        &global_statements_base_polynomial,
+        &global_statements_base,
         &packed_parsed_commitment_extension.inner_parsed_commitment,
-        &global_statements_extension_polynomial,
+        &global_statements_extension,
     )?;
 
     Ok(())

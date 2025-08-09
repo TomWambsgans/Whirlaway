@@ -164,6 +164,7 @@ pub fn prove_execution(
         poseidon_pushforward,
         poseidon_lookup_challenge,
         poseidon_poly_eq_point,
+        memory_folding_challenges,
     ) = {
         // Poseidons 16/24 memory addresses lookup
 
@@ -187,7 +188,7 @@ pub fn prove_execution(
             &p24_evals_to_prove[0].point[..3 + log2_ceil_usize(min_n_poseidons)]
         );
 
-        let mixing_challenges = MultilinearPoint(p16_evals_to_prove[0].point[..3].to_vec());
+        let memory_folding_challenges = MultilinearPoint(p16_evals_to_prove[0].point[..3].to_vec());
         let poseidon_lookup_batching_chalenges = MultilinearPoint(prover_state.sample_vec(3));
         let mut poseidon_lookup_point = poseidon_lookup_batching_chalenges.0.clone();
         poseidon_lookup_point.extend_from_slice({
@@ -240,14 +241,14 @@ pub fn prove_execution(
         let mut all_poseidon_values = EF::zero_vec(8 * max_n_poseidons);
         #[rustfmt::skip]
         let chunks = [
-            (poseidons_16.par_iter().map(|p| (&p.input[0..8]).evaluate(&mixing_challenges)).collect::<Vec<_>>(), poseidon16_steps),
-            (poseidons_16.par_iter().map(|p| (&p.input[8..16]).evaluate(&mixing_challenges)).collect::<Vec<_>>(), poseidon16_steps),
-            (poseidons_16.par_iter().map(|p| (&p.output[0..8]).evaluate(&mixing_challenges)).collect::<Vec<_>>(), poseidon16_steps),
-            (poseidons_16.par_iter().map(|p| (&p.output[8..16]).evaluate(&mixing_challenges)).collect::<Vec<_>>(), poseidon16_steps),
-            (poseidons_24.par_iter().map(|p| (&p.input[0..8]).evaluate(&mixing_challenges)).collect::<Vec<_>>(), poseidon24_steps),
-            (poseidons_24.par_iter().map(|p| (&p.input[8..16]).evaluate(&mixing_challenges)).collect::<Vec<_>>(), poseidon24_steps),
-            (poseidons_24.par_iter().map(|p| (&p.input[16..24]).evaluate(&mixing_challenges)).collect::<Vec<_>>(), poseidon24_steps),
-            (poseidons_24.par_iter().map(|p| (&p.output).evaluate(&mixing_challenges)).collect::<Vec<_>>(), poseidon24_steps),
+            (poseidons_16.par_iter().map(|p| (&p.input[0..8]).evaluate(&memory_folding_challenges)).collect::<Vec<_>>(), poseidon16_steps),
+            (poseidons_16.par_iter().map(|p| (&p.input[8..16]).evaluate(&memory_folding_challenges)).collect::<Vec<_>>(), poseidon16_steps),
+            (poseidons_16.par_iter().map(|p| (&p.output[0..8]).evaluate(&memory_folding_challenges)).collect::<Vec<_>>(), poseidon16_steps),
+            (poseidons_16.par_iter().map(|p| (&p.output[8..16]).evaluate(&memory_folding_challenges)).collect::<Vec<_>>(), poseidon16_steps),
+            (poseidons_24.par_iter().map(|p| (&p.input[0..8]).evaluate(&memory_folding_challenges)).collect::<Vec<_>>(), poseidon24_steps),
+            (poseidons_24.par_iter().map(|p| (&p.input[8..16]).evaluate(&memory_folding_challenges)).collect::<Vec<_>>(), poseidon24_steps),
+            (poseidons_24.par_iter().map(|p| (&p.input[16..24]).evaluate(&memory_folding_challenges)).collect::<Vec<_>>(), poseidon24_steps),
+            (poseidons_24.par_iter().map(|p| (&p.output).evaluate(&memory_folding_challenges)).collect::<Vec<_>>(), poseidon24_steps),
         ];
         for (chunk_idx, (values, step)) in chunks.into_iter().enumerate() {
             let offset = chunk_idx * max_n_poseidons;
@@ -260,7 +261,7 @@ pub fn prove_execution(
                 });
         }
 
-        let folded_memory = fold_multilinear(&padded_memory, &mixing_challenges);
+        let folded_memory = fold_multilinear(&padded_memory, &memory_folding_challenges);
 
         assert_eq!(all_poseidon_indexes.len(), all_poseidon_values.len(),);
 
@@ -289,6 +290,7 @@ pub fn prove_execution(
             poseidon_pushforward,
             poseidon_lookup_challenge,
             poseidon_poly_eq_point,
+            memory_folding_challenges,
         )
     };
 
@@ -322,25 +324,37 @@ pub fn prove_execution(
         &poseidon_pushforward,
     );
 
+    let poseidon_lookup_memory_point = MultilinearPoint(
+        [
+            poseidon_logup_star_statements.on_table.point.0.clone(),
+            memory_folding_challenges.0.clone(),
+        ]
+        .concat(),
+    );
     // open memory at point logup_star_statements.on_table.point
-    let private_memory_chunk_point = MultilinearPoint(
+    let exec_lookup_chunk_point = MultilinearPoint(
         exec_logup_star_statements.on_table.point[log_memory - log_public_memory..].to_vec(),
     );
+    let poseidon_lookup_chunk_point =
+        MultilinearPoint(poseidon_lookup_memory_point[log_memory - log_public_memory..].to_vec());
     let mut private_memory_statements = vec![];
     for private_memory_chunk in &private_memory_commited_chunks {
-        let chunk_eval = private_memory_chunk.evaluate(&private_memory_chunk_point);
-        private_memory_statements.push(chunk_eval);
+        let chunk_eval_exec_lookup = private_memory_chunk.evaluate(&exec_lookup_chunk_point);
+        let chunk_eval_poseidon_lookup =
+            private_memory_chunk.evaluate(&poseidon_lookup_chunk_point);
+        prover_state.add_extension_scalar(chunk_eval_exec_lookup);
+        prover_state.add_extension_scalar(chunk_eval_poseidon_lookup);
+        private_memory_statements.push(vec![
+            Evaluation {
+                point: exec_lookup_chunk_point.clone(),
+                value: chunk_eval_exec_lookup,
+            },
+            Evaluation {
+                point: poseidon_lookup_chunk_point.clone(),
+                value: chunk_eval_poseidon_lookup,
+            },
+        ]);
     }
-    prover_state.add_extension_scalars(&private_memory_statements);
-    let private_memory_statements = private_memory_statements
-        .into_iter()
-        .map(|value| {
-            vec![Evaluation {
-                point: private_memory_chunk_point.clone(),
-                value,
-            }]
-        })
-        .collect::<Vec<_>>();
 
     // First Opening
     let global_statements_base = packed_pcs_global_statements(
