@@ -2,9 +2,11 @@ use ::air::table::AirTable;
 use ::air::verify_many_air;
 use lookup::verify_logup_star;
 use p3_air::BaseAir;
+use p3_field::PrimeCharacteristicRing;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use pcs::packed_pcs_global_statements;
 use pcs::{BatchPCS, NumVariables as _, packed_pcs_parse_commitment};
+use utils::from_end;
 use utils::{Evaluation, PF, build_challenger, padd_with_zero_to_next_power_of_two};
 use utils::{ToUsize, build_poseidon_16_air, build_poseidon_24_air};
 use whir_p3::fiat_shamir::{errors::ProofError, verifier::VerifierState};
@@ -64,9 +66,12 @@ pub fn verify_execution(
 
     let vars_pc_fp = log_n_cycles + 1;
     let vars_memory_addresses = log_n_cycles + 2; // 3 memory addresses, rounded to 2^2
-    let vars_poseidon_16 =
+    let vars_poseidon_16_indexes = log2_ceil_usize(n_poseidons_16) + 2;
+    let vars_poseidon_24_indexes = log2_ceil_usize(n_poseidons_24) + 2;
+
+    let vars_poseidon_16_table =
         log2_ceil_usize(n_poseidons_16) + log2_ceil_usize(poseidon_16_air.width() - 16 * 2);
-    let vars_poseidon_24 =
+    let vars_poseidon_24_table =
         log2_ceil_usize(n_poseidons_24) + log2_ceil_usize(poseidon_24_air.width() - 24 * 2);
 
     let vars_for_private_memory =
@@ -76,8 +81,10 @@ pub fn verify_execution(
         vec![
             vars_pc_fp,
             vars_memory_addresses,
-            vars_poseidon_16,
-            vars_poseidon_24,
+            vars_poseidon_16_indexes,
+            vars_poseidon_24_indexes,
+            vars_poseidon_16_table,
+            vars_poseidon_24_table,
         ],
         vars_for_private_memory,
     ]
@@ -104,36 +111,47 @@ pub fn verify_execution(
         ],
         &[
             vec![
-                0..16,
+                0..8,
+                8..16,
                 16..poseidon_16_air.width() - 16,
-                poseidon_16_air.width() - 16..poseidon_16_air.width(),
+                poseidon_16_air.width() - 16..poseidon_16_air.width() - 8,
+                poseidon_16_air.width() - 8..poseidon_16_air.width(),
             ],
             vec![
-                0..24,
+                0..8,
+                8..16,
+                16..24,
                 24..poseidon_24_air.width() - 24,
-                poseidon_24_air.width() - 24..poseidon_24_air.width(),
+                poseidon_24_air.width() - 24..poseidon_24_air.width() - 8, // TODO should we commit to this part ? Probably not, but careful here, we will not check evaluations for this part
+                poseidon_24_air.width() - 8..poseidon_24_air.width(),
             ],
         ],
     )?;
     let poseidon16_evals_to_verify = &poseidon_evals_to_verify[0];
     let poseidon24_evals_to_verify = &poseidon_evals_to_verify[1];
 
+    // Poseidons 16/24 memory addresses lookup
+    let poseidon_lookup_batching_chalenges = MultilinearPoint(verifier_state.sample_vec(3));
+
+    let poseidon_lookup_table_log_length = 3 + log2_ceil_usize(n_poseidons_16.max(n_poseidons_24));
+
     let padded_memory_len = (public_memory_len + private_memory_len).next_power_of_two();
     let main_pushforward_variables = log2_strict_usize(padded_memory_len);
-    let vars_per_polynomial_extension = vec![main_pushforward_variables];
+    let vars_per_polynomial_extension =
+        vec![main_pushforward_variables, poseidon_lookup_table_log_length];
     let packed_parsed_commitment_extension = packed_pcs_parse_commitment(
         &pcs.pcs_b(
             packed_parsed_commitment_base
                 .inner_parsed_commitment
                 .num_variables(),
-            log2_ceil_usize(private_memory_len),
+            1 + log2_ceil_usize(private_memory_len).max(poseidon_lookup_table_log_length),
         ),
         &mut verifier_state,
         vars_per_polynomial_extension,
     )
     .unwrap();
 
-    let logup_star_statements = verify_logup_star(
+    let main_logup_star_statements = verify_logup_star(
         &mut verifier_state,
         log_padded_memory,
         log_n_cycles + 2, // 3 memory columns, rounded to 2^2
@@ -141,18 +159,77 @@ pub fn verify_execution(
     )
     .unwrap();
 
+    let mut poseidon_lookup_point = poseidon_lookup_batching_chalenges.0.clone();
+    poseidon_lookup_point.extend_from_slice({
+        if n_poseidons_16 > n_poseidons_24 {
+            &poseidon16_evals_to_verify[0].point[3..]
+        } else {
+            &poseidon24_evals_to_verify[0].point[3..]
+        }
+    });
+    let poseidon_lookup_value = if n_poseidons_16 > n_poseidons_24 {
+        let missing_factor: EF = from_end(
+            &poseidon16_evals_to_verify[0].point,
+            log2_ceil_usize(n_poseidons_16) - log2_ceil_usize(n_poseidons_24),
+        )
+        .iter()
+        .map(|&f| EF::ONE - f)
+        .product();
+        [
+            poseidon16_evals_to_verify[0].value,
+            poseidon16_evals_to_verify[1].value,
+            poseidon16_evals_to_verify[3].value,
+            poseidon16_evals_to_verify[4].value,
+            poseidon24_evals_to_verify[0].value * missing_factor,
+            poseidon24_evals_to_verify[1].value * missing_factor,
+            poseidon24_evals_to_verify[2].value * missing_factor,
+            poseidon24_evals_to_verify[5].value * missing_factor,
+        ]
+        .evaluate(&poseidon_lookup_batching_chalenges)
+    } else {
+        let missing_factor: EF = from_end(
+            &poseidon24_evals_to_verify[0].point,
+            log2_ceil_usize(n_poseidons_24) - log2_ceil_usize(n_poseidons_16),
+        )
+        .iter()
+        .map(|&f| EF::ONE - f)
+        .product();
+        [
+            poseidon16_evals_to_verify[0].value * missing_factor,
+            poseidon16_evals_to_verify[1].value * missing_factor,
+            poseidon16_evals_to_verify[3].value * missing_factor,
+            poseidon16_evals_to_verify[4].value * missing_factor,
+            poseidon24_evals_to_verify[0].value,
+            poseidon24_evals_to_verify[1].value,
+            poseidon24_evals_to_verify[2].value,
+            poseidon24_evals_to_verify[5].value,
+        ]
+        .evaluate(&poseidon_lookup_batching_chalenges)
+    };
+    let poseidon_lookup_challenge = Evaluation {
+        point: MultilinearPoint(poseidon_lookup_point),
+        value: poseidon_lookup_value,
+    };
+    let poseidon_logup_star_statements = verify_logup_star(
+        &mut verifier_state,
+        log2_strict_usize(padded_memory_len) - 3, // "-3" because it's folded memory
+        poseidon_lookup_table_log_length,
+        &poseidon_lookup_challenge,
+    )
+    .unwrap();
+
     let private_memory_statements =
         verifier_state.next_extension_scalars_vec(n_private_memory_chunks)?;
-    if logup_star_statements.on_table.value
+    if main_logup_star_statements.on_table.value
         != padd_with_zero_to_next_power_of_two(&private_memory_statements).evaluate(
             &MultilinearPoint(
-                logup_star_statements.on_table.point[..log_padded_memory - log_public_memory]
+                main_logup_star_statements.on_table.point[..log_padded_memory - log_public_memory]
                     .to_vec(),
             ),
         )
     {}
     let private_memory_chunk_point = MultilinearPoint(
-        logup_star_statements.on_table.point[log_padded_memory - log_public_memory..].to_vec(),
+        main_logup_star_statements.on_table.point[log_padded_memory - log_public_memory..].to_vec(),
     );
     let private_memory_statements = private_memory_statements
         .into_iter()
@@ -171,10 +248,12 @@ pub fn verify_execution(
                 vec![main_table_evals_to_verify[2].clone()], // pc, fp
                 vec![
                     main_table_evals_to_verify[3].clone(),
-                    logup_star_statements.on_indexes,
+                    main_logup_star_statements.on_indexes,
                 ], // memory addresses
-                vec![poseidon16_evals_to_verify[1].clone()],
-                vec![poseidon24_evals_to_verify[1].clone()],
+                vec![],
+                vec![],
+                vec![poseidon16_evals_to_verify[2].clone()],
+                vec![poseidon24_evals_to_verify[3].clone()],
             ],
             private_memory_statements,
         ]
@@ -184,20 +263,8 @@ pub fn verify_execution(
     // Open B
     let global_statements_extension_polynomial = packed_pcs_global_statements(
         &packed_parsed_commitment_extension.tree,
-        &vec![logup_star_statements.on_pushforward],
+        &vec![main_logup_star_statements.on_pushforward, vec![]],
     );
-
-    // pcs.pcs_a().verify(
-    //     &mut verifier_state,
-    //     &packed_parsed_commitment_base.inner_parsed_commitment,
-    //     &global_statements_base_polynomial,
-    // )?;
-
-    // pcs.pcs_b().verify(
-    //     &mut verifier_state,
-    //     &packed_parsed_commitment_extension.inner_parsed_commitment,
-    //     &global_statements_extension_polynomial,
-    // )?;
 
     pcs.batch_verify(
         &mut verifier_state,

@@ -242,7 +242,7 @@ fn execute_bytecode_helper(
 
     // convention
     memory
-        .set_vector(ZERO_VEC_PTR, [F::ZERO; DIMENSION])
+        .set_vectorized_slice(ZERO_VEC_PTR, &[F::ZERO; 16])
         .unwrap(); // pointer_to_zero_vec
     memory
         .set_vectorized_slice(

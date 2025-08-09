@@ -253,7 +253,9 @@ fn open_structured_columns<'a, EF: ExtensionField<PF<EF>>>(
         // TODO opti
         let sub_evals = fold_multilinear(
             &batched_column_mixed,
-            &MultilinearPoint(outer_sumcheck_challenge[1..witness.log_n_rows() - univariate_skips + 1].to_vec()),
+            &MultilinearPoint(
+                outer_sumcheck_challenge[1..witness.log_n_rows() - univariate_skips + 1].to_vec(),
+            ),
         );
 
         prover_state.add_extension_scalars(&sub_evals);
@@ -265,7 +267,11 @@ fn open_structured_columns<'a, EF: ExtensionField<PF<EF>>>(
         .into_iter()
         .zip(all_batched_columns_mixed)
     {
-        let point = [epsilons.clone(), outer_sumcheck_challenge[1..witness.log_n_rows() - univariate_skips + 1].to_vec()].concat();
+        let point = [
+            epsilons.clone(),
+            outer_sumcheck_challenge[1..witness.log_n_rows() - univariate_skips + 1].to_vec(),
+        ]
+        .concat();
         let mles_for_inner_sumcheck = vec![
             add_multilinears(
                 &matrix_up_folded(&point),

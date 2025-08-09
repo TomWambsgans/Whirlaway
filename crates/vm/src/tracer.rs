@@ -1,12 +1,14 @@
 use crate::{
-    EF, F, N_AIR_COLUMNS, N_INSTRUCTION_FIELDS_IN_AIR,
+    EF, F, N_AIR_COLUMNS, N_INSTRUCTION_FIELDS_IN_AIR, POSEIDON_16_NULL_HASH_PTR,
+    POSEIDON_24_NULL_HASH_PTR,
     bytecode::bytecode::{Bytecode, Instruction},
     runner::ExecutionResult,
 };
 use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
+use p3_symmetric::Permutation;
 use rayon::prelude::*;
-use utils::ToUsize;
+use utils::{ToUsize, build_poseidon16, build_poseidon24};
 
 pub struct WitnessDotProductEE {
     pub addr_0: usize,   // vectorized pointer
@@ -44,8 +46,10 @@ pub struct WitnessPoseidon24 {
 
 pub struct ExecutionTrace {
     pub main_trace: Vec<Vec<F>>,
-    pub poseidons_16: Vec<WitnessPoseidon16>,
-    pub poseidons_24: Vec<WitnessPoseidon24>,
+    pub n_poseidons_16: usize,
+    pub n_poseidons_24: usize,
+    pub poseidons_16: Vec<WitnessPoseidon16>, // padded with empty poseidons
+    pub poseidons_24: Vec<WitnessPoseidon24>, // padded with empty poseidons
     pub dot_products_ee: Vec<WitnessDotProductEE>,
     pub dot_products_be: Vec<WitnessDotProductBE>,
     pub public_memory_size: usize,
@@ -226,8 +230,37 @@ pub fn get_execution_trace(
         F::ZERO,
     );
 
+    let n_poseidons_16 = poseidons_16.len();
+    let n_poseidons_24 = poseidons_24.len();
+
+    let empty_poseidon16_output = build_poseidon16().permute([F::ZERO; 16]);
+    let empty_poseidon24_output = build_poseidon24().permute([F::ZERO; 24])[16..24]
+        .try_into()
+        .unwrap();
+
+    poseidons_16.extend(
+        (0..n_poseidons_16.next_power_of_two() - n_poseidons_16).map(|_| WitnessPoseidon16 {
+            addr_input_a: 0,
+            addr_input_b: 0,
+            addr_output: POSEIDON_16_NULL_HASH_PTR,
+            input: [F::ZERO; 16],
+            output: empty_poseidon16_output,
+        }),
+    );
+    poseidons_24.extend(
+        (0..n_poseidons_24.next_power_of_two() - n_poseidons_24).map(|_| WitnessPoseidon24 {
+            addr_input_a: 0,
+            addr_input_b: 0,
+            addr_output: POSEIDON_24_NULL_HASH_PTR,
+            input: [F::ZERO; 24],
+            output: empty_poseidon24_output,
+        }),
+    );
+
     ExecutionTrace {
         main_trace: trace,
+        n_poseidons_16,
+        n_poseidons_24,
         poseidons_16,
         poseidons_24,
         dot_products_ee,

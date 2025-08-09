@@ -339,7 +339,6 @@ fn test_many_unstructured_air() {
     }
 }
 
-
 #[test]
 fn test_many_structured_air() {
     const N_COLUMNS_A: usize = 10;

@@ -37,3 +37,17 @@ pub fn from_end<A>(slice: &[A], n: usize) -> &[A] {
     assert!(n <= slice.len());
     &slice[slice.len() - n..]
 }
+
+#[macro_export]
+macro_rules! assert_eq_many {
+    ($first:expr, $($rest:expr),+ $(,)?) => {
+        {
+            let first_val = $first;
+            $(
+                assert_eq!(first_val, $rest,
+                    "assertion failed: `(left == right)`\n  left: `{:?}`,\n right: `{:?}`",
+                    first_val, $rest);
+            )+
+        }
+    };
+}
