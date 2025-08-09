@@ -38,6 +38,12 @@ pub fn from_end<A>(slice: &[A], n: usize) -> &[A] {
     &slice[slice.len() - n..]
 }
 
+pub fn remove_end<A>(slice: &[A], n: usize) -> &[A] {
+    assert!(n <= slice.len());
+    let len = slice.len();
+    &slice[..len - n]
+}
+
 #[macro_export]
 macro_rules! assert_eq_many {
     ($first:expr, $($rest:expr),+ $(,)?) => {

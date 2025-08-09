@@ -2,10 +2,13 @@ use ::air::table::AirTable;
 use ::air::verify_many_air;
 use lookup::verify_logup_star;
 use p3_air::BaseAir;
+use p3_field::PrimeCharacteristicRing;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use pcs::packed_pcs_global_statements;
 use pcs::{BatchPCS, NumVariables as _, packed_pcs_parse_commitment};
-use utils::{Evaluation, PF, build_challenger, padd_with_zero_to_next_power_of_two};
+use utils::{
+    Evaluation, PF, build_challenger, from_end, padd_with_zero_to_next_power_of_two, remove_end,
+};
 use utils::{ToUsize, build_poseidon_16_air, build_poseidon_24_air};
 use whir_p3::fiat_shamir::{errors::ProofError, verifier::VerifierState};
 use whir_p3::poly::evals::EvaluationsList;
@@ -226,6 +229,85 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
+    // index opening for poseidon lookup
+    let poseidon_index_evals = verifier_state.next_extension_scalars_vec(8)?;
+    if poseidon_index_evals.evaluate(&MultilinearPoint(
+        poseidon_logup_star_statements.on_indexes.point[..3].to_vec(),
+    )) != poseidon_logup_star_statements.on_indexes.value
+    {
+        return Err(ProofError::InvalidProof);
+    }
+
+    let correcting_factor = from_end(
+        &poseidon_logup_star_statements.on_indexes.point,
+        log_n_p16.abs_diff(log_n_p24),
+    )
+    .iter()
+    .map(|&x| EF::ONE - x)
+    .product::<EF>();
+    let (correcting_factor_p16, correcting_factor_p24) = if n_poseidons_16 > n_poseidons_24 {
+        (EF::ONE, correcting_factor)
+    } else {
+        (correcting_factor, EF::ONE)
+    };
+    let mut idx_point_right_p16 = poseidon_logup_star_statements.on_indexes.point[3..].to_vec();
+    let mut idx_point_right_p24 = remove_end(
+        &poseidon_logup_star_statements.on_indexes.point[3..],
+        log_n_p16.abs_diff(log_n_p24),
+    )
+    .to_vec();
+    if n_poseidons_16 < n_poseidons_24 {
+        std::mem::swap(&mut idx_point_right_p16, &mut idx_point_right_p24);
+    }
+    let p16_indexes_statements = vec![
+        Evaluation {
+            point: MultilinearPoint(
+                [vec![EF::ZERO, EF::ZERO], idx_point_right_p16.clone()].concat(),
+            ),
+            value: poseidon_index_evals[0] / correcting_factor_p16,
+        },
+        Evaluation {
+            point: MultilinearPoint(
+                [vec![EF::ZERO, EF::ONE], idx_point_right_p16.clone()].concat(),
+            ),
+            value: poseidon_index_evals[1]/ correcting_factor_p16,
+        },
+        Evaluation {
+            point: MultilinearPoint(
+                [vec![EF::ONE, EF::ZERO], idx_point_right_p16.clone()].concat(),
+            ),
+            value: poseidon_index_evals[2] / correcting_factor_p16,
+        },
+    ];
+
+    let p24_indexes_statements = vec![
+        Evaluation {
+            point: MultilinearPoint(
+                [vec![EF::ZERO, EF::ZERO], idx_point_right_p24.clone()].concat(),
+            ),
+            value: poseidon_index_evals[4] / correcting_factor_p24,
+        },
+        Evaluation {
+            point: MultilinearPoint(
+                [vec![EF::ZERO, EF::ONE], idx_point_right_p24.clone()].concat(),
+            ),
+            value: poseidon_index_evals[6] / correcting_factor_p24,
+        },
+        Evaluation {
+            point: MultilinearPoint(
+                [vec![EF::ONE, EF::ZERO], idx_point_right_p24.clone()].concat(),
+            ),
+            value: poseidon_index_evals[7] / correcting_factor_p24,
+        },
+    ];
+
+    if poseidon_index_evals[3] != poseidon_index_evals[2] + correcting_factor_p16 {
+        return Err(ProofError::InvalidProof);
+    }
+    if poseidon_index_evals[5] != poseidon_index_evals[4] + correcting_factor_p24 {
+        return Err(ProofError::InvalidProof);
+    }
+
     let global_statements_base = packed_pcs_global_statements(
         &parsed_commitment_base.tree,
         &[
@@ -235,8 +317,8 @@ pub fn verify_execution(
                     exec_evals_to_verify[3].clone(),
                     exec_logup_star_statements.on_indexes,
                 ], // memory addresses
-                vec![],
-                vec![],
+                p16_indexes_statements,
+                p24_indexes_statements,
                 vec![p16_evals_to_verify[2].clone()],
                 vec![p24_evals_to_verify[3].clone()],
             ],

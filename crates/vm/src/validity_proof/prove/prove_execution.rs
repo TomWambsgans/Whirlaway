@@ -13,6 +13,8 @@ use rayon::prelude::*;
 use tracing::info_span;
 use utils::ToUsize;
 use utils::assert_eq_many;
+use utils::from_end;
+use utils::remove_end;
 use utils::{
     Evaluation, PF, build_poseidon_16_air, build_poseidon_24_air, build_prover_state,
     padd_with_zero_to_next_power_of_two,
@@ -158,6 +160,8 @@ pub fn prove_execution(
         &memory_poly_eq_point,
     );
 
+    let max_n_poseidons = poseidons_16.len().max(poseidons_24.len());
+    let min_n_poseidons = poseidons_16.len().min(poseidons_24.len());
     let (
         all_poseidon_indexes,
         folded_memory,
@@ -167,9 +171,6 @@ pub fn prove_execution(
         memory_folding_challenges,
     ) = {
         // Poseidons 16/24 memory addresses lookup
-
-        let max_n_poseidons = poseidons_16.len().max(poseidons_24.len());
-        let min_n_poseidons = poseidons_16.len().min(poseidons_24.len());
 
         assert_eq_many!(
             &p16_evals_to_prove[0].point,
@@ -356,6 +357,85 @@ pub fn prove_execution(
         ]);
     }
 
+    // index opening for poseidon lookup
+    let poseidon_index_evals = fold_multilinear(
+        &all_poseidon_indexes,
+        &MultilinearPoint(poseidon_logup_star_statements.on_indexes.point[3..].to_vec()),
+    );
+    prover_state.add_extension_scalars(&poseidon_index_evals);
+
+    let correcting_factor = from_end(
+        &poseidon_logup_star_statements.on_indexes.point,
+        log2_strict_usize(max_n_poseidons) - log2_strict_usize(min_n_poseidons),
+    )
+    .iter()
+    .map(|&x| EF::ONE - x)
+    .product::<EF>();
+    let (correcting_factor_p16, correcting_factor_p24) = if n_poseidons_16 > n_poseidons_24 {
+        (EF::ONE, correcting_factor)
+    } else {
+        (correcting_factor, EF::ONE)
+    };
+
+    let mut idx_point_right_p16 = poseidon_logup_star_statements.on_indexes.point[3..].to_vec();
+    let mut idx_point_right_p24 = remove_end(
+        &poseidon_logup_star_statements.on_indexes.point[3..],
+        log2_strict_usize(max_n_poseidons) - log2_strict_usize(min_n_poseidons),
+    )
+    .to_vec();
+    if n_poseidons_16 < n_poseidons_24 {
+        std::mem::swap(&mut idx_point_right_p16, &mut idx_point_right_p24);
+    }
+    let p16_indexes_statements = vec![
+        Evaluation {
+            point: MultilinearPoint(
+                [vec![EF::ZERO, EF::ZERO], idx_point_right_p16.clone()].concat(),
+            ),
+            value: poseidon_index_evals[0] / correcting_factor_p16,
+        },
+        Evaluation {
+            point: MultilinearPoint(
+                [vec![EF::ZERO, EF::ONE], idx_point_right_p16.clone()].concat(),
+            ),
+            value: poseidon_index_evals[1] / correcting_factor_p16,
+        },
+        Evaluation {
+            point: MultilinearPoint(
+                [vec![EF::ONE, EF::ZERO], idx_point_right_p16.clone()].concat(),
+            ),
+            value: poseidon_index_evals[2] / correcting_factor_p16,
+        },
+    ];
+
+    let p24_indexes_statements = vec![
+        Evaluation {
+            point: MultilinearPoint(
+                [vec![EF::ZERO, EF::ZERO], idx_point_right_p24.clone()].concat(),
+            ),
+            value: poseidon_index_evals[4] / correcting_factor_p24,
+        },
+        Evaluation {
+            point: MultilinearPoint(
+                [vec![EF::ZERO, EF::ONE], idx_point_right_p24.clone()].concat(),
+            ),
+            value: poseidon_index_evals[6] / correcting_factor_p24,
+        },
+        Evaluation {
+            point: MultilinearPoint(
+                [vec![EF::ONE, EF::ZERO], idx_point_right_p24.clone()].concat(),
+            ),
+            value: poseidon_index_evals[7] / correcting_factor_p24,
+        },
+    ];
+    assert_eq!(
+        poseidon_index_evals[3],
+        poseidon_index_evals[2] + correcting_factor_p16
+    );
+    assert_eq!(
+        poseidon_index_evals[5],
+        poseidon_index_evals[4] + correcting_factor_p24
+    );
+
     // First Opening
     let global_statements_base = packed_pcs_global_statements(
         &packed_pcs_witness_base.tree,
@@ -366,8 +446,8 @@ pub fn prove_execution(
                     exec_evals_to_prove[3].clone(),
                     exec_logup_star_statements.on_indexes,
                 ], // memory addresses
-                vec![],
-                vec![],
+                p16_indexes_statements,
+                p24_indexes_statements,
                 vec![p16_evals_to_prove[2].clone()],
                 vec![p24_evals_to_prove[3].clone()],
             ],
