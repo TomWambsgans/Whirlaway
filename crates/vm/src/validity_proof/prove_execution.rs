@@ -7,12 +7,12 @@ use p3_util::{log2_ceil_usize, log2_strict_usize};
 use pcs::{BatchPCS, packed_pcs_commit, packed_pcs_global_statements};
 use rayon::prelude::*;
 use tracing::info_span;
+use utils::ToUsize;
 use utils::assert_eq_many;
 use utils::{
     Evaluation, PF, build_poseidon_16_air, build_poseidon_24_air, build_prover_state,
     generate_trace_poseidon_16, generate_trace_poseidon_24, padd_with_zero_to_next_power_of_two,
 };
-use utils::{ToUsize, from_end};
 use whir_p3::dft::EvalsDft;
 use whir_p3::poly::evals::{eval_eq, fold_multilinear};
 use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
@@ -312,136 +312,51 @@ pub fn prove_execution(
         let poseidon24_steps =
             1 << (log2_strict_usize(max_n_poseidons) - log2_strict_usize(poseidons_24.len()));
         let mut all_poseidon_indexes = F::zero_vec(8 * max_n_poseidons);
-        all_poseidon_indexes[0..]
-            .par_iter_mut()
-            .step_by(poseidon16_steps)
-            .enumerate()
-            .take(poseidons_16.len())
-            .for_each(|(i, value)| {
-                *value = F::from_usize(poseidons_16[i].addr_input_a);
-            });
-        all_poseidon_indexes[max_n_poseidons..]
-            .par_iter_mut()
-            .step_by(poseidon16_steps)
-            .enumerate()
-            .take(poseidons_16.len())
-            .for_each(|(i, value)| {
-                *value = F::from_usize(poseidons_16[i].addr_input_b);
-            });
-        all_poseidon_indexes[max_n_poseidons * 2..]
-            .par_iter_mut()
-            .step_by(poseidon16_steps)
-            .enumerate()
-            .take(poseidons_16.len())
-            .for_each(|(i, value)| {
-                *value = F::from_usize(poseidons_16[i].addr_output);
-            });
-        all_poseidon_indexes[max_n_poseidons * 3..]
-            .par_iter_mut()
-            .step_by(poseidon16_steps)
-            .enumerate()
-            .take(poseidons_16.len())
-            .for_each(|(i, value)| {
-                *value = F::from_usize(poseidons_16[i].addr_output + 1);
-            });
-        all_poseidon_indexes[max_n_poseidons * 4..]
-            .par_iter_mut()
-            .step_by(poseidon24_steps)
-            .enumerate()
-            .take(poseidons_24.len())
-            .for_each(|(i, value)| {
-                *value = F::from_usize(poseidons_24[i].addr_input_a);
-            });
-        all_poseidon_indexes[max_n_poseidons * 5..]
-            .par_iter_mut()
-            .step_by(poseidon24_steps)
-            .enumerate()
-            .take(poseidons_24.len())
-            .for_each(|(i, value)| {
-                *value = F::from_usize(poseidons_24[i].addr_input_a + 1);
-            });
-        all_poseidon_indexes[max_n_poseidons * 6..]
-            .par_iter_mut()
-            .step_by(poseidon24_steps)
-            .enumerate()
-            .take(poseidons_24.len())
-            .for_each(|(i, value)| {
-                *value = F::from_usize(poseidons_24[i].addr_input_b);
-            });
-        all_poseidon_indexes[max_n_poseidons * 7..]
-            .par_iter_mut()
-            .step_by(poseidon24_steps)
-            .enumerate()
-            .take(poseidons_24.len())
-            .for_each(|(i, value)| {
-                *value = F::from_usize(poseidons_24[i].addr_output);
-            });
+
+        #[rustfmt::skip]
+        let chunks = [
+            (poseidons_16.par_iter().map(|p| p.addr_input_a).collect::<Vec<_>>(), poseidon16_steps),
+            (poseidons_16.par_iter().map(|p| p.addr_input_b).collect::<Vec<_>>(), poseidon16_steps),
+            (poseidons_16.par_iter().map(|p| p.addr_output).collect::<Vec<_>>(), poseidon16_steps),
+            (poseidons_16.par_iter().map(|p| p.addr_output + 1).collect::<Vec<_>>(), poseidon16_steps),
+            (poseidons_24.par_iter().map(|p| p.addr_input_a).collect::<Vec<_>>(), poseidon24_steps),
+            (poseidons_24.par_iter().map(|p| p.addr_input_a + 1).collect::<Vec<_>>(), poseidon24_steps),
+            (poseidons_24.par_iter().map(|p| p.addr_input_b).collect::<Vec<_>>(), poseidon24_steps),
+            (poseidons_24.par_iter().map(|p| p.addr_output).collect::<Vec<_>>(), poseidon24_steps),
+        ];
+        for (chunk_idx, (addrs, step)) in chunks.into_iter().enumerate() {
+            let offset = chunk_idx * max_n_poseidons;
+            all_poseidon_indexes[offset..]
+                .par_iter_mut()
+                .step_by(step)
+                .zip(addrs)
+                .for_each(|(slot, addr)| {
+                    *slot = F::from_usize(addr);
+                });
+        }
 
         let mut all_poseidon_values = EF::zero_vec(8 * max_n_poseidons);
-        all_poseidon_values[0..]
-            .par_iter_mut()
-            .step_by(poseidon16_steps)
-            .enumerate()
-            .take(poseidons_16.len())
-            .for_each(|(i, value)| {
-                *value = (&poseidons_16[i].input[0..8]).evaluate(&mixing_challenges);
-            });
-        all_poseidon_values[max_n_poseidons..]
-            .par_iter_mut()
-            .step_by(poseidon16_steps)
-            .enumerate()
-            .take(poseidons_16.len())
-            .for_each(|(i, value)| {
-                *value = (&poseidons_16[i].input[8..16]).evaluate(&mixing_challenges);
-            });
-        all_poseidon_values[max_n_poseidons * 2..]
-            .par_iter_mut()
-            .step_by(poseidon16_steps)
-            .enumerate()
-            .take(poseidons_16.len())
-            .for_each(|(i, value)| {
-                *value = (&poseidons_16[i].output[0..8]).evaluate(&mixing_challenges);
-            });
-        all_poseidon_values[max_n_poseidons * 3..]
-            .par_iter_mut()
-            .step_by(poseidon16_steps)
-            .enumerate()
-            .take(poseidons_16.len())
-            .for_each(|(i, value)| {
-                *value = (&poseidons_16[i].output[8..16]).evaluate(&mixing_challenges);
-            });
-        all_poseidon_values[max_n_poseidons * 4..]
-            .par_iter_mut()
-            .step_by(poseidon24_steps)
-            .enumerate()
-            .take(poseidons_24.len())
-            .for_each(|(i, value)| {
-                *value = (&poseidons_24[i].input[0..8]).evaluate(&mixing_challenges);
-            });
-        all_poseidon_values[max_n_poseidons * 5..]
-            .par_iter_mut()
-            .step_by(poseidon24_steps)
-            .enumerate()
-            .take(poseidons_24.len())
-            .for_each(|(i, value)| {
-                *value = (&poseidons_24[i].input[8..16]).evaluate(&mixing_challenges);
-            });
-        all_poseidon_values[max_n_poseidons * 6..]
-            .par_iter_mut()
-            .step_by(poseidon24_steps)
-            .enumerate()
-            .take(poseidons_24.len())
-            .for_each(|(i, value)| {
-                *value = (&poseidons_24[i].input[16..24]).evaluate(&mixing_challenges);
-            });
-        all_poseidon_values[max_n_poseidons * 7..]
-            .par_iter_mut()
-            .step_by(poseidon24_steps)
-            .enumerate()
-            .take(poseidons_24.len())
-            .for_each(|(i, value)| {
-                *value = (&poseidons_24[i].output).evaluate(&mixing_challenges);
-            });
+        #[rustfmt::skip]
+        let chunks = [
+            (poseidons_16.par_iter().map(|p| (&p.input[0..8]).evaluate(&mixing_challenges)).collect::<Vec<_>>(), poseidon16_steps),
+            (poseidons_16.par_iter().map(|p| (&p.input[8..16]).evaluate(&mixing_challenges)).collect::<Vec<_>>(), poseidon16_steps),
+            (poseidons_16.par_iter().map(|p| (&p.output[0..8]).evaluate(&mixing_challenges)).collect::<Vec<_>>(), poseidon16_steps),
+            (poseidons_16.par_iter().map(|p| (&p.output[8..16]).evaluate(&mixing_challenges)).collect::<Vec<_>>(), poseidon16_steps),
+            (poseidons_24.par_iter().map(|p| (&p.input[0..8]).evaluate(&mixing_challenges)).collect::<Vec<_>>(), poseidon24_steps),
+            (poseidons_24.par_iter().map(|p| (&p.input[8..16]).evaluate(&mixing_challenges)).collect::<Vec<_>>(), poseidon24_steps),
+            (poseidons_24.par_iter().map(|p| (&p.input[16..24]).evaluate(&mixing_challenges)).collect::<Vec<_>>(), poseidon24_steps),
+            (poseidons_24.par_iter().map(|p| (&p.output).evaluate(&mixing_challenges)).collect::<Vec<_>>(), poseidon24_steps),
+        ];
+        for (chunk_idx, (values, step)) in chunks.into_iter().enumerate() {
+            let offset = chunk_idx * max_n_poseidons;
+            all_poseidon_values[offset..]
+                .par_iter_mut()
+                .step_by(step)
+                .zip(values)
+                .for_each(|(slot, value)| {
+                    *slot = value;
+                });
+        }
 
         let folded_memory = fold_multilinear(&padded_memory, &mixing_challenges);
 
