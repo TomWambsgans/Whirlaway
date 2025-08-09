@@ -2,18 +2,18 @@ use ::air::table::AirTable;
 use ::air::verify_many_air;
 use lookup::verify_logup_star;
 use p3_air::BaseAir;
-use p3_field::PrimeCharacteristicRing;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use pcs::packed_pcs_global_statements;
 use pcs::{BatchPCS, NumVariables as _, packed_pcs_parse_commitment};
-use utils::from_end;
 use utils::{Evaluation, PF, build_challenger, padd_with_zero_to_next_power_of_two};
 use utils::{ToUsize, build_poseidon_16_air, build_poseidon_24_air};
 use whir_p3::fiat_shamir::{errors::ProofError, verifier::VerifierState};
 use whir_p3::poly::evals::EvaluationsList;
 use whir_p3::poly::multilinear::MultilinearPoint;
 
-use crate::validity_proof::common::poseidon_lookup_value;
+use crate::validity_proof::common::{
+    poseidon_16_column_groups, poseidon_24_column_groups, poseidon_lookup_value,
+};
 use crate::{air::VMAir, bytecode::bytecode::Bytecode, *};
 
 pub fn verify_execution(
@@ -111,21 +111,8 @@ pub fn verify_execution(
             log2_ceil_usize(n_poseidons_24),
         ],
         &[
-            vec![
-                0..8,
-                8..16,
-                16..poseidon_16_air.width() - 16,
-                poseidon_16_air.width() - 16..poseidon_16_air.width() - 8,
-                poseidon_16_air.width() - 8..poseidon_16_air.width(),
-            ],
-            vec![
-                0..8,
-                8..16,
-                16..24,
-                24..poseidon_24_air.width() - 24,
-                poseidon_24_air.width() - 24..poseidon_24_air.width() - 8, // TODO should we commit to this part ? Probably not, but careful here, we will not check evaluations for this part
-                poseidon_24_air.width() - 8..poseidon_24_air.width(),
-            ],
+            poseidon_16_column_groups(&poseidon_16_air),
+            poseidon_24_column_groups(&poseidon_24_air),
         ],
     )?;
     let poseidon16_evals_to_verify = &poseidon_evals_to_verify[0];

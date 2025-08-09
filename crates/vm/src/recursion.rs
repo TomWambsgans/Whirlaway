@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
-use crate::prove_execution::prove_execution;
-use crate::verify_execution::verify_execution;
+use crate::prove::prove_execution;
+use crate::verify::verify_execution;
 use crate::*;
 use p3_field::BasedVectorSpace;
 use pcs::WhirBatchPcs;

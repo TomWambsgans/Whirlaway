@@ -14,7 +14,6 @@ pub mod parser;
 pub mod precompiles;
 pub mod recursion;
 pub mod runner;
-pub mod tracer;
 mod validity_proof;
 pub use validity_proof::*;
 

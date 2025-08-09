@@ -1,3 +1,5 @@
+use crate::validity_proof::common::poseidon_16_column_groups;
+use crate::validity_proof::common::poseidon_24_column_groups;
 use ::air::prove_many_air;
 use ::air::{table::AirTable, witness::AirWitness};
 use lookup::{compute_pushforward, prove_logup_star};
@@ -17,12 +19,13 @@ use whir_p3::dft::EvalsDft;
 use whir_p3::poly::evals::{eval_eq, fold_multilinear};
 use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
+use crate::prove::{WitnessPoseidon16, WitnessPoseidon24, build_poseidon_columns};
 use crate::validity_proof::common::poseidon_lookup_value;
 use crate::{
     air::VMAir,
     bytecode::bytecode::Bytecode,
+    prove::{ExecutionTrace, get_execution_trace},
     runner::execute_bytecode,
-    tracer::{ExecutionTrace, get_execution_trace},
     *,
 };
 
@@ -82,66 +85,22 @@ pub fn prove_execution(
     let table_poseidon_16 = AirTable::<EF, _>::new(poseidon_16_air.clone());
     let table_poseidon_24 = AirTable::<EF, _>::new(poseidon_24_air.clone());
 
-    let poseidon_16_data = poseidons_16.iter().map(|w| w.input).collect::<Vec<_>>();
-    let poseidon_24_data = poseidons_24.iter().map(|w| w.input).collect::<Vec<_>>();
-    let witness_matrix_poseidon_16 = generate_trace_poseidon_16(poseidon_16_data);
-    let witness_matrix_poseidon_24 = generate_trace_poseidon_24(poseidon_24_data);
-
-    let witness_matrix_poseidon_16_transposed = witness_matrix_poseidon_16.transpose();
-    let witness_matrix_poseidon_24_transposed = witness_matrix_poseidon_24.transpose();
-
-    assert_eq!(
-        witness_matrix_poseidon_16_transposed.width,
-        poseidons_16.len()
-    );
-    let witness_columns_poseidon_16 = (0..poseidon_16_air.width())
-        .map(|col| {
-            witness_matrix_poseidon_16_transposed.values[col
-                * witness_matrix_poseidon_16_transposed.width
-                ..(col + 1) * witness_matrix_poseidon_16_transposed.width]
-                .to_vec()
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        witness_matrix_poseidon_24_transposed.width,
-        poseidons_24.len()
-    );
-    let witness_columns_poseidon_24 = (0..poseidon_24_air.width())
-        .map(|col| {
-            witness_matrix_poseidon_24_transposed.values[col
-                * witness_matrix_poseidon_24_transposed.width
-                ..(col + 1) * witness_matrix_poseidon_24_transposed.width]
-                .to_vec()
-        })
-        .collect::<Vec<_>>();
-
+    let (columns_poseidon_16, columns_poseidon_24) =
+        build_poseidon_columns(&poseidons_16, &poseidons_24);
     let witness_poseidon_16 = AirWitness::new(
-        &witness_columns_poseidon_16,
-        &[
-            0..8,
-            8..16,
-            16..poseidon_16_air.width() - 16,
-            poseidon_16_air.width() - 16..poseidon_16_air.width() - 8,
-            poseidon_16_air.width() - 8..poseidon_16_air.width(),
-        ],
+        &columns_poseidon_16,
+        &poseidon_16_column_groups(&poseidon_16_air),
     );
     let witness_poseidon_24 = AirWitness::new(
-        &witness_columns_poseidon_24,
-        &[
-            0..8,
-            8..16,
-            16..24,
-            24..poseidon_24_air.width() - 24,
-            poseidon_24_air.width() - 24..poseidon_24_air.width() - 8, // TODO should we commit to this part ? Probably not, but careful here, we will not check evaluations for this part
-            poseidon_24_air.width() - 8..poseidon_24_air.width(),
-        ],
+        &columns_poseidon_24,
+        &poseidon_24_column_groups(&poseidon_24_air),
     );
 
     let commited_poseidon_16_table = padd_with_zero_to_next_power_of_two(
-        &witness_columns_poseidon_16[16..poseidon_16_air.width() - 16].concat(),
+        &columns_poseidon_16[16..poseidon_16_air.width() - 16].concat(),
     );
     let commited_poseidon_24_table = padd_with_zero_to_next_power_of_two(
-        &witness_columns_poseidon_24[24..poseidon_24_air.width() - 24].concat(),
+        &columns_poseidon_24[24..poseidon_24_air.width() - 24].concat(),
     );
 
     let all_poseidon_16_indexes = [
