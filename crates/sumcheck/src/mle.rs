@@ -60,6 +60,20 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroup<'a, EF> {
             Self::Ref(r) => r.clone(),
         }
     }
+
+    pub fn n_vars(&self) -> usize {
+        match self {
+            Self::Owned(owned) => owned.n_vars(),
+            Self::Ref(r) => r.n_vars(),
+        }
+    }
+
+    pub fn n_columns(&self) -> usize {
+        match self {
+            Self::Owned(owned) => owned.n_columns(),
+            Self::Ref(r) => r.n_columns(),
+        }
+    }
 }
 
 impl<EF: ExtensionField<PF<EF>>> MleGroupOwned<EF> {
@@ -75,6 +89,24 @@ impl<EF: ExtensionField<PF<EF>>> MleGroupOwned<EF> {
             Self::ExtensionPacked(ext_packed) => {
                 MleGroupRef::ExtensionPacked(ext_packed.iter().map(|v| v.as_slice()).collect())
             }
+        }
+    }
+
+    pub fn n_vars(&self) -> usize {
+        match self {
+            Self::Base(v) => log2_strict_usize(v[0].len()),
+            Self::Extension(v) => log2_strict_usize(v[0].len()),
+            Self::BasePacked(v) => log2_strict_usize(v[0].len() * packing_width::<EF>()),
+            Self::ExtensionPacked(v) => log2_strict_usize(v[0].len() * packing_width::<EF>()),
+        }
+    }
+
+    pub fn n_columns(&self) -> usize {
+        match self {
+            Self::Base(v) => v.len(),
+            Self::Extension(v) => v.len(),
+            Self::BasePacked(v) => v.len(),
+            Self::ExtensionPacked(v) => v.len(),
         }
     }
 }
@@ -197,6 +229,15 @@ impl<'a, EF: ExtensionField<PF<EF>>> MleGroupRef<'a, EF> {
         match self {
             Self::ExtensionPacked(ep) => Some(ep),
             _ => None,
+        }
+    }
+
+    pub fn n_columns(&self) -> usize {
+        match self {
+            Self::Base(v) => v.len(),
+            Self::Extension(v) => v.len(),
+            Self::BasePacked(v) => v.len(),
+            Self::ExtensionPacked(v) => v.len(),
         }
     }
 

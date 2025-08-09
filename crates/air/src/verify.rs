@@ -25,7 +25,7 @@ pub fn verify_many_air<'a, EF: ExtensionField<PF<EF>>, A1: MyAir<EF>, A2: MyAir<
     tables_2: &[&AirTable<EF, A2>],
     univariate_skips: usize,
     log_lengths: &[usize],
-    column_groups: &[&[Range<usize>]],
+    column_groups: &[Vec<Range<usize>>],
 ) -> Result<Vec<Vec<Evaluation<EF>>>, ProofError> {
     let n_tables = tables_1.len() + tables_2.len();
     assert_eq!(n_tables, log_lengths.len());
@@ -144,7 +144,7 @@ pub fn verify_many_air<'a, EF: ExtensionField<PF<EF>>, A1: MyAir<EF>, A2: MyAir<
                 n_columns,
                 univariate_skips,
                 &all_inner_sums[i],
-                column_groups[i],
+                &column_groups[i],
                 &Evaluation {
                     point: MultilinearPoint(
                         outer_sumcheck_point[1..log_lengths[i] - univariate_skips + 1].to_vec(),
@@ -184,7 +184,7 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
             &[],
             univariate_skips,
             &[log_n_rows],
-            &[column_groups],
+            &[column_groups.to_vec()],
         )?
         .pop()
         .unwrap())
@@ -195,10 +195,10 @@ fn verify_many_unstructured_columns<EF: ExtensionField<PF<EF>>>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     univariate_skips: usize,
     all_inner_sums: Vec<Vec<EF>>,
-    column_groups: &[&[Range<usize>]],
+    column_groups: &[Vec<Range<usize>>],
     outer_sumcheck_point: &MultilinearPoint<EF>,
     outer_selector_evals: &[EF],
-    n_vars: &[usize],
+    log_lengths: &[usize],
 ) -> Result<Vec<Vec<Evaluation<EF>>>, ProofError> {
     let max_columns_per_group = Iterator::max(
         column_groups
@@ -208,12 +208,12 @@ fn verify_many_unstructured_columns<EF: ExtensionField<PF<EF>>>(
     .unwrap();
     let log_max_columns_per_group = log2_ceil_usize(max_columns_per_group);
     let columns_batching_scalars = verifier_state.sample_vec(log_max_columns_per_group);
-    let max_n_vars = *Iterator::max(n_vars.iter()).unwrap();
+    let max_log_length = *Iterator::max(log_lengths.iter()).unwrap();
 
     let mut all_all_sub_evals = vec![];
     for i in 0..column_groups.len() {
         let mut all_sub_evals = vec![];
-        for group in column_groups[i] {
+        for group in &column_groups[i] {
             let sub_evals = verifier_state.next_extension_scalars_vec(1 << univariate_skips)?;
 
             if dot_product::<EF, _, _>(
@@ -247,7 +247,7 @@ fn verify_many_unstructured_columns<EF: ExtensionField<PF<EF>>>(
                 [
                     from_end(&columns_batching_scalars, log2_ceil_usize(group.len())).to_vec(),
                     epsilons.0.clone(),
-                    outer_sumcheck_point[1..n_vars[i] - univariate_skips + 1].to_vec(),
+                    outer_sumcheck_point[1..log_lengths[i] - univariate_skips + 1].to_vec(),
                 ]
                 .concat(),
             );

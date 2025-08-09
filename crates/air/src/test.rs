@@ -9,18 +9,18 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::{build_prover_state, build_verifier_state, padd_with_zero_to_next_power_of_two};
 use whir_p3::poly::evals::EvaluationsList;
 
-use crate::{table::AirTable, witness::AirWitness};
+use crate::{prove_many_air, table::AirTable, verify_many_air, witness::AirWitness};
 
-const N_PREPROCESSED_COLUMNS: usize = 3;
-const N_COLUMNS: usize = 24;
 const UNIVARIATE_SKIPS: usize = 3;
 
 type F = KoalaBear;
 type EF = BinomialExtensionField<F, 8>;
 
-struct ExampleStructuredAir;
+struct ExampleStructuredAir<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize>;
 
-impl<F> BaseAir<F> for ExampleStructuredAir {
+impl<F, const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize> BaseAir<F>
+    for ExampleStructuredAir<N_COLUMNS, N_PREPROCESSED_COLUMNS>
+{
     fn width(&self) -> usize {
         N_COLUMNS
     }
@@ -32,7 +32,9 @@ impl<F> BaseAir<F> for ExampleStructuredAir {
     }
 }
 
-impl<AB: AirBuilder> Air<AB> for ExampleStructuredAir {
+impl<AB: AirBuilder, const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize> Air<AB>
+    for ExampleStructuredAir<N_COLUMNS, N_PREPROCESSED_COLUMNS>
+{
     #[inline]
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
@@ -56,9 +58,11 @@ impl<AB: AirBuilder> Air<AB> for ExampleStructuredAir {
     }
 }
 
-struct ExampleUnstructuredAir;
+struct ExampleUnstructuredAir<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize>;
 
-impl<F> BaseAir<F> for ExampleUnstructuredAir {
+impl<F, const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize> BaseAir<F>
+    for ExampleUnstructuredAir<N_COLUMNS, N_PREPROCESSED_COLUMNS>
+{
     fn width(&self) -> usize {
         N_COLUMNS
     }
@@ -70,7 +74,9 @@ impl<F> BaseAir<F> for ExampleUnstructuredAir {
     }
 }
 
-impl<AB: AirBuilder> Air<AB> for ExampleUnstructuredAir {
+impl<AB: AirBuilder, const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize> Air<AB>
+    for ExampleUnstructuredAir<N_COLUMNS, N_PREPROCESSED_COLUMNS>
+{
     #[inline]
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
@@ -90,7 +96,9 @@ impl<AB: AirBuilder> Air<AB> for ExampleUnstructuredAir {
     }
 }
 
-fn generate_structured_trace(log_length: usize) -> Vec<Vec<F>> {
+fn generate_structured_trace<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize>(
+    log_length: usize,
+) -> Vec<Vec<F>> {
     let n_rows = 1 << log_length;
     let mut trace = vec![];
     let mut rng = StdRng::seed_from_u64(0);
@@ -114,7 +122,9 @@ fn generate_structured_trace(log_length: usize) -> Vec<Vec<F>> {
     trace
 }
 
-fn generate_unstructured_trace(log_length: usize) -> Vec<Vec<F>> {
+fn generate_unstructured_trace<const N_COLUMNS: usize, const N_PREPROCESSED_COLUMNS: usize>(
+    log_length: usize,
+) -> Vec<Vec<F>> {
     let n_rows = 1 << log_length;
     let mut trace = vec![];
     let mut rng = StdRng::seed_from_u64(0);
@@ -138,14 +148,16 @@ fn generate_unstructured_trace(log_length: usize) -> Vec<Vec<F>> {
 
 #[test]
 fn test_structured_air() {
+    const N_COLUMNS: usize = 17;
+    const N_PREPROCESSED_COLUMNS: usize = 3;
     let log_n_rows = 12;
     let mut prover_state = build_prover_state::<EF>();
 
-    let columns = generate_structured_trace(log_n_rows);
+    let columns = generate_structured_trace::<N_COLUMNS, N_PREPROCESSED_COLUMNS>(log_n_rows);
     let column_groups = vec![0..N_PREPROCESSED_COLUMNS, N_PREPROCESSED_COLUMNS..N_COLUMNS];
     let witness = AirWitness::new(&columns, &column_groups);
 
-    let table = AirTable::<EF, _>::new(ExampleStructuredAir);
+    let table = AirTable::<EF, _>::new(ExampleStructuredAir::<N_COLUMNS, N_PREPROCESSED_COLUMNS>);
     table.check_trace_validity(&witness).unwrap();
     let evaluations_remaining_to_prove = table.prove(&mut prover_state, UNIVARIATE_SKIPS, witness);
     let mut verifier_state = build_verifier_state(&prover_state);
@@ -175,14 +187,16 @@ fn test_structured_air() {
 
 #[test]
 fn test_unstructured_air() {
+    const N_COLUMNS: usize = 18;
+    const N_PREPROCESSED_COLUMNS: usize = 5;
     let log_n_rows = 12;
     let mut prover_state = build_prover_state::<EF>();
 
-    let columns = generate_unstructured_trace(log_n_rows);
+    let columns = generate_unstructured_trace::<N_COLUMNS, N_PREPROCESSED_COLUMNS>(log_n_rows);
     let column_groups = vec![0..N_PREPROCESSED_COLUMNS, N_PREPROCESSED_COLUMNS..N_COLUMNS];
     let witness = AirWitness::new(&columns, &column_groups);
 
-    let table = AirTable::<EF, _>::new(ExampleUnstructuredAir);
+    let table = AirTable::<EF, _>::new(ExampleUnstructuredAir::<N_COLUMNS, N_PREPROCESSED_COLUMNS>);
     table.check_trace_validity(&witness).unwrap();
     let evaluations_remaining_to_prove = table.prove(&mut prover_state, UNIVARIATE_SKIPS, witness);
     let mut verifier_state = build_verifier_state(&prover_state);
@@ -208,4 +222,235 @@ fn test_unstructured_air() {
             .evaluate(&evaluations_remaining_to_verify[1].point),
         evaluations_remaining_to_verify[1].value
     );
+}
+
+#[test]
+fn test_many_unstructured_air() {
+    const N_COLUMNS_A: usize = 10;
+    const N_PREPROCESSED_COLUMNS_A: usize = 3;
+    const N_COLUMNS_B: usize = 20;
+    const N_PREPROCESSED_COLUMNS_B: usize = 5;
+    let log_n_rows_a = vec![10, 11];
+    let log_n_rows_b = vec![9, 13, 8];
+    let mut prover_state = build_prover_state::<EF>();
+
+    let tables_a = log_n_rows_a
+        .iter()
+        .map(|_| {
+            AirTable::<EF, _>::new(ExampleUnstructuredAir::<N_COLUMNS_A, N_PREPROCESSED_COLUMNS_A>)
+        })
+        .collect::<Vec<_>>();
+    let tables_b = log_n_rows_b
+        .iter()
+        .map(|_| {
+            AirTable::<EF, _>::new(ExampleUnstructuredAir::<N_COLUMNS_B, N_PREPROCESSED_COLUMNS_B>)
+        })
+        .collect::<Vec<_>>();
+    let tables_a = tables_a.iter().collect::<Vec<_>>();
+    let tables_b = tables_b.iter().collect::<Vec<_>>();
+
+    let mut traces = vec![];
+    let mut witnesses = vec![];
+    let mut column_groups = vec![];
+    let column_group_a = vec![
+        0..N_PREPROCESSED_COLUMNS_A,
+        N_PREPROCESSED_COLUMNS_A..N_COLUMNS_A,
+    ];
+    let column_group_b = vec![
+        0..N_PREPROCESSED_COLUMNS_B,
+        N_PREPROCESSED_COLUMNS_B..N_COLUMNS_B,
+    ];
+    for log_n_rows in &log_n_rows_a {
+        column_groups.push(column_group_a.clone());
+        traces.push(generate_unstructured_trace::<
+            N_COLUMNS_A,
+            N_PREPROCESSED_COLUMNS_A,
+        >(*log_n_rows));
+    }
+
+    for log_n_rows in &log_n_rows_b {
+        column_groups.push(column_group_b.clone());
+        traces.push(generate_unstructured_trace::<
+            N_COLUMNS_B,
+            N_PREPROCESSED_COLUMNS_B,
+        >(*log_n_rows));
+    }
+    for trace in &traces[..log_n_rows_a.len()] {
+        witnesses.push(AirWitness::new(trace, &column_group_a));
+    }
+    for trace in &traces[log_n_rows_a.len()..] {
+        witnesses.push(AirWitness::new(trace, &column_group_b));
+    }
+
+    for (table, witness) in tables_a.iter().zip(witnesses.iter()) {
+        table.check_trace_validity(witness).unwrap();
+    }
+
+    let evaluations_remaining_to_prove = prove_many_air(
+        &mut prover_state,
+        UNIVARIATE_SKIPS,
+        &tables_a,
+        &tables_b,
+        &witnesses,
+    );
+    let mut verifier_state = build_verifier_state(&prover_state);
+    let evaluations_remaining_to_verify = verify_many_air(
+        &mut verifier_state,
+        &tables_a,
+        &tables_b,
+        UNIVARIATE_SKIPS,
+        &[log_n_rows_a, log_n_rows_b].concat(),
+        &column_groups,
+    )
+    .unwrap();
+    assert_eq!(
+        &evaluations_remaining_to_prove,
+        &evaluations_remaining_to_verify
+    );
+    for i in 0..tables_a.len() {
+        assert_eq!(evaluations_remaining_to_verify[i].len(), 2);
+        assert_eq!(
+            padd_with_zero_to_next_power_of_two(&traces[i][..N_PREPROCESSED_COLUMNS_A].concat())
+                .evaluate(&evaluations_remaining_to_verify[i][0].point),
+            evaluations_remaining_to_verify[i][0].value
+        );
+        assert_eq!(
+            padd_with_zero_to_next_power_of_two(
+                &traces[i][N_PREPROCESSED_COLUMNS_A..N_COLUMNS_A].concat()
+            )
+            .evaluate(&evaluations_remaining_to_verify[i][1].point),
+            evaluations_remaining_to_verify[i][1].value
+        );
+    }
+    for i in tables_a.len()..tables_a.len() + tables_b.len() {
+        assert_eq!(evaluations_remaining_to_verify[i].len(), 2);
+        assert_eq!(
+            padd_with_zero_to_next_power_of_two(&traces[i][..N_PREPROCESSED_COLUMNS_B].concat())
+                .evaluate(&evaluations_remaining_to_verify[i][0].point),
+            evaluations_remaining_to_verify[i][0].value
+        );
+        assert_eq!(
+            padd_with_zero_to_next_power_of_two(
+                &traces[i][N_PREPROCESSED_COLUMNS_B..N_COLUMNS_B].concat()
+            )
+            .evaluate(&evaluations_remaining_to_verify[i][1].point),
+            evaluations_remaining_to_verify[i][1].value
+        );
+    }
+}
+
+
+#[test]
+fn test_many_structured_air() {
+    const N_COLUMNS_A: usize = 10;
+    const N_PREPROCESSED_COLUMNS_A: usize = 3;
+    const N_COLUMNS_B: usize = 20;
+    const N_PREPROCESSED_COLUMNS_B: usize = 5;
+    let log_n_rows_a = vec![10, 11];
+    let log_n_rows_b = vec![9, 13, 8];
+    let mut prover_state = build_prover_state::<EF>();
+
+    let tables_a = log_n_rows_a
+        .iter()
+        .map(|_| {
+            AirTable::<EF, _>::new(ExampleStructuredAir::<N_COLUMNS_A, N_PREPROCESSED_COLUMNS_A>)
+        })
+        .collect::<Vec<_>>();
+    let tables_b = log_n_rows_b
+        .iter()
+        .map(|_| {
+            AirTable::<EF, _>::new(ExampleStructuredAir::<N_COLUMNS_B, N_PREPROCESSED_COLUMNS_B>)
+        })
+        .collect::<Vec<_>>();
+    let tables_a = tables_a.iter().collect::<Vec<_>>();
+    let tables_b = tables_b.iter().collect::<Vec<_>>();
+
+    let mut traces = vec![];
+    let mut witnesses = vec![];
+    let mut column_groups = vec![];
+    let column_group_a = vec![
+        0..N_PREPROCESSED_COLUMNS_A,
+        N_PREPROCESSED_COLUMNS_A..N_COLUMNS_A,
+    ];
+    let column_group_b = vec![
+        0..N_PREPROCESSED_COLUMNS_B,
+        N_PREPROCESSED_COLUMNS_B..N_COLUMNS_B,
+    ];
+    for log_n_rows in &log_n_rows_a {
+        column_groups.push(column_group_a.clone());
+        traces.push(generate_structured_trace::<
+            N_COLUMNS_A,
+            N_PREPROCESSED_COLUMNS_A,
+        >(*log_n_rows));
+    }
+
+    for log_n_rows in &log_n_rows_b {
+        column_groups.push(column_group_b.clone());
+        traces.push(generate_structured_trace::<
+            N_COLUMNS_B,
+            N_PREPROCESSED_COLUMNS_B,
+        >(*log_n_rows));
+    }
+    for trace in &traces[..log_n_rows_a.len()] {
+        witnesses.push(AirWitness::new(trace, &column_group_a));
+    }
+    for trace in &traces[log_n_rows_a.len()..] {
+        witnesses.push(AirWitness::new(trace, &column_group_b));
+    }
+
+    for (table, witness) in tables_a.iter().zip(witnesses.iter()) {
+        table.check_trace_validity(witness).unwrap();
+    }
+
+    let evaluations_remaining_to_prove = prove_many_air(
+        &mut prover_state,
+        UNIVARIATE_SKIPS,
+        &tables_a,
+        &tables_b,
+        &witnesses,
+    );
+    let mut verifier_state = build_verifier_state(&prover_state);
+    let evaluations_remaining_to_verify = verify_many_air(
+        &mut verifier_state,
+        &tables_a,
+        &tables_b,
+        UNIVARIATE_SKIPS,
+        &[log_n_rows_a, log_n_rows_b].concat(),
+        &column_groups,
+    )
+    .unwrap();
+    assert_eq!(
+        &evaluations_remaining_to_prove,
+        &evaluations_remaining_to_verify
+    );
+    for i in 0..tables_a.len() {
+        assert_eq!(evaluations_remaining_to_verify[i].len(), 2);
+        assert_eq!(
+            padd_with_zero_to_next_power_of_two(&traces[i][..N_PREPROCESSED_COLUMNS_A].concat())
+                .evaluate(&evaluations_remaining_to_verify[i][0].point),
+            evaluations_remaining_to_verify[i][0].value
+        );
+        assert_eq!(
+            padd_with_zero_to_next_power_of_two(
+                &traces[i][N_PREPROCESSED_COLUMNS_A..N_COLUMNS_A].concat()
+            )
+            .evaluate(&evaluations_remaining_to_verify[i][1].point),
+            evaluations_remaining_to_verify[i][1].value
+        );
+    }
+    for i in tables_a.len()..tables_a.len() + tables_b.len() {
+        assert_eq!(evaluations_remaining_to_verify[i].len(), 2);
+        assert_eq!(
+            padd_with_zero_to_next_power_of_two(&traces[i][..N_PREPROCESSED_COLUMNS_B].concat())
+                .evaluate(&evaluations_remaining_to_verify[i][0].point),
+            evaluations_remaining_to_verify[i][0].value
+        );
+        assert_eq!(
+            padd_with_zero_to_next_power_of_two(
+                &traces[i][N_PREPROCESSED_COLUMNS_B..N_COLUMNS_B].concat()
+            )
+            .evaluate(&evaluations_remaining_to_verify[i][1].point),
+            evaluations_remaining_to_verify[i][1].value
+        );
+    }
 }

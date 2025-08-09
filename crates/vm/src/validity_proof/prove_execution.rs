@@ -177,7 +177,7 @@ pub fn prove_execution(
         UNIVARIATE_SKIPS,
         &[&table_poseidon_16],
         &[&table_poseidon_24],
-        &[&witness_poseidon_16, &witness_poseidon_24],
+        &[witness_poseidon_16, witness_poseidon_24],
     );
     let poseidon16_evals_to_prove = &poseidon_evals_to_prove[0];
     let poseidon24_evals_to_prove = &poseidon_evals_to_prove[1];

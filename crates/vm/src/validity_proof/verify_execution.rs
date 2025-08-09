@@ -103,12 +103,12 @@ pub fn verify_execution(
             log2_ceil_usize(n_poseidons_24),
         ],
         &[
-            &[
+            vec![
                 0..16,
                 16..poseidon_16_air.width() - 16,
                 poseidon_16_air.width() - 16..poseidon_16_air.width(),
             ],
-            &[
+            vec![
                 0..24,
                 24..poseidon_24_air.width() - 24,
                 poseidon_24_air.width() - 24..poseidon_24_air.width(),

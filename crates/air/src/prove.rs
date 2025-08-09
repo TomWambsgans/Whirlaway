@@ -29,7 +29,7 @@ pub fn prove_many_air<'a, EF: ExtensionField<PF<EF>>, A1: MyAir<EF>, A2: MyAir<E
     univariate_skips: usize,
     tables_1: &[&AirTable<EF, A1>],
     tables_2: &[&AirTable<EF, A2>],
-    witness: &[&AirWitness<'a, PF<EF>>],
+    witness: &[AirWitness<'a, PF<EF>>],
 ) -> Vec<Vec<Evaluation<EF>>> {
     let n_tables = tables_1.len() + tables_2.len();
     assert_eq!(n_tables, witness.len());
@@ -52,6 +52,7 @@ pub fn prove_many_air<'a, EF: ExtensionField<PF<EF>>, A1: MyAir<EF>, A2: MyAir<E
     );
 
     let log_lengths = witness.iter().map(|w| w.log_n_rows()).collect::<Vec<_>>();
+    let max_log_length = *Iterator::max(log_lengths.iter()).unwrap();
 
     let max_n_constraints = Iterator::max(
         tables_1
@@ -148,7 +149,7 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
         univariate_skips: usize,
         witness: AirWitness<'a, PF<EF>>,
     ) -> Vec<Evaluation<EF>> {
-        prove_many_air::<EF, A, A>(prover_state, univariate_skips, &[self], &[], &[&witness])
+        prove_many_air::<EF, A, A>(prover_state, univariate_skips, &[self], &[], &[witness])
             .pop()
             .unwrap()
     }
@@ -158,12 +159,13 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
 fn open_unstructured_columns<'a, EF: ExtensionField<PF<EF>>>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     univariate_skips: usize,
-    witness: &[&AirWitness<'a, PF<EF>>],
+    witness: &[AirWitness<'a, PF<EF>>],
     outer_sumcheck_challenge: &[EF],
 ) -> Vec<Vec<Evaluation<EF>>> {
     let max_columns_per_group =
         Iterator::max(witness.iter().map(|w| w.max_columns_per_group())).unwrap();
     let columns_batching_scalars = prover_state.sample_vec(log2_ceil_usize(max_columns_per_group));
+    let max_log_n_rows = Iterator::max(witness.iter().map(|w| w.log_n_rows())).unwrap();
 
     let mut all_all_sub_evals = vec![];
     for witness in witness {
