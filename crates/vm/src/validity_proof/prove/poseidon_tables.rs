@@ -1,4 +1,7 @@
-use utils::{generate_trace_poseidon_16, generate_trace_poseidon_24};
+use p3_field::PrimeCharacteristicRing;
+use utils::{
+    generate_trace_poseidon_16, generate_trace_poseidon_24, padd_with_zero_to_next_power_of_two,
+};
 
 use crate::{
     F,
@@ -45,4 +48,56 @@ pub fn build_poseidon_columns(
         .collect::<Vec<_>>();
 
     (witness_columns_poseidon_16, witness_columns_poseidon_24)
+}
+
+pub fn all_poseidon_16_indexes(poseidons_16: &[WitnessPoseidon16]) -> Vec<F> {
+    padd_with_zero_to_next_power_of_two(
+        &[
+            padd_with_zero_to_next_power_of_two(
+                &poseidons_16
+                    .iter()
+                    .map(|p| F::from_usize(p.addr_input_a))
+                    .collect::<Vec<_>>(),
+            ),
+            padd_with_zero_to_next_power_of_two(
+                &poseidons_16
+                    .iter()
+                    .map(|p| F::from_usize(p.addr_input_b))
+                    .collect::<Vec<_>>(),
+            ),
+            padd_with_zero_to_next_power_of_two(
+                &poseidons_16
+                    .iter()
+                    .map(|p| F::from_usize(p.addr_output))
+                    .collect::<Vec<_>>(),
+            ),
+        ]
+        .concat(),
+    )
+}
+
+pub fn all_poseidon_24_indexes(poseidons_24: &[WitnessPoseidon24]) -> Vec<F> {
+    padd_with_zero_to_next_power_of_two(
+        &[
+            padd_with_zero_to_next_power_of_two(
+                &poseidons_24
+                    .iter()
+                    .map(|p| F::from_usize(p.addr_input_a))
+                    .collect::<Vec<_>>(),
+            ),
+            padd_with_zero_to_next_power_of_two(
+                &poseidons_24
+                    .iter()
+                    .map(|p| F::from_usize(p.addr_input_b))
+                    .collect::<Vec<_>>(),
+            ),
+            padd_with_zero_to_next_power_of_two(
+                &poseidons_24
+                    .iter()
+                    .map(|p| F::from_usize(p.addr_output))
+                    .collect::<Vec<_>>(),
+            ),
+        ]
+        .concat(),
+    )
 }

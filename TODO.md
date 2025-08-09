@@ -18,3 +18,4 @@
 ## Not Perf
 
 - Whir batching: handle the case where the second polynomial is too small compared to the first one
+- initial and final conditions on the execution table

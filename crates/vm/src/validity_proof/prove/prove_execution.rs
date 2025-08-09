@@ -1,3 +1,5 @@
+use crate::prove::all_poseidon_16_indexes;
+use crate::prove::all_poseidon_24_indexes;
 use crate::validity_proof::common::poseidon_16_column_groups;
 use crate::validity_proof::common::poseidon_24_column_groups;
 use ::air::prove_many_air;
@@ -13,13 +15,13 @@ use utils::ToUsize;
 use utils::assert_eq_many;
 use utils::{
     Evaluation, PF, build_poseidon_16_air, build_poseidon_24_air, build_prover_state,
-    generate_trace_poseidon_16, generate_trace_poseidon_24, padd_with_zero_to_next_power_of_two,
+    padd_with_zero_to_next_power_of_two,
 };
 use whir_p3::dft::EvalsDft;
 use whir_p3::poly::evals::{eval_eq, fold_multilinear};
 use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 
-use crate::prove::{WitnessPoseidon16, WitnessPoseidon24, build_poseidon_columns};
+use crate::prove::build_poseidon_columns;
 use crate::validity_proof::common::poseidon_lookup_value;
 use crate::{
     air::VMAir,
@@ -52,6 +54,8 @@ pub fn prove_execution(
 
     let public_memory = &memory[..public_memory_size];
     let private_memory = &memory[public_memory_size..];
+    let log_memory = log2_ceil_usize(memory.len());
+    let log_public_memory = log2_strict_usize(public_memory.len());
 
     let log_n_rows = log2_strict_usize(main_trace[0].len());
     assert!(main_trace.iter().all(|col| col.len() == (1 << log_n_rows)));
@@ -72,93 +76,36 @@ pub fn prove_execution(
 
     let dft = EvalsDft::default();
 
-    let main_witness = AirWitness::<PF<EF>>::new(&main_trace, &COLUMN_GROUPS_EXEC);
-    let main_table = AirTable::<EF, _>::new(VMAir);
+    let exec_witness = AirWitness::<PF<EF>>::new(&main_trace, &COLUMN_GROUPS_EXEC);
+    let exec_table = AirTable::<EF, _>::new(VMAir);
 
     #[cfg(test)]
-    main_table.check_trace_validity(&main_witness).unwrap();
+    exec_table.check_trace_validity(&exec_witness).unwrap();
 
     let _validity_proof_span = info_span!("Validity proof generation").entered();
 
-    let poseidon_16_air = build_poseidon_16_air();
-    let poseidon_24_air = build_poseidon_24_air();
-    let table_poseidon_16 = AirTable::<EF, _>::new(poseidon_16_air.clone());
-    let table_poseidon_24 = AirTable::<EF, _>::new(poseidon_24_air.clone());
+    let p16_air = build_poseidon_16_air();
+    let p24_air = build_poseidon_24_air();
+    let p16_table = AirTable::<EF, _>::new(p16_air.clone());
+    let p24_table = AirTable::<EF, _>::new(p24_air.clone());
 
-    let (columns_poseidon_16, columns_poseidon_24) =
-        build_poseidon_columns(&poseidons_16, &poseidons_24);
-    let witness_poseidon_16 = AirWitness::new(
-        &columns_poseidon_16,
-        &poseidon_16_column_groups(&poseidon_16_air),
-    );
-    let witness_poseidon_24 = AirWitness::new(
-        &columns_poseidon_24,
-        &poseidon_24_column_groups(&poseidon_24_air),
-    );
+    let (p16_columns, p24_columns) = build_poseidon_columns(&poseidons_16, &poseidons_24);
+    let p16_witness = AirWitness::new(&p16_columns, &poseidon_16_column_groups(&p16_air));
+    let p24_witness = AirWitness::new(&p24_columns, &poseidon_24_column_groups(&p24_air));
 
-    let commited_poseidon_16_table = padd_with_zero_to_next_power_of_two(
-        &columns_poseidon_16[16..poseidon_16_air.width() - 16].concat(),
-    );
-    let commited_poseidon_24_table = padd_with_zero_to_next_power_of_two(
-        &columns_poseidon_24[24..poseidon_24_air.width() - 24].concat(),
-    );
+    let p16_commited =
+        padd_with_zero_to_next_power_of_two(&p16_columns[16..p16_air.width() - 16].concat());
+    let p24_commited =
+        padd_with_zero_to_next_power_of_two(&p24_columns[24..p24_air.width() - 24].concat());
 
-    let all_poseidon_16_indexes = [
-        padd_with_zero_to_next_power_of_two(
-            &poseidons_16
-                .iter()
-                .map(|p| F::from_usize(p.addr_input_a))
-                .collect::<Vec<_>>(),
-        ),
-        padd_with_zero_to_next_power_of_two(
-            &poseidons_16
-                .iter()
-                .map(|p| F::from_usize(p.addr_input_b))
-                .collect::<Vec<_>>(),
-        ),
-        padd_with_zero_to_next_power_of_two(
-            &poseidons_16
-                .iter()
-                .map(|p| F::from_usize(p.addr_output))
-                .collect::<Vec<_>>(),
-        ),
+    let commited_pc_fp = [
+        main_trace[COL_INDEX_PC].clone(),
+        main_trace[COL_INDEX_FP].clone(),
     ]
     .concat();
-    let all_poseidon_16_indexes_padded =
-        padd_with_zero_to_next_power_of_two(&all_poseidon_16_indexes);
 
-    let all_poseidon_24_indexes = [
-        padd_with_zero_to_next_power_of_two(
-            &poseidons_24
-                .iter()
-                .map(|p| F::from_usize(p.addr_input_a))
-                .collect::<Vec<_>>(),
-        ),
-        padd_with_zero_to_next_power_of_two(
-            &poseidons_24
-                .iter()
-                .map(|p| F::from_usize(p.addr_input_b))
-                .collect::<Vec<_>>(),
-        ),
-        padd_with_zero_to_next_power_of_two(
-            &poseidons_24
-                .iter()
-                .map(|p| F::from_usize(p.addr_output))
-                .collect::<Vec<_>>(),
-        ),
-    ]
-    .concat();
-    let all_poseidon_24_indexes_padded =
-        padd_with_zero_to_next_power_of_two(&all_poseidon_24_indexes);
-
-    // Commit A
-    let commited_pc_fp = main_trace[N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS
-        ..N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS + 2]
-        .concat();
-    let commited_memory_addreses = padd_with_zero_to_next_power_of_two(
-        &main_trace[N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS + 2
-            ..N_INSTRUCTION_FIELDS_IN_AIR + N_MEMORY_VALUE_COLUMNS + N_COMMITTED_EXEC_COLUMNS]
-            .concat(),
+    let exec_memory_addresses = padd_with_zero_to_next_power_of_two(
+        &main_trace[COL_INDEX_MEM_ADDRESS_A..=COL_INDEX_MEM_ADDRESS_C].concat(),
     );
 
     assert!(private_memory.len() % public_memory.len() == 0);
@@ -167,17 +114,17 @@ pub fn prove_execution(
         .map(|i| &private_memory[i * public_memory.len()..(i + 1) * public_memory.len()])
         .collect::<Vec<_>>();
 
-    // Commit A
+    // 1st Commitment
     let packed_pcs_witness_base = packed_pcs_commit(
         pcs.pcs_a(),
         &[
             vec![
                 commited_pc_fp.as_slice(),
-                commited_memory_addreses.as_slice(),
-                all_poseidon_16_indexes_padded.as_slice(),
-                all_poseidon_24_indexes_padded.as_slice(),
-                commited_poseidon_16_table.as_slice(),
-                commited_poseidon_24_table.as_slice(),
+                exec_memory_addresses.as_slice(),
+                all_poseidon_16_indexes(&poseidons_16).as_slice(),
+                all_poseidon_24_indexes(&poseidons_24).as_slice(),
+                p16_commited.as_slice(),
+                p24_commited.as_slice(),
             ],
             private_memory_commited_chunks.clone(),
         ]
@@ -187,33 +134,29 @@ pub fn prove_execution(
     );
 
     // PIOP
-    let main_table_evals_to_prove =
-        main_table.prove(&mut prover_state, UNIVARIATE_SKIPS, main_witness);
+    let exec_evals_to_prove = exec_table.prove(&mut prover_state, UNIVARIATE_SKIPS, exec_witness);
 
     let poseidon_evals_to_prove = prove_many_air(
         &mut prover_state,
         UNIVARIATE_SKIPS,
-        &[&table_poseidon_16],
-        &[&table_poseidon_24],
-        &[witness_poseidon_16, witness_poseidon_24],
+        &[&p16_table],
+        &[&p24_table],
+        &[p16_witness, p24_witness],
     );
-    let poseidon16_evals_to_prove = &poseidon_evals_to_prove[0];
-    let poseidon24_evals_to_prove = &poseidon_evals_to_prove[1];
+    let p16_evals_to_prove = &poseidon_evals_to_prove[0];
+    let p24_evals_to_prove = &poseidon_evals_to_prove[1];
 
     // Main memory lookup
     let exec_memory_indexes = padd_with_zero_to_next_power_of_two(
         &main_trace[COL_INDEX_MEM_ADDRESS_A..=COL_INDEX_MEM_ADDRESS_C].concat(),
     );
-    let memory_poly_eq_point = eval_eq(&main_table_evals_to_prove[1].point);
-    // TODO avoid this padding
-    let padded_memory = padd_with_zero_to_next_power_of_two(&memory);
-    let memory_pushforward = compute_pushforward(
+    let memory_poly_eq_point = eval_eq(&exec_evals_to_prove[1].point);
+    let padded_memory = padd_with_zero_to_next_power_of_two(&memory); // TODO avoid this padding
+    let exec_pushforward = compute_pushforward(
         &exec_memory_indexes,
         padded_memory.len(),
         &memory_poly_eq_point,
     );
-    let log_padded_memory = log2_strict_usize(padded_memory.len());
-    let log_public_memory = log2_strict_usize(public_memory_size);
 
     let (
         all_poseidon_indexes,
@@ -228,37 +171,37 @@ pub fn prove_execution(
         let min_n_poseidons = poseidons_16.len().min(poseidons_24.len());
 
         assert_eq_many!(
-            &poseidon16_evals_to_prove[0].point,
-            &poseidon16_evals_to_prove[1].point,
-            &poseidon16_evals_to_prove[3].point,
-            &poseidon16_evals_to_prove[4].point,
+            &p16_evals_to_prove[0].point,
+            &p16_evals_to_prove[1].point,
+            &p16_evals_to_prove[3].point,
+            &p16_evals_to_prove[4].point,
         );
         assert_eq_many!(
-            &poseidon24_evals_to_prove[0].point,
-            &poseidon24_evals_to_prove[1].point,
-            &poseidon24_evals_to_prove[2].point,
-            &poseidon24_evals_to_prove[5].point,
+            &p24_evals_to_prove[0].point,
+            &p24_evals_to_prove[1].point,
+            &p24_evals_to_prove[2].point,
+            &p24_evals_to_prove[5].point,
         );
         assert_eq!(
-            &poseidon16_evals_to_prove[0].point[..3 + log2_ceil_usize(min_n_poseidons)],
-            &poseidon24_evals_to_prove[0].point[..3 + log2_ceil_usize(min_n_poseidons)]
+            &p16_evals_to_prove[0].point[..3 + log2_ceil_usize(min_n_poseidons)],
+            &p24_evals_to_prove[0].point[..3 + log2_ceil_usize(min_n_poseidons)]
         );
 
-        let mixing_challenges = MultilinearPoint(poseidon16_evals_to_prove[0].point[..3].to_vec());
+        let mixing_challenges = MultilinearPoint(p16_evals_to_prove[0].point[..3].to_vec());
         let poseidon_lookup_batching_chalenges = MultilinearPoint(prover_state.sample_vec(3));
         let mut poseidon_lookup_point = poseidon_lookup_batching_chalenges.0.clone();
         poseidon_lookup_point.extend_from_slice({
             if poseidons_16.len() > poseidons_24.len() {
-                &poseidon16_evals_to_prove[0].point[3..]
+                &p16_evals_to_prove[0].point[3..]
             } else {
-                &poseidon24_evals_to_prove[0].point[3..]
+                &p24_evals_to_prove[0].point[3..]
             }
         });
         let poseidon_lookup_value = poseidon_lookup_value(
             n_poseidons_16,
             n_poseidons_24,
-            poseidon16_evals_to_prove,
-            poseidon24_evals_to_prove,
+            p16_evals_to_prove,
+            p24_evals_to_prove,
             &poseidon_lookup_batching_chalenges,
         );
         let poseidon_lookup_challenge = Evaluation {
@@ -349,28 +292,25 @@ pub fn prove_execution(
         )
     };
 
-    // Commit B
+    // 2nd Commitment
     let packed_pcs_witness_extension = packed_pcs_commit(
         &pcs.pcs_b(
             log2_strict_usize(packed_pcs_witness_base.packed_polynomial.len()),
             1 + log2_ceil_usize(private_memory.len())
                 .max(log2_strict_usize(poseidon_pushforward.len())),
         ),
-        &[
-            memory_pushforward.as_slice(),
-            poseidon_pushforward.as_slice(),
-        ],
+        &[exec_pushforward.as_slice(), poseidon_pushforward.as_slice()],
         &dft,
         &mut prover_state,
     );
 
-    let main_trace_logup_star_statements = prove_logup_star(
+    let exec_logup_star_statements = prove_logup_star(
         &mut prover_state,
         &padded_memory,
         &exec_memory_indexes,
-        &main_table_evals_to_prove[1],
+        &exec_evals_to_prove[1],
         &memory_poly_eq_point,
-        &memory_pushforward,
+        &exec_pushforward,
     );
 
     let poseidon_logup_star_statements = prove_logup_star(
@@ -384,8 +324,7 @@ pub fn prove_execution(
 
     // open memory at point logup_star_statements.on_table.point
     let private_memory_chunk_point = MultilinearPoint(
-        main_trace_logup_star_statements.on_table.point[log_padded_memory - log_public_memory..]
-            .to_vec(),
+        exec_logup_star_statements.on_table.point[log_memory - log_public_memory..].to_vec(),
     );
     let mut private_memory_statements = vec![];
     for private_memory_chunk in &private_memory_commited_chunks {
@@ -403,41 +342,39 @@ pub fn prove_execution(
         })
         .collect::<Vec<_>>();
 
-    // TODO open remaining logup_star_statements statements
-
-    // Open A
-    let global_statements_base_polynomial = packed_pcs_global_statements(
+    // First Opening
+    let global_statements_base = packed_pcs_global_statements(
         &packed_pcs_witness_base.tree,
         &[
             vec![
-                vec![main_table_evals_to_prove[2].clone()], // pc, fp
+                vec![exec_evals_to_prove[2].clone()], // pc, fp
                 vec![
-                    main_table_evals_to_prove[3].clone(),
-                    main_trace_logup_star_statements.on_indexes,
+                    exec_evals_to_prove[3].clone(),
+                    exec_logup_star_statements.on_indexes,
                 ], // memory addresses
                 vec![],
                 vec![],
-                vec![poseidon16_evals_to_prove[2].clone()],
-                vec![poseidon24_evals_to_prove[3].clone()],
+                vec![p16_evals_to_prove[2].clone()],
+                vec![p24_evals_to_prove[3].clone()],
             ],
             private_memory_statements,
         ]
         .concat(),
     );
 
-    // Open B
-    let global_statements_extension_polynomial = packed_pcs_global_statements(
+    // Second Opening
+    let global_statements_extension = packed_pcs_global_statements(
         &packed_pcs_witness_extension.tree,
-        &vec![main_trace_logup_star_statements.on_pushforward, vec![]],
+        &vec![exec_logup_star_statements.on_pushforward, vec![]],
     );
 
     pcs.batch_open(
         &dft,
         &mut prover_state,
-        &global_statements_base_polynomial,
+        &global_statements_base,
         packed_pcs_witness_base.inner_witness,
         &packed_pcs_witness_base.packed_polynomial,
-        &global_statements_extension_polynomial,
+        &global_statements_extension,
         packed_pcs_witness_extension.inner_witness,
         &packed_pcs_witness_extension.packed_polynomial,
     );
