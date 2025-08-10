@@ -1,12 +1,12 @@
 use crate::{
-    F, N_INSTRUCTION_FIELDS,
     bytecode::bytecode::{Instruction, MemOrConstant, MemOrFp, MemOrFpOrConstant, Operation},
+    *,
 };
 use p3_field::PrimeCharacteristicRing;
 
 impl Instruction {
-    pub fn field_representation(&self) -> [F; N_INSTRUCTION_FIELDS] {
-        let mut fields = [F::ZERO; N_INSTRUCTION_FIELDS];
+    pub fn field_representation(&self) -> [F; N_INSTRUCTION_COLUMNS] {
+        let mut fields = [F::ZERO; N_INSTRUCTION_COLUMNS];
         match self {
             Self::Computation {
                 operation,
@@ -104,40 +104,40 @@ impl Instruction {
     }
 }
 
-fn set_nu_a(fields: &mut [F; N_INSTRUCTION_FIELDS], a: &MemOrConstant) {
+fn set_nu_a(fields: &mut [F; N_INSTRUCTION_COLUMNS], a: &MemOrConstant) {
     match a {
         MemOrConstant::Constant(cst) => {
-            fields[3] = F::ONE;
-            fields[0] = *cst;
+            fields[COL_INDEX_FLAG_A] = F::ONE;
+            fields[COL_INDEX_OPERAND_A] = *cst;
         }
         MemOrConstant::MemoryAfterFp { offset } => {
-            fields[3] = F::ZERO;
-            fields[0] = F::from_usize(*offset);
+            fields[COL_INDEX_FLAG_A] = F::ZERO;
+            fields[COL_INDEX_OPERAND_A] = F::from_usize(*offset);
         }
     }
 }
 
-fn set_nu_b(fields: &mut [F; N_INSTRUCTION_FIELDS], b: &MemOrConstant) {
+fn set_nu_b(fields: &mut [F; N_INSTRUCTION_COLUMNS], b: &MemOrConstant) {
     match b {
         MemOrConstant::Constant(cst) => {
-            fields[4] = F::ONE;
-            fields[1] = *cst;
+            fields[COL_INDEX_FLAG_B] = F::ONE;
+            fields[COL_INDEX_OPERAND_B] = *cst;
         }
         MemOrConstant::MemoryAfterFp { offset } => {
-            fields[4] = F::ZERO;
-            fields[1] = F::from_usize(*offset);
+            fields[COL_INDEX_FLAG_B] = F::ZERO;
+            fields[COL_INDEX_OPERAND_B] = F::from_usize(*offset);
         }
     }
 }
 
-fn set_nu_c(fields: &mut [F; N_INSTRUCTION_FIELDS], c: &MemOrFp) {
+fn set_nu_c(fields: &mut [F; N_INSTRUCTION_COLUMNS], c: &MemOrFp) {
     match c {
         MemOrFp::Fp => {
-            fields[5] = F::ONE;
+            fields[COL_INDEX_FLAG_C] = F::ONE;
         }
         MemOrFp::MemoryAfterFp { offset } => {
-            fields[5] = F::ZERO;
-            fields[2] = F::from_usize(*offset);
+            fields[COL_INDEX_FLAG_C] = F::ZERO;
+            fields[COL_INDEX_OPERAND_C] = F::from_usize(*offset);
         }
     }
 }

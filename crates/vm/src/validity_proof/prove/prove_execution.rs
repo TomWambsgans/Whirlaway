@@ -39,7 +39,7 @@ pub fn prove_execution(
     pcs: &impl BatchPCS<PF<EF>, EF, EF>,
 ) -> Vec<PF<EF>> {
     let ExecutionTrace {
-        main_trace,
+        full_trace,
         n_poseidons_16,
         n_poseidons_24,
         poseidons_16, // padded with empty poseidons
@@ -58,12 +58,12 @@ pub fn prove_execution(
     let log_memory = log2_ceil_usize(memory.len());
     let log_public_memory = log2_strict_usize(public_memory.len());
 
-    let log_n_rows = log2_strict_usize(main_trace[0].len());
-    assert!(main_trace.iter().all(|col| col.len() == (1 << log_n_rows)));
+    let log_n_cycles = log2_strict_usize(full_trace[0].len());
+    assert!(full_trace.iter().all(|col| col.len() == 1 << log_n_cycles));
     let mut prover_state = build_prover_state::<EF>();
     prover_state.add_base_scalars(
         &[
-            log_n_rows,
+            log_n_cycles,
             n_poseidons_16,
             n_poseidons_24,
             dot_products_ee.len(),
@@ -77,7 +77,17 @@ pub fn prove_execution(
 
     let dft = EvalsDft::default();
 
-    let exec_witness = AirWitness::<PF<EF>>::new(&main_trace, &COLUMN_GROUPS_EXEC);
+    let mut exec_columns = full_trace[..N_INSTRUCTION_COLUMNS_IN_AIR]
+        .iter()
+        .map(Vec::as_slice)
+        .collect::<Vec<_>>();
+    exec_columns.extend(
+        full_trace[N_INSTRUCTION_COLUMNS..]
+            .iter()
+            .map(Vec::as_slice)
+            .collect::<Vec<_>>(),
+    );
+    let exec_witness = AirWitness::<PF<EF>>::new(&exec_columns, &COLUMN_GROUPS_EXEC);
     let exec_table = AirTable::<EF, _>::new(VMAir);
 
     #[cfg(test)]
@@ -100,13 +110,13 @@ pub fn prove_execution(
         padd_with_zero_to_next_power_of_two(&p24_columns[24..p24_air.width() - 24].concat());
 
     let commited_pc_fp = [
-        main_trace[COL_INDEX_PC].clone(),
-        main_trace[COL_INDEX_FP].clone(),
+        full_trace[COL_INDEX_PC].clone(),
+        full_trace[COL_INDEX_FP].clone(),
     ]
     .concat();
 
     let exec_memory_addresses = padd_with_zero_to_next_power_of_two(
-        &main_trace[COL_INDEX_MEM_ADDRESS_A..=COL_INDEX_MEM_ADDRESS_C].concat(),
+        &full_trace[COL_INDEX_MEM_ADDRESS_A..=COL_INDEX_MEM_ADDRESS_C].concat(),
     );
 
     assert!(private_memory.len() % public_memory.len() == 0);
@@ -149,7 +159,7 @@ pub fn prove_execution(
 
     // Main memory lookup
     let exec_memory_indexes = padd_with_zero_to_next_power_of_two(
-        &main_trace[COL_INDEX_MEM_ADDRESS_A..=COL_INDEX_MEM_ADDRESS_C].concat(),
+        &full_trace[COL_INDEX_MEM_ADDRESS_A..=COL_INDEX_MEM_ADDRESS_C].concat(),
     );
     let memory_poly_eq_point = eval_eq(&exec_evals_to_prove[1].point);
     let padded_memory = padd_with_zero_to_next_power_of_two(&memory); // TODO avoid this padding
@@ -305,6 +315,10 @@ pub fn prove_execution(
         &dft,
         &mut prover_state,
     );
+
+    // let bytecode_compression_challenges =
+    //     MultilinearPoint(prover_state.sample_vec(LOG_N_INSTRUCTION_FIELDS));
+    // let compressed_bytecode =
 
     let exec_logup_star_statements = prove_logup_star(
         &mut prover_state,

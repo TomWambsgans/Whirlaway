@@ -4,7 +4,7 @@ use p3_air::{Air, AirBuilder, BaseAir};
 use p3_field::PrimeCharacteristicRing;
 use p3_matrix::Matrix;
 
-use crate::N_AIR_COLUMNS;
+use crate::*;
 
 /*
 
@@ -61,32 +61,38 @@ impl<AB: AirBuilder> Air<AB> for VMAir {
         assert_eq!(down.len(), N_AIR_COLUMNS);
 
         let (operand_a, operand_b, operand_c): (AB::Expr, AB::Expr, AB::Expr) = (
-            up[0].clone().into(),
-            up[1].clone().into(),
-            up[2].clone().into(),
+            up[COL_INDEX_OPERAND_A].clone().into(),
+            up[COL_INDEX_OPERAND_B].clone().into(),
+            up[COL_INDEX_OPERAND_C].clone().into(),
         );
         let (flag_a, flag_b, flag_c): (AB::Expr, AB::Expr, AB::Expr) = (
-            up[3].clone().into(),
-            up[4].clone().into(),
-            up[5].clone().into(),
+            up[COL_INDEX_FLAG_A].clone().into(),
+            up[COL_INDEX_FLAG_B].clone().into(),
+            up[COL_INDEX_FLAG_C].clone().into(),
         );
-        let add: AB::Expr = up[6].clone().into();
-        let mul: AB::Expr = up[7].clone().into();
-        let deref: AB::Expr = up[8].clone().into();
-        let juz: AB::Expr = up[9].clone().into();
-        let aux: AB::Expr = up[10].clone().into();
+        let add: AB::Expr = up[COL_INDEX_ADD].clone().into();
+        let mul: AB::Expr = up[COL_INDEX_MUL].clone().into();
+        let deref: AB::Expr = up[COL_INDEX_DEREF].clone().into();
+        let juz: AB::Expr = up[COL_INDEX_JUZ].clone().into();
+        let aux: AB::Expr = up[COL_INDEX_AUX].clone().into();
 
         let (value_a, value_b, value_c): (AB::Expr, AB::Expr, AB::Expr) = (
-            up[11].clone().into(),
-            up[12].clone().into(),
-            up[13].clone().into(),
+            up[COL_INDEX_MEM_VALUE_A.index_in_air()].clone().into(),
+            up[COL_INDEX_MEM_VALUE_B.index_in_air()].clone().into(),
+            up[COL_INDEX_MEM_VALUE_C.index_in_air()].clone().into(),
         );
-        let (pc, next_pc): (AB::Expr, AB::Expr) = (up[14].clone().into(), down[14].clone().into());
-        let (fp, next_fp): (AB::Expr, AB::Expr) = (up[15].clone().into(), down[15].clone().into());
+        let (pc, next_pc): (AB::Expr, AB::Expr) = (
+            up[COL_INDEX_PC.index_in_air()].clone().into(),
+            down[COL_INDEX_PC.index_in_air()].clone().into(),
+        );
+        let (fp, next_fp): (AB::Expr, AB::Expr) = (
+            up[COL_INDEX_FP.index_in_air()].clone().into(),
+            down[COL_INDEX_FP.index_in_air()].clone().into(),
+        );
         let (addr_a, addr_b, addr_c): (AB::Expr, AB::Expr, AB::Expr) = (
-            up[16].clone().into(),
-            up[17].clone().into(),
-            up[18].clone().into(),
+            up[COL_INDEX_MEM_ADDRESS_A.index_in_air()].clone().into(),
+            up[COL_INDEX_MEM_ADDRESS_B.index_in_air()].clone().into(),
+            up[COL_INDEX_MEM_ADDRESS_C.index_in_air()].clone().into(),
         );
 
         let nu_a =

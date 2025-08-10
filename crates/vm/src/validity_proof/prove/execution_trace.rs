@@ -1,8 +1,5 @@
 use crate::{
-    EF, F, N_AIR_COLUMNS, N_INSTRUCTION_FIELDS_IN_AIR, POSEIDON_16_NULL_HASH_PTR,
-    POSEIDON_24_NULL_HASH_PTR,
-    bytecode::bytecode::{Bytecode, Instruction},
-    runner::ExecutionResult,
+    bytecode::bytecode::{Bytecode, Instruction}, runner::ExecutionResult, COL_INDEX_FP, COL_INDEX_MEM_ADDRESS_A, COL_INDEX_MEM_ADDRESS_B, COL_INDEX_MEM_ADDRESS_C, COL_INDEX_MEM_VALUE_A, COL_INDEX_MEM_VALUE_B, COL_INDEX_MEM_VALUE_C, COL_INDEX_PC, EF, F, N_EXEC_COLUMNS, N_INSTRUCTION_COLUMNS, N_INSTRUCTION_COLUMNS_IN_AIR, POSEIDON_16_NULL_HASH_PTR, POSEIDON_24_NULL_HASH_PTR
 };
 use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
@@ -45,7 +42,7 @@ pub struct WitnessPoseidon24 {
 }
 
 pub struct ExecutionTrace {
-    pub main_trace: Vec<Vec<F>>,
+    pub full_trace: Vec<Vec<F>>,
     pub n_poseidons_16: usize,
     pub n_poseidons_24: usize,
     pub poseidons_16: Vec<WitnessPoseidon16>, // padded with empty poseidons
@@ -64,7 +61,7 @@ pub fn get_execution_trace(
     let n_cycles = execution_result.pcs.len();
     let memory = &execution_result.memory;
     let log_n_cycles_rounded_up = n_cycles.next_power_of_two().ilog2() as usize;
-    let mut trace = (0..N_AIR_COLUMNS)
+    let mut trace = (0..N_INSTRUCTION_COLUMNS + N_EXEC_COLUMNS)
         .map(|_| F::zero_vec(1 << log_n_cycles_rounded_up))
         .collect::<Vec<Vec<F>>>();
     let mut poseidons_16 = Vec::new();
@@ -86,11 +83,7 @@ pub fn get_execution_trace(
         //     i, pc, fp, instruction.to_string()
         // );
 
-        for (j, field) in field_repr
-            .iter()
-            .enumerate()
-            .take(N_INSTRUCTION_FIELDS_IN_AIR)
-        {
+        for (j, field) in field_repr.iter().enumerate() {
             trace[j][i] = *field;
         }
 
@@ -118,14 +111,14 @@ pub fn get_execution_trace(
         }
         let value_c = memory.0[addr_c.to_usize()].unwrap();
 
-        trace[11][i] = value_a;
-        trace[12][i] = value_b;
-        trace[13][i] = value_c;
-        trace[14][i] = F::from_usize(pc);
-        trace[15][i] = F::from_usize(fp);
-        trace[16][i] = addr_a;
-        trace[17][i] = addr_b;
-        trace[18][i] = addr_c;
+        trace[COL_INDEX_MEM_VALUE_A][i] = value_a;
+        trace[COL_INDEX_MEM_VALUE_B][i] = value_b;
+        trace[COL_INDEX_MEM_VALUE_C][i] = value_c;
+        trace[COL_INDEX_PC][i] = F::from_usize(pc);
+        trace[COL_INDEX_FP][i] = F::from_usize(fp);
+        trace[COL_INDEX_MEM_ADDRESS_A][i] = addr_a;
+        trace[COL_INDEX_MEM_ADDRESS_B][i] = addr_b;
+        trace[COL_INDEX_MEM_ADDRESS_C][i] = addr_c;
 
         match instruction {
             Instruction::Poseidon2_16 { arg_a, arg_b, res } => {
@@ -211,7 +204,7 @@ pub fn get_execution_trace(
     }
 
     // repeat the last row to get to a power of two
-    for j in 0..N_AIR_COLUMNS {
+    for j in 0..N_INSTRUCTION_COLUMNS + N_EXEC_COLUMNS {
         let last_value = trace[j][n_cycles - 1];
         for i in n_cycles..(1 << log_n_cycles_rounded_up) {
             trace[j][i] = last_value;
@@ -258,7 +251,7 @@ pub fn get_execution_trace(
     );
 
     ExecutionTrace {
-        main_trace: trace,
+        full_trace: trace,
         n_poseidons_16,
         n_poseidons_24,
         poseidons_16,
