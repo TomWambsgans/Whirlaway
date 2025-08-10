@@ -1,7 +1,9 @@
+use crate::validity_proof::common::fold_bytecode;
 use ::air::table::AirTable;
 use ::air::verify_many_air;
 use lookup::verify_logup_star;
 use p3_air::BaseAir;
+use p3_field::PrimeCharacteristicRing;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use pcs::num_packed_vars_for_vars;
 use pcs::packed_pcs_global_statements;
@@ -172,6 +174,9 @@ pub fn verify_execution(
     )
     .unwrap();
 
+    let bytecode_compression_challenges = MultilinearPoint(
+        exec_evals_to_verify[0].point[..LOG_N_INSTRUCTION_COLUMNS_IN_AIR].to_vec(),
+    );
     let bytecode_lookup_claim = Evaluation {
         point: MultilinearPoint(
             exec_evals_to_verify[0].point[LOG_N_INSTRUCTION_COLUMNS_IN_AIR..].to_vec(),
@@ -185,6 +190,15 @@ pub fn verify_execution(
         &bytecode_lookup_claim,
     )
     .unwrap();
+    let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
+    if folded_bytecode.evaluate(&bytecode_logup_star_statements.on_table.point)
+        != bytecode_logup_star_statements.on_table.value
+    {
+        return Err(ProofError::InvalidProof);
+    }
+
+    let mut bytecode_lookup_index_statement = bytecode_logup_star_statements.on_indexes.clone();
+    bytecode_lookup_index_statement.point.0.insert(0, EF::ZERO); // because we commit both pc and fp together
 
     let poseidon_lookup_memory_point = MultilinearPoint(
         [
@@ -263,7 +277,10 @@ pub fn verify_execution(
         &parsed_commitment_base.tree,
         &[
             vec![
-                vec![exec_evals_to_verify[2].clone()], // pc, fp
+                vec![
+                    exec_evals_to_verify[2].clone(),
+                    bytecode_lookup_index_statement,
+                ], // pc, fp
                 vec![
                     exec_evals_to_verify[3].clone(),
                     exec_logup_star_statements.on_indexes,
@@ -283,7 +300,7 @@ pub fn verify_execution(
         &vec![
             exec_logup_star_statements.on_pushforward,
             poseidon_logup_star_statements.on_pushforward,
-            vec![]
+            bytecode_logup_star_statements.on_pushforward,
         ],
     );
 

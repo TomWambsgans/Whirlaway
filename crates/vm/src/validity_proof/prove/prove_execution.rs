@@ -1,5 +1,6 @@
 use crate::prove::all_poseidon_16_indexes;
 use crate::prove::all_poseidon_24_indexes;
+use crate::validity_proof::common::fold_bytecode;
 use crate::validity_proof::common::poseidon_16_column_groups;
 use crate::validity_proof::common::poseidon_24_column_groups;
 use crate::validity_proof::common::poseidon_lookup_index_statements;
@@ -319,18 +320,7 @@ pub fn prove_execution(
         &padd_with_zero_to_next_power_of_two(&full_trace[..N_INSTRUCTION_COLUMNS_IN_AIR].concat()),
         &eval_eq(&bytecode_compression_challenges.0),
     );
-    let encoded_bytecode = padd_with_zero_to_next_power_of_two(
-        &bytecode
-            .instructions
-            .par_iter()
-            .flat_map(|i| {
-                padd_with_zero_to_next_power_of_two(
-                    &i.field_representation()[..N_INSTRUCTION_COLUMNS_IN_AIR],
-                )
-            })
-            .collect::<Vec<_>>(),
-    );
-    let folded_bytecode = fold_multilinear(&encoded_bytecode, &bytecode_compression_challenges);
+    let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
     let pc_column = &full_trace[COL_INDEX_PC];
     // TODO remove this sanity check
     for (i, pc) in pc_column.iter().enumerate() {
@@ -391,6 +381,8 @@ pub fn prove_execution(
         &bytecode_poly_eq_point,
         &bytecode_pushforward,
     );
+    let mut bytecode_lookup_index_statement = bytecode_logup_star_statements.on_indexes.clone();
+    bytecode_lookup_index_statement.point.0.insert(0, EF::ZERO); // because we commit both pc and fp together
 
     let poseidon_lookup_memory_point = MultilinearPoint(
         [
@@ -444,7 +436,7 @@ pub fn prove_execution(
         &packed_pcs_witness_base.tree,
         &[
             vec![
-                vec![exec_evals_to_prove[2].clone()], // pc, fp
+                vec![exec_evals_to_prove[2].clone(), bytecode_lookup_index_statement], // pc, fp
                 vec![
                     exec_evals_to_prove[3].clone(),
                     exec_logup_star_statements.on_indexes,
@@ -465,7 +457,7 @@ pub fn prove_execution(
         &vec![
             exec_logup_star_statements.on_pushforward,
             poseidon_logup_star_statements.on_pushforward,
-            vec![]
+            bytecode_logup_star_statements.on_pushforward
         ],
     );
 

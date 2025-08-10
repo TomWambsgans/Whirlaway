@@ -1,14 +1,15 @@
 use p3_air::BaseAir;
 use p3_field::{Field, PrimeCharacteristicRing};
+use rayon::prelude::*;
 use p3_util::log2_ceil_usize;
 use std::ops::Range;
-use utils::{Evaluation, Poseidon16Air, Poseidon24Air, from_end, remove_end};
+use utils::{from_end, padd_with_zero_to_next_power_of_two, remove_end, Evaluation, Poseidon16Air, Poseidon24Air};
 use whir_p3::{
     fiat_shamir::errors::ProofError,
-    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+    poly::{evals::{fold_multilinear, EvaluationsList}, multilinear::MultilinearPoint},
 };
 
-use crate::EF;
+use crate::{bytecode::bytecode::Bytecode, EF, N_INSTRUCTION_COLUMNS_IN_AIR};
 
 pub fn poseidon_16_column_groups(poseidon_16_air: &Poseidon16Air) -> Vec<Range<usize>> {
     vec![
@@ -146,4 +147,21 @@ pub fn poseidon_lookup_index_statements(
         return Err(ProofError::InvalidProof);
     }
     Ok((p16_indexes_statements, p24_indexes_statements))
+}
+
+// For now we encly consider the columns up to N_INSTRUCTION_COLUMNS_IN_AIR.
+// Precompile columns will be added later.
+pub fn fold_bytecode(bytecode: &Bytecode, folding_challenges: &MultilinearPoint<EF>) -> Vec<EF> {
+    let encoded_bytecode = padd_with_zero_to_next_power_of_two(
+        &bytecode
+            .instructions
+            .par_iter()
+            .flat_map(|i| {
+                padd_with_zero_to_next_power_of_two(
+                    &i.field_representation()[..N_INSTRUCTION_COLUMNS_IN_AIR],
+                )
+            })
+            .collect::<Vec<_>>(),
+    );
+    fold_multilinear(&encoded_bytecode, &folding_challenges)
 }
