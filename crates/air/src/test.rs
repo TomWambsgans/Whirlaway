@@ -250,7 +250,6 @@ fn test_many_unstructured_air() {
     let tables_b = tables_b.iter().collect::<Vec<_>>();
 
     let mut traces = vec![];
-    let mut witnesses = vec![];
     let mut column_groups = vec![];
     let column_group_a = vec![
         0..N_PREPROCESSED_COLUMNS_A,
@@ -275,14 +274,19 @@ fn test_many_unstructured_air() {
             N_PREPROCESSED_COLUMNS_B,
         >(*log_n_rows));
     }
+    let mut witnesses_a = vec![];
     for trace in &traces[..log_n_rows_a.len()] {
-        witnesses.push(AirWitness::new(trace, &column_group_a));
+        witnesses_a.push(AirWitness::new(trace, &column_group_a));
     }
+        let mut witnesses_b = vec![];
     for trace in &traces[log_n_rows_a.len()..] {
-        witnesses.push(AirWitness::new(trace, &column_group_b));
+        witnesses_b.push(AirWitness::new(trace, &column_group_b));
     }
 
-    for (table, witness) in tables_a.iter().zip(witnesses.iter()) {
+    for (table, witness) in tables_a.iter().zip(witnesses_a.iter()) {
+        table.check_trace_validity(witness).unwrap();
+    }
+    for (table, witness) in tables_b.iter().zip(witnesses_b.iter()) {
         table.check_trace_validity(witness).unwrap();
     }
 
@@ -291,7 +295,8 @@ fn test_many_unstructured_air() {
         UNIVARIATE_SKIPS,
         &tables_a,
         &tables_b,
-        &witnesses,
+        &witnesses_a,
+        &witnesses_b,
     );
     let mut verifier_state = build_verifier_state(&prover_state);
     let evaluations_remaining_to_verify = verify_many_air(
@@ -365,7 +370,6 @@ fn test_many_structured_air() {
     let tables_b = tables_b.iter().collect::<Vec<_>>();
 
     let mut traces = vec![];
-    let mut witnesses = vec![];
     let mut column_groups = vec![];
     let column_group_a = vec![
         0..N_PREPROCESSED_COLUMNS_A,
@@ -390,14 +394,19 @@ fn test_many_structured_air() {
             N_PREPROCESSED_COLUMNS_B,
         >(*log_n_rows));
     }
+    let mut witnesses_a = vec![];
     for trace in &traces[..log_n_rows_a.len()] {
-        witnesses.push(AirWitness::new(trace, &column_group_a));
+        witnesses_a.push(AirWitness::new(trace, &column_group_a));
     }
+    let mut witnesses_b = vec![];
     for trace in &traces[log_n_rows_a.len()..] {
-        witnesses.push(AirWitness::new(trace, &column_group_b));
+        witnesses_b.push(AirWitness::new(trace, &column_group_b));
     }
 
-    for (table, witness) in tables_a.iter().zip(witnesses.iter()) {
+    for (table, witness) in tables_a.iter().zip(witnesses_a.iter()) {
+        table.check_trace_validity(witness).unwrap();
+    }
+    for (table, witness) in tables_b.iter().zip(witnesses_b.iter()) {
         table.check_trace_validity(witness).unwrap();
     }
 
@@ -406,7 +415,8 @@ fn test_many_structured_air() {
         UNIVARIATE_SKIPS,
         &tables_a,
         &tables_b,
-        &witnesses,
+        &witnesses_a,
+        &witnesses_b,
     );
     let mut verifier_state = build_verifier_state(&prover_state);
     let evaluations_remaining_to_verify = verify_many_air(
