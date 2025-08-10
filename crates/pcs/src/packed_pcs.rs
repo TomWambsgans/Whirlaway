@@ -20,13 +20,25 @@ pub struct MultiCommitmentWitness<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, E
     pub packed_polynomial: Vec<F>,
 }
 
+pub fn num_packed_vars_for_pols<F: Field>(polynomials: &[&[F]]) -> usize {
+    let vars_per_polynomial = polynomials
+        .iter()
+        .map(|p| log2_strict_usize(p.len()))
+        .collect::<Vec<_>>();
+    TreeOfVariables::compute_optimal(vars_per_polynomial).total_vars()
+}
+
+pub fn num_packed_vars_for_vars(vars_per_polynomial: &[usize]) -> usize {
+    TreeOfVariables::compute_optimal(vars_per_polynomial.to_vec()).total_vars()
+}
+
 pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
     pcs: &Pcs,
     polynomials: &[&[F]],
     dft: &EvalsDft<PF<EF>>,
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
 ) -> MultiCommitmentWitness<F, EF, Pcs> {
-    let polynomials: Vec<&[F]> = polynomials.iter().map(|p| p.borrow()).collect();
+    let polynomials: Vec<&[F]> = polynomials.to_vec();
     let vars_per_polynomial = polynomials
         .iter()
         .map(|p| log2_strict_usize(p.len()))

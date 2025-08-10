@@ -9,11 +9,13 @@ use lookup::{compute_pushforward, prove_logup_star};
 use p3_air::BaseAir;
 use p3_field::PrimeCharacteristicRing;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
+use pcs::num_packed_vars_for_pols;
 use pcs::{BatchPCS, packed_pcs_commit, packed_pcs_global_statements};
 use rayon::prelude::*;
 use tracing::info_span;
 use utils::ToUsize;
 use utils::assert_eq_many;
+use utils::fold_multilinear_in_large_field;
 use utils::{
     Evaluation, PF, build_poseidon_16_air, build_poseidon_24_air, build_prover_state,
     padd_with_zero_to_next_power_of_two,
@@ -58,7 +60,8 @@ pub fn prove_execution(
     let log_memory = log2_ceil_usize(memory.len());
     let log_public_memory = log2_strict_usize(public_memory.len());
 
-    let log_n_cycles = log2_strict_usize(full_trace[0].len());
+    let n_cycles = full_trace[0].len();
+    let log_n_cycles = log2_strict_usize(n_cycles);
     assert!(full_trace.iter().all(|col| col.len() == 1 << log_n_cycles));
     let mut prover_state = build_prover_state::<EF>();
     prover_state.add_base_scalars(
@@ -304,21 +307,63 @@ pub fn prove_execution(
         )
     };
 
+    // As long as we dont have the gkr grand product, for consistency accross all the tables, that will require opening
+    // on the instruction precompiles columns (btw we should as always do the sumchecks "in parallel" to get common challenges),
+    // we perform the bytecode lookup only on the first N_INSTRUCTION_COLUMNS_IN_AIR.
+    // But it will on the full N_INSTRUCTION_COLUMNS eventually.
+
+    let bytecode_compression_challenges =
+        MultilinearPoint(exec_evals_to_prove[0].point[..LOG_N_INSTRUCTION_COLUMNS_IN_AIR].to_vec());
+
+    let compressed_exec_instructions = fold_multilinear_in_large_field(
+        &padd_with_zero_to_next_power_of_two(&full_trace[..N_INSTRUCTION_COLUMNS_IN_AIR].concat()),
+        &eval_eq(&bytecode_compression_challenges.0),
+    );
+    let encoded_bytecode = padd_with_zero_to_next_power_of_two(
+        &bytecode
+            .instructions
+            .par_iter()
+            .flat_map(|i| {
+                padd_with_zero_to_next_power_of_two(
+                    &i.field_representation()[..N_INSTRUCTION_COLUMNS_IN_AIR],
+                )
+            })
+            .collect::<Vec<_>>(),
+    );
+    let folded_bytecode = fold_multilinear(&encoded_bytecode, &bytecode_compression_challenges);
+    let pc_column = &full_trace[COL_INDEX_PC];
+    // TODO remove this sanity check
+    for (i, pc) in pc_column.iter().enumerate() {
+        assert_eq!(
+            folded_bytecode[pc.to_usize()],
+            compressed_exec_instructions[i]
+        );
+    }
+    let bytecode_lookup_point =
+        MultilinearPoint(exec_evals_to_prove[0].point[LOG_N_INSTRUCTION_COLUMNS_IN_AIR..].to_vec());
+    let bytecode_lookup_claim = Evaluation {
+        point: bytecode_lookup_point.clone(),
+        value: exec_evals_to_prove[0].value,
+    };
+    let bytecode_poly_eq_point = eval_eq(&bytecode_lookup_point);
+    let bytecode_pushforward =
+        compute_pushforward(&pc_column, folded_bytecode.len(), &bytecode_poly_eq_point);
+
     // 2nd Commitment
+    let commited_extension = [
+        exec_pushforward.as_slice(),
+        poseidon_pushforward.as_slice(),
+        bytecode_pushforward.as_slice(),
+    ];
     let packed_pcs_witness_extension = packed_pcs_commit(
         &pcs.pcs_b(
             log2_strict_usize(packed_pcs_witness_base.packed_polynomial.len()),
-            1 + log2_ceil_usize(private_memory.len())
-                .max(log2_strict_usize(poseidon_pushforward.len())),
+            num_packed_vars_for_pols(&commited_extension),
         ),
-        &[exec_pushforward.as_slice(), poseidon_pushforward.as_slice()],
+        &commited_extension,
         &dft,
         &mut prover_state,
     );
-
-    // let bytecode_compression_challenges =
-    //     MultilinearPoint(prover_state.sample_vec(LOG_N_INSTRUCTION_FIELDS));
-    // let compressed_bytecode =
 
     let exec_logup_star_statements = prove_logup_star(
         &mut prover_state,
@@ -336,6 +381,15 @@ pub fn prove_execution(
         &poseidon_lookup_challenge,
         &poseidon_poly_eq_point,
         &poseidon_pushforward,
+    );
+
+    let bytecode_logup_star_statements = prove_logup_star(
+        &mut prover_state,
+        &folded_bytecode,
+        &pc_column,
+        &bytecode_lookup_claim,
+        &bytecode_poly_eq_point,
+        &bytecode_pushforward,
     );
 
     let poseidon_lookup_memory_point = MultilinearPoint(
@@ -411,6 +465,7 @@ pub fn prove_execution(
         &vec![
             exec_logup_star_statements.on_pushforward,
             poseidon_logup_star_statements.on_pushforward,
+            vec![]
         ],
     );
 

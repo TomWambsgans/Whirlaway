@@ -3,6 +3,7 @@ use ::air::verify_many_air;
 use lookup::verify_logup_star;
 use p3_air::BaseAir;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
+use pcs::num_packed_vars_for_vars;
 use pcs::packed_pcs_global_statements;
 use pcs::{BatchPCS, NumVariables as _, packed_pcs_parse_commitment};
 use utils::{Evaluation, PF, build_challenger, padd_with_zero_to_next_power_of_two};
@@ -19,7 +20,7 @@ use crate::validity_proof::common::{
 use crate::{air::VMAir, bytecode::bytecode::Bytecode, *};
 
 pub fn verify_execution(
-    _bytecode: &Bytecode,
+    bytecode: &Bytecode,
     public_input: &[F],
     proof_data: Vec<PF<EF>>,
     pcs: &impl BatchPCS<PF<EF>, EF, EF>,
@@ -122,13 +123,14 @@ pub fn verify_execution(
 
     let poseidon_lookup_log_length = 3 + log_n_p16.max(log_n_p24);
 
-    let vars_pcs_extension = vec![log_memory, log_memory - 3];
+    let log_bytecode_len = log2_ceil_usize(bytecode.instructions.len());
+    let vars_pcs_extension = vec![log_memory, log_memory - 3, log_bytecode_len];
     let packed_parsed_commitment_extension = packed_pcs_parse_commitment(
         &pcs.pcs_b(
             parsed_commitment_base
                 .inner_parsed_commitment
                 .num_variables(),
-            1 + log2_ceil_usize(private_memory_len).max(poseidon_lookup_log_length),
+            num_packed_vars_for_vars(&vars_pcs_extension),
         ),
         &mut verifier_state,
         vars_pcs_extension,
@@ -167,6 +169,20 @@ pub fn verify_execution(
         log_memory - 3, // "-3" because it's folded memory
         poseidon_lookup_log_length,
         &poseidon_lookup_challenge,
+    )
+    .unwrap();
+
+    let bytecode_lookup_claim = Evaluation {
+        point: MultilinearPoint(
+            exec_evals_to_verify[0].point[LOG_N_INSTRUCTION_COLUMNS_IN_AIR..].to_vec(),
+        ),
+        value: exec_evals_to_verify[0].value,
+    };
+    let bytecode_logup_star_statements = verify_logup_star(
+        &mut verifier_state,
+        log_bytecode_len,
+        log_n_cycles,
+        &bytecode_lookup_claim,
     )
     .unwrap();
 
@@ -267,6 +283,7 @@ pub fn verify_execution(
         &vec![
             exec_logup_star_statements.on_pushforward,
             poseidon_logup_star_statements.on_pushforward,
+            vec![]
         ],
     );
 
