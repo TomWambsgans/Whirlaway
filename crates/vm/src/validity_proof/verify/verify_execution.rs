@@ -1,4 +1,5 @@
 use crate::validity_proof::common::fold_bytecode;
+use crate::validity_proof::common::intitial_and_final_pc_conditions;
 use ::air::table::AirTable;
 use ::air::verify_many_air;
 use lookup::verify_logup_star;
@@ -273,6 +274,9 @@ pub fn verify_execution(
         &poseidon_logup_star_statements.on_indexes.point,
     )?;
 
+    let (initial_pc_statement, final_pc_statement) =
+        intitial_and_final_pc_conditions(bytecode, log_n_cycles);
+
     let global_statements_base = packed_pcs_global_statements(
         &parsed_commitment_base.tree,
         &[
@@ -280,6 +284,8 @@ pub fn verify_execution(
                 vec![
                     exec_evals_to_verify[2].clone(),
                     bytecode_lookup_index_statement,
+                    initial_pc_statement,
+                    final_pc_statement,
                 ], // pc, fp
                 vec![
                     exec_evals_to_verify[3].clone(),

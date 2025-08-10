@@ -1,6 +1,7 @@
 use crate::prove::all_poseidon_16_indexes;
 use crate::prove::all_poseidon_24_indexes;
 use crate::validity_proof::common::fold_bytecode;
+use crate::validity_proof::common::intitial_and_final_pc_conditions;
 use crate::validity_proof::common::poseidon_16_column_groups;
 use crate::validity_proof::common::poseidon_24_column_groups;
 use crate::validity_proof::common::poseidon_lookup_index_statements;
@@ -431,12 +432,20 @@ pub fn prove_execution(
     )
     .unwrap();
 
+    let (initial_pc_statement, final_pc_statement) =
+        intitial_and_final_pc_conditions(bytecode, log_n_cycles);
+
     // First Opening
     let global_statements_base = packed_pcs_global_statements(
         &packed_pcs_witness_base.tree,
         &[
             vec![
-                vec![exec_evals_to_prove[2].clone(), bytecode_lookup_index_statement], // pc, fp
+                vec![
+                    exec_evals_to_prove[2].clone(),
+                    bytecode_lookup_index_statement,
+                    initial_pc_statement,
+                    final_pc_statement,
+                ], // pc, fp
                 vec![
                     exec_evals_to_prove[3].clone(),
                     exec_logup_star_statements.on_indexes,
@@ -457,7 +466,7 @@ pub fn prove_execution(
         &vec![
             exec_logup_star_statements.on_pushforward,
             poseidon_logup_star_statements.on_pushforward,
-            bytecode_logup_star_statements.on_pushforward
+            bytecode_logup_star_statements.on_pushforward,
         ],
     );
 

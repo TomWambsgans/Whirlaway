@@ -1,15 +1,21 @@
 use p3_air::BaseAir;
 use p3_field::{Field, PrimeCharacteristicRing};
-use rayon::prelude::*;
 use p3_util::log2_ceil_usize;
+use rayon::prelude::*;
 use std::ops::Range;
-use utils::{from_end, padd_with_zero_to_next_power_of_two, remove_end, Evaluation, Poseidon16Air, Poseidon24Air};
+use utils::{
+    Evaluation, Poseidon16Air, Poseidon24Air, from_end, padd_with_zero_to_next_power_of_two,
+    remove_end,
+};
 use whir_p3::{
     fiat_shamir::errors::ProofError,
-    poly::{evals::{fold_multilinear, EvaluationsList}, multilinear::MultilinearPoint},
+    poly::{
+        evals::{EvaluationsList, fold_multilinear},
+        multilinear::MultilinearPoint,
+    },
 };
 
-use crate::{bytecode::bytecode::Bytecode, EF, N_INSTRUCTION_COLUMNS_IN_AIR};
+use crate::{EF, N_INSTRUCTION_COLUMNS_IN_AIR, bytecode::bytecode::Bytecode};
 
 pub fn poseidon_16_column_groups(poseidon_16_air: &Poseidon16Air) -> Vec<Range<usize>> {
     vec![
@@ -164,4 +170,19 @@ pub fn fold_bytecode(bytecode: &Bytecode, folding_challenges: &MultilinearPoint<
             .collect::<Vec<_>>(),
     );
     fold_multilinear(&encoded_bytecode, &folding_challenges)
+}
+
+pub fn intitial_and_final_pc_conditions(
+    bytecode: &Bytecode,
+    log_n_cycles: usize,
+) -> (Evaluation<EF>, Evaluation<EF>) {
+    let initial_pc_statement = Evaluation {
+        point: MultilinearPoint(EF::zero_vec(log_n_cycles + 1)),
+        value: EF::ZERO,
+    };
+    let final_pc_statement = Evaluation {
+        point: MultilinearPoint([vec![EF::ZERO], vec![EF::ONE; log_n_cycles]].concat()),
+        value: EF::from_usize(bytecode.ending_pc),
+    };
+    (initial_pc_statement, final_pc_statement)
 }
