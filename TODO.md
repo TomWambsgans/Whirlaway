@@ -11,8 +11,9 @@
 - use RowMAjorMatrix instead of Vec<Vec> for witness
 - Fill Precompile tables during bytecode execution
 - Use Univariate Skip to commit to tables with k.2^n rows (k small)
-- increase density of multi commitments -> we can almost gain 2x for commitment costs of Poseidon16 + main table
+- increase density of multi commitments -> we can almost reduce by 2x commitment costs
 - avoid field embedding in the initial sumcheck of logup*, when table / values are in base field
+- opti logup* GKR when the indexes are not a power of 2 (which is the case in the execution table)
 - incremental merkle paths in whir-p3
 
 ## Not Perf
