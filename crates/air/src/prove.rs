@@ -52,7 +52,6 @@ pub fn prove_many_air<'a, EF: ExtensionField<PF<EF>>, A1: MyAir<EF>, A2: MyAir<E
     );
 
     let log_lengths = witness.iter().map(|w| w.log_n_rows()).collect::<Vec<_>>();
-    let max_log_length = *Iterator::max(log_lengths.iter()).unwrap();
 
     let max_n_constraints = Iterator::max(
         tables_1
@@ -165,7 +164,6 @@ fn open_unstructured_columns<'a, EF: ExtensionField<PF<EF>>>(
     let max_columns_per_group =
         Iterator::max(witness.iter().map(|w| w.max_columns_per_group())).unwrap();
     let columns_batching_scalars = prover_state.sample_vec(log2_ceil_usize(max_columns_per_group));
-    let max_log_n_rows = Iterator::max(witness.iter().map(|w| w.log_n_rows())).unwrap();
 
     let mut all_all_sub_evals = vec![];
     for witness in witness {

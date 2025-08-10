@@ -208,7 +208,6 @@ fn verify_many_unstructured_columns<EF: ExtensionField<PF<EF>>>(
     .unwrap();
     let log_max_columns_per_group = log2_ceil_usize(max_columns_per_group);
     let columns_batching_scalars = verifier_state.sample_vec(log_max_columns_per_group);
-    let max_log_length = *Iterator::max(log_lengths.iter()).unwrap();
 
     let mut all_all_sub_evals = vec![];
     for i in 0..column_groups.len() {

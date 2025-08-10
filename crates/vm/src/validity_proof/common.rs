@@ -1,9 +1,14 @@
 use p3_air::BaseAir;
-use p3_field::Field;
+use p3_field::{Field, PrimeCharacteristicRing};
 use p3_util::log2_ceil_usize;
 use std::ops::Range;
-use utils::{Evaluation, Poseidon16Air, Poseidon24Air, from_end};
-use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
+use utils::{Evaluation, Poseidon16Air, Poseidon24Air, from_end, remove_end};
+use whir_p3::{
+    fiat_shamir::errors::ProofError,
+    poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
+};
+
+use crate::EF;
 
 pub fn poseidon_16_column_groups(poseidon_16_air: &Poseidon16Air) -> Vec<Range<usize>> {
     vec![
@@ -61,4 +66,84 @@ pub fn poseidon_lookup_value<EF: Field>(
         poseidon24_evals[5].value * s24,
     ]
     .evaluate(&poseidon_lookup_batching_chalenges)
+}
+
+pub fn poseidon_lookup_index_statements(
+    poseidon_index_evals: &[EF],
+    n_poseidons_16: usize,
+    n_poseidons_24: usize,
+    poseidon_logup_star_statements_indexes_point: &MultilinearPoint<EF>,
+) -> Result<(Vec<Evaluation<EF>>, Vec<Evaluation<EF>>), ProofError> {
+    let log_n_p16 = log2_ceil_usize(n_poseidons_16);
+    let log_n_p24 = log2_ceil_usize(n_poseidons_24);
+    let correcting_factor = from_end(
+        poseidon_logup_star_statements_indexes_point,
+        log_n_p16.abs_diff(log_n_p24),
+    )
+    .iter()
+    .map(|&x| EF::ONE - x)
+    .product::<EF>();
+    let (correcting_factor_p16, correcting_factor_p24) = if n_poseidons_16 > n_poseidons_24 {
+        (EF::ONE, correcting_factor)
+    } else {
+        (correcting_factor, EF::ONE)
+    };
+    let mut idx_point_right_p16 = poseidon_logup_star_statements_indexes_point[3..].to_vec();
+    let mut idx_point_right_p24 = remove_end(
+        &poseidon_logup_star_statements_indexes_point[3..],
+        log_n_p16.abs_diff(log_n_p24),
+    )
+    .to_vec();
+    if n_poseidons_16 < n_poseidons_24 {
+        std::mem::swap(&mut idx_point_right_p16, &mut idx_point_right_p24);
+    }
+    let p16_indexes_statements = vec![
+        Evaluation {
+            point: MultilinearPoint(
+                [vec![EF::ZERO, EF::ZERO], idx_point_right_p16.clone()].concat(),
+            ),
+            value: poseidon_index_evals[0] / correcting_factor_p16,
+        },
+        Evaluation {
+            point: MultilinearPoint(
+                [vec![EF::ZERO, EF::ONE], idx_point_right_p16.clone()].concat(),
+            ),
+            value: poseidon_index_evals[1] / correcting_factor_p16,
+        },
+        Evaluation {
+            point: MultilinearPoint(
+                [vec![EF::ONE, EF::ZERO], idx_point_right_p16.clone()].concat(),
+            ),
+            value: poseidon_index_evals[2] / correcting_factor_p16,
+        },
+    ];
+
+    let p24_indexes_statements = vec![
+        Evaluation {
+            point: MultilinearPoint(
+                [vec![EF::ZERO, EF::ZERO], idx_point_right_p24.clone()].concat(),
+            ),
+            value: poseidon_index_evals[4] / correcting_factor_p24,
+        },
+        Evaluation {
+            point: MultilinearPoint(
+                [vec![EF::ZERO, EF::ONE], idx_point_right_p24.clone()].concat(),
+            ),
+            value: poseidon_index_evals[6] / correcting_factor_p24,
+        },
+        Evaluation {
+            point: MultilinearPoint(
+                [vec![EF::ONE, EF::ZERO], idx_point_right_p24.clone()].concat(),
+            ),
+            value: poseidon_index_evals[7] / correcting_factor_p24,
+        },
+    ];
+
+    if poseidon_index_evals[3] != poseidon_index_evals[2] + correcting_factor_p16 {
+        return Err(ProofError::InvalidProof);
+    }
+    if poseidon_index_evals[5] != poseidon_index_evals[4] + correcting_factor_p24 {
+        return Err(ProofError::InvalidProof);
+    }
+    Ok((p16_indexes_statements, p24_indexes_statements))
 }
