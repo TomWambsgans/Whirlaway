@@ -38,6 +38,18 @@ pub fn right_mut<A>(slice: &mut [A]) -> &mut [A] {
     &mut slice[mid..]
 }
 
+pub fn left_ref<A>(slice: &[A]) -> &[A] {
+    assert!(slice.len() % 2 == 0);
+    let mid = slice.len() / 2;
+    &slice[..mid]
+}
+
+pub fn right_ref<A>(slice: &[A]) -> &[A] {
+    assert!(slice.len() % 2 == 0);
+    let mid = slice.len() / 2;
+    &slice[mid..]
+}
+
 pub fn from_end<A>(slice: &[A], n: usize) -> &[A] {
     assert!(n <= slice.len());
     &slice[slice.len() - n..]

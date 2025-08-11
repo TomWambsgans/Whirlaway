@@ -19,7 +19,7 @@ use whir_p3::poly::multilinear::MultilinearPoint;
 use whir_p3::utils::parallel_clone;
 use whir_p3::{fiat_shamir::errors::ProofError, utils::uninitialized_vec};
 
-use crate::gkr::{prove_gkr, verify_gkr};
+use crate::quotient_gkr::{prove_gkr_quotient, verify_gkr_quotient};
 
 pub struct LogupStarStatements<EF> {
     pub on_indexes: Evaluation<EF>,
@@ -110,7 +110,7 @@ where
         layer
     });
 
-    let (claim_left, _, eval_c_minux_indexes) = prove_gkr(prover_state, gkr_layer_left);
+    let (claim_left, _, eval_c_minux_indexes) = prove_gkr_quotient(prover_state, gkr_layer_left);
 
     let gkr_layer_right = info_span!("building right").in_scope(|| {
         let mut layer =
@@ -126,7 +126,7 @@ where
         parallel_clone(&challenge_minus_increment, &mut layer[half_len_packed..]);
         layer
     });
-    let (claim_right, pushforward_final_eval, _) = prove_gkr(prover_state, gkr_layer_right);
+    let (claim_right, pushforward_final_eval, _) = prove_gkr_quotient(prover_state, gkr_layer_right);
 
     let final_point_left = MultilinearPoint(claim_left.point[1..].to_vec());
     let indexes_final_eval = random_challenge - eval_c_minux_indexes;
@@ -186,8 +186,8 @@ where
 
     let random_challenge = verifier_state.sample(); // "c" in the paper
 
-    let (quotient_left, claim_left) = verify_gkr(verifier_state, log_indexes_len + 1)?;
-    let (quotient_right, claim_right) = verify_gkr(verifier_state, log_table_len + 1)?;
+    let (quotient_left, claim_left) = verify_gkr_quotient(verifier_state, log_indexes_len + 1)?;
+    let (quotient_right, claim_right) = verify_gkr_quotient(verifier_state, log_table_len + 1)?;
 
     if quotient_left != quotient_right {
         return Err(ProofError::InvalidProof);

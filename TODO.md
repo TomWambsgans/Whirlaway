@@ -4,7 +4,7 @@
 
 - WHIR univariate skip
 - Opti recursion bytecode
-- inverse folding ordering in WHIR to enable Packing during sumcheck
+- inverse folding ordering in WHIR to enable Packing during sumcheck (more generally, TODO packing everywhere)
 - one can "move out" the variable of the eq(.) polynomials out of the sumcheck computation in WHIR (as done in the PIOP)
 - Extension field: dim 5/6
 - Structured AIR: often no all the columns use both up/down -> only handle the used ones to speed up the PIOP zerocheck

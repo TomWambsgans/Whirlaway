@@ -50,7 +50,7 @@ with: U0 = AB(0 0 --- )
 */
 
 #[instrument(skip_all)]
-pub fn prove_gkr<EF: Field>(
+pub fn prove_gkr_quotient<EF: Field>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     final_layer: Vec<EFPacking<EF>>,
 ) -> (Evaluation<EF>, EF, EF)
@@ -87,18 +87,18 @@ where
     let (mut up_layer_eval_left, mut up_layer_eval_right) = (EF::ZERO, EF::ZERO);
     for layer in layers_not_packed.iter().rev().skip(1) {
         (claim, up_layer_eval_left, up_layer_eval_right) =
-            prove_gkr_step(prover_state, layer, &claim);
+            prove_gkr_quotient_step(prover_state, layer, &claim);
     }
     for layer in layers_packed.iter().rev() {
         (claim, up_layer_eval_left, up_layer_eval_right) =
-            prove_gkr_step_packed(prover_state, layer, &claim);
+            prove_gkr_quotient_step_packed(prover_state, layer, &claim);
     }
 
     (claim, up_layer_eval_left, up_layer_eval_right)
 }
 
 #[instrument(skip_all)]
-fn prove_gkr_step<EF: Field>(
+fn prove_gkr_quotient_step<EF: Field>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     up_layer: &[EF],
     claim: &Evaluation<EF>,
@@ -219,7 +219,7 @@ where
 }
 
 #[instrument(skip_all)]
-fn prove_gkr_step_packed<EF: Field>(
+fn prove_gkr_quotient_step_packed<EF: Field>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     up_layer_packed: &Vec<EFPacking<EF>>,
     claim: &Evaluation<EF>,
@@ -350,7 +350,7 @@ where
     )
 }
 
-pub fn verify_gkr<EF: Field>(
+pub fn verify_gkr_quotient<EF: Field>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     n_vars: usize,
 ) -> Result<(EF, Evaluation<EF>), ProofError>
@@ -369,13 +369,13 @@ where
     let mut claim = Evaluation { point, value };
 
     for i in 1..n_vars {
-        claim = verify_gkr_step(verifier_state, i, &claim)?;
+        claim = verify_gkr_quotient_step(verifier_state, i, &claim)?;
     }
 
     Ok((quotient, claim))
 }
 
-fn verify_gkr_step<EF: Field>(
+fn verify_gkr_quotient_step<EF: Field>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     current_layer_log_len: usize,
     claim: &Evaluation<EF>,
@@ -393,7 +393,7 @@ where
     .map_err(|_| ProofError::InvalidProof)?;
 
     if sc_eval != claim.value {
-        panic!()
+        return Err(ProofError::InvalidProof);
     }
 
     let [q0, q1, q2, q3] = verifier_state.next_extension_scalars_const()?;
@@ -474,7 +474,7 @@ mod tests {
     use p3_field::extension::BinomialExtensionField;
     use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
-    use utils::{MyChallenger, build_poseidon16};
+    use utils::{build_prover_state, build_verifier_state};
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, 8>;
@@ -487,7 +487,7 @@ mod tests {
     }
 
     #[test]
-    fn test_gkr_step() {
+    fn test_gkr_quotient_step() {
         let log_n = 21;
         let n = 1 << log_n;
 
@@ -505,23 +505,21 @@ mod tests {
         let point = MultilinearPoint((0..log_n - 1).map(|_| rng.random()).collect::<Vec<EF>>());
         let eval = small.evaluate(&point);
 
-        let poseidon16 = build_poseidon16();
-        let challenger = MyChallenger::new(poseidon16);
-        let mut prover_state = FSProver::new(challenger.clone());
+        let mut prover_state = build_prover_state();
 
         let time = Instant::now();
         let claim = Evaluation { point, value: eval };
-        prove_gkr_step_packed(&mut prover_state, &pack_extension(&big), &claim);
+        prove_gkr_quotient_step_packed(&mut prover_state, &pack_extension(&big), &claim);
         dbg!(time.elapsed());
 
-        let mut verifier_state = FSVerifier::new(prover_state.proof_data().to_vec(), challenger);
+        let mut verifier_state = build_verifier_state(&prover_state);
 
-        let postponed = verify_gkr_step(&mut verifier_state, log_n - 1, &claim).unwrap();
+        let postponed = verify_gkr_quotient_step(&mut verifier_state, log_n - 1, &claim).unwrap();
         assert_eq!(big.evaluate(&postponed.point), postponed.value);
     }
 
     #[test]
-    fn test_gkr() {
+    fn test_gkr_quotient() {
         let log_n = 10;
         let n = 1 << log_n;
 
@@ -530,15 +528,14 @@ mod tests {
         let layer = (0..n).map(|_| rng.random()).collect::<Vec<EF>>();
         let real_quotient = sum_all_quotients(&layer);
 
-        let poseidon16 = build_poseidon16();
-        let challenger = MyChallenger::new(poseidon16);
-        let mut prover_state = FSProver::<EF, _>::new(challenger.clone());
+        let mut prover_state = build_prover_state();
 
-        prove_gkr(&mut prover_state, pack_extension(&layer));
+        prove_gkr_quotient(&mut prover_state, pack_extension(&layer));
 
-        let mut verifier_state = FSVerifier::new(prover_state.proof_data().to_vec(), challenger);
+        let mut verifier_state = build_verifier_state(&prover_state);
 
-        let (retrieved_quotient, postponed) = verify_gkr::<EF>(&mut verifier_state, log_n).unwrap();
+        let (retrieved_quotient, postponed) =
+            verify_gkr_quotient::<EF>(&mut verifier_state, log_n).unwrap();
         assert_eq!(layer.evaluate(&postponed.point), postponed.value);
         assert_eq!(retrieved_quotient, real_quotient);
     }
