@@ -54,8 +54,8 @@ where
         assert_eq!(eq_factor.len(), n_vars - skips + 1);
     }
 
-    let mut folded_multilinears = sc_round_no_skip(
-        // skips,
+    let mut folded_multilinears = sc_round(
+        skips,
         &multilinears,
         &mut n_vars,
         computation,
@@ -73,7 +73,6 @@ where
 
     for i in 1..n_rounds {
         folded_multilinears = sc_round_no_skip(
-            // 1,
             &folded_multilinears.iter().collect::<Vec<_>>(),
             &mut n_vars,
             computation,
@@ -205,7 +204,6 @@ where
 #[instrument(name = "sumcheck_round", skip_all, fields(round))]
 #[allow(clippy::too_many_arguments)]
 pub fn sc_round_no_skip<F, NF, EF, SC, Challenger>(
-    // skips: usize,
     multilinears: &[&EvaluationsList<NF>],
     n_vars: &mut usize,
     computation: &SC,
@@ -228,9 +226,6 @@ where
     Challenger: FieldChallenger<F> + GrindingChallenger<Witness = F>,
 {
     let eq_mle = eq_factor.map(|eq_factor| EvaluationsList::eval_eq(&eq_factor[1 + round..]));
-
-    // S_0(x) = 1 - x
-    // S_1(x) = x
 
     let mut p_evals = Vec::<(F, EF)>::new();
     let start = if is_zerofier {
@@ -277,13 +272,8 @@ where
         // https://eprint.iacr.org/2024/108.pdf Section 3.2
         // We do not take advantage of this trick to send less data, but we could do so in the future (TODO)
 
-        // El polinomio que quiero interpolar es uno lineal por lo que lo busco directamente
-        // El P(x) = y0 + (y1 - y0) * x entonces en nuestro caso y0 = 1 - eq_factor[round]
-        // y y1 = eq_factor[round], al sustituir nos queda algo como
-        // P(x) = (1 - eq_factor[round]) + (eq_factor[round] - (1 - eq_factor[round])) * x
-        // P(x) = (1 - eq_factor[round]) + (eq_factor[round] - 1 + eq_factor[round]) * x
-        // P(x) = (1 - eq_factor[round]) + (2 * eq_factor[round] - 1) * x
-
+        // We multiply `p` by the polynomial 1 - r_j + (2 * r_j - 1) * X
+        // This polynomial interpolates the points (0, 1 - r_j) and (1, r_j)
         let a = EF::ONE - eq_factor[round];
         let b = EF::from_usize(2) * eq_factor[round] - EF::ONE;
         let selector_poly = WhirDensePolynomial::from_coefficients_vec(vec![a, b]);
@@ -302,10 +292,11 @@ where
 
     let folding_scalars = vec![EF::ONE - challenge, challenge];
 
-    // Aca se puuede hacer una manipulacion similar a la de arriba cuando interpolamos
-    //  sum = selector[0](eq_factor[round]) * selector[0](challenge) +
-    //       selector[1](eq_factor[round]) * selector[1](challenge)
-    // let sum = (1 - eq_factor[round]) * (1 - challenge) + eq_factor[round] * challenge
+    // We update the `missing_mul_factor`.
+    // Recall taht the selectors are S_0 and S_1 with
+    // S_0(x) = 1 - x
+    // S_1(x) = x
+    // missing_mul_factor = (S_0(r_j) * S_0(s_j) + S_1(r_j) * S_1(s_j)) * missing_mul_factor
     if let Some(eq_factor) = eq_factor {
         *missing_mul_factor = Some(
             ((EF::ONE - eq_factor[round]) * (EF::ONE - challenge) + eq_factor[round] * challenge)
