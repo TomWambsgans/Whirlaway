@@ -17,7 +17,8 @@
 - incremental merkle paths in whir-p3
 - Experiment to increase degree, and reduce commitments, in Poseidon arithmetization
 - Avoid embedding overhead on the flag, len, and index columns in the AIR table for dot products
-- batch memory lookups (at least reduce to only 2 logup*)
+- reduce to only 2 logup*, one vectorized, one not
+- Batched logup*: when computing the eq() factor we can opti if the points contain boolean factor
 
 ## Not Perf
 
