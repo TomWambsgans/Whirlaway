@@ -1,8 +1,9 @@
+use std::{any::TypeId, marker::PhantomData, mem::transmute};
+
 use p3_field::{ExtensionField, Field};
 
 use p3_matrix::dense::RowMajorMatrixView;
 use p3_uni_stark::get_symbolic_constraints;
-use rand::distr::{Distribution, StandardUniform};
 use utils::{ConstraintChecker, PF};
 
 use crate::{MyAir, witness::AirWitness};
@@ -32,15 +33,18 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
         self.air.width()
     }
 
-    pub fn check_trace_validity(&self, witness: &AirWitness<PF<EF>>) -> Result<(), String>
+    pub fn check_trace_validity<IF: ExtensionField<PF<EF>>>(
+        &self,
+        witness: &AirWitness<IF>,
+    ) -> Result<(), String>
     where
         A: MyAir<EF>,
-        StandardUniform: Distribution<EF>,
+        EF: ExtensionField<IF>,
     {
         if witness.n_columns() != self.n_columns() {
             return Err(format!("Invalid number of columns",));
         }
-        let handle_errors = |row: usize, constraint_checker: &mut ConstraintChecker<PF<EF>>| {
+        let handle_errors = |row: usize, constraint_checker: &mut ConstraintChecker<IF, EF>| {
             if constraint_checker.errors.len() > 0 {
                 return Err(format!(
                     "Trace is not valid at row {}: contraints not respected: {}",
@@ -64,12 +68,28 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
                     .map(|j| witness[j][row + 1])
                     .collect::<Vec<_>>();
                 let up_and_down = [up, down].concat();
-                let mut constraints_checker = ConstraintChecker {
+                let mut constraints_checker = ConstraintChecker::<IF, EF> {
                     main: RowMajorMatrixView::new(&up_and_down, self.air.width()),
                     constraint_index: 0,
                     errors: Vec::new(),
+                    field: PhantomData,
                 };
-                self.air.eval(&mut constraints_checker);
+                if TypeId::of::<IF>() == TypeId::of::<EF>() {
+                    unsafe {
+                        self.air
+                            .eval(transmute::<_, &mut ConstraintChecker<EF, EF>>(
+                                &mut constraints_checker,
+                            ));
+                    }
+                } else {
+                    assert_eq!(TypeId::of::<IF>(), TypeId::of::<PF<EF>>());
+                    unsafe {
+                        self.air
+                            .eval(transmute::<_, &mut ConstraintChecker<PF<EF>, EF>>(
+                                &mut constraints_checker,
+                            ));
+                    }
+                }
                 handle_errors(row, &mut constraints_checker)?;
             }
         } else {
@@ -81,8 +101,24 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
                     main: RowMajorMatrixView::new(&up, self.air.width()),
                     constraint_index: 0,
                     errors: Vec::new(),
+                    field: PhantomData,
                 };
-                self.air.eval(&mut constraints_checker);
+                if TypeId::of::<IF>() == TypeId::of::<EF>() {
+                    unsafe {
+                        self.air
+                            .eval(transmute::<_, &mut ConstraintChecker<EF, EF>>(
+                                &mut constraints_checker,
+                            ));
+                    }
+                } else {
+                    assert_eq!(TypeId::of::<IF>(), TypeId::of::<PF<EF>>());
+                    unsafe {
+                        self.air
+                            .eval(transmute::<_, &mut ConstraintChecker<PF<EF>, EF>>(
+                                &mut constraints_checker,
+                            ));
+                    }
+                }
                 handle_errors(row, &mut constraints_checker)?;
             }
         }

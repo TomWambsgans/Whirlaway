@@ -17,7 +17,6 @@ rayon.workspace = true
 p3-air.workspace = true
 p3-uni-stark.workspace = true
 # p3-challenger.workspace = true
-rand.workspace = true
 p3-matrix.workspace = true
 # pcs.workspace = true
 p3-util.workspace = true
@@ -25,3 +24,4 @@ p3-util.workspace = true
 [dev-dependencies]
 p3-koala-bear.workspace = true
 p3-matrix.workspace = true
+rand.workspace = true

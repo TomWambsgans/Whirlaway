@@ -1,24 +1,29 @@
+use std::marker::PhantomData;
+
 use p3_air::AirBuilder;
-use p3_field::Field;
+use p3_field::{ExtensionField, Field};
 use p3_matrix::dense::RowMajorMatrixView;
+
+use crate::PF;
 
 /*
 Debug purpose
 */
 
 #[derive(Debug)]
-pub struct ConstraintChecker<'a, F> {
-    pub main: RowMajorMatrixView<'a, F>,
+pub struct ConstraintChecker<'a, IF, EF> {
+    pub main: RowMajorMatrixView<'a, IF>,
     pub constraint_index: usize,
     pub errors: Vec<usize>,
+    pub field: PhantomData<EF>,
 }
 
-impl<'a, F: Field> AirBuilder for ConstraintChecker<'a, F> {
-    type F = F;
-    type I = F;
-    type Expr = F;
-    type Var = F;
-    type M = RowMajorMatrixView<'a, F>;
+impl<'a, EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: ExtensionField<PF<EF>>> AirBuilder for ConstraintChecker<'a, IF, EF> {
+    type F = PF<EF>;
+    type I = PF<EF>;
+    type Expr = IF;
+    type Var = IF;
+    type M = RowMajorMatrixView<'a, IF>;
 
     #[inline]
     fn main(&self) -> Self::M {
@@ -42,7 +47,7 @@ impl<'a, F: Field> AirBuilder for ConstraintChecker<'a, F> {
 
     #[inline]
     fn assert_zero<I: Into<Self::Expr>>(&mut self, x: I) {
-        let x: F = x.into();
+        let x: IF = x.into();
         if !x.is_zero() {
             self.errors.push(self.constraint_index);
         }

@@ -144,6 +144,10 @@ impl Memory {
         Ok(self.get_vectorized_slice(index, 1)?.try_into().unwrap())
     }
 
+    pub fn get_extension(&self, index: usize) -> Result<EF, RunnerError> {
+        Ok(EF::from_basis_coefficients_slice(&self.get_vector(index)?).unwrap())
+    }
+
     pub fn get_vectorized_slice(&self, index: usize, len: usize) -> Result<Vec<F>, RunnerError> {
         let mut vector = Vec::with_capacity(len * DIMENSION);
         for i in 0..len * DIMENSION {

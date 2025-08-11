@@ -9,6 +9,7 @@ use crate::{compiler::compile_program, precompiles::PRECOMPILES, runner::execute
 pub mod air;
 pub mod bytecode;
 pub mod compiler;
+mod dot_product_air;
 pub mod instruction_encoder;
 pub mod lang;
 pub mod parser;
@@ -33,7 +34,7 @@ const N_MEMORY_VALUE_COLUMNS: usize = 3; // virtual (lookup into memory, with lo
 const N_EXEC_COLUMNS: usize = N_COMMITTED_EXEC_COLUMNS + N_MEMORY_VALUE_COLUMNS;
 const N_INSTRUCTION_COLUMNS_IN_AIR: usize = N_INSTRUCTION_COLUMNS - PRECOMPILES.len();
 const LOG_N_INSTRUCTION_COLUMNS_IN_AIR: usize = log2_ceil_usize(N_INSTRUCTION_COLUMNS_IN_AIR);
-const N_AIR_COLUMNS: usize = N_INSTRUCTION_COLUMNS_IN_AIR + N_EXEC_COLUMNS;
+const N_EXEC_AIR_COLUMNS: usize = N_INSTRUCTION_COLUMNS_IN_AIR + N_EXEC_COLUMNS;
 
 // Instruction columns
 const COL_INDEX_OPERAND_A: usize = 0;

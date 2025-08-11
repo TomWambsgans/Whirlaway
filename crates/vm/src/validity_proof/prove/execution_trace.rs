@@ -1,5 +1,9 @@
 use crate::{
-    bytecode::bytecode::{Bytecode, Instruction}, runner::ExecutionResult, COL_INDEX_FP, COL_INDEX_MEM_ADDRESS_A, COL_INDEX_MEM_ADDRESS_B, COL_INDEX_MEM_ADDRESS_C, COL_INDEX_MEM_VALUE_A, COL_INDEX_MEM_VALUE_B, COL_INDEX_MEM_VALUE_C, COL_INDEX_PC, EF, F, N_EXEC_COLUMNS, N_INSTRUCTION_COLUMNS, N_INSTRUCTION_COLUMNS_IN_AIR, POSEIDON_16_NULL_HASH_PTR, POSEIDON_24_NULL_HASH_PTR
+    COL_INDEX_FP, COL_INDEX_MEM_ADDRESS_A, COL_INDEX_MEM_ADDRESS_B, COL_INDEX_MEM_ADDRESS_C,
+    COL_INDEX_MEM_VALUE_A, COL_INDEX_MEM_VALUE_B, COL_INDEX_MEM_VALUE_C, COL_INDEX_PC, EF, F,
+    N_EXEC_COLUMNS, N_INSTRUCTION_COLUMNS, POSEIDON_16_NULL_HASH_PTR, POSEIDON_24_NULL_HASH_PTR,
+    bytecode::bytecode::{Bytecode, Instruction},
+    runner::ExecutionResult,
 };
 use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
@@ -14,6 +18,7 @@ pub struct WitnessDotProductEE {
     pub len: usize,
     pub slice_0: Vec<EF>,
     pub slice_1: Vec<EF>,
+    pub res: EF,
 }
 
 pub struct WitnessDotProductBE {
@@ -166,6 +171,7 @@ pub fn get_execution_trace(
                 let slice_1 = memory
                     .get_vectorized_slice_extension(addr_1, *size)
                     .unwrap();
+                let res = memory.get_extension(addr_res).unwrap();
                 dot_products_ee.push(WitnessDotProductEE {
                     addr_0,
                     addr_1,
@@ -173,6 +179,7 @@ pub fn get_execution_trace(
                     len: *size,
                     slice_0,
                     slice_1,
+                    res,
                 });
             }
             Instruction::DotProductBaseExtension {

@@ -1,3 +1,6 @@
+use crate::dot_product_air::DotProductAir;
+use crate::dot_product_air::build_dot_product_columns;
+use crate::dot_product_air::dot_product_column_groups;
 use crate::prove::all_poseidon_16_indexes;
 use crate::prove::all_poseidon_24_indexes;
 use crate::validity_proof::common::fold_bytecode;
@@ -105,9 +108,17 @@ pub fn prove_execution(
     let p16_table = AirTable::<EF, _>::new(p16_air.clone());
     let p24_table = AirTable::<EF, _>::new(p24_air.clone());
 
+    let dot_product_table = AirTable::<EF, _>::new(DotProductAir);
+
     let (p16_columns, p24_columns) = build_poseidon_columns(&poseidons_16, &poseidons_24);
     let p16_witness = AirWitness::new(&p16_columns, &poseidon_16_column_groups(&p16_air));
     let p24_witness = AirWitness::new(&p24_columns, &poseidon_24_column_groups(&p24_air));
+
+    let dot_product_columns = build_dot_product_columns(&dot_products_ee);
+    let witness_dot_product = AirWitness::new(&dot_product_columns, &dot_product_column_groups());
+    dot_product_table
+        .check_trace_validity(&witness_dot_product)
+        .unwrap();
 
     let p16_commited =
         padd_with_zero_to_next_power_of_two(&p16_columns[16..p16_air.width() - 16].concat());
@@ -158,7 +169,7 @@ pub fn prove_execution(
         &[&p16_table],
         &[&p24_table],
         &[p16_witness],
-        &[p24_witness]
+        &[p24_witness],
     );
     let p16_evals_to_prove = &poseidon_evals_to_prove[0];
     let p24_evals_to_prove = &poseidon_evals_to_prove[1];

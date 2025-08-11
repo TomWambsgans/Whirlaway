@@ -16,7 +16,9 @@
 - opti logup* GKR when the indexes are not a power of 2 (which is the case in the execution table)
 - incremental merkle paths in whir-p3
 - Experiment to increase degree, and reduce commitments, in Poseidon arithmetization
+- Avoid embedding overhead on the flag, len, and index columns in the AIR table for dot products
 
 ## Not Perf
 
 - Whir batching: handle the case where the second polynomial is too small compared to the first one
+- bounddary condition on dot_product table: first flag = 1

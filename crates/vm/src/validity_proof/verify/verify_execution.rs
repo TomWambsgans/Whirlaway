@@ -1,3 +1,4 @@
+use crate::dot_product_air::DotProductAir;
 use crate::validity_proof::common::fold_bytecode;
 use crate::validity_proof::common::intitial_and_final_pc_conditions;
 use ::air::table::AirTable;
@@ -80,6 +81,8 @@ pub fn verify_execution(
 
     let vars_p16_table = log_n_p16 + log2_ceil_usize(p16_air.width() - 16 * 2);
     let vars_p24_table = log_n_p24 + log2_ceil_usize(p24_air.width() - 24 * 2);
+
+    let dot_product_table = AirTable::<EF, _>::new(DotProductAir);
 
     let vars_private_memory = vec![log_public_memory; n_private_memory_chunks];
 
