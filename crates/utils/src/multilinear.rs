@@ -47,8 +47,8 @@ pub fn fold_multilinear_in_small_field_no_skip<F: Field, EF: ExtensionField<F>>(
 
     EvaluationsList::new(
         first_half
-            .iter()
-            .zip(second_half.iter())
+            .par_iter()
+            .zip(second_half.par_iter())
             .map(|(&a, &b)| a * scalars[0] + b * scalars[1])
             .collect(),
     )
@@ -120,8 +120,8 @@ pub fn fold_multilinear_in_large_field_no_skip<F: Field, EF: ExtensionField<F>>(
 
     EvaluationsList::new(
         first_half
-            .iter()
-            .zip(second_half.iter())
+            .par_iter()
+            .zip(second_half.par_iter())
             .map(|(&a, &b)| scalars[0] * a + scalars[1] * b)
             .collect(),
     )
