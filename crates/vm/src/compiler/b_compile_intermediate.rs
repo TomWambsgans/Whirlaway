@@ -410,13 +410,13 @@ fn compile_lines(
             SimpleLine::Precompile {
                 precompile:
                     Precompile {
-                        name: PrecompileName::DotProductExtensionExtension,
+                        name: PrecompileName::DotProduct,
                         ..
                     },
                 args,
                 ..
             } => {
-                instructions.push(IntermediateInstruction::DotProductExtensionExtension {
+                instructions.push(IntermediateInstruction::DotProduct {
                     arg0: IntermediateValue::from_simple_expr(&args[0], compiler),
                     arg1: IntermediateValue::from_simple_expr(&args[1], compiler),
                     res: IntermediateValue::from_simple_expr(&args[2], compiler),
@@ -426,15 +426,15 @@ fn compile_lines(
             SimpleLine::Precompile {
                 precompile:
                     Precompile {
-                        name: PrecompileName::DotProductBaseExtension,
+                        name: PrecompileName::MultilinearEval,
                         ..
                     },
                 args,
                 ..
             } => {
-                instructions.push(IntermediateInstruction::DotProductBaseExtension {
-                    arg_base: IntermediateValue::from_simple_expr(&args[0], compiler),
-                    arg_ext: IntermediateValue::from_simple_expr(&args[1], compiler),
+                instructions.push(IntermediateInstruction::MultilinearEval {
+                    coeffs: IntermediateValue::from_simple_expr(&args[0], compiler),
+                    point: IntermediateValue::from_simple_expr(&args[1], compiler),
                     res: IntermediateValue::from_simple_expr(&args[2], compiler),
                     size: args[3].as_constant().unwrap(),
                 });

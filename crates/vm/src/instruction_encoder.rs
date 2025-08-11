@@ -87,17 +87,17 @@ impl Instruction {
                 set_nu_c(&mut fields, res);
                 fields[10] = F::from_usize(*size); // AUX stores size
             }
-            Self::DotProductBaseExtension {
-                arg_base,
-                arg_ext,
+            Self::MultilinearEval {
+                coeffs,
+                point,
                 res,
                 size,
             } => {
-                fields[14] = F::ONE; // DOT_PRODUCT_BASE_EXTENSION = 1
-                set_nu_a(&mut fields, arg_base);
-                set_nu_b(&mut fields, arg_ext);
+                fields[COL_INDEX_MULTILINEAR_EVAL] = F::ONE; 
+                set_nu_a(&mut fields, coeffs);
+                set_nu_b(&mut fields, point);
                 set_nu_c(&mut fields, res);
-                fields[10] = F::from_usize(*size); // AUX stores size
+                fields[COL_INDEX_AUX] = F::from_usize(*size); // AUX stores size
             }
         }
         fields

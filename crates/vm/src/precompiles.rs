@@ -9,8 +9,8 @@ pub struct Precompile {
 pub enum PrecompileName {
     Poseidon16,
     Poseidon24,
-    DotProductExtensionExtension,
-    DotProductBaseExtension,
+    DotProduct,
+    MultilinearEval,
 }
 
 impl ToString for PrecompileName {
@@ -18,8 +18,8 @@ impl ToString for PrecompileName {
         match self {
             PrecompileName::Poseidon16 => "poseidon16",
             PrecompileName::Poseidon24 => "poseidon24",
-            PrecompileName::DotProductExtensionExtension => "dot_product_extension_extension",
-            PrecompileName::DotProductBaseExtension => "dot_product_base_extension",
+            PrecompileName::DotProduct => "dot_product",
+            PrecompileName::MultilinearEval => "multilinear_eval",
         }
         .to_string()
     }
@@ -37,14 +37,14 @@ pub const POSEIDON_24: Precompile = Precompile {
     n_outputs: 1,
 };
 
-pub const DOT_PRODUCT_EXTENSION_EXTENSION: Precompile = Precompile {
-    name: PrecompileName::DotProductExtensionExtension,
+pub const DOT_PRODUCT: Precompile = Precompile {
+    name: PrecompileName::DotProduct,
     n_inputs: 4,
     n_outputs: 0,
 };
 
-pub const DOT_PRODUCT_BASE_EXTENSION: Precompile = Precompile {
-    name: PrecompileName::DotProductBaseExtension,
+pub const MULTILINEAR_EVAL: Precompile = Precompile {
+    name: PrecompileName::MultilinearEval,
     n_inputs: 4,
     n_outputs: 0,
 };
@@ -52,6 +52,6 @@ pub const DOT_PRODUCT_BASE_EXTENSION: Precompile = Precompile {
 pub const PRECOMPILES: [Precompile; 4] = [
     POSEIDON_16,
     POSEIDON_24,
-    DOT_PRODUCT_EXTENSION_EXTENSION,
-    DOT_PRODUCT_BASE_EXTENSION,
+    DOT_PRODUCT,
+    MULTILINEAR_EVAL,
 ];

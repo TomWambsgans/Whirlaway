@@ -11,7 +11,7 @@ use p3_symmetric::Permutation;
 use rayon::prelude::*;
 use utils::{ToUsize, build_poseidon16, build_poseidon24};
 
-pub struct WitnessDotProductEE {
+pub struct WitnessDotProduct {
     pub addr_0: usize,   // vectorized pointer
     pub addr_1: usize,   // vectorized pointer
     pub addr_res: usize, // vectorized pointer
@@ -21,13 +21,14 @@ pub struct WitnessDotProductEE {
     pub res: EF,
 }
 
-pub struct WitnessDotProductBE {
-    pub addr_base: usize, // normal pointer
-    pub addr_ext: usize,  // vectorized pointer
-    pub addr_res: usize,  // vectorized pointer
-    pub len: usize,
-    pub slice_base: Vec<F>,
-    pub slice_ext: Vec<EF>,
+pub struct WitnessMultilinearEval {
+    pub addr_coeffs: usize, // vectorized pointer, of size 8.2^size
+    pub addr_point: usize,  // vectorized pointer, of size `size`
+    pub addr_res: usize,    // vectorized pointer
+    pub size: usize,
+    pub coeffs: Vec<F>,
+    pub point: Vec<EF>,
+    pub res: EF,
 }
 
 pub struct WitnessPoseidon16 {
@@ -52,15 +53,15 @@ pub struct ExecutionTrace {
     pub n_poseidons_24: usize,
     pub poseidons_16: Vec<WitnessPoseidon16>, // padded with empty poseidons
     pub poseidons_24: Vec<WitnessPoseidon24>, // padded with empty poseidons
-    pub dot_products_ee: Vec<WitnessDotProductEE>,
-    pub dot_products_be: Vec<WitnessDotProductBE>,
+    pub dot_products: Vec<WitnessDotProduct>,
+    pub vm_multilinear_evals: Vec<WitnessMultilinearEval>,
     pub public_memory_size: usize,
     pub memory: Vec<F>, // of length a multiple of public_memory_size
 }
 
 pub fn get_execution_trace(
     bytecode: &Bytecode,
-    execution_result: &ExecutionResult,
+    execution_result: & ExecutionResult,
 ) -> ExecutionTrace {
     assert_eq!(execution_result.pcs.len(), execution_result.fps.len());
     let n_cycles = execution_result.pcs.len();
@@ -71,8 +72,8 @@ pub fn get_execution_trace(
         .collect::<Vec<Vec<F>>>();
     let mut poseidons_16 = Vec::new();
     let mut poseidons_24 = Vec::new();
-    let mut dot_products_ee = Vec::new();
-    let mut dot_products_be = Vec::new();
+    let mut dot_products = Vec::new();
+    let mut vm_multilinear_evals = Vec::new();
 
     for (i, (&pc, &fp)) in execution_result
         .pcs
@@ -172,7 +173,7 @@ pub fn get_execution_trace(
                     .get_vectorized_slice_extension(addr_1, *size)
                     .unwrap();
                 let res = memory.get_extension(addr_res).unwrap();
-                dot_products_ee.push(WitnessDotProductEE {
+                dot_products.push(WitnessDotProduct {
                     addr_0,
                     addr_1,
                     addr_res,
@@ -182,28 +183,30 @@ pub fn get_execution_trace(
                     res,
                 });
             }
-            Instruction::DotProductBaseExtension {
-                arg_base,
-                arg_ext,
+            Instruction::MultilinearEval {
+                coeffs,
+                point,
                 res,
                 size,
             } => {
-                let addr_base = arg_base.read_value(&memory, fp).unwrap().to_usize();
-                let addr_ext = arg_ext.read_value(&memory, fp).unwrap().to_usize();
+                let addr_coeffs = coeffs.read_value(&memory, fp).unwrap().to_usize();
+                let addr_point = point.read_value(&memory, fp).unwrap().to_usize();
                 let addr_res = res.read_value(&memory, fp).unwrap().to_usize();
-                let slice_base = (0..*size)
-                    .map(|i| memory.get(addr_base + i).unwrap())
+                let slice_coeffs = (addr_coeffs << *size..(addr_coeffs + 1) << *size)
+                    .map(|i| memory.get(i).unwrap())
                     .collect::<Vec<F>>();
-                let slice_ext = memory
-                    .get_vectorized_slice_extension(addr_ext, *size)
+                let point = memory
+                    .get_vectorized_slice_extension(addr_point, *size)
                     .unwrap();
-                dot_products_be.push(WitnessDotProductBE {
-                    addr_base,
-                    addr_ext,
+                let res = memory.get_extension(addr_res).unwrap();
+                vm_multilinear_evals.push(WitnessMultilinearEval {
+                    addr_coeffs,
+                    addr_point,
                     addr_res,
-                    len: *size,
-                    slice_base,
-                    slice_ext,
+                    size: *size,
+                    coeffs: slice_coeffs,
+                    point,
+                    res
                 });
             }
             _ => {}
@@ -263,8 +266,8 @@ pub fn get_execution_trace(
         n_poseidons_24,
         poseidons_16,
         poseidons_24,
-        dot_products_ee,
-        dot_products_be,
+        dot_products,
+        vm_multilinear_evals,
         public_memory_size: execution_result.public_memory_size,
         memory,
     }

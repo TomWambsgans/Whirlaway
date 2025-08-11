@@ -100,7 +100,7 @@ pub fn run_whir_verif() {
             powers_of_2_rev = powers_of_two_rev_base(final_circle_values[i], FINAL_VARS);
             poly_eq = poly_eq_base(powers_of_2_rev, FINAL_VARS, 2**FINAL_VARS);
             final_pol_evaluated_on_circle = malloc_vec(1);
-            dot_product_base_extension(poly_eq, final_coeffcients, final_pol_evaluated_on_circle, 2**FINAL_VARS);
+            dot_product_base_extension(poly_eq, final_coeffcients, final_pol_evaluated_on_circle, 2**FINAL_VARS); // TODO use multilinear eval instead
             assert_eq_extension(final_pol_evaluated_on_circle, final_folds + i);
         }
 
@@ -150,7 +150,7 @@ pub fn run_whir_verif() {
                 copy_chunk_vec(temp, s6s + j + 1);
             }
             s7 = malloc_vec(1);
-            dot_product_extension_extension_dynamic(s6s, combination_randomness_powers[i], s7, num_queries[i] + 1);  // 10720 cycles
+            dot_product_dynamic(s6s, combination_randomness_powers[i], s7, num_queries[i] + 1);  // 10720 cycles
             wsum = add_extension_ret(weight_sums[i], s7);
             weight_sums[i+1] = wsum;
         }
@@ -158,7 +158,7 @@ pub fn run_whir_verif() {
         evaluation_of_weights = weight_sums[N_ROUNDS];
         poly_eq_final = poly_eq_extension(folding_randomness_5, FINAL_VARS, 2**FINAL_VARS);
         final_value = malloc_vec(1);
-        dot_product_extension_extension(poly_eq_final, final_coeffcients, final_value, 2**FINAL_VARS);
+        dot_product(poly_eq_final, final_coeffcients, final_value, 2**FINAL_VARS);
         evaluation_of_weights_times_final_value = mul_extension_ret(evaluation_of_weights, final_value);
         assert_eq_extension(evaluation_of_weights_times_final_value, end_sum);
         return;
@@ -335,11 +335,11 @@ pub fn run_whir_verif() {
         folds = malloc_vec(num_queries);
         if is_first_round == 1 {
             for i in 0..num_queries {
-                dot_product_base_extension(answers[i] * 8, poly_eq, folds + i, 2**FOLDING_FACTOR_0);
+                dot_product_base_extension(answers[i] * 8, poly_eq, folds + i, 2**FOLDING_FACTOR_0); // TODO use multilinear eval instead
             }
         } else {
             for i in 0..num_queries {
-                dot_product_extension_extension_dynamic(answers[i], poly_eq, folds + i, two_pow_folding_factor);
+                dot_product_dynamic(answers[i], poly_eq, folds + i, two_pow_folding_factor);
             }
         }
 
@@ -367,7 +367,7 @@ pub fn run_whir_verif() {
         combination_randomness_powers = powers(combination_randomness_gen, num_queries + 1); // "+ 1" because of one OOD sample
 
         claimed_sum_supplement_side = malloc_vec(1);
-        dot_product_extension_extension_dynamic(folds, combination_randomness_powers + 1, claimed_sum_supplement_side, num_queries);
+        dot_product_dynamic(folds, combination_randomness_powers + 1, claimed_sum_supplement_side, num_queries);
         claimed_sum_supplement = add_extension_ret(claimed_sum_supplement_side, ood_eval);
         new_claimed_sum_b = add_extension_ret(claimed_sum_supplement, new_claimed_sum_a);
 
@@ -439,50 +439,50 @@ pub fn run_whir_verif() {
         return prods[domain_size - 1];
     }
 
-    fn dot_product_extension_extension_dynamic(a, b, res, n) {
+    fn dot_product_dynamic(a, b, res, n) {
         if n == 16 {
-            dot_product_extension_extension(a, b, res, 16);
+            dot_product(a, b, res, 16);
             return;
         }
         if n == NUM_QUERIES_0 {
-            dot_product_extension_extension(a, b, res, NUM_QUERIES_0);
+            dot_product(a, b, res, NUM_QUERIES_0);
             return;
         }
         if n == NUM_QUERIES_1 {
-            dot_product_extension_extension(a, b, res, NUM_QUERIES_1);
+            dot_product(a, b, res, NUM_QUERIES_1);
             return;
         }
         if n == NUM_QUERIES_2 {
-            dot_product_extension_extension(a, b, res, NUM_QUERIES_2);
+            dot_product(a, b, res, NUM_QUERIES_2);
             return;
         }
         if n == NUM_QUERIES_3 {
-            dot_product_extension_extension(a, b, res, NUM_QUERIES_3);
+            dot_product(a, b, res, NUM_QUERIES_3);
             return;
         }
         if n == NUM_QUERIES_0 + 1 {
-            dot_product_extension_extension(a, b, res, NUM_QUERIES_0 + 1);
+            dot_product(a, b, res, NUM_QUERIES_0 + 1);
             return;
         }
         if n == NUM_QUERIES_1 + 1 {
-            dot_product_extension_extension(a, b, res, NUM_QUERIES_1 + 1);
+            dot_product(a, b, res, NUM_QUERIES_1 + 1);
             return;
         }
         if n == NUM_QUERIES_2 + 1 {
-            dot_product_extension_extension(a, b, res, NUM_QUERIES_2 + 1);
+            dot_product(a, b, res, NUM_QUERIES_2 + 1);
             return;
         }
         if n == NUM_QUERIES_3 + 1 {
-            dot_product_extension_extension(a, b, res, NUM_QUERIES_3 + 1);
+            dot_product(a, b, res, NUM_QUERIES_3 + 1);
             return;
         }
 
-        TODO_dot_product_extension_extension_dynamic = 0;
-        print(TODO_dot_product_extension_extension_dynamic, n);
+        TODO_dot_product_dynamic = 0;
+        print(TODO_dot_product_dynamic, n);
         panic();
     }
 
-    // fn dot_product_extension_extension(a, b, res, const n) {
+    // fn dot_product(a, b, res, const n) {
     //     prods = malloc_vec(n);
     //     for i in 0..n unroll {
     //         mul_extension(a + i, b + i, prods + i);
@@ -500,30 +500,30 @@ pub fn run_whir_verif() {
     // }
 
 
-    // fn dot_product_base_extension(a, b, res, const n) {
-    //     // a is a pointer to n base field elements
-    //     // b is a pointer to n extension field elements
+    fn dot_product_base_extension(a, b, res, const n) {
+        // a is a pointer to n base field elements
+        // b is a pointer to n extension field elements
 
-    //     b_ptr = b * 8;
-    //     res_ptr = res * 8;
+        b_ptr = b * 8;
+        res_ptr = res * 8;
            
-    //     prods = malloc(n * 8);
-    //     for i in 0..n unroll {
-    //         for j in 0..8 unroll {
-    //             prods[i * 8 + j] = a[i] * b_ptr[i * 8 + j];
-    //         }
-    //     }
-    //     my_buff = malloc(n * 8);
-    //     for i in 0..8 unroll {
-    //         my_buff[n * i] = prods[i];
-    //         for j in 0..n - 1 unroll {
-    //             my_buff[(n * i) + j + 1] = my_buff[(n * i) + j] + prods[i + ((j + 1) * 8)];
-    //         }
-    //         res_ptr[i] = my_buff[(n * i) + n - 1];
-    //     }
+        prods = malloc(n * 8);
+        for i in 0..n unroll {
+            for j in 0..8 unroll {
+                prods[i * 8 + j] = a[i] * b_ptr[i * 8 + j];
+            }
+        }
+        my_buff = malloc(n * 8);
+        for i in 0..8 unroll {
+            my_buff[n * i] = prods[i];
+            for j in 0..n - 1 unroll {
+                my_buff[(n * i) + j + 1] = my_buff[(n * i) + j] + prods[i + ((j + 1) * 8)];
+            }
+            res_ptr[i] = my_buff[(n * i) + n - 1];
+        }
 
-    //     return;
-    // }
+        return;
+    }
 
     fn poly_eq_extension(point, n, two_pow_n) -> 1 {
         // Example: for n = 2: eq(x, y) = [(1 - x)(1 - y), (1 - x)y, x(1 - y), xy]
@@ -834,7 +834,7 @@ pub fn run_whir_verif() {
 
     fn mul_extension(a, b, c) {
         // c = a * b
-        dot_product_extension_extension(a, b, c, 1);
+        dot_product(a, b, c, 1);
         return;
     }
 

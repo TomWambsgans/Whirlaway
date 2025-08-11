@@ -31,8 +31,8 @@ impl IntermediateInstruction {
             | Self::Jump { .. }
             | Self::Poseidon2_16 { .. }
             | Self::Poseidon2_24 { .. }
-            | Self::DotProductExtensionExtension { .. }
-            | Self::DotProductBaseExtension { .. } => false,
+            | Self::DotProduct { .. }
+            | Self::MultilinearEval { .. } => false,
         }
     }
 }
@@ -212,7 +212,7 @@ pub fn compile_to_low_level_bytecode(
                         res: try_as_mem_or_fp(&res).unwrap(),
                     });
                 }
-                IntermediateInstruction::DotProductExtensionExtension {
+                IntermediateInstruction::DotProduct {
                     arg0,
                     arg1,
                     res,
@@ -225,15 +225,15 @@ pub fn compile_to_low_level_bytecode(
                         size: eval_const_expression_usize(&size, &compiler),
                     });
                 }
-                IntermediateInstruction::DotProductBaseExtension {
-                    arg_base,
-                    arg_ext,
+                IntermediateInstruction::MultilinearEval {
+                    coeffs,
+                    point,
                     res,
                     size,
                 } => {
-                    low_level_bytecode.push(Instruction::DotProductBaseExtension {
-                        arg_base: arg_base.try_into_mem_or_constant(&compiler).unwrap(),
-                        arg_ext: arg_ext.try_into_mem_or_constant(&compiler).unwrap(),
+                    low_level_bytecode.push(Instruction::MultilinearEval {
+                        coeffs: coeffs.try_into_mem_or_constant(&compiler).unwrap(),
+                        point: point.try_into_mem_or_constant(&compiler).unwrap(),
                         res: res.try_into_mem_or_fp(&compiler).unwrap(),
                         size: eval_const_expression_usize(&size, &compiler),
                     });

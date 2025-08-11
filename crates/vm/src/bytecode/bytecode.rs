@@ -70,10 +70,10 @@ pub enum Instruction {
         res: MemOrFp,        // vectorized pointer, of size 1 (never Fp in practice)
         size: usize,
     },
-    DotProductBaseExtension {
-        arg_base: MemOrConstant, // normal pointer
-        arg_ext: MemOrConstant,  // vectorized pointer
-        res: MemOrFp,            // vectorized pointer, of size 1 (never Fp in practice)
+    MultilinearEval {
+        coeffs: MemOrConstant, // vectorized pointer, chunk size = 8.2^size
+        point: MemOrConstant,  // vectorized pointer, of size `size`
+        res: MemOrFp,          // vectorized pointer, of size 1 (never fp in practice)
         size: usize,
     },
 }
@@ -226,23 +226,23 @@ impl ToString for Instruction {
                 size,
             } => {
                 format!(
-                    "dot_product_extension_extension({}, {}, {}, {})",
+                    "dot_product({}, {}, {}, {})",
                     arg0.to_string(),
                     arg1.to_string(),
                     res.to_string(),
                     size
                 )
             }
-            Self::DotProductBaseExtension {
-                arg_base,
-                arg_ext,
+            Self::MultilinearEval {
+                coeffs,
+                point,
                 res,
                 size,
             } => {
                 format!(
-                    "dot_product_base_extension({}, {}, {}, {})",
-                    arg_base.to_string(),
-                    arg_ext.to_string(),
+                    "multilinear_eval({}, {}, {}, {})",
+                    coeffs.to_string(),
+                    point.to_string(),
                     res.to_string(),
                     size
                 )

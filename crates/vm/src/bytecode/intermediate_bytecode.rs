@@ -117,16 +117,16 @@ pub enum IntermediateInstruction {
         arg_b: IntermediateValue, // vectorized pointer, of size 1 (3rd = last input)
         res: IntermediateValue,   // vectorized pointer, of size 1 (3rd = last output)
     },
-    DotProductExtensionExtension {
+    DotProduct {
         arg0: IntermediateValue, // vectorized pointer
         arg1: IntermediateValue, // vectorized pointer
         res: IntermediateValue,  // vectorized pointer
         size: ConstExpression,
     },
-    DotProductBaseExtension {
-        arg_base: IntermediateValue, // normal pointer
-        arg_ext: IntermediateValue,  // vectorized pointer
-        res: IntermediateValue,      // vectorized pointer
+    MultilinearEval {
+        coeffs: IntermediateValue, // vectorized pointer, chunk size = 8.2^size
+        point: IntermediateValue,  // vectorized pointer, of size `size`
+        res: IntermediateValue,    // vectorized pointer, of size 1
         size: ConstExpression,
     },
     // HINTS (does not appears in the final bytecode)
@@ -231,27 +231,27 @@ impl ToString for IntermediateInstruction {
                 shift_0.to_string(),
                 shift_1.to_string()
             ),
-            Self::DotProductExtensionExtension {
+            Self::DotProduct {
                 arg0,
                 arg1,
                 res,
                 size,
             } => format!(
-                "dot_product_extension_extension({}, {}, {}, {})",
+                "dot_product({}, {}, {}, {})",
                 arg0.to_string(),
                 arg1.to_string(),
                 res.to_string(),
                 size.to_string()
             ),
-            Self::DotProductBaseExtension {
-                arg_base,
-                arg_ext,
+            Self::MultilinearEval {
+                coeffs,
+                point,
                 res,
                 size,
             } => format!(
-                "dot_product_base_extension({}, {}, {}, {})",
-                arg_base.to_string(),
-                arg_ext.to_string(),
+                "multilinear_eval({}, {}, {}, {})",
+                coeffs.to_string(),
+                point.to_string(),
                 res.to_string(),
                 size.to_string()
             ),

@@ -50,8 +50,8 @@ const COL_INDEX_JUZ: usize = 9;
 const COL_INDEX_AUX: usize = 10;
 const COL_INDEX_POSEIDON_16: usize = 11;
 const COL_INDEX_POSEIDON_24: usize = 12;
-const COL_INDEX_DOT_PRODUCT_EE: usize = 13;
-const COL_INDEX_DOT_PRODUCT_BE: usize = 14;
+const COL_INDEX_DOT_PRODUCT: usize = 13;
+const COL_INDEX_MULTILINEAR_EVAL: usize = 14;
 
 // Execution columns
 const COL_INDEX_MEM_VALUE_A: usize = 15; // virtual with logup*

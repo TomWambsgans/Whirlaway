@@ -7,6 +7,8 @@ use utils::ToUsize;
 use utils::build_poseidon16;
 use utils::build_poseidon24;
 use utils::pretty_integer;
+use whir_p3::poly::evals::EvaluationsList;
+use whir_p3::poly::multilinear::MultilinearPoint;
 
 use crate::bytecode::bytecode::Bytecode;
 use crate::bytecode::bytecode::Hint;
@@ -528,32 +530,27 @@ fn execute_bytecode_helper(
 
                 pc += 1;
             }
-            Instruction::DotProductBaseExtension {
-                arg_base,
-                arg_ext,
+            Instruction::MultilinearEval {
+                coeffs,
+                point,
                 res,
                 size,
             } => {
                 dot_product_base_ext_calls += 1;
 
-                let ptr_arg_base = arg_base.read_value(&memory, fp)?.to_usize();
-                let ptr_arg_ext = arg_ext.read_value(&memory, fp)?.to_usize();
+                let ptr_coeffs = coeffs.read_value(&memory, fp)?.to_usize();
+                let ptr_point = point.read_value(&memory, fp)?.to_usize();
                 let ptr_res = res.read_value(&memory, fp)?.to_usize();
-
-                let slice_base = (ptr_arg_base..ptr_arg_base + *size)
-                    .map(|i| Ok(memory.get(i)?))
+                let slice_coeffs = (ptr_coeffs << *size..(1 + ptr_coeffs) << *size)
+                    .map(|i| memory.get(i))
                     .collect::<Result<Vec<F>, _>>()?;
-
-                let slice_ext = (ptr_arg_ext..ptr_arg_ext + *size)
+                let point = (ptr_point..ptr_point + *size)
                     .map(|i| Ok(EF::from_basis_coefficients_slice(&memory.get_vector(i)?).unwrap()))
                     .collect::<Result<Vec<EF>, _>>()?;
 
-                let dot_product =
-                    dot_product::<EF, _, _>(slice_ext.into_iter(), slice_base.into_iter())
-                        .as_basis_coefficients_slice()
-                        .try_into()
-                        .unwrap();
-                memory.set_vector(ptr_res, dot_product)?;
+                let eval = slice_coeffs.evaluate(&MultilinearPoint(point.clone()));
+                let eval_base: [F; 8] = eval.as_basis_coefficients_slice().try_into().unwrap();
+                memory.set_vector(ptr_res, eval_base)?;
 
                 pc += 1;
             }

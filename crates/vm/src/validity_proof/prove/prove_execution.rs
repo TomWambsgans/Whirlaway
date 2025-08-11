@@ -53,8 +53,8 @@ pub fn prove_execution(
         n_poseidons_24,
         poseidons_16, // padded with empty poseidons
         poseidons_24, // padded with empty poseidons
-        dot_products_ee,
-        dot_products_be,
+        dot_products,
+        vm_multilinear_evals,
         public_memory_size,
         memory,
     } = info_span!("Witness generation").in_scope(|| {
@@ -102,7 +102,7 @@ pub fn prove_execution(
     let p16_witness = AirWitness::new(&p16_columns, &poseidon_16_column_groups(&p16_air));
     let p24_witness = AirWitness::new(&p24_columns, &poseidon_24_column_groups(&p24_air));
 
-    let dot_product_columns = build_dot_product_columns(&dot_products_ee);
+    let dot_product_columns = build_dot_product_columns(&dot_products);
     let dot_product_witness = AirWitness::new(&dot_product_columns, &DOT_PRODUCT_AIR_COLUMN_GROUPS);
     #[cfg(test)]
     dot_product_table

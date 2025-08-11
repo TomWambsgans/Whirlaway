@@ -4,7 +4,7 @@ use p3_air::{Air, AirBuilder, BaseAir};
 use p3_field::PrimeCharacteristicRing;
 use p3_matrix::Matrix;
 
-use crate::{EF, prove::WitnessDotProductEE};
+use crate::{EF, prove::WitnessDotProduct};
 
 /*
 | StartFlag | Len | IndexA | IndexB | IndexRes | ValueA | ValueB | Res           | Computation                   |
@@ -105,7 +105,7 @@ impl<AB: AirBuilder> Air<AB> for DotProductAir {
     }
 }
 
-pub fn build_dot_product_columns(witness: &[WitnessDotProductEE]) -> Vec<Vec<EF>> {
+pub fn build_dot_product_columns(witness: &[WitnessDotProduct]) -> Vec<Vec<EF>> {
     let (
         mut flag,
         mut len,
