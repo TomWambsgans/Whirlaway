@@ -1,7 +1,9 @@
 use std::ops::Range;
 
-use p3_field::{ExtensionField, Field};
+use p3_field::{BasedVectorSpace, ExtensionField, Field};
 use rayon::prelude::*;
+
+use crate::PF;
 
 pub fn transmute_slice<Before, After>(slice: &[Before]) -> &[After] {
     let new_len = slice.len() * std::mem::size_of::<Before>() / std::mem::size_of::<After>();
@@ -49,6 +51,13 @@ pub fn remove_end<A>(slice: &[A], n: usize) -> &[A] {
 
 pub fn field_slice_as_base<F: Field, EF: ExtensionField<F>>(slice: &[EF]) -> Option<Vec<F>> {
     slice.par_iter().map(|x| x.as_base()).collect()
+}
+
+pub fn dot_product_with_base<EF: ExtensionField<PF<EF>>>(slice: &[EF]) -> EF {
+    assert_eq!(slice.len(), <EF as BasedVectorSpace<PF<EF>>>::DIMENSION);
+    (0..EF::DIMENSION)
+        .map(|i| slice[i] * <EF as BasedVectorSpace<PF<EF>>>::ith_basis_element(i).unwrap())
+        .sum::<EF>()
 }
 
 #[macro_export]

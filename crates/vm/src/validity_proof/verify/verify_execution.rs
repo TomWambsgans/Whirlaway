@@ -6,12 +6,12 @@ use ::air::table::AirTable;
 use ::air::verify_many_air_2;
 use lookup::verify_logup_star;
 use p3_air::BaseAir;
-use p3_field::BasedVectorSpace;
 use p3_field::PrimeCharacteristicRing;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use pcs::num_packed_vars_for_vars;
 use pcs::packed_pcs_global_statements;
 use pcs::{BatchPCS, NumVariables as _, packed_pcs_parse_commitment};
+use utils::dot_product_with_base;
 use utils::{Evaluation, PF, build_challenger, padd_with_zero_to_next_power_of_two};
 use utils::{ToUsize, build_poseidon_16_air, build_poseidon_24_air};
 use whir_p3::fiat_shamir::{errors::ProofError, verifier::VerifierState};
@@ -232,12 +232,7 @@ pub fn verify_execution(
 
     let dot_product_folded_memory_evals =
         verifier_state.next_extension_scalars_const::<DIMENSION>()?;
-    if (0..DIMENSION)
-        .map(|i| {
-            dot_product_folded_memory_evals[i]
-                * <EF as BasedVectorSpace<PF<EF>>>::ith_basis_element(i).unwrap()
-        })
-        .sum::<EF>()
+    if dot_product_with_base(&dot_product_folded_memory_evals)
         != dot_product_logup_star_statements.on_table.value
     {
         return Err(ProofError::InvalidProof);
@@ -345,12 +340,7 @@ pub fn verify_execution(
 
     let dot_product_computation_column_evals =
         verifier_state.next_extension_scalars_const::<DIMENSION>()?;
-    if (0..DIMENSION)
-        .map(|i| {
-            dot_product_computation_column_evals[i]
-                * <EF as BasedVectorSpace<PF<EF>>>::ith_basis_element(i).unwrap()
-        })
-        .sum::<EF>()
+    if dot_product_with_base(&dot_product_computation_column_evals)
         != dot_product_evals_to_verify[4].value
     {
         return Err(ProofError::InvalidProof);

@@ -21,6 +21,7 @@ use rayon::prelude::*;
 use tracing::info_span;
 use utils::ToUsize;
 use utils::assert_eq_many;
+use utils::dot_product_with_base;
 use utils::field_slice_as_base;
 use utils::fold_multilinear_in_large_field;
 use utils::{
@@ -462,10 +463,7 @@ pub fn prove_execution(
         &eval_eq(&dot_product_logup_star_statements.on_table.point),
     );
     assert_eq!(
-        (0..DIMENSION)
-            .map(|i| dot_product_folded_memory_evals[i]
-                * <EF as BasedVectorSpace<PF<EF>>>::ith_basis_element(i).unwrap())
-            .sum::<EF>(),
+        dot_product_with_base(&dot_product_folded_memory_evals),
         dot_product_logup_star_statements.on_table.value
     );
     prover_state.add_extension_scalars(&dot_product_folded_memory_evals);
@@ -540,10 +538,7 @@ pub fn prove_execution(
         &eval_eq(&dot_product_evals_to_prove[4].point),
     );
     assert_eq!(
-        (0..DIMENSION)
-            .map(|i| dot_product_computation_column_evals[i]
-                * <EF as BasedVectorSpace<PF<EF>>>::ith_basis_element(i).unwrap())
-            .sum::<EF>(),
+        dot_product_with_base(&dot_product_computation_column_evals),
         dot_product_evals_to_prove[4].value
     );
     prover_state.add_extension_scalars(&dot_product_computation_column_evals);
