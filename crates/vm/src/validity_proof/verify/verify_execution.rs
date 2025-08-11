@@ -1,10 +1,12 @@
+use crate::dot_product_air::DOT_PRODUCT_AIR_COLUMN_GROUPS;
 use crate::dot_product_air::DotProductAir;
 use crate::validity_proof::common::fold_bytecode;
 use crate::validity_proof::common::intitial_and_final_pc_conditions;
 use ::air::table::AirTable;
-use ::air::verify_many_air;
+use ::air::verify_many_air_2;
 use lookup::verify_logup_star;
 use p3_air::BaseAir;
+use p3_field::BasedVectorSpace;
 use p3_field::PrimeCharacteristicRing;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use pcs::num_packed_vars_for_vars;
@@ -36,16 +38,16 @@ pub fn verify_execution(
     let p24_air = build_poseidon_24_air();
     let p16_table = AirTable::<EF, _>::new(p16_air.clone());
     let p24_table = AirTable::<EF, _>::new(p24_air.clone());
+    let dot_product_table = AirTable::<EF, _>::new(DotProductAir);
 
     let [
         log_n_cycles,
         n_poseidons_16,
         n_poseidons_24,
-        n_dot_products_ee,
-        n_dot_products_be,
+        dot_products_log_n_rows,
         private_memory_len,
     ] = verifier_state
-        .next_base_scalars_const::<6>()?
+        .next_base_scalars_const::<5>()?
         .into_iter()
         .map(|x| x.to_usize())
         .collect::<Vec<_>>()
@@ -55,8 +57,7 @@ pub fn verify_execution(
     if log_n_cycles > 32
         || n_poseidons_16 > 1 << 32
         || n_poseidons_24 > 1 << 32
-        || n_dot_products_ee > 1 << 32
-        || n_dot_products_be > 1 << 32
+        || dot_products_log_n_rows > 32
         || private_memory_len > 1 << 32
     {
         // To avoid "DOS" attack
@@ -82,8 +83,6 @@ pub fn verify_execution(
     let vars_p16_table = log_n_p16 + log2_ceil_usize(p16_air.width() - 16 * 2);
     let vars_p24_table = log_n_p24 + log2_ceil_usize(p24_air.width() - 24 * 2);
 
-    let dot_product_table = AirTable::<EF, _>::new(DotProductAir);
-
     let vars_private_memory = vec![log_public_memory; n_private_memory_chunks];
 
     let vars_pcs_base = [
@@ -94,6 +93,10 @@ pub fn verify_execution(
             vars_p24_indexes,
             vars_p16_table,
             vars_p24_table,
+            dot_products_log_n_rows,     // dot product: (start) flag
+            dot_products_log_n_rows,     // dot product: length
+            dot_products_log_n_rows + 2, // dot product: indexes
+            dot_products_log_n_rows + log2_ceil_usize(DIMENSION), // dot product: computation
         ],
         vars_private_memory,
     ]
@@ -109,7 +112,7 @@ pub fn verify_execution(
         &COLUMN_GROUPS_EXEC,
     )?;
 
-    let poseidon_evals_to_verify = verify_many_air(
+    let poseidon_evals_to_verify = verify_many_air_2(
         &mut verifier_state,
         &[&p16_table],
         &[&p24_table],
@@ -124,14 +127,21 @@ pub fn verify_execution(
     let p24_evals_to_verify = &poseidon_evals_to_verify[1];
     let memory_folding_challenges = MultilinearPoint(p16_evals_to_verify[0].point[..3].to_vec());
 
+    let dot_product_evals_to_verify = dot_product_table.verify(
+        &mut verifier_state,
+        1,
+        dot_products_log_n_rows,
+        &DOT_PRODUCT_AIR_COLUMN_GROUPS,
+    )?;
+
     // Poseidons 16/24 memory addresses lookup
     let poseidon_lookup_batching_chalenges = MultilinearPoint(verifier_state.sample_vec(3));
 
     let poseidon_lookup_log_length = 3 + log_n_p16.max(log_n_p24);
 
     let log_bytecode_len = log2_ceil_usize(bytecode.instructions.len());
-    let vars_pcs_extension = vec![log_memory, log_memory - 3, log_bytecode_len];
-    let packed_parsed_commitment_extension = packed_pcs_parse_commitment(
+    let vars_pcs_extension = vec![log_memory, log_memory - 3, log_bytecode_len, log_memory - 3];
+    let parsed_commitment_extension = packed_pcs_parse_commitment(
         &pcs.pcs_b(
             parsed_commitment_base
                 .inner_parsed_commitment
@@ -212,22 +222,62 @@ pub fn verify_execution(
         .concat(),
     );
 
+    let dot_product_logup_star_statements = verify_logup_star(
+        &mut verifier_state,
+        log_memory - 3,
+        2 + dot_products_log_n_rows,
+        &dot_product_evals_to_verify[3],
+    )
+    .unwrap();
+
+    let dot_product_folded_memory_evals =
+        verifier_state.next_extension_scalars_const::<DIMENSION>()?;
+    if (0..DIMENSION)
+        .map(|i| {
+            dot_product_folded_memory_evals[i]
+                * <EF as BasedVectorSpace<PF<EF>>>::ith_basis_element(i).unwrap()
+        })
+        .sum::<EF>()
+        != dot_product_logup_star_statements.on_table.value
+    {
+        return Err(ProofError::InvalidProof);
+    }
+    let dot_product_memory_mixing_challenges = verifier_state.sample_vec(3);
+    let dot_product_memory_challenge = Evaluation {
+        point: MultilinearPoint(
+            [
+                dot_product_logup_star_statements.on_table.point.0.clone(),
+                dot_product_memory_mixing_challenges.clone(),
+            ]
+            .concat(),
+        ),
+        value: dot_product_folded_memory_evals
+            .evaluate(&MultilinearPoint(dot_product_memory_mixing_challenges)),
+    };
+
     let exec_lookup_chunk_point = MultilinearPoint(
         exec_logup_star_statements.on_table.point[log_memory - log_public_memory..].to_vec(),
     );
     let poseidon_lookup_chunk_point =
         MultilinearPoint(poseidon_lookup_memory_point[log_memory - log_public_memory..].to_vec());
+    let dot_product_lookup_chunk_point = MultilinearPoint(
+        dot_product_memory_challenge.point.0[log_memory - log_public_memory..].to_vec(),
+    );
 
     let mut chunk_evals_exec_lookup = vec![public_memory.evaluate(&exec_lookup_chunk_point)];
     let mut chunk_evals_poseidon_lookup =
         vec![public_memory.evaluate(&poseidon_lookup_chunk_point)];
+    let mut chunk_evals_dot_product_lookup =
+        vec![public_memory.evaluate(&dot_product_lookup_chunk_point)];
 
     let mut private_memory_statements = vec![];
     for _ in 0..n_private_memory_chunks {
         let chunk_eval_exec_lookup = verifier_state.next_extension_scalar()?;
         let chunk_eval_poseidon_lookup = verifier_state.next_extension_scalar()?;
+        let chunk_eval_dot_product_lookup = verifier_state.next_extension_scalar()?;
         chunk_evals_exec_lookup.push(chunk_eval_exec_lookup);
         chunk_evals_poseidon_lookup.push(chunk_eval_poseidon_lookup);
+        chunk_evals_dot_product_lookup.push(chunk_eval_dot_product_lookup);
         private_memory_statements.push(vec![
             Evaluation {
                 point: exec_lookup_chunk_point.clone(),
@@ -236,6 +286,10 @@ pub fn verify_execution(
             Evaluation {
                 point: poseidon_lookup_chunk_point.clone(),
                 value: chunk_eval_poseidon_lookup,
+            },
+            Evaluation {
+                point: dot_product_lookup_chunk_point.clone(),
+                value: chunk_eval_dot_product_lookup,
             },
         ]);
     }
@@ -255,6 +309,15 @@ pub fn verify_execution(
             &MultilinearPoint(
                 poseidon_logup_star_statements.on_table.point[..log_memory - log_public_memory]
                     .to_vec(),
+            ),
+        )
+    {
+        return Err(ProofError::InvalidProof);
+    }
+    if dot_product_memory_challenge.value
+        != padd_with_zero_to_next_power_of_two(&chunk_evals_dot_product_lookup).evaluate(
+            &MultilinearPoint(
+                dot_product_memory_challenge.point[..log_memory - log_public_memory].to_vec(),
             ),
         )
     {
@@ -280,6 +343,31 @@ pub fn verify_execution(
     let (initial_pc_statement, final_pc_statement) =
         intitial_and_final_pc_conditions(bytecode, log_n_cycles);
 
+    let dot_product_computation_column_evals =
+        verifier_state.next_extension_scalars_const::<DIMENSION>()?;
+    if (0..DIMENSION)
+        .map(|i| {
+            dot_product_computation_column_evals[i]
+                * <EF as BasedVectorSpace<PF<EF>>>::ith_basis_element(i).unwrap()
+        })
+        .sum::<EF>()
+        != dot_product_evals_to_verify[4].value
+    {
+        return Err(ProofError::InvalidProof);
+    }
+    let dot_product_computation_mixing_challenges = verifier_state.sample_vec(3);
+    let dot_product_computation_column_challenge = Evaluation {
+        point: MultilinearPoint(
+            [
+                dot_product_evals_to_verify[4].point.0.clone(),
+                dot_product_computation_mixing_challenges.clone(),
+            ]
+            .concat(),
+        ),
+        value: dot_product_computation_column_evals
+            .evaluate(&MultilinearPoint(dot_product_computation_mixing_challenges)),
+    };
+
     let global_statements_base = packed_pcs_global_statements(
         &parsed_commitment_base.tree,
         &[
@@ -298,6 +386,13 @@ pub fn verify_execution(
                 p24_indexes_statements,
                 vec![p16_evals_to_verify[2].clone()],
                 vec![p24_evals_to_verify[3].clone()],
+                vec![dot_product_evals_to_verify[0].clone()], // dot product: (start) flag
+                vec![dot_product_evals_to_verify[1].clone()], // dot product: length
+                vec![
+                    dot_product_evals_to_verify[2].clone(),
+                    dot_product_logup_star_statements.on_indexes,
+                ], // dot product: indexes
+                vec![dot_product_computation_column_challenge],
             ],
             private_memory_statements,
         ]
@@ -305,11 +400,12 @@ pub fn verify_execution(
     );
 
     let global_statements_extension = packed_pcs_global_statements(
-        &packed_parsed_commitment_extension.tree,
+        &parsed_commitment_extension.tree,
         &vec![
             exec_logup_star_statements.on_pushforward,
             poseidon_logup_star_statements.on_pushforward,
             bytecode_logup_star_statements.on_pushforward,
+            dot_product_logup_star_statements.on_pushforward,
         ],
     );
 
@@ -317,7 +413,7 @@ pub fn verify_execution(
         &mut verifier_state,
         &parsed_commitment_base.inner_parsed_commitment,
         &global_statements_base,
-        &packed_parsed_commitment_extension.inner_parsed_commitment,
+        &parsed_commitment_extension.inner_parsed_commitment,
         &global_statements_extension,
     )?;
 

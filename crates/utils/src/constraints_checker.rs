@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use p3_air::AirBuilder;
-use p3_field::{ExtensionField, Field};
+use p3_field::ExtensionField;
 use p3_matrix::dense::RowMajorMatrixView;
 
 use crate::PF;
@@ -18,7 +18,9 @@ pub struct ConstraintChecker<'a, IF, EF> {
     pub field: PhantomData<EF>,
 }
 
-impl<'a, EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: ExtensionField<PF<EF>>> AirBuilder for ConstraintChecker<'a, IF, EF> {
+impl<'a, EF: ExtensionField<PF<EF>> + ExtensionField<IF>, IF: ExtensionField<PF<EF>>> AirBuilder
+    for ConstraintChecker<'a, IF, EF>
+{
     type F = PF<EF>;
     type I = PF<EF>;
     type Expr = IF;

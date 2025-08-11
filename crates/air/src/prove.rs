@@ -32,7 +32,7 @@ pub fn prove_many_air_2<'a, EF: ExtensionField<PF<EF>>, A1: MyAir<EF>, A2: MyAir
     witnesses_1: &[AirWitness<'a, PF<EF>>],
     witnesses_2: &[AirWitness<'a, PF<EF>>],
 ) -> Vec<Vec<Evaluation<EF>>> {
-    let  res = prove_many_air_3::<EF, A1, A2, A2>(
+    prove_many_air_3::<_, _, _, A2>(
         prover_state,
         univariate_skips,
         tables_1,
@@ -41,10 +41,9 @@ pub fn prove_many_air_2<'a, EF: ExtensionField<PF<EF>>, A1: MyAir<EF>, A2: MyAir
         witnesses_1,
         witnesses_2,
         &[],
-    );
-    assert_eq!(res.len(), tables_1.len() + tables_2.len());
-    res
+    )
 }
+
 #[instrument(name = "air: prove many", skip_all)]
 pub fn prove_many_air_3<
     'a,
@@ -85,7 +84,13 @@ pub fn prove_many_air_3<
             "TODO handle the case UNIVARIATE_SKIPS >= log_length"
         );
     }
-    let structured_air = tables_1[0].air.structured();
+    let structured_air = if tables_1.len() > 0 {
+        tables_1[0].air.structured()
+    } else if tables_2.len() > 0 {
+        tables_2[0].air.structured()
+    } else {
+        tables_3[0].air.structured()
+    };
     assert!(
         tables_1
             .iter()
@@ -227,20 +232,43 @@ pub fn prove_many_air_3<
 }
 
 impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
-    #[instrument(name = "air: prove", skip_all)]
-    pub fn prove<'a>(
+    #[instrument(name = "air: prove base", skip_all)]
+    pub fn prove_base<'a>(
         &self,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
         univariate_skips: usize,
         witness: AirWitness<'a, PF<EF>>,
     ) -> Vec<Evaluation<EF>> {
-        let mut res = prove_many_air_2::<EF, A, A>(
+        let mut res = prove_many_air_3::<EF, A, A, A>(
             prover_state,
             univariate_skips,
             &[self],
             &[],
+            &[],
             &[witness],
             &[],
+            &[],
+        );
+        assert_eq!(res.len(), 1);
+        res.pop().unwrap()
+    }
+
+    #[instrument(name = "air: prove base", skip_all)]
+    pub fn prove_extension<'a>(
+        &self,
+        prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
+        univariate_skips: usize,
+        witness: AirWitness<'a, EF>,
+    ) -> Vec<Evaluation<EF>> {
+        let mut res = prove_many_air_3::<EF, A, A, A>(
+            prover_state,
+            univariate_skips,
+            &[],
+            &[],
+            &[self],
+            &[],
+            &[],
+            &[witness],
         );
         assert_eq!(res.len(), 1);
         res.pop().unwrap()

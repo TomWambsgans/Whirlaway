@@ -19,7 +19,7 @@ use crate::utils::{matrix_down_lde, matrix_up_lde};
 use super::table::AirTable;
 
 #[instrument(name = "air table: verify many", skip_all)]
-pub fn verify_many_air<'a, EF: ExtensionField<PF<EF>>, A1: MyAir<EF>, A2: MyAir<EF>>(
+pub fn verify_many_air_2<'a, EF: ExtensionField<PF<EF>>, A1: MyAir<EF>, A2: MyAir<EF>>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     tables_1: &[&AirTable<EF, A1>],
     tables_2: &[&AirTable<EF, A2>],
@@ -27,7 +27,34 @@ pub fn verify_many_air<'a, EF: ExtensionField<PF<EF>>, A1: MyAir<EF>, A2: MyAir<
     log_lengths: &[usize],
     column_groups: &[Vec<Range<usize>>],
 ) -> Result<Vec<Vec<Evaluation<EF>>>, ProofError> {
-    let n_tables = tables_1.len() + tables_2.len();
+    verify_many_air_3::<EF, A1, A2, A2>(
+        verifier_state,
+        tables_1,
+        tables_2,
+        &[],
+        univariate_skips,
+        log_lengths,
+        column_groups,
+    )
+}
+
+#[instrument(name = "air table: verify many", skip_all)]
+pub fn verify_many_air_3<
+    'a,
+    EF: ExtensionField<PF<EF>>,
+    A1: MyAir<EF>,
+    A2: MyAir<EF>,
+    A3: MyAir<EF>,
+>(
+    verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
+    tables_1: &[&AirTable<EF, A1>],
+    tables_2: &[&AirTable<EF, A2>],
+    tables_3: &[&AirTable<EF, A3>],
+    univariate_skips: usize,
+    log_lengths: &[usize],
+    column_groups: &[Vec<Range<usize>>],
+) -> Result<Vec<Vec<Evaluation<EF>>>, ProofError> {
+    let n_tables = tables_1.len() + tables_2.len() + tables_3.len();
     assert_eq!(n_tables, log_lengths.len());
     let constraints_batching_scalar = verifier_state.sample();
 
@@ -44,6 +71,7 @@ pub fn verify_many_air<'a, EF: ExtensionField<PF<EF>>, A1: MyAir<EF>, A2: MyAir<
                 .iter()
                 .map(|t| t.air.degree() + 1)
                 .chain(tables_2.iter().map(|t| t.air.degree() + 1))
+                .chain(tables_3.iter().map(|t| t.air.degree() + 1))
                 .collect::<Vec<_>>(),
             true,
         )?;
@@ -73,6 +101,14 @@ pub fn verify_many_air<'a, EF: ExtensionField<PF<EF>>, A1: MyAir<EF>, A2: MyAir<
         })?;
         all_inner_sums.push(inner_sums);
     }
+    for table in tables_3 {
+        let inner_sums = verifier_state.next_extension_scalars_vec(if table.air.structured() {
+            2 * table.n_columns()
+        } else {
+            table.n_columns()
+        })?;
+        all_inner_sums.push(inner_sums);
+    }
 
     let zerocheck_selector_evals = univariate_selectors::<PF<EF>>(univariate_skips)
         .iter()
@@ -92,6 +128,15 @@ pub fn verify_many_air<'a, EF: ExtensionField<PF<EF>>, A1: MyAir<EF>, A2: MyAir<
             i += 1;
         }
         for table in tables_2 {
+            global_constraint_evals.push(SumcheckComputation::eval(
+                &table.air,
+                &all_inner_sums[i],
+                &cyclic_subgroup_known_order(constraints_batching_scalar, table.n_constraints)
+                    .collect::<Vec<_>>(),
+            ));
+            i += 1;
+        }
+        for table in tables_3 {
             global_constraint_evals.push(SumcheckComputation::eval(
                 &table.air,
                 &all_inner_sums[i],
@@ -129,6 +174,11 @@ pub fn verify_many_air<'a, EF: ExtensionField<PF<EF>>, A1: MyAir<EF>, A2: MyAir<
             .iter()
             .all(|t| t.air.structured() == structured_air)
     );
+    assert!(
+        tables_3
+            .iter()
+            .all(|t| t.air.structured() == structured_air)
+    );
 
     if structured_air {
         // TODO inner sumchecks in parallel between tables(not usefull in the current protocol but cleaner, more coherent)
@@ -136,8 +186,10 @@ pub fn verify_many_air<'a, EF: ExtensionField<PF<EF>>, A1: MyAir<EF>, A2: MyAir<
         for i in 0..n_tables {
             let n_columns = if i < tables_1.len() {
                 tables_1[i].n_columns()
-            } else {
+            } else if i < tables_1.len() + tables_2.len() {
                 tables_2[i - tables_1.len()].n_columns()
+            } else {
+                tables_3[i - tables_1.len() - tables_2.len()].n_columns()
             };
             evaluations_remaining_to_verify.push(verify_structured_columns(
                 verifier_state,
@@ -178,9 +230,10 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
         log_n_rows: usize,
         column_groups: &[Range<usize>],
     ) -> Result<Vec<Evaluation<EF>>, ProofError> {
-        Ok(verify_many_air::<EF, A, A>(
+        Ok(verify_many_air_3::<EF, A, A, A>(
             verifier_state,
             &[self],
+            &[],
             &[],
             univariate_skips,
             &[log_n_rows],

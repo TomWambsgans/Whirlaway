@@ -1,5 +1,8 @@
 use std::ops::Range;
 
+use p3_field::{ExtensionField, Field};
+use rayon::prelude::*;
+
 pub fn transmute_slice<Before, After>(slice: &[Before]) -> &[After] {
     let new_len = slice.len() * std::mem::size_of::<Before>() / std::mem::size_of::<After>();
     assert_eq!(
@@ -42,6 +45,10 @@ pub fn remove_end<A>(slice: &[A], n: usize) -> &[A] {
     assert!(n <= slice.len());
     let len = slice.len();
     &slice[..len - n]
+}
+
+pub fn field_slice_as_base<F: Field, EF: ExtensionField<F>>(slice: &[EF]) -> Option<Vec<F>> {
+    slice.par_iter().map(|x| x.as_base()).collect()
 }
 
 #[macro_export]

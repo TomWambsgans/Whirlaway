@@ -21,6 +21,7 @@ use crate::{EF, prove::WitnessDotProductEE};
 */
 
 const DOT_PRODUCT_AIR_COLUMNS: usize = 9;
+pub const DOT_PRODUCT_AIR_COLUMN_GROUPS: [Range<usize>; 5] = [0..1, 1..2, 2..5, 5..8, 8..9];
 
 pub struct DotProductAir;
 
@@ -179,8 +180,4 @@ pub fn build_dot_product_columns(witness: &[WitnessDotProductEE]) -> Vec<Vec<EF>
         res,
         computation,
     ]
-}
-
-pub fn dot_product_column_groups() -> Vec<Range<usize>> {
-    vec![0..5, 5..8, 8..9]
 }

@@ -9,7 +9,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::{build_prover_state, build_verifier_state, padd_with_zero_to_next_power_of_two};
 use whir_p3::poly::evals::EvaluationsList;
 
-use crate::{prove_many_air_2, table::AirTable, verify_many_air, witness::AirWitness};
+use crate::{prove_many_air_2, table::AirTable, verify_many_air_2, witness::AirWitness};
 
 const UNIVARIATE_SKIPS: usize = 3;
 
@@ -159,7 +159,8 @@ fn test_structured_air() {
 
     let table = AirTable::<EF, _>::new(ExampleStructuredAir::<N_COLUMNS, N_PREPROCESSED_COLUMNS>);
     table.check_trace_validity(&witness).unwrap();
-    let evaluations_remaining_to_prove = table.prove(&mut prover_state, UNIVARIATE_SKIPS, witness);
+    let evaluations_remaining_to_prove =
+        table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, witness);
     let mut verifier_state = build_verifier_state(&prover_state);
     let evaluations_remaining_to_verify = table
         .verify(
@@ -198,7 +199,8 @@ fn test_unstructured_air() {
 
     let table = AirTable::<EF, _>::new(ExampleUnstructuredAir::<N_COLUMNS, N_PREPROCESSED_COLUMNS>);
     table.check_trace_validity(&witness).unwrap();
-    let evaluations_remaining_to_prove = table.prove(&mut prover_state, UNIVARIATE_SKIPS, witness);
+    let evaluations_remaining_to_prove =
+        table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, witness);
     let mut verifier_state = build_verifier_state(&prover_state);
     let evaluations_remaining_to_verify = table
         .verify(
@@ -278,7 +280,7 @@ fn test_many_unstructured_air() {
     for trace in &traces[..log_n_rows_a.len()] {
         witnesses_a.push(AirWitness::new(trace, &column_group_a));
     }
-        let mut witnesses_b = vec![];
+    let mut witnesses_b = vec![];
     for trace in &traces[log_n_rows_a.len()..] {
         witnesses_b.push(AirWitness::new(trace, &column_group_b));
     }
@@ -299,7 +301,7 @@ fn test_many_unstructured_air() {
         &witnesses_b,
     );
     let mut verifier_state = build_verifier_state(&prover_state);
-    let evaluations_remaining_to_verify = verify_many_air(
+    let evaluations_remaining_to_verify = verify_many_air_2(
         &mut verifier_state,
         &tables_a,
         &tables_b,
@@ -419,7 +421,7 @@ fn test_many_structured_air() {
         &witnesses_b,
     );
     let mut verifier_state = build_verifier_state(&prover_state);
-    let evaluations_remaining_to_verify = verify_many_air(
+    let evaluations_remaining_to_verify = verify_many_air_2(
         &mut verifier_state,
         &tables_a,
         &tables_b,

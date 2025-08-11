@@ -158,9 +158,9 @@ pub fn prove_poseidon2(
     );
 
     let evaluations_remaining_to_prove_16 =
-        table_16.prove(&mut prover_state, univariate_skips, witness_16);
+        table_16.prove_base(&mut prover_state, univariate_skips, witness_16);
     let evaluations_remaining_to_prove_24 =
-        table_24.prove(&mut prover_state, univariate_skips, witness_24);
+        table_24.prove_base(&mut prover_state, univariate_skips, witness_24);
 
     let global_statements_to_prove = packed_pcs_global_statements(
         &packed_commitment_witness.tree,

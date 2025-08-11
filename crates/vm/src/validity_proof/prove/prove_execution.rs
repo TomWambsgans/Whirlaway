@@ -1,6 +1,6 @@
+use crate::dot_product_air::DOT_PRODUCT_AIR_COLUMN_GROUPS;
 use crate::dot_product_air::DotProductAir;
 use crate::dot_product_air::build_dot_product_columns;
-use crate::dot_product_air::dot_product_column_groups;
 use crate::prove::all_poseidon_16_indexes;
 use crate::prove::all_poseidon_24_indexes;
 use crate::validity_proof::common::fold_bytecode;
@@ -12,6 +12,7 @@ use ::air::prove_many_air_2;
 use ::air::{table::AirTable, witness::AirWitness};
 use lookup::{compute_pushforward, prove_logup_star};
 use p3_air::BaseAir;
+use p3_field::BasedVectorSpace;
 use p3_field::PrimeCharacteristicRing;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use pcs::num_packed_vars_for_pols;
@@ -20,6 +21,7 @@ use rayon::prelude::*;
 use tracing::info_span;
 use utils::ToUsize;
 use utils::assert_eq_many;
+use utils::field_slice_as_base;
 use utils::fold_multilinear_in_large_field;
 use utils::{
     Evaluation, PF, build_poseidon_16_air, build_poseidon_24_air, build_prover_state,
@@ -68,20 +70,6 @@ pub fn prove_execution(
     let n_cycles = full_trace[0].len();
     let log_n_cycles = log2_strict_usize(n_cycles);
     assert!(full_trace.iter().all(|col| col.len() == 1 << log_n_cycles));
-    let mut prover_state = build_prover_state::<EF>();
-    prover_state.add_base_scalars(
-        &[
-            log_n_cycles,
-            n_poseidons_16,
-            n_poseidons_24,
-            dot_products_ee.len(),
-            dot_products_be.len(),
-            private_memory.len(),
-        ]
-        .into_iter()
-        .map(F::from_usize)
-        .collect::<Vec<_>>(),
-    );
 
     let dft = EvalsDft::default();
 
@@ -115,15 +103,35 @@ pub fn prove_execution(
     let p24_witness = AirWitness::new(&p24_columns, &poseidon_24_column_groups(&p24_air));
 
     let dot_product_columns = build_dot_product_columns(&dot_products_ee);
-    let witness_dot_product = AirWitness::new(&dot_product_columns, &dot_product_column_groups());
+    let dot_product_witness = AirWitness::new(&dot_product_columns, &DOT_PRODUCT_AIR_COLUMN_GROUPS);
+    #[cfg(test)]
     dot_product_table
-        .check_trace_validity(&witness_dot_product)
+        .check_trace_validity(&dot_product_witness)
         .unwrap();
 
     let p16_commited =
         padd_with_zero_to_next_power_of_two(&p16_columns[16..p16_air.width() - 16].concat());
     let p24_commited =
         padd_with_zero_to_next_power_of_two(&p24_columns[24..p24_air.width() - 24].concat());
+
+    let dot_product_flags: Vec<PF<EF>> = field_slice_as_base(&dot_product_columns[0]).unwrap();
+    let dot_product_lengths: Vec<PF<EF>> = field_slice_as_base(&dot_product_columns[1]).unwrap();
+    let dot_product_indexes: Vec<PF<EF>> = padd_with_zero_to_next_power_of_two(
+        &field_slice_as_base(
+            &[
+                dot_product_columns[2].clone(),
+                dot_product_columns[3].clone(),
+                dot_product_columns[4].clone(),
+            ]
+            .concat(),
+        )
+        .unwrap(),
+    );
+    let dot_product_computations: &[EF] = &dot_product_columns[8];
+    let dot_product_computations_base = dot_product_computations
+        .par_iter()
+        .flat_map(|ef| <EF as BasedVectorSpace<PF<EF>>>::as_basis_coefficients_slice(ef).to_vec())
+        .collect::<Vec<_>>();
 
     let commited_pc_fp = [
         full_trace[COL_INDEX_PC].clone(),
@@ -141,6 +149,20 @@ pub fn prove_execution(
         .map(|i| &private_memory[i * public_memory.len()..(i + 1) * public_memory.len()])
         .collect::<Vec<_>>();
 
+    let mut prover_state = build_prover_state::<EF>();
+    prover_state.add_base_scalars(
+        &[
+            log_n_cycles,
+            n_poseidons_16,
+            n_poseidons_24,
+            log2_strict_usize(dot_product_columns[0].len()),
+            private_memory.len(),
+        ]
+        .into_iter()
+        .map(F::from_usize)
+        .collect::<Vec<_>>(),
+    );
+
     // 1st Commitment
     let packed_pcs_witness_base = packed_pcs_commit(
         pcs.pcs_a(),
@@ -152,6 +174,10 @@ pub fn prove_execution(
                 all_poseidon_24_indexes(&poseidons_24).as_slice(),
                 p16_commited.as_slice(),
                 p24_commited.as_slice(),
+                dot_product_flags.as_slice(),
+                dot_product_lengths.as_slice(),
+                dot_product_indexes.as_slice(),
+                dot_product_computations_base.as_slice(),
             ],
             private_memory_commited_chunks.clone(),
         ]
@@ -161,7 +187,8 @@ pub fn prove_execution(
     );
 
     // PIOP
-    let exec_evals_to_prove = exec_table.prove(&mut prover_state, UNIVARIATE_SKIPS, exec_witness);
+    let exec_evals_to_prove =
+        exec_table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, exec_witness);
 
     let poseidon_evals_to_prove = prove_many_air_2(
         &mut prover_state,
@@ -173,6 +200,9 @@ pub fn prove_execution(
     );
     let p16_evals_to_prove = &poseidon_evals_to_prove[0];
     let p24_evals_to_prove = &poseidon_evals_to_prove[1];
+
+    let dot_product_evals_to_prove =
+        dot_product_table.prove_extension(&mut prover_state, 1, dot_product_witness);
 
     // Main memory lookup
     let exec_memory_indexes = padd_with_zero_to_next_power_of_two(
@@ -288,14 +318,14 @@ pub fn prove_execution(
                 });
         }
 
-        let folded_memory = fold_multilinear(&padded_memory, &memory_folding_challenges);
+        let poseidon_folded_memory = fold_multilinear(&padded_memory, &memory_folding_challenges);
 
         assert_eq!(all_poseidon_indexes.len(), all_poseidon_values.len(),);
 
         // TODO remove these checks
         {
             for (index, value) in all_poseidon_indexes.iter().zip(&all_poseidon_values) {
-                assert_eq!(value, &folded_memory[index.to_usize()]);
+                assert_eq!(value, &poseidon_folded_memory[index.to_usize()]);
             }
             assert_eq!(
                 all_poseidon_values.evaluate(&poseidon_lookup_challenge.point),
@@ -307,13 +337,13 @@ pub fn prove_execution(
 
         let poseidon_pushforward = compute_pushforward(
             &all_poseidon_indexes,
-            folded_memory.len(),
+            poseidon_folded_memory.len(),
             &poseidon_poly_eq_point,
         );
 
         (
             all_poseidon_indexes,
-            folded_memory,
+            poseidon_folded_memory,
             poseidon_pushforward,
             poseidon_lookup_challenge,
             poseidon_poly_eq_point,
@@ -352,11 +382,19 @@ pub fn prove_execution(
     let bytecode_pushforward =
         compute_pushforward(&pc_column, folded_bytecode.len(), &bytecode_poly_eq_point);
 
+    let dot_product_poly_eq_point = eval_eq(&dot_product_evals_to_prove[3].point.clone());
+    let dot_product_pushforward = compute_pushforward(
+        &dot_product_indexes,
+        padded_memory.len() / DIMENSION,
+        &dot_product_poly_eq_point,
+    );
+
     // 2nd Commitment
     let commited_extension = [
         exec_pushforward.as_slice(),
         poseidon_pushforward.as_slice(),
         bytecode_pushforward.as_slice(),
+        dot_product_pushforward.as_slice(),
     ];
     let packed_pcs_witness_extension = packed_pcs_commit(
         &pcs.pcs_b(
@@ -394,6 +432,20 @@ pub fn prove_execution(
         &bytecode_poly_eq_point,
         &bytecode_pushforward,
     );
+
+    let memory_in_extension_field = padded_memory
+        .par_chunks_exact(DIMENSION)
+        .map(|chunk| EF::from_basis_coefficients_slice(chunk).unwrap())
+        .collect::<Vec<_>>();
+    let dot_product_logup_star_statements = prove_logup_star(
+        &mut prover_state,
+        &memory_in_extension_field,
+        &dot_product_indexes,
+        &dot_product_evals_to_prove[3],
+        &dot_product_poly_eq_point,
+        &dot_product_pushforward,
+    );
+
     let mut bytecode_lookup_index_statement = bytecode_logup_star_statements.on_indexes.clone();
     bytecode_lookup_index_statement.point.0.insert(0, EF::ZERO); // because we commit both pc and fp together
 
@@ -404,19 +456,51 @@ pub fn prove_execution(
         ]
         .concat(),
     );
-    // open memory at point logup_star_statements.on_table.point
+
+    let dot_product_folded_memory_evals = fold_multilinear_in_large_field(
+        &padded_memory,
+        &eval_eq(&dot_product_logup_star_statements.on_table.point),
+    );
+    assert_eq!(
+        (0..DIMENSION)
+            .map(|i| dot_product_folded_memory_evals[i]
+                * <EF as BasedVectorSpace<PF<EF>>>::ith_basis_element(i).unwrap())
+            .sum::<EF>(),
+        dot_product_logup_star_statements.on_table.value
+    );
+    prover_state.add_extension_scalars(&dot_product_folded_memory_evals);
+    let dot_product_memory_mixing_challenges = prover_state.sample_vec(3);
+    let dot_product_memory_challenge = Evaluation {
+        point: MultilinearPoint(
+            [
+                dot_product_logup_star_statements.on_table.point.0.clone(),
+                dot_product_memory_mixing_challenges.clone(),
+            ]
+            .concat(),
+        ),
+        value: dot_product_folded_memory_evals
+            .evaluate(&MultilinearPoint(dot_product_memory_mixing_challenges)),
+    };
+
+    // open memory
     let exec_lookup_chunk_point = MultilinearPoint(
         exec_logup_star_statements.on_table.point[log_memory - log_public_memory..].to_vec(),
     );
     let poseidon_lookup_chunk_point =
         MultilinearPoint(poseidon_lookup_memory_point[log_memory - log_public_memory..].to_vec());
+    let dot_product_lookup_chunk_point = MultilinearPoint(
+        dot_product_memory_challenge.point.0[log_memory - log_public_memory..].to_vec(),
+    );
     let mut private_memory_statements = vec![];
     for private_memory_chunk in &private_memory_commited_chunks {
         let chunk_eval_exec_lookup = private_memory_chunk.evaluate(&exec_lookup_chunk_point);
         let chunk_eval_poseidon_lookup =
             private_memory_chunk.evaluate(&poseidon_lookup_chunk_point);
+        let chunk_eval_dot_product_lookup =
+            private_memory_chunk.evaluate(&dot_product_lookup_chunk_point);
         prover_state.add_extension_scalar(chunk_eval_exec_lookup);
         prover_state.add_extension_scalar(chunk_eval_poseidon_lookup);
+        prover_state.add_extension_scalar(chunk_eval_dot_product_lookup);
         private_memory_statements.push(vec![
             Evaluation {
                 point: exec_lookup_chunk_point.clone(),
@@ -425,6 +509,10 @@ pub fn prove_execution(
             Evaluation {
                 point: poseidon_lookup_chunk_point.clone(),
                 value: chunk_eval_poseidon_lookup,
+            },
+            Evaluation {
+                point: dot_product_lookup_chunk_point.clone(),
+                value: chunk_eval_dot_product_lookup,
             },
         ]);
     }
@@ -447,6 +535,31 @@ pub fn prove_execution(
     let (initial_pc_statement, final_pc_statement) =
         intitial_and_final_pc_conditions(bytecode, log_n_cycles);
 
+    let dot_product_computation_column_evals = fold_multilinear_in_large_field(
+        &dot_product_computations_base,
+        &eval_eq(&dot_product_evals_to_prove[4].point),
+    );
+    assert_eq!(
+        (0..DIMENSION)
+            .map(|i| dot_product_computation_column_evals[i]
+                * <EF as BasedVectorSpace<PF<EF>>>::ith_basis_element(i).unwrap())
+            .sum::<EF>(),
+        dot_product_evals_to_prove[4].value
+    );
+    prover_state.add_extension_scalars(&dot_product_computation_column_evals);
+    let dot_product_computation_mixing_challenges = prover_state.sample_vec(3);
+    let dot_product_computation_column_challenge = Evaluation {
+        point: MultilinearPoint(
+            [
+                dot_product_evals_to_prove[4].point.0.clone(),
+                dot_product_computation_mixing_challenges.clone(),
+            ]
+            .concat(),
+        ),
+        value: dot_product_computation_column_evals
+            .evaluate(&MultilinearPoint(dot_product_computation_mixing_challenges)),
+    };
+
     // First Opening
     let global_statements_base = packed_pcs_global_statements(
         &packed_pcs_witness_base.tree,
@@ -466,6 +579,13 @@ pub fn prove_execution(
                 p24_indexes_statements,
                 vec![p16_evals_to_prove[2].clone()],
                 vec![p24_evals_to_prove[3].clone()],
+                vec![dot_product_evals_to_prove[0].clone()], // dot product: (start) flag
+                vec![dot_product_evals_to_prove[1].clone()], // dot product: length
+                vec![
+                    dot_product_evals_to_prove[2].clone(),
+                    dot_product_logup_star_statements.on_indexes,
+                ], // dot product: indexes
+                vec![dot_product_computation_column_challenge],
             ],
             private_memory_statements,
         ]
@@ -479,6 +599,7 @@ pub fn prove_execution(
             exec_logup_star_statements.on_pushforward,
             poseidon_logup_star_statements.on_pushforward,
             bytecode_logup_star_statements.on_pushforward,
+            dot_product_logup_star_statements.on_pushforward,
         ],
     );
 
