@@ -985,7 +985,7 @@ pub fn run_whir_verif() {
 
     // Validity Proof:
 
-    utils::init_tracing();
+    // utils::init_tracing();
     let base_pcs = WhirConfigBuilder {
         folding_factor: FoldingFactor::ConstantFromSecondRound(7, 4),
         soundness_type: SecurityAssumption::CapacityBound,

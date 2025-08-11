@@ -63,10 +63,11 @@ where
     EF: ExtensionField<PF<EF>>,
     SC: MySumcheckComputation<EF>,
 {
-    prove_in_parallel_2::<EF, SC, SC, M>(
+    prove_in_parallel_3::<EF, SC, SC, SC, M>(
         skips,
         multilinears,
         computations,
+        vec![],
         vec![],
         batching_scalars,
         eq_factors,
@@ -79,11 +80,12 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn prove_in_parallel_2<'a, EF, SC1, SC2, M: Into<MleGroup<'a, EF>>>(
+pub fn prove_in_parallel_3<'a, EF, SC1, SC2, SC3, M: Into<MleGroup<'a, EF>>>(
     mut skips: Vec<usize>, // skips == 1: classic sumcheck. skips >= 2: sumcheck with univariate skips (eprint 2024/108)
     multilinears: Vec<M>,
     computations_1: Vec<&SC1>,
     computations_2: Vec<&SC2>,
+    computations_3: Vec<&SC3>,
     batching_scalars: Vec<&[EF]>,
     mut eq_factors: Vec<Option<(Vec<EF>, Option<Mle<EF>>)>>, // (a, b, c ...), eq_poly(b, c, ...)
     mut is_zerofier: Vec<bool>,
@@ -96,10 +98,14 @@ where
     EF: ExtensionField<PF<EF>>,
     SC1: MySumcheckComputation<EF>,
     SC2: MySumcheckComputation<EF>,
+    SC3: MySumcheckComputation<EF>,
 {
     let n_sumchecks = multilinears.len();
     assert_eq!(n_sumchecks, skips.len());
-    assert_eq!(n_sumchecks, computations_1.len() + computations_2.len());
+    assert_eq!(
+        n_sumchecks,
+        computations_1.len() + computations_2.len() + computations_3.len()
+    );
     assert_eq!(n_sumchecks, batching_scalars.len());
     assert_eq!(n_sumchecks, eq_factors.len());
     assert_eq!(n_sumchecks, is_zerofier.len());
@@ -173,11 +179,23 @@ where
                     sums[i],
                     missing_mul_factors[i],
                 );
-            } else {
+            } else if i < computations_1.len() + computations_2.len() {
                 ps[i] = compute_and_send_polynomial(
                     skips[i],
                     &multilinears[i],
                     computations_2[i - computations_1.len()],
+                    &eq_factors[i],
+                    batching_scalars[i],
+                    is_zerofier[i],
+                    prover_state,
+                    sums[i],
+                    missing_mul_factors[i],
+                );
+            } else {
+                ps[i] = compute_and_send_polynomial(
+                    skips[i],
+                    &multilinears[i],
+                    computations_3[i - computations_1.len() - computations_2.len()],
                     &eq_factors[i],
                     batching_scalars[i],
                     is_zerofier[i],

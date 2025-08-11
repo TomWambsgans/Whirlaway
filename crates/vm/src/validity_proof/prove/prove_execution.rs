@@ -5,7 +5,7 @@ use crate::validity_proof::common::intitial_and_final_pc_conditions;
 use crate::validity_proof::common::poseidon_16_column_groups;
 use crate::validity_proof::common::poseidon_24_column_groups;
 use crate::validity_proof::common::poseidon_lookup_index_statements;
-use ::air::prove_many_air;
+use ::air::prove_many_air_2;
 use ::air::{table::AirTable, witness::AirWitness};
 use lookup::{compute_pushforward, prove_logup_star};
 use p3_air::BaseAir;
@@ -152,7 +152,7 @@ pub fn prove_execution(
     // PIOP
     let exec_evals_to_prove = exec_table.prove(&mut prover_state, UNIVARIATE_SKIPS, exec_witness);
 
-    let poseidon_evals_to_prove = prove_many_air(
+    let poseidon_evals_to_prove = prove_many_air_2(
         &mut prover_state,
         UNIVARIATE_SKIPS,
         &[&p16_table],

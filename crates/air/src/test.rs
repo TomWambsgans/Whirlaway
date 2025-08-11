@@ -9,7 +9,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::{build_prover_state, build_verifier_state, padd_with_zero_to_next_power_of_two};
 use whir_p3::poly::evals::EvaluationsList;
 
-use crate::{prove_many_air, table::AirTable, verify_many_air, witness::AirWitness};
+use crate::{prove_many_air_2, table::AirTable, verify_many_air, witness::AirWitness};
 
 const UNIVARIATE_SKIPS: usize = 3;
 
@@ -290,7 +290,7 @@ fn test_many_unstructured_air() {
         table.check_trace_validity(witness).unwrap();
     }
 
-    let evaluations_remaining_to_prove = prove_many_air(
+    let evaluations_remaining_to_prove = prove_many_air_2(
         &mut prover_state,
         UNIVARIATE_SKIPS,
         &tables_a,
@@ -410,7 +410,7 @@ fn test_many_structured_air() {
         table.check_trace_validity(witness).unwrap();
     }
 
-    let evaluations_remaining_to_prove = prove_many_air(
+    let evaluations_remaining_to_prove = prove_many_air_2(
         &mut prover_state,
         UNIVARIATE_SKIPS,
         &tables_a,
