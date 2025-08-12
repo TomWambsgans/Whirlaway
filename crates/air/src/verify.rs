@@ -5,7 +5,7 @@ use p3_symmetric::{CryptographicHasher, PseudoCompressionFunction};
 use serde::{Deserialize, Serialize};
 use sumcheck::{SumcheckComputation, SumcheckError, SumcheckGrinding};
 use tracing::instrument;
-use utils::{ConstraintFolder, fold_multilinear_in_large_field, log2_up};
+use utils::{ConstraintFolder, RoundType, fold_multilinear_in_large_field, log2_up};
 use whir_p3::{
     fiat_shamir::{errors::ProofError, verifier::VerifierState},
     poly::{evals::EvaluationsList, multilinear::MultilinearPoint},
@@ -120,20 +120,28 @@ impl<
             .preprocessed_columns
             .iter()
             .map(|c| {
-                fold_multilinear_in_large_field(&column_up(c), &outer_selector_evals, true)
-                    .evaluate(&MultilinearPoint(
-                        outer_sumcheck_challenge.point[1..].to_vec(),
-                    ))
+                fold_multilinear_in_large_field(
+                    &column_up(c),
+                    &outer_selector_evals,
+                    RoundType::WithSkips,
+                )
+                .evaluate(&MultilinearPoint(
+                    outer_sumcheck_challenge.point[1..].to_vec(),
+                ))
             })
             .collect::<Vec<_>>();
         let preprocessed_down = self
             .preprocessed_columns
             .iter()
             .map(|c| {
-                fold_multilinear_in_large_field(&column_down(c), &outer_selector_evals, true)
-                    .evaluate(&MultilinearPoint(
-                        outer_sumcheck_challenge.point[1..].to_vec(),
-                    ))
+                fold_multilinear_in_large_field(
+                    &column_down(c),
+                    &outer_selector_evals,
+                    RoundType::WithSkips,
+                )
+                .evaluate(&MultilinearPoint(
+                    outer_sumcheck_challenge.point[1..].to_vec(),
+                ))
             })
             .collect::<Vec<_>>();
 

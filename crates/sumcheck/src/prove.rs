@@ -6,7 +6,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use rayon::prelude::*;
 use tracing::instrument;
 use utils::{
-    batch_fold_multilinear_in_large_field, batch_fold_multilinear_in_small_field,
+    RoundType, batch_fold_multilinear_in_large_field, batch_fold_multilinear_in_small_field,
     univariate_selectors,
 };
 use whir_p3::{
@@ -144,8 +144,11 @@ where
                 .map(|s| s.evaluate(F::from_usize(z)))
                 .collect::<Vec<_>>();
             // Input `round_has_skips` is true because skips > 1.
-            let folded =
-                batch_fold_multilinear_in_small_field(multilinears, &folding_scalars, true);
+            let folded = batch_fold_multilinear_in_small_field(
+                multilinears,
+                &folding_scalars,
+                RoundType::WithSkips,
+            );
             let mut sum_z =
                 compute_over_hypercube(&folded, computation, batching_scalars, eq_mle.as_ref());
             if let Some(missing_mul_factor) = missing_mul_factor {
@@ -198,7 +201,7 @@ where
     }
 
     // Input `round_has_skips` is true because skips > 1.
-    batch_fold_multilinear_in_large_field(multilinears, &folding_scalars, true)
+    batch_fold_multilinear_in_large_field(multilinears, &folding_scalars, RoundType::WithSkips)
 }
 
 #[instrument(name = "sumcheck_round", skip_all, fields(round))]
@@ -252,7 +255,11 @@ where
             } else {
                 let folding_scalars = vec![F::ONE - F::from_usize(z), F::from_usize(z)];
                 // Input `round_has_skips` is false because skips == 1.
-                batch_fold_multilinear_in_small_field(multilinears, &folding_scalars, false)
+                batch_fold_multilinear_in_small_field(
+                    multilinears,
+                    &folding_scalars,
+                    RoundType::WithNoSkips,
+                )
             };
             let mut sum_z =
                 compute_over_hypercube(&folded, computation, batching_scalars, eq_mle.as_ref());
@@ -305,7 +312,7 @@ where
         );
     }
     // Input `round_has_skips` is false because skips == 1.
-    batch_fold_multilinear_in_large_field(multilinears, &folding_scalars, false)
+    batch_fold_multilinear_in_large_field(multilinears, &folding_scalars, RoundType::WithNoSkips)
 }
 
 fn compute_over_hypercube<F, NF, EF, SC>(
