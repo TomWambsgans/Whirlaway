@@ -143,7 +143,7 @@ where
                 .iter()
                 .map(|s| s.evaluate(F::from_usize(z)))
                 .collect::<Vec<_>>();
-            // Input `round_has_skips` is true because skips > 1.
+            // `RoundType::WithSkips` because we are in the case `skips > 1`.
             let folded = batch_fold_multilinear_in_small_field(
                 multilinears,
                 &folding_scalars,
@@ -200,10 +200,11 @@ where
         );
     }
 
-    // Input `round_has_skips` is true because skips > 1.
+    // `RoundType::WithSkips` because we are in the case `skips > 1`.
     batch_fold_multilinear_in_large_field(multilinears, &folding_scalars, RoundType::WithSkips)
 }
 
+// This function is similar to `sc_round`, but it applies for the case `skips == 1`.
 #[instrument(name = "sumcheck_round", skip_all, fields(round))]
 #[allow(clippy::too_many_arguments)]
 pub fn sc_round_no_skip<F, NF, EF, SC, Challenger>(
@@ -254,7 +255,7 @@ where
                     .collect()
             } else {
                 let folding_scalars = vec![F::ONE - F::from_usize(z), F::from_usize(z)];
-                // Input `round_has_skips` is false because skips == 1.
+                // `RoundType::WithNoSkips` because we are in the case `skips == 1`.
                 batch_fold_multilinear_in_small_field(
                     multilinears,
                     &folding_scalars,
@@ -311,7 +312,7 @@ where
                 * missing_mul_factor.unwrap_or(EF::ONE),
         );
     }
-    // Input `round_has_skips` is false because skips == 1.
+    // `RoundType::WithNoSkips` because we are in the case `skips == 1`.
     batch_fold_multilinear_in_large_field(multilinears, &folding_scalars, RoundType::WithNoSkips)
 }
 

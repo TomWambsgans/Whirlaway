@@ -7,11 +7,13 @@ use rayon::prelude::*;
 use tracing::instrument;
 use whir_p3::poly::evals::EvaluationsList;
 
+// We devide the sumcheck rounds into two types:
+// The first round that has skips and the subsequent rounds that do not have skips.
 #[derive(Debug, Clone, Copy)]
 pub enum RoundType {
-    // skips > 1
+    // Round with skips > 1 (only the first round)
     WithSkips,
-    // skips == 1
+    // Round with skips == 1
     WithNoSkips,
 }
 
