@@ -109,18 +109,30 @@ pub fn verify_execution(
 
     let grand_product_challenge_global = verifier_state.sample();
     let grand_product_challenge_p16 = verifier_state.sample().powers().collect_n(5);
+    let grand_product_challenge_p24 = verifier_state.sample().powers().collect_n(5);
     let (grand_product_exec_res, grand_product_exec_statement) =
         verify_gkr_product(&mut verifier_state, log_n_cycles)?;
     let (grand_product_p16_res, grand_product_p16_statement) =
         verify_gkr_product(&mut verifier_state, log2_ceil_usize(n_poseidons_16))?;
-    if grand_product_exec_res
-        / grand_product_challenge_global.exp_u64((n_cycles - n_poseidons_16) as u64)
-        != grand_product_p16_res
-            / (grand_product_challenge_global
-                + grand_product_challenge_p16[1]
-                + grand_product_challenge_p16[4] * F::from_usize(POSEIDON_16_NULL_HASH_PTR))
-            .exp_u64((n_poseidons_16.next_power_of_two() - n_poseidons_16) as u64)
-    {
+    let (grand_product_p24_res, grand_product_p24_statement) =
+        verify_gkr_product(&mut verifier_state, log2_ceil_usize(n_poseidons_24))?;
+
+    let corrected_prod_exec = grand_product_exec_res
+        / grand_product_challenge_global
+            .exp_u64((n_cycles - n_poseidons_16 - n_poseidons_24) as u64);
+    let corrected_prod_p16 = grand_product_p16_res
+        / (grand_product_challenge_global
+            + grand_product_challenge_p16[1]
+            + grand_product_challenge_p16[4] * F::from_usize(POSEIDON_16_NULL_HASH_PTR))
+        .exp_u64((n_poseidons_16.next_power_of_two() - n_poseidons_16) as u64);
+
+    let corrected_prod_p24 = grand_product_p24_res
+        / (grand_product_challenge_global
+            + grand_product_challenge_p24[1]
+            + grand_product_challenge_p24[4] * F::from_usize(POSEIDON_24_NULL_HASH_PTR))
+        .exp_u64((n_poseidons_24.next_power_of_two() - n_poseidons_24) as u64);
+
+    if corrected_prod_exec != corrected_prod_p16 * corrected_prod_p24 {
         return Err(ProofError::InvalidProof);
     }
 

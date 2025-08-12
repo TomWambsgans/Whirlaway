@@ -192,6 +192,7 @@ pub fn prove_execution(
     // Grand Product for consistency with precompiles
     let grand_product_challenge_global = prover_state.sample();
     let grand_product_challenge_p16 = prover_state.sample().powers().collect_n(5);
+    let grand_product_challenge_p24 = prover_state.sample().powers().collect_n(5);
     let mut exec_column_for_grand_product = vec![grand_product_challenge_global; n_cycles];
     for pos16 in &poseidons_16 {
         let Some(cycle) = pos16.cycle else {
@@ -202,6 +203,16 @@ pub fn prove_execution(
             + grand_product_challenge_p16[2] * F::from_usize(pos16.addr_input_a)
             + grand_product_challenge_p16[3] * F::from_usize(pos16.addr_input_b)
             + grand_product_challenge_p16[4] * F::from_usize(pos16.addr_output);
+    }
+    for pos24 in &poseidons_24 {
+        let Some(cycle) = pos24.cycle else {
+            break;
+        };
+        exec_column_for_grand_product[cycle] = grand_product_challenge_global
+            + grand_product_challenge_p24[1]
+            + grand_product_challenge_p24[2] * F::from_usize(pos24.addr_input_a)
+            + grand_product_challenge_p24[3] * F::from_usize(pos24.addr_input_b)
+            + grand_product_challenge_p24[4] * F::from_usize(pos24.addr_output);
     }
 
     let (grand_product_exec_res, grand_product_exec_statement) = prove_gkr_product(
@@ -224,15 +235,39 @@ pub fn prove_execution(
         &mut prover_state,
         pack_extension(&p16_column_for_grand_product),
     );
-    assert_eq!(
-        grand_product_exec_res
-            / grand_product_challenge_global.exp_u64((n_cycles - n_poseidons_16) as u64),
-        grand_product_p16_res
-            / (grand_product_challenge_global
-                + grand_product_challenge_p16[1]
-                + grand_product_challenge_p16[4] * F::from_usize(POSEIDON_16_NULL_HASH_PTR))
-            .exp_u64((n_poseidons_16.next_power_of_two() - n_poseidons_16) as u64)
+
+    let p24_column_for_grand_product = poseidons_24
+        .par_iter()
+        .map(|pos_24| {
+            grand_product_challenge_global
+                + grand_product_challenge_p24[1]
+                + grand_product_challenge_p24[2] * F::from_usize(pos_24.addr_input_a)
+                + grand_product_challenge_p24[3] * F::from_usize(pos_24.addr_input_b)
+                + grand_product_challenge_p24[4] * F::from_usize(pos_24.addr_output)
+        })
+        .collect::<Vec<_>>();
+
+    let (grand_product_p24_res, grand_product_p24_statement) = prove_gkr_product(
+        &mut prover_state,
+        pack_extension(&p24_column_for_grand_product),
     );
+
+    let corrected_prod_exec = grand_product_exec_res
+        / grand_product_challenge_global
+            .exp_u64((n_cycles - n_poseidons_16 - n_poseidons_24) as u64);
+    let corrected_prod_p16 = grand_product_p16_res
+        / (grand_product_challenge_global
+            + grand_product_challenge_p16[1]
+            + grand_product_challenge_p16[4] * F::from_usize(POSEIDON_16_NULL_HASH_PTR))
+        .exp_u64((n_poseidons_16.next_power_of_two() - n_poseidons_16) as u64);
+
+    let corrected_prod_p24 = grand_product_p24_res
+        / (grand_product_challenge_global
+            + grand_product_challenge_p24[1]
+            + grand_product_challenge_p24[4] * F::from_usize(POSEIDON_24_NULL_HASH_PTR))
+        .exp_u64((n_poseidons_24.next_power_of_two() - n_poseidons_24) as u64);
+
+    assert_eq!(corrected_prod_exec, corrected_prod_p16 * corrected_prod_p24);
 
     let exec_evals_to_prove =
         exec_table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, exec_witness);
