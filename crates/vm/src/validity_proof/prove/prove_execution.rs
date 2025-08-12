@@ -10,6 +10,7 @@ use crate::validity_proof::common::poseidon_24_column_groups;
 use crate::validity_proof::common::poseidon_lookup_index_statements;
 use ::air::prove_many_air_2;
 use ::air::{table::AirTable, witness::AirWitness};
+use lookup::prove_gkr_product;
 use lookup::{compute_pushforward, prove_logup_star};
 use p3_air::BaseAir;
 use p3_field::BasedVectorSpace;
@@ -24,6 +25,7 @@ use utils::assert_eq_many;
 use utils::dot_product_with_base;
 use utils::field_slice_as_base;
 use utils::fold_multilinear_in_large_field;
+use utils::pack_extension;
 use utils::{
     Evaluation, PF, build_poseidon_16_air, build_poseidon_24_air, build_prover_state,
     padd_with_zero_to_next_power_of_two,
@@ -187,7 +189,51 @@ pub fn prove_execution(
         &mut prover_state,
     );
 
-    // PIOP
+    // Grand Product for consistency with precompiles
+    let grand_product_challenge_global = prover_state.sample();
+    let grand_product_challenge_p16 = prover_state.sample().powers().collect_n(5);
+    let mut exec_column_for_grand_product = vec![grand_product_challenge_global; n_cycles];
+    for pos16 in &poseidons_16 {
+        let Some(cycle) = pos16.cycle else {
+            break;
+        };
+        exec_column_for_grand_product[cycle] = grand_product_challenge_global
+            + grand_product_challenge_p16[1]
+            + grand_product_challenge_p16[2] * F::from_usize(pos16.addr_input_a)
+            + grand_product_challenge_p16[3] * F::from_usize(pos16.addr_input_b)
+            + grand_product_challenge_p16[4] * F::from_usize(pos16.addr_output);
+    }
+
+    let (grand_product_exec_res, grand_product_exec_statement) = prove_gkr_product(
+        &mut prover_state,
+        pack_extension(&exec_column_for_grand_product),
+    );
+
+    let p16_column_for_grand_product = poseidons_16
+        .par_iter()
+        .map(|pos_16| {
+            grand_product_challenge_global
+                + grand_product_challenge_p16[1]
+                + grand_product_challenge_p16[2] * F::from_usize(pos_16.addr_input_a)
+                + grand_product_challenge_p16[3] * F::from_usize(pos_16.addr_input_b)
+                + grand_product_challenge_p16[4] * F::from_usize(pos_16.addr_output)
+        })
+        .collect::<Vec<_>>();
+
+    let (grand_product_p16_res, grand_product_p16_statement) = prove_gkr_product(
+        &mut prover_state,
+        pack_extension(&p16_column_for_grand_product),
+    );
+    assert_eq!(
+        grand_product_exec_res
+            / grand_product_challenge_global.exp_u64((n_cycles - n_poseidons_16) as u64),
+        grand_product_p16_res
+            / (grand_product_challenge_global
+                + grand_product_challenge_p16[1]
+                + grand_product_challenge_p16[4] * F::from_usize(POSEIDON_16_NULL_HASH_PTR))
+            .exp_u64((n_poseidons_16.next_power_of_two() - n_poseidons_16) as u64)
+    );
+
     let exec_evals_to_prove =
         exec_table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, exec_witness);
 

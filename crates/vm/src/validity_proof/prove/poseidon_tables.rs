@@ -53,24 +53,18 @@ pub fn build_poseidon_columns(
 pub fn all_poseidon_16_indexes(poseidons_16: &[WitnessPoseidon16]) -> Vec<F> {
     padd_with_zero_to_next_power_of_two(
         &[
-            padd_with_zero_to_next_power_of_two(
-                &poseidons_16
-                    .iter()
-                    .map(|p| F::from_usize(p.addr_input_a))
-                    .collect::<Vec<_>>(),
-            ),
-            padd_with_zero_to_next_power_of_two(
-                &poseidons_16
-                    .iter()
-                    .map(|p| F::from_usize(p.addr_input_b))
-                    .collect::<Vec<_>>(),
-            ),
-            padd_with_zero_to_next_power_of_two(
-                &poseidons_16
-                    .iter()
-                    .map(|p| F::from_usize(p.addr_output))
-                    .collect::<Vec<_>>(),
-            ),
+            poseidons_16
+                .iter()
+                .map(|p| F::from_usize(p.addr_input_a))
+                .collect::<Vec<_>>(),
+            poseidons_16
+                .iter()
+                .map(|p| F::from_usize(p.addr_input_b))
+                .collect::<Vec<_>>(),
+            poseidons_16
+                .iter()
+                .map(|p| F::from_usize(p.addr_output))
+                .collect::<Vec<_>>(),
         ]
         .concat(),
     )

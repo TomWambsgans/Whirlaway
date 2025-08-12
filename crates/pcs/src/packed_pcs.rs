@@ -1,5 +1,3 @@
-use std::borrow::Borrow;
-
 use p3_field::{ExtensionField, Field};
 use p3_util::log2_strict_usize;
 use utils::{Evaluation, FSProver, FSVerifier, PF};

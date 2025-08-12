@@ -4,6 +4,7 @@ use crate::validity_proof::common::fold_bytecode;
 use crate::validity_proof::common::intitial_and_final_pc_conditions;
 use ::air::table::AirTable;
 use ::air::verify_many_air_2;
+use lookup::verify_gkr_product;
 use lookup::verify_logup_star;
 use p3_air::BaseAir;
 use p3_field::PrimeCharacteristicRing;
@@ -63,6 +64,7 @@ pub fn verify_execution(
         // To avoid "DOS" attack
         return Err(ProofError::InvalidProof);
     }
+    let n_cycles = 1 << log_n_cycles;
 
     let public_memory = build_public_memory(public_input);
     let public_memory_len = public_memory.len();
@@ -104,6 +106,23 @@ pub fn verify_execution(
 
     let parsed_commitment_base =
         packed_pcs_parse_commitment(pcs.pcs_a(), &mut verifier_state, vars_pcs_base)?;
+
+    let grand_product_challenge_global = verifier_state.sample();
+    let grand_product_challenge_p16 = verifier_state.sample().powers().collect_n(5);
+    let (grand_product_exec_res, grand_product_exec_statement) =
+        verify_gkr_product(&mut verifier_state, log_n_cycles)?;
+    let (grand_product_p16_res, grand_product_p16_statement) =
+        verify_gkr_product(&mut verifier_state, log2_ceil_usize(n_poseidons_16))?;
+    if grand_product_exec_res
+        / grand_product_challenge_global.exp_u64((n_cycles - n_poseidons_16) as u64)
+        != grand_product_p16_res
+            / (grand_product_challenge_global
+                + grand_product_challenge_p16[1]
+                + grand_product_challenge_p16[4] * F::from_usize(POSEIDON_16_NULL_HASH_PTR))
+            .exp_u64((n_poseidons_16.next_power_of_two() - n_poseidons_16) as u64)
+    {
+        return Err(ProofError::InvalidProof);
+    }
 
     let exec_evals_to_verify = exec_table.verify(
         &mut verifier_state,

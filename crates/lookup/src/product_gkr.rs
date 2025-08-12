@@ -37,7 +37,7 @@ A': [a0*a4, a1*a5, a2*a6, a3*a7]
 pub fn prove_gkr_product<EF: Field>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     final_layer: Vec<EFPacking<EF>>,
-) -> Evaluation<EF>
+) -> (EF, Evaluation<EF>)
 where
     EF: ExtensionField<PF<EF>>,
     PF<EF>: PrimeField64,
@@ -60,6 +60,7 @@ where
     }
 
     assert_eq!(layers_not_packed[n - last_packed - 2].len(), 2);
+    let product = layers_not_packed[n - last_packed - 2].iter().cloned().product::<EF>();
     prover_state.add_extension_scalars(&layers_not_packed[n - last_packed - 2]);
 
     let point = MultilinearPoint(vec![prover_state.sample()]);
@@ -75,7 +76,7 @@ where
         claim = prove_gkr_product_step_packed(prover_state, layer, &claim);
     }
 
-    claim
+    (product, claim)
 }
 
 #[instrument(skip_all)]
@@ -225,7 +226,7 @@ mod tests {
     use p3_field::extension::BinomialExtensionField;
     use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
-    use utils::{build_prover_state, build_verifier_state, pack_extension};
+    use utils::{assert_eq_many, build_prover_state, build_verifier_state, pack_extension};
 
     type F = KoalaBear;
     type EF = BinomialExtensionField<F, 8>;
@@ -258,7 +259,7 @@ mod tests {
 
     #[test]
     fn test_gkr_product() {
-        let log_n = 20;
+        let log_n = 13;
         let n = 1 << log_n;
 
         let mut rng = StdRng::seed_from_u64(0);
@@ -269,14 +270,15 @@ mod tests {
         let mut prover_state = build_prover_state();
 
         let time = Instant::now();
-        prove_gkr_product(&mut prover_state, pack_extension(&layer));
+        let (product_prover, claim_prover) = prove_gkr_product(&mut prover_state, pack_extension(&layer));
         println!("GKR product took {:?}", time.elapsed());
 
         let mut verifier_state = build_verifier_state(&prover_state);
 
-        let (retrieved_product, postponed) =
+        let (product_verifier, claim_verifier) =
             verify_gkr_product::<EF>(&mut verifier_state, log_n).unwrap();
-        assert_eq!(layer.evaluate(&postponed.point), postponed.value);
-        assert_eq!(retrieved_product, real_product);
+        assert_eq!(&claim_prover, &claim_verifier);
+        assert_eq!(layer.evaluate(&claim_verifier.point), claim_verifier.value);
+        assert_eq_many!(product_verifier, product_prover, real_product);
     }
 }

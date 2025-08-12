@@ -12,6 +12,7 @@ use rayon::prelude::*;
 use utils::{ToUsize, build_poseidon16, build_poseidon24};
 
 pub struct WitnessDotProduct {
+    pub cycle: Option<usize>,
     pub addr_0: usize,   // vectorized pointer
     pub addr_1: usize,   // vectorized pointer
     pub addr_res: usize, // vectorized pointer
@@ -22,6 +23,7 @@ pub struct WitnessDotProduct {
 }
 
 pub struct WitnessMultilinearEval {
+    pub cycle: Option<usize>,
     pub addr_coeffs: usize, // vectorized pointer, of size 8.2^size
     pub addr_point: usize,  // vectorized pointer, of size `size`
     pub addr_res: usize,    // vectorized pointer
@@ -32,6 +34,7 @@ pub struct WitnessMultilinearEval {
 }
 
 pub struct WitnessPoseidon16 {
+    pub cycle: Option<usize>,
     pub addr_input_a: usize, // vectorized pointer (of size 1)
     pub addr_input_b: usize, // vectorized pointer (of size 1)
     pub addr_output: usize,  // vectorized pointer (of size 2)
@@ -40,6 +43,7 @@ pub struct WitnessPoseidon16 {
 }
 
 pub struct WitnessPoseidon24 {
+    pub cycle: Option<usize>,
     pub addr_input_a: usize, // vectorized pointer (of size 2)
     pub addr_input_b: usize, // vectorized pointer (of size 1)
     pub addr_output: usize,  // vectorized pointer (of size 1)
@@ -61,7 +65,7 @@ pub struct ExecutionTrace {
 
 pub fn get_execution_trace(
     bytecode: &Bytecode,
-    execution_result: & ExecutionResult,
+    execution_result: &ExecutionResult,
 ) -> ExecutionTrace {
     assert_eq!(execution_result.pcs.len(), execution_result.fps.len());
     let n_cycles = execution_result.pcs.len();
@@ -75,7 +79,7 @@ pub fn get_execution_trace(
     let mut dot_products = Vec::new();
     let mut vm_multilinear_evals = Vec::new();
 
-    for (i, (&pc, &fp)) in execution_result
+    for (cycle, (&pc, &fp)) in execution_result
         .pcs
         .iter()
         .zip(&execution_result.fps)
@@ -90,7 +94,7 @@ pub fn get_execution_trace(
         // );
 
         for (j, field) in field_repr.iter().enumerate() {
-            trace[j][i] = *field;
+            trace[j][cycle] = *field;
         }
 
         let mut addr_a = F::ZERO;
@@ -117,14 +121,14 @@ pub fn get_execution_trace(
         }
         let value_c = memory.0[addr_c.to_usize()].unwrap();
 
-        trace[COL_INDEX_MEM_VALUE_A][i] = value_a;
-        trace[COL_INDEX_MEM_VALUE_B][i] = value_b;
-        trace[COL_INDEX_MEM_VALUE_C][i] = value_c;
-        trace[COL_INDEX_PC][i] = F::from_usize(pc);
-        trace[COL_INDEX_FP][i] = F::from_usize(fp);
-        trace[COL_INDEX_MEM_ADDRESS_A][i] = addr_a;
-        trace[COL_INDEX_MEM_ADDRESS_B][i] = addr_b;
-        trace[COL_INDEX_MEM_ADDRESS_C][i] = addr_c;
+        trace[COL_INDEX_MEM_VALUE_A][cycle] = value_a;
+        trace[COL_INDEX_MEM_VALUE_B][cycle] = value_b;
+        trace[COL_INDEX_MEM_VALUE_C][cycle] = value_c;
+        trace[COL_INDEX_PC][cycle] = F::from_usize(pc);
+        trace[COL_INDEX_FP][cycle] = F::from_usize(fp);
+        trace[COL_INDEX_MEM_ADDRESS_A][cycle] = addr_a;
+        trace[COL_INDEX_MEM_ADDRESS_B][cycle] = addr_b;
+        trace[COL_INDEX_MEM_ADDRESS_C][cycle] = addr_c;
 
         match instruction {
             Instruction::Poseidon2_16 { arg_a, arg_b, res } => {
@@ -135,6 +139,7 @@ pub fn get_execution_trace(
                 let value_b = memory.get_vector(addr_input_b).unwrap();
                 let output = memory.get_vectorized_slice(addr_output, 2).unwrap();
                 poseidons_16.push(WitnessPoseidon16 {
+                    cycle: Some(cycle),
                     addr_input_a,
                     addr_input_b,
                     addr_output,
@@ -150,6 +155,7 @@ pub fn get_execution_trace(
                 let value_b = memory.get_vector(addr_input_b).unwrap().to_vec();
                 let output = memory.get_vector(addr_output).unwrap();
                 poseidons_24.push(WitnessPoseidon24 {
+                    cycle: Some(cycle),
                     addr_input_a,
                     addr_input_b,
                     addr_output,
@@ -174,6 +180,7 @@ pub fn get_execution_trace(
                     .unwrap();
                 let res = memory.get_extension(addr_res).unwrap();
                 dot_products.push(WitnessDotProduct {
+                    cycle: Some(cycle),
                     addr_0,
                     addr_1,
                     addr_res,
@@ -200,13 +207,14 @@ pub fn get_execution_trace(
                     .unwrap();
                 let res = memory.get_extension(addr_res).unwrap();
                 vm_multilinear_evals.push(WitnessMultilinearEval {
+                    cycle: Some(cycle),
                     addr_coeffs,
                     addr_point,
                     addr_res,
                     size: *size,
                     coeffs: slice_coeffs,
                     point,
-                    res
+                    res,
                 });
             }
             _ => {}
@@ -243,6 +251,7 @@ pub fn get_execution_trace(
 
     poseidons_16.extend(
         (0..n_poseidons_16.next_power_of_two() - n_poseidons_16).map(|_| WitnessPoseidon16 {
+            cycle: None,
             addr_input_a: 0,
             addr_input_b: 0,
             addr_output: POSEIDON_16_NULL_HASH_PTR,
@@ -252,6 +261,7 @@ pub fn get_execution_trace(
     );
     poseidons_24.extend(
         (0..n_poseidons_24.next_power_of_two() - n_poseidons_24).map(|_| WitnessPoseidon24 {
+            cycle: None,
             addr_input_a: 0,
             addr_input_b: 0,
             addr_output: POSEIDON_24_NULL_HASH_PTR,
