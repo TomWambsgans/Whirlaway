@@ -6,8 +6,7 @@ use p3_field::{ExtensionField, Field, TwoAdicField};
 use rayon::prelude::*;
 use tracing::instrument;
 use utils::{
-    batch_fold_multilinear_in_large_field, batch_fold_multilinear_in_large_field_no_skip,
-    batch_fold_multilinear_in_small_field, batch_fold_multilinear_in_small_field_no_skip,
+    batch_fold_multilinear_in_large_field, batch_fold_multilinear_in_small_field,
     univariate_selectors,
 };
 use whir_p3::{
@@ -144,8 +143,9 @@ where
                 .iter()
                 .map(|s| s.evaluate(F::from_usize(z)))
                 .collect::<Vec<_>>();
-            // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication below: TODO not urgent)
-            let folded = batch_fold_multilinear_in_small_field(multilinears, &folding_scalars);
+            // Input `round_has_skips` is true because skips > 1.
+            let folded =
+                batch_fold_multilinear_in_small_field(multilinears, &folding_scalars, true);
             let mut sum_z =
                 compute_over_hypercube(&folded, computation, batching_scalars, eq_mle.as_ref());
             if let Some(missing_mul_factor) = missing_mul_factor {
@@ -197,8 +197,8 @@ where
         );
     }
 
-    // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication below: TODO not urgent)
-    batch_fold_multilinear_in_large_field(multilinears, &folding_scalars)
+    // Input `round_has_skips` is true because skips > 1.
+    batch_fold_multilinear_in_large_field(multilinears, &folding_scalars, true)
 }
 
 #[instrument(name = "sumcheck_round", skip_all, fields(round))]
@@ -251,7 +251,8 @@ where
                     .collect()
             } else {
                 let folding_scalars = vec![F::ONE - F::from_usize(z), F::from_usize(z)];
-                batch_fold_multilinear_in_small_field_no_skip(multilinears, &folding_scalars)
+                // Input `round_has_skips` is false because skips == 1.
+                batch_fold_multilinear_in_small_field(multilinears, &folding_scalars, false)
             };
             let mut sum_z =
                 compute_over_hypercube(&folded, computation, batching_scalars, eq_mle.as_ref());
@@ -303,8 +304,8 @@ where
                 * missing_mul_factor.unwrap_or(EF::ONE),
         );
     }
-    // If skips == 1 (ie classic sumcheck round, we could avoid 1 multiplication below: TODO not urgent)
-    batch_fold_multilinear_in_large_field_no_skip(multilinears, &folding_scalars)
+    // Input `round_has_skips` is false because skips == 1.
+    batch_fold_multilinear_in_large_field(multilinears, &folding_scalars, false)
 }
 
 fn compute_over_hypercube<F, NF, EF, SC>(

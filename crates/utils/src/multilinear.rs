@@ -10,48 +10,45 @@ use whir_p3::poly::evals::EvaluationsList;
 pub fn fold_multilinear_in_small_field<F: Field, EF: ExtensionField<F>>(
     m: &EvaluationsList<EF>,
     scalars: &[F],
+    round_has_skips: bool,
 ) -> EvaluationsList<EF> {
     assert!(scalars.len().is_power_of_two() && scalars.len() <= m.num_evals());
-    let new_size = m.num_evals() / scalars.len();
 
-    if TypeId::of::<F>() == TypeId::of::<EF>() {
-        return unsafe {
-            std::mem::transmute(fold_multilinear_packed::<F>(
-                std::mem::transmute(m),
-                scalars,
-            ))
-        };
+    if round_has_skips {
+        let new_size = m.num_evals() / scalars.len();
+        if TypeId::of::<F>() == TypeId::of::<EF>() {
+            return unsafe {
+                std::mem::transmute(fold_multilinear_packed::<F>(
+                    std::mem::transmute(m),
+                    scalars,
+                ))
+            };
+        }
+
+        EvaluationsList::new(
+            (0..new_size)
+                .into_par_iter()
+                .map(|i| {
+                    scalars
+                        .iter()
+                        .enumerate()
+                        .map(|(j, s)| m.evals()[i + j * new_size] * *s)
+                        .sum()
+                })
+                .collect(),
+        )
+    } else {
+        let new_size = m.num_evals() / 2;
+        let (first_half, second_half) = m.evals().split_at(new_size);
+
+        EvaluationsList::new(
+            first_half
+                .par_iter()
+                .zip(second_half.par_iter())
+                .map(|(&a, &b)| a * scalars[0] + b * scalars[1])
+                .collect(),
+        )
     }
-
-    EvaluationsList::new(
-        (0..new_size)
-            .into_par_iter()
-            .map(|i| {
-                scalars
-                    .iter()
-                    .enumerate()
-                    .map(|(j, s)| m.evals()[i + j * new_size] * *s)
-                    .sum()
-            })
-            .collect(),
-    )
-}
-
-pub fn fold_multilinear_in_small_field_no_skip<F: Field, EF: ExtensionField<F>>(
-    m: &EvaluationsList<EF>,
-    scalars: &[F],
-) -> EvaluationsList<EF> {
-    assert!(m.num_evals() >= 2);
-    let new_size = m.num_evals() / 2;
-    let (first_half, second_half) = m.evals().split_at(new_size);
-
-    EvaluationsList::new(
-        first_half
-            .par_iter()
-            .zip(second_half.par_iter())
-            .map(|(&a, &b)| a * scalars[0] + b * scalars[1])
-            .collect(),
-    )
 }
 
 // TODO packing for all the cases
@@ -93,38 +90,35 @@ pub fn fold_multilinear_packed<F: Field>(
 pub fn fold_multilinear_in_large_field<F: Field, EF: ExtensionField<F>>(
     m: &EvaluationsList<F>,
     scalars: &[EF],
+    round_has_skips: bool,
 ) -> EvaluationsList<EF> {
     assert!(scalars.len().is_power_of_two() && scalars.len() <= m.num_evals());
-    let new_size = m.num_evals() / scalars.len();
-    EvaluationsList::new(
-        (0..new_size)
-            .into_par_iter()
-            .map(|i| {
-                scalars
-                    .iter()
-                    .enumerate()
-                    .map(|(j, s)| *s * m.evals()[i + j * new_size])
-                    .sum()
-            })
-            .collect(),
-    )
-}
+    if round_has_skips {
+        let new_size = m.num_evals() / scalars.len();
+        EvaluationsList::new(
+            (0..new_size)
+                .into_par_iter()
+                .map(|i| {
+                    scalars
+                        .iter()
+                        .enumerate()
+                        .map(|(j, s)| *s * m.evals()[i + j * new_size])
+                        .sum()
+                })
+                .collect(),
+        )
+    } else {
+        let new_size = m.num_evals() / 2;
+        let (first_half, second_half) = m.evals().split_at(new_size);
 
-pub fn fold_multilinear_in_large_field_no_skip<F: Field, EF: ExtensionField<F>>(
-    m: &EvaluationsList<F>,
-    scalars: &[EF],
-) -> EvaluationsList<EF> {
-    assert!(m.num_evals() >= 2);
-    let new_size = m.num_evals() / 2;
-    let (first_half, second_half) = m.evals().split_at(new_size);
-
-    EvaluationsList::new(
-        first_half
-            .par_iter()
-            .zip(second_half.par_iter())
-            .map(|(&a, &b)| scalars[0] * a + scalars[1] * b)
-            .collect(),
-    )
+        EvaluationsList::new(
+            first_half
+                .par_iter()
+                .zip(second_half.par_iter())
+                .map(|(&a, &b)| scalars[0] * a + scalars[1] * b)
+                .collect(),
+        )
+    }
 }
 
 #[instrument(name = "multilinears_linear_combination", skip_all)]
@@ -154,40 +148,22 @@ pub fn multilinears_linear_combination<
 pub fn batch_fold_multilinear_in_large_field<F: Field, EF: ExtensionField<F>>(
     polys: &[&EvaluationsList<F>],
     scalars: &[EF],
+    round_has_skips: bool,
 ) -> Vec<EvaluationsList<EF>> {
     polys
         .par_iter()
-        .map(|poly| fold_multilinear_in_large_field(poly, scalars))
-        .collect()
-}
-
-pub fn batch_fold_multilinear_in_large_field_no_skip<F: Field, EF: ExtensionField<F>>(
-    polys: &[&EvaluationsList<F>],
-    scalars: &[EF],
-) -> Vec<EvaluationsList<EF>> {
-    polys
-        .par_iter()
-        .map(|poly| fold_multilinear_in_large_field_no_skip(poly, scalars))
+        .map(|poly| fold_multilinear_in_large_field(poly, scalars, round_has_skips))
         .collect()
 }
 
 pub fn batch_fold_multilinear_in_small_field<F: Field, EF: ExtensionField<F>>(
     polys: &[&EvaluationsList<EF>],
     scalars: &[F],
+    round_has_skips: bool,
 ) -> Vec<EvaluationsList<EF>> {
     polys
         .par_iter()
-        .map(|poly| fold_multilinear_in_small_field(poly, scalars))
-        .collect()
-}
-
-pub fn batch_fold_multilinear_in_small_field_no_skip<F: Field, EF: ExtensionField<F>>(
-    polys: &[&EvaluationsList<EF>],
-    scalars: &[F],
-) -> Vec<EvaluationsList<EF>> {
-    polys
-        .par_iter()
-        .map(|poly| fold_multilinear_in_small_field_no_skip(poly, scalars))
+        .map(|poly| fold_multilinear_in_small_field(poly, scalars, round_has_skips))
         .collect()
 }
 
