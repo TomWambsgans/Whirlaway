@@ -53,7 +53,7 @@ impl<AB: AirBuilder> Air<AB> for DotProductAir {
             len_up,
             index_a_up,
             index_b_up,
-            index_res_up,
+            _index_res_up,
             value_a_up,
             value_b_up,
             res_up,
@@ -69,10 +69,10 @@ impl<AB: AirBuilder> Air<AB> for DotProductAir {
             len_down,
             index_a_down,
             index_b_down,
-            index_res_down,
+            _index_res_down,
             _value_a_down,
             _value_b_down,
-            res_down,
+            _res_down,
             computation_down,
         ] = down
             .into_iter()
@@ -105,7 +105,7 @@ impl<AB: AirBuilder> Air<AB> for DotProductAir {
     }
 }
 
-pub fn build_dot_product_columns(witness: &[WitnessDotProduct]) -> Vec<Vec<EF>> {
+pub fn build_dot_product_columns(witness: &[WitnessDotProduct]) -> (Vec<Vec<EF>>, usize) {
     let (
         mut flag,
         mut len,
@@ -169,15 +169,18 @@ pub fn build_dot_product_columns(witness: &[WitnessDotProduct]) -> Vec<Vec<EF>> 
     res.extend(EF::zero_vec(padding_len));
     computation.extend(EF::zero_vec(padding_len));
 
-    vec![
-        flag,
-        len,
-        index_a,
-        index_b,
-        index_res,
-        value_a,
-        value_b,
-        res,
-        computation,
-    ]
+    (
+        vec![
+            flag,
+            len,
+            index_a,
+            index_b,
+            index_res,
+            value_a,
+            value_b,
+            res,
+            computation,
+        ],
+        padding_len,
+    )
 }

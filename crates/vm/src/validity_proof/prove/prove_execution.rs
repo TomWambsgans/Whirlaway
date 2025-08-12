@@ -105,7 +105,7 @@ pub fn prove_execution(
     let p16_witness = AirWitness::new(&p16_columns, &poseidon_16_column_groups(&p16_air));
     let p24_witness = AirWitness::new(&p24_columns, &poseidon_24_column_groups(&p24_air));
 
-    let dot_product_columns = build_dot_product_columns(&dot_products);
+    let (dot_product_columns, dot_product_padding_len) = build_dot_product_columns(&dot_products);
     let dot_product_witness = AirWitness::new(&dot_product_columns, &DOT_PRODUCT_AIR_COLUMN_GROUPS);
     #[cfg(test)]
     dot_product_table
@@ -152,13 +152,17 @@ pub fn prove_execution(
         .map(|i| &private_memory[i * public_memory.len()..(i + 1) * public_memory.len()])
         .collect::<Vec<_>>();
 
+    let log_n_rows_dot_product_table = log2_strict_usize(dot_product_columns[0].len());
+
     let mut prover_state = build_prover_state::<EF>();
     prover_state.add_base_scalars(
         &[
             log_n_cycles,
             n_poseidons_16,
             n_poseidons_24,
-            log2_strict_usize(dot_product_columns[0].len()),
+            dot_products.len(),
+            log_n_rows_dot_product_table,
+            dot_product_padding_len,
             private_memory.len(),
         ]
         .into_iter()
@@ -193,6 +197,7 @@ pub fn prove_execution(
     let grand_product_challenge_global = prover_state.sample();
     let grand_product_challenge_p16 = prover_state.sample().powers().collect_n(5);
     let grand_product_challenge_p24 = prover_state.sample().powers().collect_n(5);
+    let grand_product_dot_product_challenge = prover_state.sample().powers().collect_n(6);
     let mut exec_column_for_grand_product = vec![grand_product_challenge_global; n_cycles];
     for pos16 in &poseidons_16 {
         let Some(cycle) = pos16.cycle else {
@@ -213,6 +218,14 @@ pub fn prove_execution(
             + grand_product_challenge_p24[2] * F::from_usize(pos24.addr_input_a)
             + grand_product_challenge_p24[3] * F::from_usize(pos24.addr_input_b)
             + grand_product_challenge_p24[4] * F::from_usize(pos24.addr_output);
+    }
+    for dot_product in &dot_products {
+        exec_column_for_grand_product[dot_product.cycle] = grand_product_challenge_global
+            + grand_product_dot_product_challenge[1]
+            + grand_product_dot_product_challenge[2] * F::from_usize(dot_product.addr_0)
+            + grand_product_dot_product_challenge[3] * F::from_usize(dot_product.addr_1)
+            + grand_product_dot_product_challenge[4] * F::from_usize(dot_product.addr_res)
+            + grand_product_dot_product_challenge[5] * F::from_usize(dot_product.len);
     }
 
     let (grand_product_exec_res, grand_product_exec_statement) = prove_gkr_product(
@@ -252,9 +265,27 @@ pub fn prove_execution(
         pack_extension(&p24_column_for_grand_product),
     );
 
+    let dot_product_column_for_grand_product = (0..1 << log_n_rows_dot_product_table)
+        .into_par_iter()
+        .map(|i| {
+            grand_product_challenge_global
+                + grand_product_dot_product_challenge[1]
+                + (grand_product_dot_product_challenge[2] * dot_product_columns[2][i]
+                    + grand_product_dot_product_challenge[3] * dot_product_columns[3][i]
+                    + grand_product_dot_product_challenge[4] * dot_product_columns[4][i]
+                    + grand_product_dot_product_challenge[5] * dot_product_columns[1][i])
+                    * dot_product_columns[0][i]
+        })
+        .collect::<Vec<_>>();
+
+    let (grand_product_dot_product_res, grand_product_dot_product_statement) = prove_gkr_product(
+        &mut prover_state,
+        pack_extension(&dot_product_column_for_grand_product),
+    );
+
     let corrected_prod_exec = grand_product_exec_res
         / grand_product_challenge_global
-            .exp_u64((n_cycles - n_poseidons_16 - n_poseidons_24) as u64);
+            .exp_u64((n_cycles - n_poseidons_16 - n_poseidons_24 - dot_products.len()) as u64);
     let corrected_prod_p16 = grand_product_p16_res
         / (grand_product_challenge_global
             + grand_product_challenge_p16[1]
@@ -267,7 +298,20 @@ pub fn prove_execution(
             + grand_product_challenge_p24[4] * F::from_usize(POSEIDON_24_NULL_HASH_PTR))
         .exp_u64((n_poseidons_24.next_power_of_two() - n_poseidons_24) as u64);
 
-    assert_eq!(corrected_prod_exec, corrected_prod_p16 * corrected_prod_p24);
+    let corrected_dot_product = grand_product_dot_product_res
+        / ((grand_product_challenge_global
+            + grand_product_dot_product_challenge[1]
+            + grand_product_dot_product_challenge[5])
+            .exp_u64(dot_product_padding_len as u64)
+            * (grand_product_challenge_global + grand_product_dot_product_challenge[1]).exp_u64(
+                ((1 << log_n_rows_dot_product_table) - dot_product_padding_len - dot_products.len())
+                    as u64,
+            ));
+
+    assert_eq!(
+        corrected_prod_exec,
+        corrected_prod_p16 * corrected_prod_p24 * corrected_dot_product
+    );
 
     let exec_evals_to_prove =
         exec_table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, exec_witness);

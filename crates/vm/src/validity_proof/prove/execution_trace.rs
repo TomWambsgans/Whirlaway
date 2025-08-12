@@ -12,7 +12,7 @@ use rayon::prelude::*;
 use utils::{ToUsize, build_poseidon16, build_poseidon24};
 
 pub struct WitnessDotProduct {
-    pub cycle: Option<usize>,
+    pub cycle: usize,
     pub addr_0: usize,   // vectorized pointer
     pub addr_1: usize,   // vectorized pointer
     pub addr_res: usize, // vectorized pointer
@@ -23,7 +23,7 @@ pub struct WitnessDotProduct {
 }
 
 pub struct WitnessMultilinearEval {
-    pub cycle: Option<usize>,
+    pub cycle: usize,
     pub addr_coeffs: usize, // vectorized pointer, of size 8.2^size
     pub addr_point: usize,  // vectorized pointer, of size `size`
     pub addr_res: usize,    // vectorized pointer
@@ -180,7 +180,7 @@ pub fn get_execution_trace(
                     .unwrap();
                 let res = memory.get_extension(addr_res).unwrap();
                 dot_products.push(WitnessDotProduct {
-                    cycle: Some(cycle),
+                    cycle,
                     addr_0,
                     addr_1,
                     addr_res,
@@ -207,7 +207,7 @@ pub fn get_execution_trace(
                     .unwrap();
                 let res = memory.get_extension(addr_res).unwrap();
                 vm_multilinear_evals.push(WitnessMultilinearEval {
-                    cycle: Some(cycle),
+                    cycle,
                     addr_coeffs,
                     addr_point,
                     addr_res,

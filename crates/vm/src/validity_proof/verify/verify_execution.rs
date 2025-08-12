@@ -45,10 +45,12 @@ pub fn verify_execution(
         log_n_cycles,
         n_poseidons_16,
         n_poseidons_24,
-        dot_products_log_n_rows,
+        n_dot_products,
+        table_dot_products_log_n_rows,
+        dot_product_padding_len,
         private_memory_len,
     ] = verifier_state
-        .next_base_scalars_const::<5>()?
+        .next_base_scalars_const::<7>()?
         .into_iter()
         .map(|x| x.to_usize())
         .collect::<Vec<_>>()
@@ -58,8 +60,10 @@ pub fn verify_execution(
     if log_n_cycles > 32
         || n_poseidons_16 > 1 << 32
         || n_poseidons_24 > 1 << 32
-        || dot_products_log_n_rows > 32
+        || n_dot_products > 1 << 32
+        || table_dot_products_log_n_rows > 32
         || private_memory_len > 1 << 32
+        || dot_product_padding_len > 1 << table_dot_products_log_n_rows
     {
         // To avoid "DOS" attack
         return Err(ProofError::InvalidProof);
@@ -95,10 +99,10 @@ pub fn verify_execution(
             vars_p24_indexes,
             vars_p16_table,
             vars_p24_table,
-            dot_products_log_n_rows,     // dot product: (start) flag
-            dot_products_log_n_rows,     // dot product: length
-            dot_products_log_n_rows + 2, // dot product: indexes
-            dot_products_log_n_rows + log2_ceil_usize(DIMENSION), // dot product: computation
+            table_dot_products_log_n_rows, // dot product: (start) flag
+            table_dot_products_log_n_rows, // dot product: length
+            table_dot_products_log_n_rows + 2, // dot product: indexes
+            table_dot_products_log_n_rows + log2_ceil_usize(DIMENSION), // dot product: computation
         ],
         vars_private_memory,
     ]
@@ -110,16 +114,19 @@ pub fn verify_execution(
     let grand_product_challenge_global = verifier_state.sample();
     let grand_product_challenge_p16 = verifier_state.sample().powers().collect_n(5);
     let grand_product_challenge_p24 = verifier_state.sample().powers().collect_n(5);
+    let grand_product_dot_product_challenge = verifier_state.sample().powers().collect_n(6);
     let (grand_product_exec_res, grand_product_exec_statement) =
         verify_gkr_product(&mut verifier_state, log_n_cycles)?;
     let (grand_product_p16_res, grand_product_p16_statement) =
         verify_gkr_product(&mut verifier_state, log2_ceil_usize(n_poseidons_16))?;
     let (grand_product_p24_res, grand_product_p24_statement) =
         verify_gkr_product(&mut verifier_state, log2_ceil_usize(n_poseidons_24))?;
+    let (grand_product_dot_product_res, grand_product_dot_product_statement) =
+        verify_gkr_product(&mut verifier_state, table_dot_products_log_n_rows)?;
 
     let corrected_prod_exec = grand_product_exec_res
         / grand_product_challenge_global
-            .exp_u64((n_cycles - n_poseidons_16 - n_poseidons_24) as u64);
+            .exp_u64((n_cycles - n_poseidons_16 - n_poseidons_24 - n_dot_products) as u64);
     let corrected_prod_p16 = grand_product_p16_res
         / (grand_product_challenge_global
             + grand_product_challenge_p16[1]
@@ -132,7 +139,17 @@ pub fn verify_execution(
             + grand_product_challenge_p24[4] * F::from_usize(POSEIDON_24_NULL_HASH_PTR))
         .exp_u64((n_poseidons_24.next_power_of_two() - n_poseidons_24) as u64);
 
-    if corrected_prod_exec != corrected_prod_p16 * corrected_prod_p24 {
+    let corrected_dot_product = grand_product_dot_product_res
+        / ((grand_product_challenge_global
+            + grand_product_dot_product_challenge[1]
+            + grand_product_dot_product_challenge[5])
+            .exp_u64(dot_product_padding_len as u64)
+            * (grand_product_challenge_global + grand_product_dot_product_challenge[1]).exp_u64(
+                ((1 << table_dot_products_log_n_rows) - dot_product_padding_len - n_dot_products)
+                    as u64,
+            ));
+
+    if corrected_prod_exec != corrected_prod_p16 * corrected_prod_p24 * corrected_dot_product {
         return Err(ProofError::InvalidProof);
     }
 
@@ -161,7 +178,7 @@ pub fn verify_execution(
     let dot_product_evals_to_verify = dot_product_table.verify(
         &mut verifier_state,
         1,
-        dot_products_log_n_rows,
+        table_dot_products_log_n_rows,
         &DOT_PRODUCT_AIR_COLUMN_GROUPS,
     )?;
 
@@ -256,7 +273,7 @@ pub fn verify_execution(
     let dot_product_logup_star_statements = verify_logup_star(
         &mut verifier_state,
         log_memory - 3,
-        2 + dot_products_log_n_rows,
+        2 + table_dot_products_log_n_rows,
         &dot_product_evals_to_verify[3],
     )
     .unwrap();
