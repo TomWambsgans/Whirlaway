@@ -25,3 +25,4 @@
 - Whir batching: handle the case where the second polynomial is too small compared to the first one
 - bounddary condition on dot_product table: first flag = 1
 - verify correctness of the Grand Product check
+- Proof size: replace all equality checks in the verifier algo by value deduction

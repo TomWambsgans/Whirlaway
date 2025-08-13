@@ -6,7 +6,6 @@ https://eprint.iacr.org/2025/946.pdf
 */
 
 use p3_field::{ExtensionField, Field, PrimeField64};
-use p3_util::log2_strict_usize;
 use rayon::prelude::*;
 use utils::{Evaluation, ToUsize};
 
@@ -32,7 +31,7 @@ pub fn prove_logup_star<IF: Field, EF: ExtensionField<IF>>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     table: &[IF],
     indexes: &[PF<EF>],
-    claim: &Evaluation<EF>, // claim.point = "r" in the paper
+    claimed_value: EF,
     poly_eq_point: &[EF],
     pushforward: &[EF], // already commited
 ) -> LogupStarStatements<EF>
@@ -40,8 +39,6 @@ where
     EF: ExtensionField<PF<EF>>,
     PF<EF>: PrimeField64,
 {
-    assert_eq!(claim.point.len(), log2_strict_usize(indexes.len()));
-
     let table_length = table.len();
     let indexes_length = indexes.len();
 
@@ -67,7 +64,7 @@ where
                 None,
                 false,
                 prover_state,
-                claim.value,
+                claimed_value,
                 None,
             )
         });
@@ -126,7 +123,8 @@ where
         parallel_clone(&challenge_minus_increment, &mut layer[half_len_packed..]);
         layer
     });
-    let (claim_right, pushforward_final_eval, _) = prove_gkr_quotient(prover_state, gkr_layer_right);
+    let (claim_right, pushforward_final_eval, _) =
+        prove_gkr_quotient(prover_state, gkr_layer_right);
 
     let final_point_left = MultilinearPoint(claim_left.point[1..].to_vec());
     let indexes_final_eval = random_challenge - eval_c_minux_indexes;
@@ -155,7 +153,8 @@ pub fn verify_logup_star<EF: Field>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     log_table_len: usize,
     log_indexes_len: usize,
-    claim: &Evaluation<EF>, // claim.point = "r" in the paper
+    claims: &[Evaluation<EF>],
+    alpha: EF, // batching challenge
 ) -> Result<LogupStarStatements<EF>, ProofError>
 where
     EF: ExtensionField<PF<EF>>,
@@ -164,7 +163,13 @@ where
     let (sum, postponed) =
         sumcheck::verify(verifier_state, log_table_len, 2).map_err(|_| ProofError::InvalidProof)?;
 
-    if sum != claim.value {
+    if sum
+        != claims
+            .iter()
+            .zip(alpha.powers())
+            .map(|(c, a)| c.value * a)
+            .sum::<EF>()
+    {
         return Err(ProofError::InvalidProof);
     }
 
@@ -199,9 +204,13 @@ where
         point: final_point_left.clone(),
         value: index_openined_value,
     };
-
     if claim_left.value
-        != final_point_left.eq_poly_outside(&claim.point) * (EF::ONE - claim_left.point[0])
+        != claims
+            .iter()
+            .zip(alpha.powers())
+            .map(|(claim, a)| final_point_left.eq_poly_outside(&claim.point) * a)
+            .sum::<EF>()
+            * (EF::ONE - claim_left.point[0])
             + (random_challenge - index_openined_value) * claim_left.point[0]
     {
         return Err(ProofError::InvalidProof);
@@ -317,7 +326,7 @@ mod tests {
             &mut prover_state,
             &commited_table,
             &commited_indexes,
-            &claim,
+            claim.value,
             &poly_eq_point,
             &pushforward,
         );
@@ -325,7 +334,7 @@ mod tests {
 
         let mut verifier_state = FSVerifier::new(prover_state.proof_data().to_vec(), challenger);
         let statements =
-            verify_logup_star(&mut verifier_state, log_table_len, log_indexes_len, &claim).unwrap();
+            verify_logup_star(&mut verifier_state, log_table_len, log_indexes_len, &[claim], EF::ONE).unwrap();
 
         assert_eq!(
             indexes.evaluate(&statements.on_indexes.point),

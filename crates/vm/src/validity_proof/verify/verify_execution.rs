@@ -153,6 +153,36 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
+    // Grand product statements
+    let [grand_product_fp_eval] = verifier_state.next_extension_scalars_const()?;
+    let grand_product_fp_statement = Evaluation {
+        point: grand_product_exec_statement.point.clone(),
+        value: grand_product_fp_eval,
+    };
+
+    let [
+        grand_product_mem_value_a_eval,
+        grand_product_mem_value_b_eval,
+        grand_product_mem_value_c_eval,
+    ] = verifier_state.next_extension_scalars_const()?;
+    let grand_product_mem_values_mixing_challenges = MultilinearPoint(verifier_state.sample_vec(2));
+    let grand_product_mem_values_statement = Evaluation {
+        point: MultilinearPoint(
+            [
+                grand_product_mem_values_mixing_challenges.0.clone(),
+                grand_product_exec_statement.point.0.clone(),
+            ]
+            .concat(),
+        ),
+        value: [
+            grand_product_mem_value_a_eval,
+            grand_product_mem_value_b_eval,
+            grand_product_mem_value_c_eval,
+            EF::ZERO,
+        ]
+        .evaluate(&grand_product_mem_values_mixing_challenges),
+    };
+
     let exec_evals_to_verify = exec_table.verify(
         &mut verifier_state,
         UNIVARIATE_SKIPS,
@@ -182,6 +212,8 @@ pub fn verify_execution(
         &DOT_PRODUCT_AIR_COLUMN_GROUPS,
     )?;
 
+    let memory_poly_eq_point_alpha = verifier_state.sample();
+
     // Poseidons 16/24 memory addresses lookup
     let poseidon_lookup_batching_chalenges = MultilinearPoint(verifier_state.sample_vec(3));
 
@@ -205,7 +237,8 @@ pub fn verify_execution(
         &mut verifier_state,
         log_memory,
         log_n_cycles + 2, // 3 memory columns, rounded to 2^2
-        &exec_evals_to_verify[1],
+        &[exec_evals_to_verify[1].clone(), grand_product_mem_values_statement],
+        memory_poly_eq_point_alpha
     )
     .unwrap();
 
@@ -232,7 +265,8 @@ pub fn verify_execution(
         &mut verifier_state,
         log_memory - 3, // "-3" because it's folded memory
         poseidon_lookup_log_length,
-        &poseidon_lookup_challenge,
+        &[poseidon_lookup_challenge],
+        EF::ONE,
     )
     .unwrap();
 
@@ -249,7 +283,8 @@ pub fn verify_execution(
         &mut verifier_state,
         log_bytecode_len,
         log_n_cycles,
-        &bytecode_lookup_claim,
+        &[bytecode_lookup_claim],
+        EF::ONE,
     )
     .unwrap();
     let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
@@ -271,7 +306,8 @@ pub fn verify_execution(
         &mut verifier_state,
         log_memory - 3,
         2 + table_dot_products_log_n_rows,
-        &dot_product_evals_to_verify[3],
+        &[dot_product_evals_to_verify[3].clone()],
+        EF::ONE,
     )
     .unwrap();
 
@@ -413,7 +449,7 @@ pub fn verify_execution(
                     initial_pc_statement,
                     final_pc_statement,
                 ], // pc
-                vec![exec_evals_to_verify[3].clone()],
+                vec![exec_evals_to_verify[3].clone(), grand_product_fp_statement], // fp
                 vec![
                     exec_evals_to_verify[4].clone(),
                     exec_logup_star_statements.on_indexes,

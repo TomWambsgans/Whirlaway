@@ -33,6 +33,7 @@ use utils::{
 use whir_p3::dft::EvalsDft;
 use whir_p3::poly::evals::{eval_eq, fold_multilinear};
 use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
+use whir_p3::utils::compute_eval_eq;
 
 use crate::prove::build_poseidon_columns;
 use crate::validity_proof::common::poseidon_lookup_value;
@@ -303,6 +304,44 @@ pub fn prove_execution(
                     as u64,
             ));
 
+    // Grand product statements
+    let grand_product_fp_eval =
+        full_trace[COL_INDEX_FP].evaluate(&grand_product_exec_statement.point);
+    prover_state.add_extension_scalar(grand_product_fp_eval);
+    let grand_product_fp_statement = Evaluation {
+        point: grand_product_exec_statement.point.clone(),
+        value: grand_product_fp_eval,
+    };
+
+    let grand_product_mem_value_a_eval =
+        full_trace[COL_INDEX_MEM_VALUE_A].evaluate(&grand_product_exec_statement.point);
+    let grand_product_mem_value_b_eval =
+        full_trace[COL_INDEX_MEM_VALUE_B].evaluate(&grand_product_exec_statement.point);
+    let grand_product_mem_value_c_eval =
+        full_trace[COL_INDEX_MEM_VALUE_C].evaluate(&grand_product_exec_statement.point);
+    prover_state.add_extension_scalars(&[
+        grand_product_mem_value_a_eval,
+        grand_product_mem_value_b_eval,
+        grand_product_mem_value_c_eval,
+    ]);
+    let grand_product_mem_values_mixing_challenges = MultilinearPoint(prover_state.sample_vec(2));
+    let grand_product_mem_values_statement = Evaluation {
+        point: MultilinearPoint(
+            [
+                grand_product_mem_values_mixing_challenges.0.clone(),
+                grand_product_exec_statement.point.0.clone(),
+            ]
+            .concat(),
+        ),
+        value: [
+            grand_product_mem_value_a_eval,
+            grand_product_mem_value_b_eval,
+            grand_product_mem_value_c_eval,
+            EF::ZERO,
+        ]
+        .evaluate(&grand_product_mem_values_mixing_challenges),
+    };
+
     assert_eq!(
         corrected_prod_exec,
         corrected_prod_p16 * corrected_prod_p24 * corrected_dot_product
@@ -329,7 +368,13 @@ pub fn prove_execution(
     let exec_memory_indexes = padd_with_zero_to_next_power_of_two(
         &full_trace[COL_INDEX_MEM_ADDRESS_A..=COL_INDEX_MEM_ADDRESS_C].concat(),
     );
-    let memory_poly_eq_point = eval_eq(&exec_evals_to_prove[1].point);
+    let mut memory_poly_eq_point = eval_eq(&exec_evals_to_prove[1].point);
+    let memory_poly_eq_point_alpha = prover_state.sample();
+    compute_eval_eq::<PF<EF>, EF, true>(
+        &grand_product_mem_values_statement.point,
+        &mut memory_poly_eq_point,
+        memory_poly_eq_point_alpha,
+    );
     let padded_memory = padd_with_zero_to_next_power_of_two(&memory); // TODO avoid this padding
     let exec_pushforward = compute_pushforward(
         &exec_memory_indexes,
@@ -531,7 +576,8 @@ pub fn prove_execution(
         &mut prover_state,
         &padded_memory,
         &exec_memory_indexes,
-        &exec_evals_to_prove[1],
+        exec_evals_to_prove[1].value
+            + memory_poly_eq_point_alpha * grand_product_mem_values_statement.value,
         &memory_poly_eq_point,
         &exec_pushforward,
     );
@@ -540,7 +586,7 @@ pub fn prove_execution(
         &mut prover_state,
         &folded_memory,
         &all_poseidon_indexes,
-        &poseidon_lookup_challenge,
+        poseidon_lookup_challenge.value,
         &poseidon_poly_eq_point,
         &poseidon_pushforward,
     );
@@ -549,7 +595,7 @@ pub fn prove_execution(
         &mut prover_state,
         &folded_bytecode,
         &pc_column,
-        &bytecode_lookup_claim,
+        bytecode_lookup_claim.value,
         &bytecode_poly_eq_point,
         &bytecode_pushforward,
     );
@@ -562,7 +608,7 @@ pub fn prove_execution(
         &mut prover_state,
         &memory_in_extension_field,
         &dot_product_indexes,
-        &dot_product_evals_to_prove[3],
+        dot_product_evals_to_prove[3].value,
         &dot_product_poly_eq_point,
         &dot_product_pushforward,
     );
@@ -683,7 +729,7 @@ pub fn prove_execution(
                     initial_pc_statement,
                     final_pc_statement,
                 ], // pc
-                vec![exec_evals_to_prove[3].clone()], // fp
+                vec![exec_evals_to_prove[3].clone(), grand_product_fp_statement], // fp
                 vec![
                     exec_evals_to_prove[4].clone(),
                     exec_logup_star_statements.on_indexes,
