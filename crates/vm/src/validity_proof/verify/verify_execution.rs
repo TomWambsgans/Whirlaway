@@ -81,7 +81,6 @@ pub fn verify_execution(
     let log_n_p16 = log2_ceil_usize(n_poseidons_16);
     let log_n_p24 = log2_ceil_usize(n_poseidons_24);
 
-    let vars_pc_fp = log_n_cycles + 1;
     let vars_exec_memory_addresses = log_n_cycles + 2; // 3 memory addresses, rounded to 2^2
     let vars_p16_indexes = log_n_p16 + 2;
     let vars_p24_indexes = log_n_p24 + 2;
@@ -93,7 +92,8 @@ pub fn verify_execution(
 
     let vars_pcs_base = [
         vec![
-            vars_pc_fp,
+            log_n_cycles, // pc
+            log_n_cycles, // fp
             vars_exec_memory_addresses,
             vars_p16_indexes,
             vars_p24_indexes,
@@ -259,9 +259,6 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
-    let mut bytecode_lookup_index_statement = bytecode_logup_star_statements.on_indexes.clone();
-    bytecode_lookup_index_statement.point.0.insert(0, EF::ZERO); // because we commit both pc and fp together
-
     let poseidon_lookup_memory_point = MultilinearPoint(
         [
             poseidon_logup_star_statements.on_table.point.0.clone(),
@@ -412,12 +409,13 @@ pub fn verify_execution(
             vec![
                 vec![
                     exec_evals_to_verify[2].clone(),
-                    bytecode_lookup_index_statement,
+                    bytecode_logup_star_statements.on_indexes.clone(),
                     initial_pc_statement,
                     final_pc_statement,
-                ], // pc, fp
+                ], // pc
+                vec![exec_evals_to_verify[3].clone()],
                 vec![
-                    exec_evals_to_verify[3].clone(),
+                    exec_evals_to_verify[4].clone(),
                     exec_logup_star_statements.on_indexes,
                 ], // memory addresses
                 p16_indexes_statements,

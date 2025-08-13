@@ -177,11 +177,11 @@ pub fn intitial_and_final_pc_conditions(
     log_n_cycles: usize,
 ) -> (Evaluation<EF>, Evaluation<EF>) {
     let initial_pc_statement = Evaluation {
-        point: MultilinearPoint(EF::zero_vec(log_n_cycles + 1)),
+        point: MultilinearPoint(EF::zero_vec(log_n_cycles)),
         value: EF::ZERO,
     };
     let final_pc_statement = Evaluation {
-        point: MultilinearPoint([vec![EF::ZERO], vec![EF::ONE; log_n_cycles]].concat()),
+        point: MultilinearPoint(vec![EF::ONE; log_n_cycles]),
         value: EF::from_usize(bytecode.ending_pc),
     };
     (initial_pc_statement, final_pc_statement)

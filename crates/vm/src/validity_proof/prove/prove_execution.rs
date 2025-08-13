@@ -136,12 +136,6 @@ pub fn prove_execution(
         .flat_map(|ef| <EF as BasedVectorSpace<PF<EF>>>::as_basis_coefficients_slice(ef).to_vec())
         .collect::<Vec<_>>();
 
-    let commited_pc_fp = [
-        full_trace[COL_INDEX_PC].clone(),
-        full_trace[COL_INDEX_FP].clone(),
-    ]
-    .concat();
-
     let exec_memory_addresses = padd_with_zero_to_next_power_of_two(
         &full_trace[COL_INDEX_MEM_ADDRESS_A..=COL_INDEX_MEM_ADDRESS_C].concat(),
     );
@@ -175,7 +169,8 @@ pub fn prove_execution(
         pcs.pcs_a(),
         &[
             vec![
-                commited_pc_fp.as_slice(),
+                full_trace[COL_INDEX_PC].as_slice(),
+                full_trace[COL_INDEX_FP].as_slice(),
                 exec_memory_addresses.as_slice(),
                 all_poseidon_16_indexes(&poseidons_16).as_slice(),
                 all_poseidon_24_indexes(&poseidons_24).as_slice(),
@@ -572,9 +567,6 @@ pub fn prove_execution(
         &dot_product_pushforward,
     );
 
-    let mut bytecode_lookup_index_statement = bytecode_logup_star_statements.on_indexes.clone();
-    bytecode_lookup_index_statement.point.0.insert(0, EF::ZERO); // because we commit both pc and fp together
-
     let poseidon_lookup_memory_point = MultilinearPoint(
         [
             poseidon_logup_star_statements.on_table.point.0.clone(),
@@ -687,12 +679,13 @@ pub fn prove_execution(
             vec![
                 vec![
                     exec_evals_to_prove[2].clone(),
-                    bytecode_lookup_index_statement,
+                    bytecode_logup_star_statements.on_indexes.clone(),
                     initial_pc_statement,
                     final_pc_statement,
-                ], // pc, fp
+                ], // pc
+                vec![exec_evals_to_prove[3].clone()], // fp
                 vec![
-                    exec_evals_to_prove[3].clone(),
+                    exec_evals_to_prove[4].clone(),
                     exec_logup_star_statements.on_indexes,
                 ], // memory addresses
                 p16_indexes_statements,
