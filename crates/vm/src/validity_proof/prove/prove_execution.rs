@@ -87,7 +87,7 @@ pub fn prove_execution(
             .map(Vec::as_slice)
             .collect::<Vec<_>>(),
     );
-    let exec_witness = AirWitness::<PF<EF>>::new(&exec_columns, &COLUMN_GROUPS_EXEC);
+    let exec_witness = AirWitness::<PF<EF>>::new(&exec_columns, &exec_column_groups());
     let exec_table = AirTable::<EF, _>::new(VMAir);
 
     #[cfg(test)]
@@ -368,7 +368,7 @@ pub fn prove_execution(
     let exec_memory_indexes = padd_with_zero_to_next_power_of_two(
         &full_trace[COL_INDEX_MEM_ADDRESS_A..=COL_INDEX_MEM_ADDRESS_C].concat(),
     );
-    let mut memory_poly_eq_point = eval_eq(&exec_evals_to_prove[1].point);
+    let mut memory_poly_eq_point = eval_eq(&exec_evals_to_prove[11].point);
     let memory_poly_eq_point_alpha = prover_state.sample();
     compute_eval_eq::<PF<EF>, EF, true>(
         &grand_product_mem_values_statement.point,
@@ -517,32 +517,35 @@ pub fn prove_execution(
         )
     };
 
-    // As long as we dont have the gkr grand product, for consistency accross all the tables, that will require opening
-    // on the instruction precompiles columns (btw we should as always do the sumchecks "in parallel" to get common challenges),
-    // we perform the bytecode lookup only on the first N_INSTRUCTION_COLUMNS_IN_AIR.
-    // But it will on the full N_INSTRUCTION_COLUMNS eventually.
+    for i in 1..N_INSTRUCTION_COLUMNS_IN_AIR {
+        assert_eq!(&exec_evals_to_prove[0].point, &exec_evals_to_prove[i].point);
+    }
+    let bytecode_lookup_point = exec_evals_to_prove[0].point.clone();
+    let non_used_precompiles_evals = full_trace
+        [N_INSTRUCTION_COLUMNS_IN_AIR..N_INSTRUCTION_COLUMNS]
+        .iter()
+        .map(|col| col.evaluate(&bytecode_lookup_point))
+        .collect::<Vec<_>>();
+    prover_state.add_extension_scalars(&non_used_precompiles_evals);
 
     let bytecode_compression_challenges =
-        MultilinearPoint(exec_evals_to_prove[0].point[..LOG_N_INSTRUCTION_COLUMNS_IN_AIR].to_vec());
+        MultilinearPoint(prover_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
 
-    let compressed_exec_instructions = fold_multilinear_in_large_field(
-        &padd_with_zero_to_next_power_of_two(&full_trace[..N_INSTRUCTION_COLUMNS_IN_AIR].concat()),
-        &eval_eq(&bytecode_compression_challenges.0),
-    );
     let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
     let pc_column = &full_trace[COL_INDEX_PC];
-    // TODO remove this sanity check
-    for (i, pc) in pc_column.iter().enumerate() {
-        assert_eq!(
-            folded_bytecode[pc.to_usize()],
-            compressed_exec_instructions[i]
-        );
-    }
-    let bytecode_lookup_point =
-        MultilinearPoint(exec_evals_to_prove[0].point[LOG_N_INSTRUCTION_COLUMNS_IN_AIR..].to_vec());
+
     let bytecode_lookup_claim = Evaluation {
         point: bytecode_lookup_point.clone(),
-        value: exec_evals_to_prove[0].value,
+        value: padd_with_zero_to_next_power_of_two(
+            &[
+                (0..N_INSTRUCTION_COLUMNS_IN_AIR)
+                    .map(|i| exec_evals_to_prove[i].value)
+                    .collect::<Vec<_>>(),
+                non_used_precompiles_evals,
+            ]
+            .concat(),
+        )
+        .evaluate(&bytecode_compression_challenges),
     };
     let bytecode_poly_eq_point = eval_eq(&bytecode_lookup_point);
     let bytecode_pushforward =
@@ -576,7 +579,7 @@ pub fn prove_execution(
         &mut prover_state,
         &padded_memory,
         &exec_memory_indexes,
-        exec_evals_to_prove[1].value
+        exec_evals_to_prove[11].value
             + memory_poly_eq_point_alpha * grand_product_mem_values_statement.value,
         &memory_poly_eq_point,
         &exec_pushforward,
@@ -724,14 +727,14 @@ pub fn prove_execution(
         &[
             vec![
                 vec![
-                    exec_evals_to_prove[2].clone(),
+                    exec_evals_to_prove[12].clone(),
                     bytecode_logup_star_statements.on_indexes.clone(),
                     initial_pc_statement,
                     final_pc_statement,
                 ], // pc
-                vec![exec_evals_to_prove[3].clone(), grand_product_fp_statement], // fp
+                vec![exec_evals_to_prove[13].clone(), grand_product_fp_statement], // fp
                 vec![
-                    exec_evals_to_prove[4].clone(),
+                    exec_evals_to_prove[14].clone(),
                     exec_logup_star_statements.on_indexes,
                 ], // memory addresses
                 p16_indexes_statements,

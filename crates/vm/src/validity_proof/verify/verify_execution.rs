@@ -187,7 +187,7 @@ pub fn verify_execution(
         &mut verifier_state,
         UNIVARIATE_SKIPS,
         log_n_cycles,
-        &COLUMN_GROUPS_EXEC,
+        &exec_column_groups(),
     )?;
 
     let poseidon_evals_to_verify = verify_many_air_2(
@@ -217,6 +217,32 @@ pub fn verify_execution(
     // Poseidons 16/24 memory addresses lookup
     let poseidon_lookup_batching_chalenges = MultilinearPoint(verifier_state.sample_vec(3));
 
+    let non_used_precompiles_evals = verifier_state
+        .next_extension_scalars_vec(N_INSTRUCTION_COLUMNS - N_INSTRUCTION_COLUMNS_IN_AIR)?;
+    let bytecode_compression_challenges =
+        MultilinearPoint(verifier_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
+
+    for i in 1..N_INSTRUCTION_COLUMNS_IN_AIR {
+        assert_eq!(
+            &exec_evals_to_verify[0].point,
+            &exec_evals_to_verify[i].point
+        );
+    }
+    let bytecode_lookup_point = exec_evals_to_verify[0].point.clone();
+    let bytecode_lookup_claim = Evaluation {
+        point: bytecode_lookup_point.clone(),
+        value: padd_with_zero_to_next_power_of_two(
+            &[
+                (0..N_INSTRUCTION_COLUMNS_IN_AIR)
+                    .map(|i| exec_evals_to_verify[i].value)
+                    .collect::<Vec<_>>(),
+                non_used_precompiles_evals,
+            ]
+            .concat(),
+        )
+        .evaluate(&bytecode_compression_challenges),
+    };
+
     let poseidon_lookup_log_length = 3 + log_n_p16.max(log_n_p24);
 
     let log_bytecode_len = log2_ceil_usize(bytecode.instructions.len());
@@ -237,8 +263,11 @@ pub fn verify_execution(
         &mut verifier_state,
         log_memory,
         log_n_cycles + 2, // 3 memory columns, rounded to 2^2
-        &[exec_evals_to_verify[1].clone(), grand_product_mem_values_statement],
-        memory_poly_eq_point_alpha
+        &[
+            exec_evals_to_verify[11].clone(),
+            grand_product_mem_values_statement,
+        ],
+        memory_poly_eq_point_alpha,
     )
     .unwrap();
 
@@ -270,15 +299,6 @@ pub fn verify_execution(
     )
     .unwrap();
 
-    let bytecode_compression_challenges = MultilinearPoint(
-        exec_evals_to_verify[0].point[..LOG_N_INSTRUCTION_COLUMNS_IN_AIR].to_vec(),
-    );
-    let bytecode_lookup_claim = Evaluation {
-        point: MultilinearPoint(
-            exec_evals_to_verify[0].point[LOG_N_INSTRUCTION_COLUMNS_IN_AIR..].to_vec(),
-        ),
-        value: exec_evals_to_verify[0].value,
-    };
     let bytecode_logup_star_statements = verify_logup_star(
         &mut verifier_state,
         log_bytecode_len,
@@ -444,14 +464,14 @@ pub fn verify_execution(
         &[
             vec![
                 vec![
-                    exec_evals_to_verify[2].clone(),
+                    exec_evals_to_verify[12].clone(),
                     bytecode_logup_star_statements.on_indexes.clone(),
                     initial_pc_statement,
                     final_pc_statement,
                 ], // pc
-                vec![exec_evals_to_verify[3].clone(), grand_product_fp_statement], // fp
+                vec![exec_evals_to_verify[13].clone(), grand_product_fp_statement], // fp
                 vec![
-                    exec_evals_to_verify[4].clone(),
+                    exec_evals_to_verify[14].clone(),
                     exec_logup_star_statements.on_indexes,
                 ], // memory addresses
                 p16_indexes_statements,

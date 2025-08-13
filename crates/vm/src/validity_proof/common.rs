@@ -155,18 +155,12 @@ pub fn poseidon_lookup_index_statements(
     Ok((p16_indexes_statements, p24_indexes_statements))
 }
 
-// For now we encly consider the columns up to N_INSTRUCTION_COLUMNS_IN_AIR.
-// Precompile columns will be added later.
 pub fn fold_bytecode(bytecode: &Bytecode, folding_challenges: &MultilinearPoint<EF>) -> Vec<EF> {
     let encoded_bytecode = padd_with_zero_to_next_power_of_two(
         &bytecode
             .instructions
             .par_iter()
-            .flat_map(|i| {
-                padd_with_zero_to_next_power_of_two(
-                    &i.field_representation()[..N_INSTRUCTION_COLUMNS_IN_AIR],
-                )
-            })
+            .flat_map(|i| padd_with_zero_to_next_power_of_two(&i.field_representation()))
             .collect::<Vec<_>>(),
     );
     fold_multilinear(&encoded_bytecode, &folding_challenges)
