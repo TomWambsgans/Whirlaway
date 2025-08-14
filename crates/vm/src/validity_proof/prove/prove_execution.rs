@@ -167,6 +167,9 @@ pub fn prove_execution(
         .collect::<Vec<_>>(),
     );
 
+    let p16_indexes = all_poseidon_16_indexes(&poseidons_16);
+    let p24_indexes = all_poseidon_24_indexes(&poseidons_24);
+
     // 1st Commitment
     let packed_pcs_witness_base = packed_pcs_commit(
         pcs.pcs_a(),
@@ -175,8 +178,8 @@ pub fn prove_execution(
                 full_trace[COL_INDEX_PC].as_slice(),
                 full_trace[COL_INDEX_FP].as_slice(),
                 exec_memory_addresses.as_slice(),
-                all_poseidon_16_indexes(&poseidons_16).as_slice(),
-                all_poseidon_24_indexes(&poseidons_24).as_slice(),
+                p16_indexes.as_slice(),
+                p24_indexes.as_slice(),
                 p16_commited.as_slice(),
                 p24_commited.as_slice(),
                 dot_product_flags.as_slice(),
@@ -311,6 +314,69 @@ pub fn prove_execution(
         corrected_prod_p16 * corrected_prod_p24 * corrected_dot_product
     );
 
+    let p16_grand_product_evals_on_indexes_a =
+        (&p16_indexes[0..poseidons_16.len()]).evaluate(&grand_product_p16_statement.point);
+    let p16_grand_product_evals_on_indexes_b = (&p16_indexes
+        [poseidons_16.len()..2 * poseidons_16.len()])
+        .evaluate(&grand_product_p16_statement.point);
+    let p16_grand_product_evals_on_indexes_res = (&p16_indexes
+        [poseidons_16.len() * 2..3 * poseidons_16.len()])
+        .evaluate(&grand_product_p16_statement.point);
+    prover_state.add_extension_scalars(&[
+        p16_grand_product_evals_on_indexes_a,
+        p16_grand_product_evals_on_indexes_b,
+        p16_grand_product_evals_on_indexes_res,
+    ]);
+    let p16_mixing_scalars_grand_product = MultilinearPoint(prover_state.sample_vec(2));
+    let p16_final_statement_grand_product = Evaluation {
+        point: MultilinearPoint(
+            [
+                p16_mixing_scalars_grand_product.0.clone(),
+                grand_product_p16_statement.point.0.clone(),
+            ]
+            .concat(),
+        ),
+        value: [
+            p16_grand_product_evals_on_indexes_a,
+            p16_grand_product_evals_on_indexes_b,
+            p16_grand_product_evals_on_indexes_res,
+            EF::ZERO,
+        ]
+        .evaluate(&p16_mixing_scalars_grand_product),
+    };
+
+
+    let p24_grand_product_evals_on_indexes_a =
+        (&p24_indexes[0..poseidons_24.len()]).evaluate(&grand_product_p24_statement.point);
+    let p24_grand_product_evals_on_indexes_b = (&p24_indexes
+        [poseidons_24.len()..2 * poseidons_24.len()])
+        .evaluate(&grand_product_p24_statement.point);
+    let p24_grand_product_evals_on_indexes_res = (&p24_indexes
+        [poseidons_24.len() * 2..3 * poseidons_24.len()])
+        .evaluate(&grand_product_p24_statement.point);
+    prover_state.add_extension_scalars(&[
+        p24_grand_product_evals_on_indexes_a,
+        p24_grand_product_evals_on_indexes_b,
+        p24_grand_product_evals_on_indexes_res,
+    ]);
+    let p24_mixing_scalars_grand_product = MultilinearPoint(prover_state.sample_vec(2));
+    let p24_final_statement_grand_product = Evaluation {
+        point: MultilinearPoint(
+            [
+                p24_mixing_scalars_grand_product.0.clone(),
+                grand_product_p24_statement.point.0.clone(),
+            ]
+            .concat(),
+        ),
+        value: [
+            p24_grand_product_evals_on_indexes_a,
+            p24_grand_product_evals_on_indexes_b,
+            p24_grand_product_evals_on_indexes_res,
+            EF::ZERO,
+        ]
+        .evaluate(&p24_mixing_scalars_grand_product),
+    };
+
     let (grand_product_exec_sumcheck_point, grand_product_exec_sumcheck_inner_evals, _) =
         sumcheck::prove(
             1, // TODO univariate skip?
@@ -340,7 +406,8 @@ pub fn prove_execution(
         grand_product_exec_sumcheck_inner_evals.len()
     ); // TODO open less columns
 
-    let grand_product_exec_evals_on_each_column = &grand_product_exec_sumcheck_inner_evals[..N_INSTRUCTION_COLUMNS];
+    let grand_product_exec_evals_on_each_column =
+        &grand_product_exec_sumcheck_inner_evals[..N_INSTRUCTION_COLUMNS];
 
     let grand_product_fp_statement = Evaluation {
         point: grand_product_exec_sumcheck_point.clone(),
@@ -721,13 +788,15 @@ pub fn prove_execution(
     );
     prover_state.add_extension_scalars(&poseidon_index_evals);
 
-    let (p16_indexes_statements, p24_indexes_statements) = poseidon_lookup_index_statements(
+    let (mut p16_indexes_statements, mut p24_indexes_statements) = poseidon_lookup_index_statements(
         &poseidon_index_evals,
         n_poseidons_16,
         n_poseidons_24,
         &poseidon_logup_star_statements.on_indexes.point,
     )
     .unwrap();
+    p16_indexes_statements.push(p16_final_statement_grand_product);
+    p24_indexes_statements.push(p24_final_statement_grand_product);
 
     let (initial_pc_statement, final_pc_statement) =
         intitial_and_final_pc_conditions(bytecode, log_n_cycles);

@@ -155,6 +155,69 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
+    let [
+        p16_grand_product_evals_on_indexes_a,
+        p16_grand_product_evals_on_indexes_b,
+        p16_grand_product_evals_on_indexes_res,
+    ] = verifier_state.next_extension_scalars_const()?;
+    if grand_product_challenge_global + grand_product_challenge_p16[1]
+        + grand_product_challenge_p16[2] * p16_grand_product_evals_on_indexes_a
+        + grand_product_challenge_p16[3] * p16_grand_product_evals_on_indexes_b
+        + grand_product_challenge_p16[4] * p16_grand_product_evals_on_indexes_res
+        != grand_product_p16_statement.value
+    {
+        return Err(ProofError::InvalidProof);
+    }
+    let p16_mixing_scalars_grand_product = MultilinearPoint(verifier_state.sample_vec(2));
+    let p16_final_statement_grand_product = Evaluation {
+        point: MultilinearPoint(
+            [
+                p16_mixing_scalars_grand_product.0.clone(),
+                grand_product_p16_statement.point.0.clone(),
+            ]
+            .concat(),
+        ),
+        value: [
+            p16_grand_product_evals_on_indexes_a,
+            p16_grand_product_evals_on_indexes_b,
+            p16_grand_product_evals_on_indexes_res,
+            EF::ZERO,
+        ]
+        .evaluate(&p16_mixing_scalars_grand_product),
+    };
+
+
+    let [
+        p24_grand_product_evals_on_indexes_a,
+        p24_grand_product_evals_on_indexes_b,
+        p24_grand_product_evals_on_indexes_res,
+    ] = verifier_state.next_extension_scalars_const()?;
+    if grand_product_challenge_global + grand_product_challenge_p24[1]
+        + grand_product_challenge_p24[2] * p24_grand_product_evals_on_indexes_a
+        + grand_product_challenge_p24[3] * p24_grand_product_evals_on_indexes_b
+        + grand_product_challenge_p24[4] * p24_grand_product_evals_on_indexes_res
+        != grand_product_p24_statement.value
+    {
+        return Err(ProofError::InvalidProof);
+    }
+    let p24_mixing_scalars_grand_product = MultilinearPoint(verifier_state.sample_vec(2));
+    let p24_final_statement_grand_product = Evaluation {
+        point: MultilinearPoint(
+            [
+                p24_mixing_scalars_grand_product.0.clone(),
+                grand_product_p24_statement.point.0.clone(),
+            ]
+            .concat(),
+        ),
+        value: [
+            p24_grand_product_evals_on_indexes_a,
+            p24_grand_product_evals_on_indexes_b,
+            p24_grand_product_evals_on_indexes_res,
+            EF::ZERO,
+        ]
+        .evaluate(&p24_mixing_scalars_grand_product),
+    };
+
     // Grand product statements
     let (grand_product_final_exec_eval, grand_product_exec_sumcheck_claim) =
         sumcheck::verify(&mut verifier_state, log_n_cycles, 4)?;
@@ -463,12 +526,14 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
-    let (p16_indexes_statements, p24_indexes_statements) = poseidon_lookup_index_statements(
+    let (mut p16_indexes_statements, mut p24_indexes_statements) = poseidon_lookup_index_statements(
         &poseidon_index_evals,
         n_poseidons_16,
         n_poseidons_24,
         &poseidon_logup_star_statements.on_indexes.point,
     )?;
+    p16_indexes_statements.push(p16_final_statement_grand_product);
+    p24_indexes_statements.push(p24_final_statement_grand_product);
 
     let (initial_pc_statement, final_pc_statement) =
         intitial_and_final_pc_conditions(bytecode, log_n_cycles);
