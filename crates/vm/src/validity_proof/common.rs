@@ -1,11 +1,12 @@
 use p3_air::BaseAir;
-use p3_field::{Field, PrimeCharacteristicRing};
+use p3_field::{ExtensionField, Field, PrimeCharacteristicRing};
 use p3_util::log2_ceil_usize;
 use rayon::prelude::*;
 use std::ops::Range;
+use sumcheck::{SumcheckComputation, SumcheckComputationPacked};
 use utils::{
-    Evaluation, Poseidon16Air, Poseidon24Air, from_end, padd_with_zero_to_next_power_of_two,
-    remove_end,
+    EFPacking, Evaluation, PF, Poseidon16Air, Poseidon24Air, from_end,
+    padd_with_zero_to_next_power_of_two, remove_end,
 };
 use whir_p3::{
     fiat_shamir::errors::ProofError,
@@ -15,7 +16,7 @@ use whir_p3::{
     },
 };
 
-use crate::{EF, N_INSTRUCTION_COLUMNS_IN_AIR, bytecode::bytecode::Bytecode};
+use crate::{bytecode::bytecode::Bytecode, *};
 
 pub fn poseidon_16_column_groups(poseidon_16_air: &Poseidon16Air) -> Vec<Range<usize>> {
     vec![
@@ -179,4 +180,61 @@ pub fn intitial_and_final_pc_conditions(
         value: EF::from_usize(bytecode.ending_pc),
     };
     (initial_pc_statement, final_pc_statement)
+}
+
+pub struct PrecompileFootprint {
+    pub grand_product_challenge_global: EF,
+    pub grand_product_challenge_p16: [EF; 5],
+    pub grand_product_challenge_p24: [EF; 5],
+    pub grand_product_challenge_dot_product: [EF; 6],
+}
+
+impl<N: ExtensionField<PF<EF>>> SumcheckComputation<N, EF> for PrecompileFootprint
+where
+    EF: ExtensionField<N>,
+{
+    fn degree(&self) -> usize {
+        3
+    }
+    fn eval(&self, point: &[N], _: &[EF]) -> EF {
+        // TODO not all columns are used
+
+        let nu_a = (EF::ONE - point[COL_INDEX_FLAG_A]) * point[COL_INDEX_MEM_VALUE_A]
+            + point[COL_INDEX_FLAG_A] * point[COL_INDEX_OPERAND_A];
+        let nu_b = (EF::ONE - point[COL_INDEX_FLAG_B]) * point[COL_INDEX_MEM_VALUE_B]
+            + point[COL_INDEX_FLAG_B] * point[COL_INDEX_OPERAND_B];
+        let nu_c = (EF::ONE - point[COL_INDEX_FLAG_C]) * point[COL_INDEX_MEM_VALUE_C]
+            + point[COL_INDEX_FLAG_C] * point[COL_INDEX_FP];
+
+        self.grand_product_challenge_global
+            + (self.grand_product_challenge_p16[1]
+                + self.grand_product_challenge_p16[2] * nu_a
+                + self.grand_product_challenge_p16[3] * nu_b
+                + self.grand_product_challenge_p16[4] * nu_c)
+                * point[COL_INDEX_POSEIDON_16]
+            + (self.grand_product_challenge_p24[1]
+                + self.grand_product_challenge_p24[2] * nu_a
+                + self.grand_product_challenge_p24[3] * nu_b
+                + self.grand_product_challenge_p24[4] * nu_c)
+                * point[COL_INDEX_POSEIDON_24]
+            + (self.grand_product_challenge_dot_product[1]
+                + self.grand_product_challenge_dot_product[2] * nu_a
+                + self.grand_product_challenge_dot_product[3] * nu_b
+                + self.grand_product_challenge_dot_product[4] * nu_c
+                + self.grand_product_challenge_dot_product[5] * point[COL_INDEX_AUX])
+                * point[COL_INDEX_DOT_PRODUCT]
+    }
+}
+
+impl SumcheckComputationPacked<EF> for PrecompileFootprint {
+    fn degree(&self) -> usize {
+        3
+    }
+
+    fn eval_packed_extension(&self, _point: &[EFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
+        todo!()
+    }
+    fn eval_packed_base(&self, _point: &[utils::PFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
+        todo!()
+    }
 }

@@ -3,6 +3,7 @@ use crate::dot_product_air::DotProductAir;
 use crate::dot_product_air::build_dot_product_columns;
 use crate::prove::all_poseidon_16_indexes;
 use crate::prove::all_poseidon_24_indexes;
+use crate::validity_proof::common::PrecompileFootprint;
 use crate::validity_proof::common::fold_bytecode;
 use crate::validity_proof::common::intitial_and_final_pc_conditions;
 use crate::validity_proof::common::poseidon_16_column_groups;
@@ -19,6 +20,7 @@ use p3_util::{log2_ceil_usize, log2_strict_usize};
 use pcs::num_packed_vars_for_pols;
 use pcs::{BatchPCS, packed_pcs_commit, packed_pcs_global_statements};
 use rayon::prelude::*;
+use sumcheck::MleGroupRef;
 use tracing::info_span;
 use utils::ToUsize;
 use utils::assert_eq_many;
@@ -193,7 +195,7 @@ pub fn prove_execution(
     let grand_product_challenge_global = prover_state.sample();
     let grand_product_challenge_p16 = prover_state.sample().powers().collect_n(5);
     let grand_product_challenge_p24 = prover_state.sample().powers().collect_n(5);
-    let grand_product_dot_product_challenge = prover_state.sample().powers().collect_n(6);
+    let grand_product_challenge_dot_product = prover_state.sample().powers().collect_n(6);
     let mut exec_column_for_grand_product = vec![grand_product_challenge_global; n_cycles];
     for pos16 in &poseidons_16 {
         let Some(cycle) = pos16.cycle else {
@@ -217,11 +219,11 @@ pub fn prove_execution(
     }
     for dot_product in &dot_products {
         exec_column_for_grand_product[dot_product.cycle] = grand_product_challenge_global
-            + grand_product_dot_product_challenge[1]
-            + grand_product_dot_product_challenge[2] * F::from_usize(dot_product.addr_0)
-            + grand_product_dot_product_challenge[3] * F::from_usize(dot_product.addr_1)
-            + grand_product_dot_product_challenge[4] * F::from_usize(dot_product.addr_res)
-            + grand_product_dot_product_challenge[5] * F::from_usize(dot_product.len);
+            + grand_product_challenge_dot_product[1]
+            + grand_product_challenge_dot_product[2] * F::from_usize(dot_product.addr_0)
+            + grand_product_challenge_dot_product[3] * F::from_usize(dot_product.addr_1)
+            + grand_product_challenge_dot_product[4] * F::from_usize(dot_product.addr_res)
+            + grand_product_challenge_dot_product[5] * F::from_usize(dot_product.len);
     }
 
     let (grand_product_exec_res, grand_product_exec_statement) = prove_gkr_product(
@@ -265,11 +267,11 @@ pub fn prove_execution(
         .into_par_iter()
         .map(|i| {
             grand_product_challenge_global
-                + grand_product_dot_product_challenge[1]
-                + (grand_product_dot_product_challenge[2] * dot_product_columns[2][i]
-                    + grand_product_dot_product_challenge[3] * dot_product_columns[3][i]
-                    + grand_product_dot_product_challenge[4] * dot_product_columns[4][i]
-                    + grand_product_dot_product_challenge[5] * dot_product_columns[1][i])
+                + grand_product_challenge_dot_product[1]
+                + (grand_product_challenge_dot_product[2] * dot_product_columns[2][i]
+                    + grand_product_challenge_dot_product[3] * dot_product_columns[3][i]
+                    + grand_product_challenge_dot_product[4] * dot_product_columns[4][i]
+                    + grand_product_challenge_dot_product[5] * dot_product_columns[1][i])
                     * dot_product_columns[0][i]
         })
         .collect::<Vec<_>>();
@@ -296,61 +298,72 @@ pub fn prove_execution(
 
     let corrected_dot_product = grand_product_dot_product_res
         / ((grand_product_challenge_global
-            + grand_product_dot_product_challenge[1]
-            + grand_product_dot_product_challenge[5])
+            + grand_product_challenge_dot_product[1]
+            + grand_product_challenge_dot_product[5])
             .exp_u64(dot_product_padding_len as u64)
-            * (grand_product_challenge_global + grand_product_dot_product_challenge[1]).exp_u64(
+            * (grand_product_challenge_global + grand_product_challenge_dot_product[1]).exp_u64(
                 ((1 << log_n_rows_dot_product_table) - dot_product_padding_len - dot_products.len())
                     as u64,
             ));
-
-    // Grand product statements
-    let grand_product_fp_eval =
-        full_trace[COL_INDEX_FP].evaluate(&grand_product_exec_statement.point);
-    prover_state.add_extension_scalar(grand_product_fp_eval);
-    let grand_product_fp_statement = Evaluation {
-        point: grand_product_exec_statement.point.clone(),
-        value: grand_product_fp_eval,
-    };
-
-    let grand_product_exec_evals_on_each_column = (0..N_INSTRUCTION_COLUMNS)
-        .map(|col| full_trace[col].evaluate(&grand_product_exec_statement.point))
-        .collect::<Vec<_>>();
-    prover_state.add_extension_scalars(&grand_product_exec_evals_on_each_column);
-
-    let grand_product_mem_value_a_eval =
-        full_trace[COL_INDEX_MEM_VALUE_A].evaluate(&grand_product_exec_statement.point);
-    let grand_product_mem_value_b_eval =
-        full_trace[COL_INDEX_MEM_VALUE_B].evaluate(&grand_product_exec_statement.point);
-    let grand_product_mem_value_c_eval =
-        full_trace[COL_INDEX_MEM_VALUE_C].evaluate(&grand_product_exec_statement.point);
-    prover_state.add_extension_scalars(&[
-        grand_product_mem_value_a_eval,
-        grand_product_mem_value_b_eval,
-        grand_product_mem_value_c_eval,
-    ]);
-    let grand_product_mem_values_mixing_challenges = MultilinearPoint(prover_state.sample_vec(2));
-    let grand_product_mem_values_statement = Evaluation {
-        point: MultilinearPoint(
-            [
-                grand_product_mem_values_mixing_challenges.0.clone(),
-                grand_product_exec_statement.point.0.clone(),
-            ]
-            .concat(),
-        ),
-        value: [
-            grand_product_mem_value_a_eval,
-            grand_product_mem_value_b_eval,
-            grand_product_mem_value_c_eval,
-            EF::ZERO,
-        ]
-        .evaluate(&grand_product_mem_values_mixing_challenges),
-    };
 
     assert_eq!(
         corrected_prod_exec,
         corrected_prod_p16 * corrected_prod_p24 * corrected_dot_product
     );
+
+    let (grand_product_exec_sumcheck_point, grand_product_exec_sumcheck_inner_evals, _) =
+        sumcheck::prove(
+            1, // TODO univariate skip?
+            MleGroupRef::Base(
+                // TODO not all columns re required
+                full_trace.iter().map(|c| c.as_slice()).collect::<Vec<_>>(),
+            ), // TODO packing
+            &PrecompileFootprint {
+                grand_product_challenge_global: grand_product_challenge_global,
+                grand_product_challenge_p16: grand_product_challenge_p16.try_into().unwrap(),
+                grand_product_challenge_p24: grand_product_challenge_p24.try_into().unwrap(),
+                grand_product_challenge_dot_product: grand_product_challenge_dot_product
+                    .try_into()
+                    .unwrap(),
+            },
+            &[],
+            Some((grand_product_exec_statement.point.0.clone(), None)),
+            false,
+            &mut prover_state,
+            grand_product_exec_statement.value,
+            None,
+        );
+
+    prover_state.add_extension_scalars(&grand_product_exec_sumcheck_inner_evals);
+    assert_eq!(
+        N_TOTAL_COLUMNS,
+        grand_product_exec_sumcheck_inner_evals.len()
+    ); // TODO open less columns
+
+    let grand_product_exec_evals_on_each_column = &grand_product_exec_sumcheck_inner_evals[..N_INSTRUCTION_COLUMNS];
+
+    let grand_product_fp_statement = Evaluation {
+        point: grand_product_exec_sumcheck_point.clone(),
+        value: grand_product_exec_sumcheck_inner_evals[COL_INDEX_FP],
+    };
+
+    let grand_product_mem_values_mixing_challenges = MultilinearPoint(prover_state.sample_vec(2));
+    let grand_product_mem_values_statement = Evaluation {
+        point: MultilinearPoint(
+            [
+                grand_product_mem_values_mixing_challenges.0.clone(),
+                grand_product_exec_sumcheck_point.0.clone(),
+            ]
+            .concat(),
+        ),
+        value: [
+            grand_product_exec_sumcheck_inner_evals[COL_INDEX_MEM_VALUE_A],
+            grand_product_exec_sumcheck_inner_evals[COL_INDEX_MEM_VALUE_B],
+            grand_product_exec_sumcheck_inner_evals[COL_INDEX_MEM_VALUE_C],
+            EF::ZERO,
+        ]
+        .evaluate(&grand_product_mem_values_mixing_challenges),
+    };
 
     let exec_evals_to_prove =
         exec_table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, exec_witness);
@@ -551,7 +564,7 @@ pub fn prove_execution(
         )
         .evaluate(&bytecode_compression_challenges),
     };
-    let bytecode_lookup_point_2 = grand_product_exec_statement.point.clone();
+    let bytecode_lookup_point_2 = grand_product_exec_sumcheck_point.clone();
     let bytecode_lookup_claim_2 = Evaluation {
         point: bytecode_lookup_point_2.clone(),
         value: padd_with_zero_to_next_power_of_two(&grand_product_exec_evals_on_each_column)

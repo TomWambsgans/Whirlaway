@@ -1,5 +1,6 @@
 use crate::dot_product_air::DOT_PRODUCT_AIR_COLUMN_GROUPS;
 use crate::dot_product_air::DotProductAir;
+use crate::validity_proof::common::PrecompileFootprint;
 use crate::validity_proof::common::fold_bytecode;
 use crate::validity_proof::common::intitial_and_final_pc_conditions;
 use ::air::table::AirTable;
@@ -12,6 +13,7 @@ use p3_util::{log2_ceil_usize, log2_strict_usize};
 use pcs::num_packed_vars_for_vars;
 use pcs::packed_pcs_global_statements;
 use pcs::{BatchPCS, NumVariables as _, packed_pcs_parse_commitment};
+use sumcheck::SumcheckComputation;
 use utils::dot_product_with_base;
 use utils::{Evaluation, PF, build_challenger, padd_with_zero_to_next_power_of_two};
 use utils::{ToUsize, build_poseidon_16_air, build_poseidon_24_air};
@@ -114,7 +116,7 @@ pub fn verify_execution(
     let grand_product_challenge_global = verifier_state.sample();
     let grand_product_challenge_p16 = verifier_state.sample().powers().collect_n(5);
     let grand_product_challenge_p24 = verifier_state.sample().powers().collect_n(5);
-    let grand_product_dot_product_challenge = verifier_state.sample().powers().collect_n(6);
+    let grand_product_challenge_dot_product = verifier_state.sample().powers().collect_n(6);
     let (grand_product_exec_res, grand_product_exec_statement) =
         verify_gkr_product(&mut verifier_state, log_n_cycles)?;
     let (grand_product_p16_res, grand_product_p16_statement) =
@@ -141,10 +143,10 @@ pub fn verify_execution(
 
     let corrected_dot_product = grand_product_dot_product_res
         / ((grand_product_challenge_global
-            + grand_product_dot_product_challenge[1]
-            + grand_product_dot_product_challenge[5])
+            + grand_product_challenge_dot_product[1]
+            + grand_product_challenge_dot_product[5])
             .exp_u64(dot_product_padding_len as u64)
-            * (grand_product_challenge_global + grand_product_dot_product_challenge[1]).exp_u64(
+            * (grand_product_challenge_global + grand_product_challenge_dot_product[1]).exp_u64(
                 ((1 << table_dot_products_log_n_rows) - dot_product_padding_len - n_dot_products)
                     as u64,
             ));
@@ -154,33 +156,55 @@ pub fn verify_execution(
     }
 
     // Grand product statements
-    let [grand_product_fp_eval] = verifier_state.next_extension_scalars_const()?;
-    let grand_product_fp_statement = Evaluation {
-        point: grand_product_exec_statement.point.clone(),
-        value: grand_product_fp_eval,
-    };
+    let (grand_product_final_exec_eval, grand_product_exec_sumcheck_claim) =
+        sumcheck::verify(&mut verifier_state, log_n_cycles, 4)?;
+    if grand_product_final_exec_eval != grand_product_exec_statement.value {
+        return Err(ProofError::InvalidProof);
+    }
+
+    let grand_product_exec_sumcheck_inner_evals =
+        verifier_state.next_extension_scalars_vec(N_TOTAL_COLUMNS)?;
 
     let grand_product_exec_evals_on_each_column =
-        verifier_state.next_extension_scalars_vec(N_INSTRUCTION_COLUMNS)?;
+        &grand_product_exec_sumcheck_inner_evals[..N_INSTRUCTION_COLUMNS];
 
-    let [
-        grand_product_mem_value_a_eval,
-        grand_product_mem_value_b_eval,
-        grand_product_mem_value_c_eval,
-    ] = verifier_state.next_extension_scalars_const()?;
+    if grand_product_exec_sumcheck_claim.value
+        != grand_product_exec_sumcheck_claim
+            .point
+            .eq_poly_outside(&grand_product_exec_statement.point)
+            * {
+                PrecompileFootprint {
+                    grand_product_challenge_global: grand_product_challenge_global,
+                    grand_product_challenge_p16: grand_product_challenge_p16.try_into().unwrap(),
+                    grand_product_challenge_p24: grand_product_challenge_p24.try_into().unwrap(),
+                    grand_product_challenge_dot_product: grand_product_challenge_dot_product
+                        .try_into()
+                        .unwrap(),
+                }
+                .eval(&grand_product_exec_sumcheck_inner_evals, &[])
+            }
+    {
+        return Err(ProofError::InvalidProof);
+    }
+
+    let grand_product_fp_statement = Evaluation {
+        point: grand_product_exec_sumcheck_claim.point.clone(),
+        value: grand_product_exec_sumcheck_inner_evals[COL_INDEX_FP],
+    };
+
     let grand_product_mem_values_mixing_challenges = MultilinearPoint(verifier_state.sample_vec(2));
     let grand_product_mem_values_statement = Evaluation {
         point: MultilinearPoint(
             [
                 grand_product_mem_values_mixing_challenges.0.clone(),
-                grand_product_exec_statement.point.0.clone(),
+                grand_product_exec_sumcheck_claim.point.0.clone(),
             ]
             .concat(),
         ),
         value: [
-            grand_product_mem_value_a_eval,
-            grand_product_mem_value_b_eval,
-            grand_product_mem_value_c_eval,
+            grand_product_exec_sumcheck_inner_evals[COL_INDEX_MEM_VALUE_A],
+            grand_product_exec_sumcheck_inner_evals[COL_INDEX_MEM_VALUE_B],
+            grand_product_exec_sumcheck_inner_evals[COL_INDEX_MEM_VALUE_C],
             EF::ZERO,
         ]
         .evaluate(&grand_product_mem_values_mixing_challenges),
@@ -247,7 +271,7 @@ pub fn verify_execution(
     };
 
     let bytecode_lookup_claim_2 = Evaluation {
-        point: grand_product_exec_statement.point.clone(),
+        point: grand_product_exec_sumcheck_claim.point.clone(),
         value: padd_with_zero_to_next_power_of_two(&grand_product_exec_evals_on_each_column)
             .evaluate(&bytecode_compression_challenges),
     };
