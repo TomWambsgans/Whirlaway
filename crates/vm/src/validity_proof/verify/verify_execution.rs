@@ -1,5 +1,6 @@
 use crate::dot_product_air::DOT_PRODUCT_AIR_COLUMN_GROUPS;
 use crate::dot_product_air::DotProductAir;
+use crate::validity_proof::common::DotProductFootprint;
 use crate::validity_proof::common::PrecompileFootprint;
 use crate::validity_proof::common::fold_bytecode;
 use crate::validity_proof::common::intitial_and_final_pc_conditions;
@@ -160,7 +161,8 @@ pub fn verify_execution(
         p16_grand_product_evals_on_indexes_b,
         p16_grand_product_evals_on_indexes_res,
     ] = verifier_state.next_extension_scalars_const()?;
-    if grand_product_challenge_global + grand_product_challenge_p16[1]
+    if grand_product_challenge_global
+        + grand_product_challenge_p16[1]
         + grand_product_challenge_p16[2] * p16_grand_product_evals_on_indexes_a
         + grand_product_challenge_p16[3] * p16_grand_product_evals_on_indexes_b
         + grand_product_challenge_p16[4] * p16_grand_product_evals_on_indexes_res
@@ -186,13 +188,13 @@ pub fn verify_execution(
         .evaluate(&p16_mixing_scalars_grand_product),
     };
 
-
     let [
         p24_grand_product_evals_on_indexes_a,
         p24_grand_product_evals_on_indexes_b,
         p24_grand_product_evals_on_indexes_res,
     ] = verifier_state.next_extension_scalars_const()?;
-    if grand_product_challenge_global + grand_product_challenge_p24[1]
+    if grand_product_challenge_global
+        + grand_product_challenge_p24[1]
         + grand_product_challenge_p24[2] * p24_grand_product_evals_on_indexes_a
         + grand_product_challenge_p24[3] * p24_grand_product_evals_on_indexes_b
         + grand_product_challenge_p24[4] * p24_grand_product_evals_on_indexes_res
@@ -219,6 +221,61 @@ pub fn verify_execution(
     };
 
     // Grand product statements
+    let (grand_product_final_dot_product_eval, grand_product_dot_product_sumcheck_claim) =
+        sumcheck::verify(&mut verifier_state, table_dot_products_log_n_rows, 3)?;
+    if grand_product_final_dot_product_eval != grand_product_dot_product_statement.value {
+        return Err(ProofError::InvalidProof);
+    }
+    let grand_product_dot_product_sumcheck_inner_evals =
+        verifier_state.next_extension_scalars_vec(5)?;
+
+    if grand_product_dot_product_sumcheck_claim.value
+        != grand_product_dot_product_sumcheck_claim
+            .point
+            .eq_poly_outside(&grand_product_dot_product_statement.point)
+            * {
+                DotProductFootprint {
+                    grand_product_challenge_global: grand_product_challenge_global,
+                    grand_product_challenge_dot_product: grand_product_challenge_dot_product
+                        .clone()
+                        .try_into()
+                        .unwrap(),
+                }
+                .eval(&grand_product_dot_product_sumcheck_inner_evals, &[])
+            }
+    {
+        return Err(ProofError::InvalidProof);
+    }
+
+    let grand_product_dot_product_flag_statement = Evaluation {
+        point: grand_product_dot_product_sumcheck_claim.point.clone(),
+        value: grand_product_dot_product_sumcheck_inner_evals[0],
+    };
+    let grand_product_dot_product_len_statement = Evaluation {
+        point: grand_product_dot_product_sumcheck_claim.point.clone(),
+        value: grand_product_dot_product_sumcheck_inner_evals[1],
+    };
+    let grand_product_dot_product_table_indexes_mixing_challenges =
+        MultilinearPoint(verifier_state.sample_vec(2));
+    let grand_product_dot_product_table_indexes_statement = Evaluation {
+        point: MultilinearPoint(
+            [
+                grand_product_dot_product_table_indexes_mixing_challenges
+                    .0
+                    .clone(),
+                grand_product_dot_product_sumcheck_claim.point.0.clone(),
+            ]
+            .concat(),
+        ),
+        value: [
+            grand_product_dot_product_sumcheck_inner_evals[2],
+            grand_product_dot_product_sumcheck_inner_evals[3],
+            grand_product_dot_product_sumcheck_inner_evals[4],
+            EF::ZERO,
+        ]
+        .evaluate(&grand_product_dot_product_table_indexes_mixing_challenges),
+    };
+
     let (grand_product_final_exec_eval, grand_product_exec_sumcheck_claim) =
         sumcheck::verify(&mut verifier_state, log_n_cycles, 4)?;
     if grand_product_final_exec_eval != grand_product_exec_statement.value {
@@ -526,12 +583,13 @@ pub fn verify_execution(
         return Err(ProofError::InvalidProof);
     }
 
-    let (mut p16_indexes_statements, mut p24_indexes_statements) = poseidon_lookup_index_statements(
-        &poseidon_index_evals,
-        n_poseidons_16,
-        n_poseidons_24,
-        &poseidon_logup_star_statements.on_indexes.point,
-    )?;
+    let (mut p16_indexes_statements, mut p24_indexes_statements) =
+        poseidon_lookup_index_statements(
+            &poseidon_index_evals,
+            n_poseidons_16,
+            n_poseidons_24,
+            &poseidon_logup_star_statements.on_indexes.point,
+        )?;
     p16_indexes_statements.push(p16_final_statement_grand_product);
     p24_indexes_statements.push(p24_final_statement_grand_product);
 
@@ -577,11 +635,18 @@ pub fn verify_execution(
                 p24_indexes_statements,
                 vec![p16_evals_to_verify[2].clone()],
                 vec![p24_evals_to_verify[3].clone()],
-                vec![dot_product_evals_to_verify[0].clone()], // dot product: (start) flag
-                vec![dot_product_evals_to_verify[1].clone()], // dot product: length
+                vec![
+                    dot_product_evals_to_verify[0].clone(),
+                    grand_product_dot_product_flag_statement,
+                ], // dot product: (start) flag
+                vec![
+                    dot_product_evals_to_verify[1].clone(),
+                    grand_product_dot_product_len_statement,
+                ], // dot product: length
                 vec![
                     dot_product_evals_to_verify[2].clone(),
                     dot_product_logup_star_statements.on_indexes,
+                    grand_product_dot_product_table_indexes_statement
                 ], // dot product: indexes
                 vec![dot_product_computation_column_challenge],
             ],

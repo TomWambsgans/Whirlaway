@@ -3,6 +3,7 @@ use crate::dot_product_air::DotProductAir;
 use crate::dot_product_air::build_dot_product_columns;
 use crate::prove::all_poseidon_16_indexes;
 use crate::prove::all_poseidon_24_indexes;
+use crate::validity_proof::common::DotProductFootprint;
 use crate::validity_proof::common::PrecompileFootprint;
 use crate::validity_proof::common::fold_bytecode;
 use crate::validity_proof::common::intitial_and_final_pc_conditions;
@@ -345,7 +346,6 @@ pub fn prove_execution(
         .evaluate(&p16_mixing_scalars_grand_product),
     };
 
-
     let p24_grand_product_evals_on_indexes_a =
         (&p24_indexes[0..poseidons_24.len()]).evaluate(&grand_product_p24_statement.point);
     let p24_grand_product_evals_on_indexes_b = (&p24_indexes
@@ -375,6 +375,65 @@ pub fn prove_execution(
             EF::ZERO,
         ]
         .evaluate(&p24_mixing_scalars_grand_product),
+    };
+
+    let (
+        grand_product_dot_product_sumcheck_point,
+        grand_product_dot_product_sumcheck_inner_evals,
+        _,
+    ) = sumcheck::prove(
+        1, // TODO univariate skip?
+        MleGroupRef::Extension(
+            dot_product_columns[..5]
+                .iter()
+                .map(|c| c.as_slice())
+                .collect::<Vec<_>>(),
+        ), // TODO packing
+        &DotProductFootprint {
+            grand_product_challenge_global: grand_product_challenge_global,
+            grand_product_challenge_dot_product: grand_product_challenge_dot_product
+                .clone()
+                .try_into()
+                .unwrap(),
+        },
+        &[],
+        Some((grand_product_dot_product_statement.point.0.clone(), None)),
+        false,
+        &mut prover_state,
+        grand_product_dot_product_statement.value,
+        None,
+    );
+    assert_eq!(grand_product_dot_product_sumcheck_inner_evals.len(), 5);
+    prover_state.add_extension_scalars(&grand_product_dot_product_sumcheck_inner_evals);
+
+    let grand_product_dot_product_flag_statement = Evaluation {
+        point: grand_product_dot_product_sumcheck_point.clone(),
+        value: grand_product_dot_product_sumcheck_inner_evals[0],
+    };
+
+    let grand_product_dot_product_len_statement = Evaluation {
+        point: grand_product_dot_product_sumcheck_point.clone(),
+        value: grand_product_dot_product_sumcheck_inner_evals[1],
+    };
+    let grand_product_dot_product_table_indexes_mixing_challenges =
+        MultilinearPoint(prover_state.sample_vec(2));
+    let grand_product_dot_product_table_indexes_statement = Evaluation {
+        point: MultilinearPoint(
+            [
+                grand_product_dot_product_table_indexes_mixing_challenges
+                    .0
+                    .clone(),
+                grand_product_dot_product_sumcheck_point.0.clone(),
+            ]
+            .concat(),
+        ),
+        value: [
+            grand_product_dot_product_sumcheck_inner_evals[2],
+            grand_product_dot_product_sumcheck_inner_evals[3],
+            grand_product_dot_product_sumcheck_inner_evals[4],
+            EF::ZERO,
+        ]
+        .evaluate(&grand_product_dot_product_table_indexes_mixing_challenges),
     };
 
     let (grand_product_exec_sumcheck_point, grand_product_exec_sumcheck_inner_evals, _) =
@@ -788,13 +847,14 @@ pub fn prove_execution(
     );
     prover_state.add_extension_scalars(&poseidon_index_evals);
 
-    let (mut p16_indexes_statements, mut p24_indexes_statements) = poseidon_lookup_index_statements(
-        &poseidon_index_evals,
-        n_poseidons_16,
-        n_poseidons_24,
-        &poseidon_logup_star_statements.on_indexes.point,
-    )
-    .unwrap();
+    let (mut p16_indexes_statements, mut p24_indexes_statements) =
+        poseidon_lookup_index_statements(
+            &poseidon_index_evals,
+            n_poseidons_16,
+            n_poseidons_24,
+            &poseidon_logup_star_statements.on_indexes.point,
+        )
+        .unwrap();
     p16_indexes_statements.push(p16_final_statement_grand_product);
     p24_indexes_statements.push(p24_final_statement_grand_product);
 
@@ -843,11 +903,18 @@ pub fn prove_execution(
                 p24_indexes_statements,
                 vec![p16_evals_to_prove[2].clone()],
                 vec![p24_evals_to_prove[3].clone()],
-                vec![dot_product_evals_to_prove[0].clone()], // dot product: (start) flag
-                vec![dot_product_evals_to_prove[1].clone()], // dot product: length
+                vec![
+                    dot_product_evals_to_prove[0].clone(),
+                    grand_product_dot_product_flag_statement,
+                ], // dot product: (start) flag
+                vec![
+                    dot_product_evals_to_prove[1].clone(),
+                    grand_product_dot_product_len_statement,
+                ], // dot product: length
                 vec![
                     dot_product_evals_to_prove[2].clone(),
                     dot_product_logup_star_statements.on_indexes,
+                    grand_product_dot_product_table_indexes_statement,
                 ], // dot product: indexes
                 vec![dot_product_computation_column_challenge],
             ],

@@ -234,6 +234,44 @@ impl SumcheckComputationPacked<EF> for PrecompileFootprint {
     fn eval_packed_extension(&self, _point: &[EFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
         todo!()
     }
+
+    fn eval_packed_base(&self, _point: &[utils::PFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
+        todo!()
+    }
+}
+
+pub struct DotProductFootprint {
+    pub grand_product_challenge_global: EF,
+    pub grand_product_challenge_dot_product: [EF; 6],
+}
+
+impl<N: ExtensionField<PF<EF>>> SumcheckComputation<N, EF> for DotProductFootprint
+where
+    EF: ExtensionField<N>,
+{
+    fn degree(&self) -> usize {
+        2
+    }
+
+    fn eval(&self, point: &[N], _: &[EF]) -> EF {
+        self.grand_product_challenge_global
+            + self.grand_product_challenge_dot_product[1]
+            + (self.grand_product_challenge_dot_product[2] * point[2]
+                + self.grand_product_challenge_dot_product[3] * point[3]
+                + self.grand_product_challenge_dot_product[4] * point[4]
+                + self.grand_product_challenge_dot_product[5] * point[1])
+                * point[0]
+    }
+}
+
+impl SumcheckComputationPacked<EF> for DotProductFootprint {
+    fn degree(&self) -> usize {
+        2
+    }
+
+    fn eval_packed_extension(&self, _point: &[EFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
+        todo!()
+    }
     fn eval_packed_base(&self, _point: &[utils::PFPacking<EF>], _: &[EF]) -> EFPacking<EF> {
         todo!()
     }
