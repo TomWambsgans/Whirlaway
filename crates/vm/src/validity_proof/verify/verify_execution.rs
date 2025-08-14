@@ -160,6 +160,9 @@ pub fn verify_execution(
         value: grand_product_fp_eval,
     };
 
+    let grand_product_exec_evals_on_each_column =
+        verifier_state.next_extension_scalars_vec(N_INSTRUCTION_COLUMNS)?;
+
     let [
         grand_product_mem_value_a_eval,
         grand_product_mem_value_b_eval,
@@ -228,9 +231,9 @@ pub fn verify_execution(
             &exec_evals_to_verify[i].point
         );
     }
-    let bytecode_lookup_point = exec_evals_to_verify[0].point.clone();
-    let bytecode_lookup_claim = Evaluation {
-        point: bytecode_lookup_point.clone(),
+    let bytecode_lookup_point_1 = exec_evals_to_verify[0].point.clone();
+    let bytecode_lookup_claim_1 = Evaluation {
+        point: bytecode_lookup_point_1.clone(),
         value: padd_with_zero_to_next_power_of_two(
             &[
                 (0..N_INSTRUCTION_COLUMNS_IN_AIR)
@@ -242,6 +245,13 @@ pub fn verify_execution(
         )
         .evaluate(&bytecode_compression_challenges),
     };
+
+    let bytecode_lookup_claim_2 = Evaluation {
+        point: grand_product_exec_statement.point.clone(),
+        value: padd_with_zero_to_next_power_of_two(&grand_product_exec_evals_on_each_column)
+            .evaluate(&bytecode_compression_challenges),
+    };
+    let alpha_bytecode_lookup = verifier_state.sample();
 
     let poseidon_lookup_log_length = 3 + log_n_p16.max(log_n_p24);
 
@@ -303,8 +313,8 @@ pub fn verify_execution(
         &mut verifier_state,
         log_bytecode_len,
         log_n_cycles,
-        &[bytecode_lookup_claim],
-        EF::ONE,
+        &[bytecode_lookup_claim_1, bytecode_lookup_claim_2],
+        alpha_bytecode_lookup,
     )
     .unwrap();
     let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);

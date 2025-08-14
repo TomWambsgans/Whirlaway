@@ -313,6 +313,11 @@ pub fn prove_execution(
         value: grand_product_fp_eval,
     };
 
+    let grand_product_exec_evals_on_each_column = (0..N_INSTRUCTION_COLUMNS)
+        .map(|col| full_trace[col].evaluate(&grand_product_exec_statement.point))
+        .collect::<Vec<_>>();
+    prover_state.add_extension_scalars(&grand_product_exec_evals_on_each_column);
+
     let grand_product_mem_value_a_eval =
         full_trace[COL_INDEX_MEM_VALUE_A].evaluate(&grand_product_exec_statement.point);
     let grand_product_mem_value_b_eval =
@@ -520,11 +525,11 @@ pub fn prove_execution(
     for i in 1..N_INSTRUCTION_COLUMNS_IN_AIR {
         assert_eq!(&exec_evals_to_prove[0].point, &exec_evals_to_prove[i].point);
     }
-    let bytecode_lookup_point = exec_evals_to_prove[0].point.clone();
+    let bytecode_lookup_point_1 = exec_evals_to_prove[0].point.clone();
     let non_used_precompiles_evals = full_trace
         [N_INSTRUCTION_COLUMNS_IN_AIR..N_INSTRUCTION_COLUMNS]
         .iter()
-        .map(|col| col.evaluate(&bytecode_lookup_point))
+        .map(|col| col.evaluate(&bytecode_lookup_point_1))
         .collect::<Vec<_>>();
     prover_state.add_extension_scalars(&non_used_precompiles_evals);
 
@@ -532,10 +537,9 @@ pub fn prove_execution(
         MultilinearPoint(prover_state.sample_vec(log2_ceil_usize(N_INSTRUCTION_COLUMNS)));
 
     let folded_bytecode = fold_bytecode(bytecode, &bytecode_compression_challenges);
-    let pc_column = &full_trace[COL_INDEX_PC];
 
-    let bytecode_lookup_claim = Evaluation {
-        point: bytecode_lookup_point.clone(),
+    let bytecode_lookup_claim_1 = Evaluation {
+        point: bytecode_lookup_point_1.clone(),
         value: padd_with_zero_to_next_power_of_two(
             &[
                 (0..N_INSTRUCTION_COLUMNS_IN_AIR)
@@ -547,9 +551,25 @@ pub fn prove_execution(
         )
         .evaluate(&bytecode_compression_challenges),
     };
-    let bytecode_poly_eq_point = eval_eq(&bytecode_lookup_point);
-    let bytecode_pushforward =
-        compute_pushforward(&pc_column, folded_bytecode.len(), &bytecode_poly_eq_point);
+    let bytecode_lookup_point_2 = grand_product_exec_statement.point.clone();
+    let bytecode_lookup_claim_2 = Evaluation {
+        point: bytecode_lookup_point_2.clone(),
+        value: padd_with_zero_to_next_power_of_two(&grand_product_exec_evals_on_each_column)
+            .evaluate(&bytecode_compression_challenges),
+    };
+    let alpha_bytecode_lookup = prover_state.sample();
+
+    let mut bytecode_poly_eq_point = eval_eq(&bytecode_lookup_point_1);
+    compute_eval_eq::<PF<EF>, EF, true>(
+        &bytecode_lookup_point_2,
+        &mut bytecode_poly_eq_point,
+        alpha_bytecode_lookup,
+    );
+    let bytecode_pushforward = compute_pushforward(
+        &full_trace[COL_INDEX_PC],
+        folded_bytecode.len(),
+        &bytecode_poly_eq_point,
+    );
 
     let dot_product_poly_eq_point = eval_eq(&dot_product_evals_to_prove[3].point.clone());
     let dot_product_pushforward = compute_pushforward(
@@ -597,8 +617,8 @@ pub fn prove_execution(
     let bytecode_logup_star_statements = prove_logup_star(
         &mut prover_state,
         &folded_bytecode,
-        &pc_column,
-        bytecode_lookup_claim.value,
+        &full_trace[COL_INDEX_PC],
+        bytecode_lookup_claim_1.value + alpha_bytecode_lookup * bytecode_lookup_claim_2.value,
         &bytecode_poly_eq_point,
         &bytecode_pushforward,
     );
