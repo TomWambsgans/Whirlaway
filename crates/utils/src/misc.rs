@@ -72,6 +72,16 @@ pub fn dot_product_with_base<EF: ExtensionField<PF<EF>>>(slice: &[EF]) -> EF {
         .sum::<EF>()
 }
 
+
+pub fn to_big_endian_bits(value: usize, bit_count: usize) -> Vec<bool>
+{
+    (0..bit_count)
+        .rev()
+        .map(|i| (value >> i) & 1 == 1)
+        .collect()
+}
+
+
 #[macro_export]
 macro_rules! assert_eq_many {
     ($first:expr, $($rest:expr),+ $(,)?) => {

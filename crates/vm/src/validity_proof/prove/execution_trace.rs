@@ -27,8 +27,7 @@ pub struct WitnessMultilinearEval {
     pub addr_coeffs: usize, // vectorized pointer, of size 8.2^size
     pub addr_point: usize,  // vectorized pointer, of size `size`
     pub addr_res: usize,    // vectorized pointer
-    pub size: usize,
-    pub coeffs: Vec<F>,
+    pub n_vars: usize,
     pub point: Vec<EF>,
     pub res: EF,
 }
@@ -194,16 +193,13 @@ pub fn get_execution_trace(
                 coeffs,
                 point,
                 res,
-                size,
+                n_vars,
             } => {
                 let addr_coeffs = coeffs.read_value(&memory, fp).unwrap().to_usize();
                 let addr_point = point.read_value(&memory, fp).unwrap().to_usize();
                 let addr_res = res.read_value(&memory, fp).unwrap().to_usize();
-                let slice_coeffs = (addr_coeffs << *size..(addr_coeffs + 1) << *size)
-                    .map(|i| memory.get(i).unwrap())
-                    .collect::<Vec<F>>();
                 let point = memory
-                    .get_vectorized_slice_extension(addr_point, *size)
+                    .get_vectorized_slice_extension(addr_point, *n_vars)
                     .unwrap();
                 let res = memory.get_extension(addr_res).unwrap();
                 vm_multilinear_evals.push(WitnessMultilinearEval {
@@ -211,8 +207,7 @@ pub fn get_execution_trace(
                     addr_coeffs,
                     addr_point,
                     addr_res,
-                    size: *size,
-                    coeffs: slice_coeffs,
+                    n_vars: *n_vars,
                     point,
                     res,
                 });

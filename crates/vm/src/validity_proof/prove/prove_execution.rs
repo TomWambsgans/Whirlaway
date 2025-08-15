@@ -29,6 +29,7 @@ use utils::dot_product_with_base;
 use utils::field_slice_as_base;
 use utils::fold_multilinear_in_large_field;
 use utils::pack_extension;
+use utils::to_big_endian_bits;
 use utils::{
     Evaluation, PF, build_poseidon_16_air, build_poseidon_24_air, build_prover_state,
     padd_with_zero_to_next_power_of_two,
@@ -162,11 +163,91 @@ pub fn prove_execution(
             log_n_rows_dot_product_table,
             dot_product_padding_len,
             private_memory.len(),
+            vm_multilinear_evals.len(),
         ]
         .into_iter()
         .map(F::from_usize)
         .collect::<Vec<_>>(),
     );
+
+    for vm_multilinear_eval in &vm_multilinear_evals {
+        prover_state.add_base_scalars(&[
+            F::from_usize(vm_multilinear_eval.addr_coeffs),
+            F::from_usize(vm_multilinear_eval.addr_point),
+            F::from_usize(vm_multilinear_eval.addr_res),
+            F::from_usize(vm_multilinear_eval.n_vars),
+        ]);
+        prover_state.add_extension_scalars(&vm_multilinear_eval.point);
+        prover_state.add_extension_scalar(vm_multilinear_eval.res);
+    }
+
+    let mut private_memory_statements = vec![vec![]; n_private_memory_chunks];
+    for multilinear_eval in &vm_multilinear_evals {
+        let addr_point = multilinear_eval.addr_point;
+        let addr_coeffs = multilinear_eval.addr_coeffs;
+        let addr_res = multilinear_eval.addr_res;
+
+        // TODO only 1 statement for the evaluation point (instead of `n_vars` ones)
+        for (addr, value) in multilinear_eval
+            .point
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (addr_point + i, *p))
+            .chain(std::iter::once((addr_res, multilinear_eval.res)))
+        {
+            let mixing_scalars =
+                MultilinearPoint(prover_state.sample_vec(log2_strict_usize(DIMENSION)));
+            let eval = <EF as BasedVectorSpace<PF<EF>>>::as_basis_coefficients_slice(&value)
+                .evaluate(&mixing_scalars);
+            assert!(addr < 1 << (log_memory - 3));
+            let memory_chunk_index =
+                addr >> (log_memory - 3 - log2_ceil_usize(n_private_memory_chunks + 1));
+            let addr_bits = &to_big_endian_bits(
+                addr,
+                log_memory - 3 - log2_ceil_usize(n_private_memory_chunks + 1),
+            );
+            let mut memory_sparse_point = addr_bits
+                .iter()
+                .map(|&x| EF::from_bool(x))
+                .collect::<Vec<_>>();
+            memory_sparse_point.extend(mixing_scalars.0);
+            let statement = Evaluation {
+                point: MultilinearPoint(memory_sparse_point),
+                value: eval,
+            };
+            if memory_chunk_index != 0 {
+                private_memory_statements[memory_chunk_index - 1].push(statement);
+            }
+        }
+
+        {
+            let n_vars = multilinear_eval.n_vars;
+            assert!(n_vars <= log_memory);
+            assert!(addr_coeffs < 1 << (log_memory - n_vars));
+
+            if n_vars >= log_public_memory {
+                todo!("vm multilinear eval accross multiple memory chunks")
+            }
+            let memory_chunk_index =
+                addr_coeffs >> (log_memory - n_vars - log2_ceil_usize(n_private_memory_chunks + 1));
+            let addr_bits = &to_big_endian_bits(
+                addr_coeffs,
+                log_memory - n_vars - log2_ceil_usize(n_private_memory_chunks + 1),
+            );
+            let mut memory_sparse_point = addr_bits
+                .iter()
+                .map(|&x| EF::from_bool(x))
+                .collect::<Vec<_>>();
+            memory_sparse_point.extend(multilinear_eval.point.clone());
+            let statement = Evaluation {
+                point: MultilinearPoint(memory_sparse_point),
+                value: multilinear_eval.res,
+            };
+            if memory_chunk_index != 0 {
+                private_memory_statements[memory_chunk_index - 1].push(statement);
+            }
+        }
+    }
 
     let p16_indexes = all_poseidon_16_indexes(&poseidons_16);
     let p24_indexes = all_poseidon_24_indexes(&poseidons_24);
@@ -200,6 +281,7 @@ pub fn prove_execution(
     let grand_product_challenge_p16 = prover_state.sample().powers().collect_n(5);
     let grand_product_challenge_p24 = prover_state.sample().powers().collect_n(5);
     let grand_product_challenge_dot_product = prover_state.sample().powers().collect_n(6);
+    let grand_product_challenge_vm_multilinear_eval = prover_state.sample().powers().collect_n(6);
     let mut exec_column_for_grand_product = vec![grand_product_challenge_global; n_cycles];
     for pos16 in &poseidons_16 {
         let Some(cycle) = pos16.cycle else {
@@ -228,6 +310,18 @@ pub fn prove_execution(
             + grand_product_challenge_dot_product[3] * F::from_usize(dot_product.addr_1)
             + grand_product_challenge_dot_product[4] * F::from_usize(dot_product.addr_res)
             + grand_product_challenge_dot_product[5] * F::from_usize(dot_product.len);
+    }
+    for multilinear_eval in &vm_multilinear_evals {
+        exec_column_for_grand_product[multilinear_eval.cycle] = grand_product_challenge_global
+            + grand_product_challenge_vm_multilinear_eval[1]
+            + grand_product_challenge_vm_multilinear_eval[2]
+                * F::from_usize(multilinear_eval.addr_coeffs)
+            + grand_product_challenge_vm_multilinear_eval[3]
+                * F::from_usize(multilinear_eval.addr_point)
+            + grand_product_challenge_vm_multilinear_eval[4]
+                * F::from_usize(multilinear_eval.addr_res)
+            + grand_product_challenge_vm_multilinear_eval[5]
+                * F::from_usize(multilinear_eval.n_vars);
     }
 
     let (grand_product_exec_res, grand_product_exec_statement) = prove_gkr_product(
@@ -280,14 +374,35 @@ pub fn prove_execution(
         })
         .collect::<Vec<_>>();
 
+    let vm_multilinear_eval_grand_product_res = vm_multilinear_evals
+        .iter()
+        .map(|vm_multilinear_eval| {
+            grand_product_challenge_global
+                + grand_product_challenge_vm_multilinear_eval[1]
+                + grand_product_challenge_vm_multilinear_eval[2]
+                    * F::from_usize(vm_multilinear_eval.addr_coeffs)
+                + grand_product_challenge_vm_multilinear_eval[3]
+                    * F::from_usize(vm_multilinear_eval.addr_point)
+                + grand_product_challenge_vm_multilinear_eval[4]
+                    * F::from_usize(vm_multilinear_eval.addr_res)
+                + grand_product_challenge_vm_multilinear_eval[5]
+                    * F::from_usize(vm_multilinear_eval.n_vars)
+        })
+        .product::<EF>();
+
     let (grand_product_dot_product_res, grand_product_dot_product_statement) = prove_gkr_product(
         &mut prover_state,
         pack_extension(&dot_product_column_for_grand_product),
     );
 
     let corrected_prod_exec = grand_product_exec_res
-        / grand_product_challenge_global
-            .exp_u64((n_cycles - n_poseidons_16 - n_poseidons_24 - dot_products.len()) as u64);
+        / grand_product_challenge_global.exp_u64(
+            (n_cycles
+                - n_poseidons_16
+                - n_poseidons_24
+                - dot_products.len()
+                - vm_multilinear_evals.len()) as u64,
+        );
     let corrected_prod_p16 = grand_product_p16_res
         / (grand_product_challenge_global
             + grand_product_challenge_p16[1]
@@ -312,7 +427,10 @@ pub fn prove_execution(
 
     assert_eq!(
         corrected_prod_exec,
-        corrected_prod_p16 * corrected_prod_p24 * corrected_dot_product
+        corrected_prod_p16
+            * corrected_prod_p24
+            * corrected_dot_product
+            * vm_multilinear_eval_grand_product_res
     );
 
     let p16_grand_product_evals_on_indexes_a =
@@ -450,6 +568,10 @@ pub fn prove_execution(
                 grand_product_challenge_dot_product: grand_product_challenge_dot_product
                     .try_into()
                     .unwrap(),
+                grand_product_challenge_vm_multilinear_eval:
+                    grand_product_challenge_vm_multilinear_eval
+                        .try_into()
+                        .unwrap(),
             },
             &[],
             Some((grand_product_exec_statement.point.0.clone(), None)),
@@ -814,8 +936,7 @@ pub fn prove_execution(
     let dot_product_lookup_chunk_point = MultilinearPoint(
         dot_product_memory_challenge.point.0[log_memory - log_public_memory..].to_vec(),
     );
-    let mut private_memory_statements = vec![];
-    for private_memory_chunk in &private_memory_commited_chunks {
+    for (i, private_memory_chunk) in private_memory_commited_chunks.iter().enumerate() {
         let chunk_eval_exec_lookup = private_memory_chunk.evaluate(&exec_lookup_chunk_point);
         let chunk_eval_poseidon_lookup =
             private_memory_chunk.evaluate(&poseidon_lookup_chunk_point);
@@ -824,7 +945,7 @@ pub fn prove_execution(
         prover_state.add_extension_scalar(chunk_eval_exec_lookup);
         prover_state.add_extension_scalar(chunk_eval_poseidon_lookup);
         prover_state.add_extension_scalar(chunk_eval_dot_product_lookup);
-        private_memory_statements.push(vec![
+        private_memory_statements[i].extend(vec![
             Evaluation {
                 point: exec_lookup_chunk_point.clone(),
                 value: chunk_eval_exec_lookup,

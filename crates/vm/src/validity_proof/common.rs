@@ -187,6 +187,7 @@ pub struct PrecompileFootprint {
     pub grand_product_challenge_p16: [EF; 5],
     pub grand_product_challenge_p24: [EF; 5],
     pub grand_product_challenge_dot_product: [EF; 6],
+    pub grand_product_challenge_vm_multilinear_eval: [EF; 6],
 }
 
 impl<N: ExtensionField<PF<EF>>> SumcheckComputation<N, EF> for PrecompileFootprint
@@ -223,6 +224,12 @@ where
                 + self.grand_product_challenge_dot_product[4] * nu_c
                 + self.grand_product_challenge_dot_product[5] * point[COL_INDEX_AUX])
                 * point[COL_INDEX_DOT_PRODUCT]
+            + (self.grand_product_challenge_vm_multilinear_eval[1]
+                + self.grand_product_challenge_vm_multilinear_eval[2] * nu_a
+                + self.grand_product_challenge_vm_multilinear_eval[3] * nu_b
+                + self.grand_product_challenge_vm_multilinear_eval[4] * nu_c
+                + self.grand_product_challenge_vm_multilinear_eval[5] * point[COL_INDEX_AUX])
+                * point[COL_INDEX_MULTILINEAR_EVAL]
     }
 }
 

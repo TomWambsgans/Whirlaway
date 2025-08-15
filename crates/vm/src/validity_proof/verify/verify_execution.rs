@@ -9,6 +9,7 @@ use ::air::verify_many_air_2;
 use lookup::verify_gkr_product;
 use lookup::verify_logup_star;
 use p3_air::BaseAir;
+use p3_field::BasedVectorSpace;
 use p3_field::PrimeCharacteristicRing;
 use p3_util::{log2_ceil_usize, log2_strict_usize};
 use pcs::num_packed_vars_for_vars;
@@ -16,6 +17,7 @@ use pcs::packed_pcs_global_statements;
 use pcs::{BatchPCS, NumVariables as _, packed_pcs_parse_commitment};
 use sumcheck::SumcheckComputation;
 use utils::dot_product_with_base;
+use utils::to_big_endian_bits;
 use utils::{Evaluation, PF, build_challenger, padd_with_zero_to_next_power_of_two};
 use utils::{ToUsize, build_poseidon_16_air, build_poseidon_24_air};
 use whir_p3::fiat_shamir::{errors::ProofError, verifier::VerifierState};
@@ -52,8 +54,9 @@ pub fn verify_execution(
         table_dot_products_log_n_rows,
         dot_product_padding_len,
         private_memory_len,
+        n_vm_multilinear_evals,
     ] = verifier_state
-        .next_base_scalars_const::<7>()?
+        .next_base_scalars_const::<8>()?
         .into_iter()
         .map(|x| x.to_usize())
         .collect::<Vec<_>>()
@@ -67,6 +70,7 @@ pub fn verify_execution(
         || table_dot_products_log_n_rows > 32
         || private_memory_len > 1 << 32
         || dot_product_padding_len > 1 << table_dot_products_log_n_rows
+        || n_vm_multilinear_evals > 1 << 10
     {
         // To avoid "DOS" attack
         return Err(ProofError::InvalidProof);
@@ -93,6 +97,110 @@ pub fn verify_execution(
 
     let vars_private_memory = vec![log_public_memory; n_private_memory_chunks];
 
+    struct RowMultilinearEval {
+        addr_coeffs: F,
+        addr_point: F,
+        addr_res: F,
+        n_vars: F,
+        point: Vec<EF>,
+        res: EF,
+    }
+
+    let mut vm_multilinear_evals = Vec::new();
+    for _ in 0..n_vm_multilinear_evals {
+        let [addr_coeffs, addr_point, addr_res, n_vars] =
+            verifier_state.next_base_scalars_const::<4>()?;
+        let point = verifier_state.next_extension_scalars_vec(n_vars.to_usize())?;
+        let res = verifier_state.next_extension_scalar()?;
+        vm_multilinear_evals.push(RowMultilinearEval {
+            addr_coeffs,
+            addr_point,
+            addr_res,
+            n_vars,
+            point,
+            res,
+        });
+    }
+
+    let mut private_memory_statements = vec![vec![]; n_private_memory_chunks];
+    for row_multilinear_eval in &vm_multilinear_evals {
+        let addr_point = row_multilinear_eval.addr_point.to_usize();
+        let addr_coeffs = row_multilinear_eval.addr_coeffs.to_usize();
+        let addr_res = row_multilinear_eval.addr_res.to_usize();
+        let n_vars = row_multilinear_eval.n_vars.to_usize();
+
+        // TODO only 1 statement for the evaluation point (instead of `n_vars` ones)
+        for (addr, value) in row_multilinear_eval
+            .point
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (addr_point + i, *p))
+            .chain(std::iter::once((addr_res, row_multilinear_eval.res)))
+        {
+            let mixing_scalars_res =
+                MultilinearPoint(verifier_state.sample_vec(log2_strict_usize(DIMENSION)));
+            let eval = <EF as BasedVectorSpace<PF<EF>>>::as_basis_coefficients_slice(&value)
+                .evaluate(&mixing_scalars_res);
+            assert!(addr < 1 << (log_memory - 3));
+            let memory_chunk_index =
+                addr >> (log_memory - 3 - log2_ceil_usize(n_private_memory_chunks + 1));
+            let addr_bits = &to_big_endian_bits(
+                addr,
+                log_memory - 3 - log2_ceil_usize(n_private_memory_chunks + 1),
+            );
+            let mut memory_sparse_point = addr_bits
+                .iter()
+                .map(|&x| EF::from_bool(x))
+                .collect::<Vec<_>>();
+            memory_sparse_point.extend(mixing_scalars_res.0);
+            let statement = Evaluation {
+                point: MultilinearPoint(memory_sparse_point),
+                value: eval,
+            };
+            if memory_chunk_index == 0 {
+                if public_memory.evaluate(&statement.point) != statement.value {
+                    return Err(ProofError::InvalidProof);
+                }
+            } else {
+                private_memory_statements[memory_chunk_index - 1].push(statement);
+            }
+        }
+
+        {
+            if n_vars > log_memory {
+                return Err(ProofError::InvalidProof);
+            }
+            if addr_coeffs >= 1 << (log_memory - n_vars) {
+                return Err(ProofError::InvalidProof);
+            }
+            if n_vars >= log_public_memory {
+                todo!("vm multilinear eval accross multiple memory chunks")
+            }
+            let memory_chunk_index =
+                addr_coeffs >> (log_memory - n_vars - log2_ceil_usize(n_private_memory_chunks + 1));
+            let addr_bits = &to_big_endian_bits(
+                addr_coeffs,
+                log_memory - n_vars - log2_ceil_usize(n_private_memory_chunks + 1),
+            );
+            let mut memory_sparse_point = addr_bits
+                .iter()
+                .map(|&x| EF::from_bool(x))
+                .collect::<Vec<_>>();
+            memory_sparse_point.extend(row_multilinear_eval.point.clone());
+            let statement = Evaluation {
+                point: MultilinearPoint(memory_sparse_point),
+                value: row_multilinear_eval.res,
+            };
+            if memory_chunk_index == 0 {
+                if public_memory.evaluate(&statement.point) != statement.value {
+                    return Err(ProofError::InvalidProof);
+                }
+            } else {
+                private_memory_statements[memory_chunk_index - 1].push(statement);
+            }
+        }
+    }
+
     let vars_pcs_base = [
         vec![
             log_n_cycles, // pc
@@ -118,6 +226,7 @@ pub fn verify_execution(
     let grand_product_challenge_p16 = verifier_state.sample().powers().collect_n(5);
     let grand_product_challenge_p24 = verifier_state.sample().powers().collect_n(5);
     let grand_product_challenge_dot_product = verifier_state.sample().powers().collect_n(6);
+    let grand_product_challenge_vm_multilinear_eval = verifier_state.sample().powers().collect_n(6);
     let (grand_product_exec_res, grand_product_exec_statement) =
         verify_gkr_product(&mut verifier_state, log_n_cycles)?;
     let (grand_product_p16_res, grand_product_p16_statement) =
@@ -126,10 +235,26 @@ pub fn verify_execution(
         verify_gkr_product(&mut verifier_state, log2_ceil_usize(n_poseidons_24))?;
     let (grand_product_dot_product_res, grand_product_dot_product_statement) =
         verify_gkr_product(&mut verifier_state, table_dot_products_log_n_rows)?;
+    let vm_multilinear_eval_grand_product_res = vm_multilinear_evals
+        .iter()
+        .map(|vm_multilinear_eval| {
+            grand_product_challenge_global
+                + grand_product_challenge_vm_multilinear_eval[1]
+                + grand_product_challenge_vm_multilinear_eval[2] * vm_multilinear_eval.addr_coeffs
+                + grand_product_challenge_vm_multilinear_eval[3] * vm_multilinear_eval.addr_point
+                + grand_product_challenge_vm_multilinear_eval[4] * vm_multilinear_eval.addr_res
+                + grand_product_challenge_vm_multilinear_eval[5] * vm_multilinear_eval.n_vars
+        })
+        .product::<EF>();
 
     let corrected_prod_exec = grand_product_exec_res
-        / grand_product_challenge_global
-            .exp_u64((n_cycles - n_poseidons_16 - n_poseidons_24 - n_dot_products) as u64);
+        / grand_product_challenge_global.exp_u64(
+            (n_cycles
+                - n_poseidons_16
+                - n_poseidons_24
+                - n_dot_products
+                - vm_multilinear_evals.len()) as u64,
+        );
     let corrected_prod_p16 = grand_product_p16_res
         / (grand_product_challenge_global
             + grand_product_challenge_p16[1]
@@ -152,7 +277,12 @@ pub fn verify_execution(
                     as u64,
             ));
 
-    if corrected_prod_exec != corrected_prod_p16 * corrected_prod_p24 * corrected_dot_product {
+    if corrected_prod_exec
+        != corrected_prod_p16
+            * corrected_prod_p24
+            * corrected_dot_product
+            * vm_multilinear_eval_grand_product_res
+    {
         return Err(ProofError::InvalidProof);
     }
 
@@ -300,6 +430,10 @@ pub fn verify_execution(
                     grand_product_challenge_dot_product: grand_product_challenge_dot_product
                         .try_into()
                         .unwrap(),
+                    grand_product_challenge_vm_multilinear_eval:
+                        grand_product_challenge_vm_multilinear_eval
+                            .try_into()
+                            .unwrap(),
                 }
                 .eval(&grand_product_exec_sumcheck_inner_evals, &[])
             }
@@ -520,15 +654,14 @@ pub fn verify_execution(
     let mut chunk_evals_dot_product_lookup =
         vec![public_memory.evaluate(&dot_product_lookup_chunk_point)];
 
-    let mut private_memory_statements = vec![];
-    for _ in 0..n_private_memory_chunks {
+    for i in 0..n_private_memory_chunks {
         let chunk_eval_exec_lookup = verifier_state.next_extension_scalar()?;
         let chunk_eval_poseidon_lookup = verifier_state.next_extension_scalar()?;
         let chunk_eval_dot_product_lookup = verifier_state.next_extension_scalar()?;
         chunk_evals_exec_lookup.push(chunk_eval_exec_lookup);
         chunk_evals_poseidon_lookup.push(chunk_eval_poseidon_lookup);
         chunk_evals_dot_product_lookup.push(chunk_eval_dot_product_lookup);
-        private_memory_statements.push(vec![
+        private_memory_statements[i].extend(vec![
             Evaluation {
                 point: exec_lookup_chunk_point.clone(),
                 value: chunk_eval_exec_lookup,
@@ -646,7 +779,7 @@ pub fn verify_execution(
                 vec![
                     dot_product_evals_to_verify[2].clone(),
                     dot_product_logup_star_statements.on_indexes,
-                    grand_product_dot_product_table_indexes_statement
+                    grand_product_dot_product_table_indexes_statement,
                 ], // dot product: indexes
                 vec![dot_product_computation_column_challenge],
             ],

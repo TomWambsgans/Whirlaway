@@ -4,11 +4,12 @@ use crate::prove::prove_execution;
 use crate::verify::verify_execution;
 use crate::*;
 use p3_field::BasedVectorSpace;
+use p3_field::PrimeCharacteristicRing;
 use pcs::WhirBatchPcs;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::{
-    MyMerkleCompress, MyMerkleHash, build_merkle_compress, build_merkle_hash, build_prover_state,
-    build_verifier_state,
+    MY_DIGEST_ELEMS, MyMerkleCompress, MyMerkleHash, build_merkle_compress, build_merkle_hash,
+    build_prover_state, build_verifier_state,
 };
 use whir_p3::{
     dft::EvalsDft,
@@ -35,31 +36,33 @@ pub fn run_whir_verif() {
     const W = 3; // in the extension field, X^8 = 3
     const F_BITS = 31; // koala-bear = 31 bits
 
-    const N_VARS = 22;
+    const N_VARS = 25;
     const LOG_INV_RATE = 2; 
     const N_ROUNDS = 3;
+    
+    const PADDING_FOR_INITIAL_MERKLE_LEAVES = 7;
 
-    const FOLDING_FACTOR_0 = 4;
+    const FOLDING_FACTOR_0 = 7;
     const FOLDING_FACTOR_1 = 4;
     const FOLDING_FACTOR_2 = 4;
     const FOLDING_FACTOR_3 = 4;
 
     const FINAL_VARS = N_VARS - (FOLDING_FACTOR_0 + FOLDING_FACTOR_1 + FOLDING_FACTOR_2 + FOLDING_FACTOR_3);
 
-    const RS_REDUCTION_FACTOR_0 = 1;
+    const RS_REDUCTION_FACTOR_0 = 3;
     const RS_REDUCTION_FACTOR_1 = 1;
     const RS_REDUCTION_FACTOR_2 = 1;
     const RS_REDUCTION_FACTOR_3 = 1;
 
     const NUM_QUERIES_0 = 58;
-    const NUM_QUERIES_1 = 23;
-    const NUM_QUERIES_2 = 14;
-    const NUM_QUERIES_3 = 11;
+    const NUM_QUERIES_1 = 19;
+    const NUM_QUERIES_2 = 13;
+    const NUM_QUERIES_3 = 10;
 
     const GRINDING_BITS_0 = 16;
-    const GRINDING_BITS_1 = 14;
-    const GRINDING_BITS_2 = 16;
-    const GRINDING_BITS_3 = 7;
+    const GRINDING_BITS_1 = 15;
+    const GRINDING_BITS_2 = 11;
+    const GRINDING_BITS_3 = 8;
 
     const TWO_ADICITY = 24;
     const ROOT = 1791270792; // of order 2^TWO_ADICITY
@@ -68,18 +71,19 @@ pub fn run_whir_verif() {
         transcript_start = public_input_start / 8;
         fs_state = fs_new(transcript_start);
 
-        fs_state_1, root_0, ood_point_0, ood_eval_0 = parse_commitment(fs_state);
+        fs_state_0, root_0, ood_point_0, ood_eval_0 = parse_commitment(fs_state);
 
         // In the future point / eval will come from the PIOP
-        fs_state_2, pcs_point = fs_hint(fs_state_1, N_VARS);
-        fs_state_3, pcs_eval = fs_hint(fs_state_2, 1);
+        fs_state_1, pcs_point = fs_hint(fs_state_0, N_VARS);
+        fs_state_2, pcs_eval = fs_hint(fs_state_1, 1);
+        fs_state_3, _ = fs_hint(fs_state_2, PADDING_FOR_INITIAL_MERKLE_LEAVES);
         fs_state_4, combination_randomness_gen_0 = fs_sample_ef(fs_state_3);  // vectorized pointer of len 1
 
         claimed_sum_side = mul_extension_ret(combination_randomness_gen_0, pcs_eval);
         claimed_sum_0 = add_extension_ret(ood_eval_0, claimed_sum_side);
         domain_size_0 = N_VARS + LOG_INV_RATE;
         fs_state_5, folding_randomness_1, ood_point_1, root_1, circle_values_1, combination_randomness_powers_1, claimed_sum_1 = 
-            whir_round(fs_state_4, root_0, FOLDING_FACTOR_0, 2**FOLDING_FACTOR_0, 0, NUM_QUERIES_0, domain_size_0, claimed_sum_0, GRINDING_BITS_0);
+            whir_round(fs_state_4, root_0, FOLDING_FACTOR_0, 2**FOLDING_FACTOR_0, 1, NUM_QUERIES_0, domain_size_0, claimed_sum_0, GRINDING_BITS_0);
 
         domain_size_1 = domain_size_0 - RS_REDUCTION_FACTOR_0;
         fs_state_6, folding_randomness_2, ood_point_2, root_2, circle_values_2, combination_randomness_powers_2, claimed_sum_2 = 
@@ -330,14 +334,13 @@ pub fn run_whir_verif() {
 
         fs_state_11 = fs_states_c[num_queries];
 
-        poly_eq = poly_eq_extension(folding_randomness, folding_factor, two_pow_folding_factor);
-
         folds = malloc_vec(num_queries);
         if is_first_round == 1 {
             for i in 0..num_queries {
-                dot_product_base_extension(answers[i] * 8, poly_eq, folds + i, 2**FOLDING_FACTOR_0); // TODO use multilinear eval instead
+                multilinear_eval((answers[i] * 8) / 2**FOLDING_FACTOR_0, folding_randomness, folds + i, FOLDING_FACTOR_0); // TODO batching: use a single call to multilinear eval
             }
         } else {
+            poly_eq = poly_eq_extension(folding_randomness, folding_factor, two_pow_folding_factor);
             for i in 0..num_queries {
                 dot_product_dynamic(answers[i], poly_eq, folds + i, two_pow_folding_factor);
             }
@@ -893,23 +896,23 @@ pub fn run_whir_verif() {
 
    "#;
 
-    let num_variables = 22;
+    let num_variables = 25;
     let recursion_config_builder = WhirConfigBuilder {
         max_num_variables_to_send_coeffs: 6,
         security_level: 128,
         pow_bits: 17,
-        folding_factor: FoldingFactor::ConstantFromSecondRound(4, 4),
+        folding_factor: FoldingFactor::ConstantFromSecondRound(7, 4),
         merkle_hash: build_merkle_hash(),
         merkle_compress: build_merkle_compress(),
         soundness_type: SecurityAssumption::CapacityBound,
         starting_log_inv_rate: 2,
-        rs_domain_initial_reduction_factor: 1,
+        rs_domain_initial_reduction_factor: 3,
         base_field: PhantomData,
         extension_field: PhantomData,
     };
 
-    let recursion_config = WhirConfig::<EF, EF, MyMerkleHash, MyMerkleCompress, 8>::new(
-        recursion_config_builder,
+    let recursion_config = WhirConfig::<F, EF, MyMerkleHash, MyMerkleCompress, 8>::new(
+        recursion_config_builder.clone(),
         num_variables,
     );
     assert_eq!(recursion_config.committment_ood_samples, 1);
@@ -928,7 +931,7 @@ pub fn run_whir_verif() {
     let mut rng = StdRng::seed_from_u64(0);
     let polynomial = (0..1 << num_variables)
         .map(|_| rng.random())
-        .collect::<Vec<EF>>();
+        .collect::<Vec<F>>();
 
     let point = MultilinearPoint::<EF>::rand(&mut rng, num_variables);
 
@@ -968,6 +971,35 @@ pub fn run_whir_verif() {
             &polynomial,
         )
         .unwrap();
+
+    let first_folding_factor = recursion_config_builder.folding_factor.at_round(0);
+    let mut proof_data_padding = (1 << first_folding_factor)
+        - ((PUBLIC_INPUT_START
+            + public_input.len()
+            + {
+                // sumcheck polys
+                first_folding_factor * 3 * DIMENSION
+            }
+            + {
+                // merkle root
+                MY_DIGEST_ELEMS
+            }
+            + {
+                // grinding witness
+                MY_DIGEST_ELEMS
+            }
+            + {
+                // ood answer
+                DIMENSION
+            })
+            % (1 << first_folding_factor));
+    assert_eq!(proof_data_padding % 8, 0);
+    proof_data_padding /= 8;
+    println!(
+        "1st merkle leaf padding: {} (vectorized)",
+        proof_data_padding
+    ); // to align the first merkle leaves (in base field)
+    public_input.extend(F::zero_vec(proof_data_padding * 8));
 
     public_input.extend(prover_state.proof_data()[commitment_size..].to_vec());
 

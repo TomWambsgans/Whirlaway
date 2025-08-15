@@ -2,7 +2,6 @@ use std::ops::Range;
 
 use p3_field::extension::BinomialExtensionField;
 use p3_koala_bear::KoalaBear;
-use p3_util::log2_ceil_usize;
 
 use crate::{compiler::compile_program, precompiles::PRECOMPILES, runner::execute_bytecode};
 
@@ -33,7 +32,6 @@ const N_COMMITTED_EXEC_COLUMNS: usize = 5;
 const N_MEMORY_VALUE_COLUMNS: usize = 3; // virtual (lookup into memory, with logup*)
 const N_EXEC_COLUMNS: usize = N_COMMITTED_EXEC_COLUMNS + N_MEMORY_VALUE_COLUMNS;
 const N_INSTRUCTION_COLUMNS_IN_AIR: usize = N_INSTRUCTION_COLUMNS - PRECOMPILES.len();
-const LOG_N_INSTRUCTION_COLUMNS_IN_AIR: usize = log2_ceil_usize(N_INSTRUCTION_COLUMNS_IN_AIR);
 const N_EXEC_AIR_COLUMNS: usize = N_INSTRUCTION_COLUMNS_IN_AIR + N_EXEC_COLUMNS;
 const N_TOTAL_COLUMNS: usize = N_INSTRUCTION_COLUMNS + N_EXEC_COLUMNS;
 

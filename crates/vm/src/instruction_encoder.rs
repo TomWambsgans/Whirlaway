@@ -91,13 +91,13 @@ impl Instruction {
                 coeffs,
                 point,
                 res,
-                size,
+                n_vars,
             } => {
                 fields[COL_INDEX_MULTILINEAR_EVAL] = F::ONE; 
                 set_nu_a(&mut fields, coeffs);
                 set_nu_b(&mut fields, point);
                 set_nu_c(&mut fields, res);
-                fields[COL_INDEX_AUX] = F::from_usize(*size); // AUX stores size
+                fields[COL_INDEX_AUX] = F::from_usize(*n_vars); // AUX stores `n_vars`
             }
         }
         fields

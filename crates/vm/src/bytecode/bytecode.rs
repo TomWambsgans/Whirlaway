@@ -71,10 +71,10 @@ pub enum Instruction {
         size: usize,
     },
     MultilinearEval {
-        coeffs: MemOrConstant, // vectorized pointer, chunk size = 8.2^size
-        point: MemOrConstant,  // vectorized pointer, of size `size`
+        coeffs: MemOrConstant, // vectorized pointer, chunk size = 2^n_vars
+        point: MemOrConstant,  // vectorized pointer, of size `n_vars`
         res: MemOrFp,          // vectorized pointer, of size 1 (never fp in practice)
-        size: usize,
+        n_vars: usize,
     },
 }
 
@@ -237,14 +237,14 @@ impl ToString for Instruction {
                 coeffs,
                 point,
                 res,
-                size,
+                n_vars,
             } => {
                 format!(
                     "multilinear_eval({}, {}, {}, {})",
                     coeffs.to_string(),
                     point.to_string(),
                     res.to_string(),
-                    size
+                    n_vars
                 )
             }
             Self::JumpIfNotZero {

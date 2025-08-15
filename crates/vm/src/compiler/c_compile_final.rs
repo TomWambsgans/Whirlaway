@@ -229,13 +229,13 @@ pub fn compile_to_low_level_bytecode(
                     coeffs,
                     point,
                     res,
-                    size,
+                    n_vars,
                 } => {
                     low_level_bytecode.push(Instruction::MultilinearEval {
                         coeffs: coeffs.try_into_mem_or_constant(&compiler).unwrap(),
                         point: point.try_into_mem_or_constant(&compiler).unwrap(),
                         res: res.try_into_mem_or_fp(&compiler).unwrap(),
-                        size: eval_const_expression_usize(&size, &compiler),
+                        n_vars: eval_const_expression_usize(&n_vars, &compiler),
                     });
                 }
                 IntermediateInstruction::DecomposeBits {

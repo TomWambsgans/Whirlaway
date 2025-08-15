@@ -436,7 +436,7 @@ fn compile_lines(
                     coeffs: IntermediateValue::from_simple_expr(&args[0], compiler),
                     point: IntermediateValue::from_simple_expr(&args[1], compiler),
                     res: IntermediateValue::from_simple_expr(&args[2], compiler),
-                    size: args[3].as_constant().unwrap(),
+                    n_vars: args[3].as_constant().unwrap(),
                 });
             }
 

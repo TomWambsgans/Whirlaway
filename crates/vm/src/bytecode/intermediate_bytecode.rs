@@ -124,10 +124,10 @@ pub enum IntermediateInstruction {
         size: ConstExpression,
     },
     MultilinearEval {
-        coeffs: IntermediateValue, // vectorized pointer, chunk size = 8.2^size
-        point: IntermediateValue,  // vectorized pointer, of size `size`
+        coeffs: IntermediateValue, // vectorized pointer, chunk size = 2^n_vars
+        point: IntermediateValue,  // vectorized pointer, of size `n_vars`
         res: IntermediateValue,    // vectorized pointer, of size 1
-        size: ConstExpression,
+        n_vars: ConstExpression,
     },
     // HINTS (does not appears in the final bytecode)
     Inverse {
@@ -247,13 +247,13 @@ impl ToString for IntermediateInstruction {
                 coeffs,
                 point,
                 res,
-                size,
+                n_vars,
             } => format!(
                 "multilinear_eval({}, {}, {}, {})",
                 coeffs.to_string(),
                 point.to_string(),
                 res.to_string(),
-                size.to_string()
+                n_vars.to_string()
             ),
             Self::DecomposeBits {
                 res_offset,

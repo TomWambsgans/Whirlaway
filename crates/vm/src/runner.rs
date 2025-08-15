@@ -534,17 +534,17 @@ fn execute_bytecode_helper(
                 coeffs,
                 point,
                 res,
-                size,
+                n_vars,
             } => {
                 dot_product_base_ext_calls += 1;
 
                 let ptr_coeffs = coeffs.read_value(&memory, fp)?.to_usize();
                 let ptr_point = point.read_value(&memory, fp)?.to_usize();
                 let ptr_res = res.read_value(&memory, fp)?.to_usize();
-                let slice_coeffs = (ptr_coeffs << *size..(1 + ptr_coeffs) << *size)
+                let slice_coeffs = (ptr_coeffs << *n_vars..(1 + ptr_coeffs) << *n_vars)
                     .map(|i| memory.get(i))
                     .collect::<Result<Vec<F>, _>>()?;
-                let point = (ptr_point..ptr_point + *size)
+                let point = (ptr_point..ptr_point + *n_vars)
                     .map(|i| Ok(EF::from_basis_coefficients_slice(&memory.get_vector(i)?).unwrap()))
                     .collect::<Result<Vec<EF>, _>>()?;
 
