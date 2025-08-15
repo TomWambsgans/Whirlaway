@@ -3,9 +3,8 @@ use std::collections::BTreeMap;
 use p3_field::PrimeCharacteristicRing;
 use p3_field::PrimeField64;
 
-use crate::{F, bytecode::bytecode::Operation, lang::ConstExpression};
-
-pub type Label = String;
+use crate::{F, lang::ConstExpression};
+use vm::*;
 
 #[derive(Debug, Clone)]
 pub struct IntermediateBytecode {
@@ -25,6 +24,17 @@ impl From<ConstExpression> for IntermediateValue {
         IntermediateValue::Constant(value)
     }
 }
+impl TryFrom<HighLevelOperation> for Operation {
+    type Error = String;
+
+    fn try_from(value: HighLevelOperation) -> Result<Self, Self::Error> {
+        match value {
+            HighLevelOperation::Add => Ok(Operation::Add),
+            HighLevelOperation::Mul => Ok(Operation::Mul),
+            _ => Err(format!("Cannot convert {:?} to +/x", value)),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum IntermediaryMemOrFpOrConstant {
@@ -38,28 +48,8 @@ impl IntermediateValue {
         Self::Constant(ConstExpression::label(label))
     }
 
-    pub fn as_constant(&self) -> Option<ConstExpression> {
-        if let IntermediateValue::Constant(c) = self {
-            Some(c.clone())
-        } else {
-            None
-        }
-    }
-
-    pub fn zero() -> Self {
-        IntermediateValue::Constant(ConstExpression::zero())
-    }
-
     pub fn is_constant(&self) -> bool {
         matches!(self, IntermediateValue::Constant(_))
-    }
-
-    pub fn is_fp(&self) -> bool {
-        matches!(self, IntermediateValue::Fp)
-    }
-
-    pub fn is_mem_after_fp(&self) -> bool {
-        matches!(self, IntermediateValue::MemoryAfterFp { .. })
     }
 }
 

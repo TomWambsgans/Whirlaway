@@ -333,8 +333,14 @@ mod tests {
         println!("Proving logup_star took {} ms", time.elapsed().as_millis());
 
         let mut verifier_state = FSVerifier::new(prover_state.proof_data().to_vec(), challenger);
-        let statements =
-            verify_logup_star(&mut verifier_state, log_table_len, log_indexes_len, &[claim], EF::ONE).unwrap();
+        let statements = verify_logup_star(
+            &mut verifier_state,
+            log_table_len,
+            log_indexes_len,
+            &[claim],
+            EF::ONE,
+        )
+        .unwrap();
 
         assert_eq!(
             indexes.evaluate(&statements.on_indexes.point),

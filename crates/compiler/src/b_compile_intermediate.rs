@@ -1,19 +1,11 @@
-use crate::{
-    F,
-    bytecode::{bytecode::Operation, intermediate_bytecode::*},
-    compiler::{
-        SimpleProgram,
-        a_simplify_lang::{SimpleFunction, SimpleLine, VarOrConstMallocAccess},
-    },
-    lang::*,
-    precompiles::{Precompile, PrecompileName},
-};
+use crate::{F, a_simplify_lang::*, intermediate_bytecode::*, lang::*, precompiles::*};
 use p3_field::Field;
 use std::{
     borrow::Borrow,
     collections::{BTreeMap, BTreeSet},
 };
 use utils::ToUsize;
+use vm::*;
 
 struct Compiler {
     bytecode: BTreeMap<Label, Vec<IntermediateInstruction>>,

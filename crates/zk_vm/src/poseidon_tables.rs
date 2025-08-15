@@ -2,11 +2,9 @@ use p3_field::PrimeCharacteristicRing;
 use utils::{
     generate_trace_poseidon_16, generate_trace_poseidon_24, padd_with_zero_to_next_power_of_two,
 };
+use vm::F;
 
-use crate::{
-    F,
-    prove::{WitnessPoseidon16, WitnessPoseidon24},
-};
+use crate::execution_trace::{WitnessPoseidon16, WitnessPoseidon24};
 
 pub fn build_poseidon_columns(
     poseidons_16: &[WitnessPoseidon16],

@@ -1,12 +1,13 @@
-use crate::bytecode::intermediate_bytecode::*;
+use crate::intermediate_bytecode::*;
+use crate::lang::*;
 use crate::precompiles::PRECOMPILES;
-use crate::{F, lang::*};
 use p3_field::PrimeCharacteristicRing;
 use pest::Parser;
 use pest::iterators::Pair;
 use pest_derive::Parser;
 use std::collections::BTreeMap;
 use utils::ToUsize;
+use vm::F;
 
 #[derive(Parser)]
 #[grammar = "grammar.pest"]

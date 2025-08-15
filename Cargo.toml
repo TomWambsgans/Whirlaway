@@ -105,9 +105,10 @@ sumcheck = { path = "crates/sumcheck" }
 utils = { path = "crates/utils" }
 vm = { path = "crates/vm" }
 xmss = { path = "crates/xmss" }
-logup_star = { path = "crates/logup_star" }
 pcs = { path = "crates/pcs" }
 lookup = { path = "crates/lookup" }
+compiler = { path = "crates/compiler" }
+zk_vm = { path = "crates/zk_vm" }
 
 # External
 rand = "0.9.2"
@@ -135,6 +136,7 @@ p3-challenger = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = 
 p3-util = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "w" }
 
 whir-p3 = { git = "https://github.com/TomWambsgans/whir-p3", branch = "w"}
+hash-sig = { git = "https://github.com/TomWambsgans/hash-sig", branch = "w"}
 
 [dependencies]
 air.workspace = true

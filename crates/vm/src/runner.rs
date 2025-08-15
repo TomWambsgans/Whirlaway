@@ -10,12 +10,7 @@ use utils::pretty_integer;
 use whir_p3::poly::evals::EvaluationsList;
 use whir_p3::poly::multilinear::MultilinearPoint;
 
-use crate::bytecode::bytecode::Bytecode;
-use crate::bytecode::bytecode::Hint;
-use crate::bytecode::bytecode::Instruction;
-use crate::bytecode::bytecode::MemOrConstant;
-use crate::bytecode::bytecode::MemOrFp;
-use crate::bytecode::bytecode::MemOrFpOrConstant;
+use crate::bytecode::*;
 use crate::*;
 use p3_field::Field;
 use p3_symmetric::Permutation;
@@ -238,7 +233,7 @@ pub struct ExecutionResult {
     pub fps: Vec<usize>,
 }
 
-pub(crate) fn build_public_memory(public_input: &[F]) -> Vec<F> {
+pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
     // padded to a power of two
     let public_memory_len = (PUBLIC_INPUT_START + public_input.len()).next_power_of_two();
     let mut public_memory = F::zero_vec(public_memory_len);

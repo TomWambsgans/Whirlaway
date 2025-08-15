@@ -60,7 +60,10 @@ where
     }
 
     assert_eq!(layers_not_packed[n - last_packed - 2].len(), 2);
-    let product = layers_not_packed[n - last_packed - 2].iter().cloned().product::<EF>();
+    let product = layers_not_packed[n - last_packed - 2]
+        .iter()
+        .cloned()
+        .product::<EF>();
     prover_state.add_extension_scalars(&layers_not_packed[n - last_packed - 2]);
 
     let point = MultilinearPoint(vec![prover_state.sample()]);
@@ -270,7 +273,8 @@ mod tests {
         let mut prover_state = build_prover_state();
 
         let time = Instant::now();
-        let (product_prover, claim_prover) = prove_gkr_product(&mut prover_state, pack_extension(&layer));
+        let (product_prover, claim_prover) =
+            prove_gkr_product(&mut prover_state, pack_extension(&layer));
         println!("GKR product took {:?}", time.elapsed());
 
         let mut verifier_state = build_verifier_state(&prover_state);

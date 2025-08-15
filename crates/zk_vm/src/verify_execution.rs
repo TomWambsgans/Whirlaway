@@ -1,9 +1,6 @@
+use crate::common::*;
 use crate::dot_product_air::DOT_PRODUCT_AIR_COLUMN_GROUPS;
 use crate::dot_product_air::DotProductAir;
-use crate::validity_proof::common::DotProductFootprint;
-use crate::validity_proof::common::PrecompileFootprint;
-use crate::validity_proof::common::fold_bytecode;
-use crate::validity_proof::common::intitial_and_final_pc_conditions;
 use ::air::table::AirTable;
 use ::air::verify_many_air_2;
 use lookup::verify_gkr_product;
@@ -20,16 +17,12 @@ use utils::dot_product_with_base;
 use utils::to_big_endian_bits;
 use utils::{Evaluation, PF, build_challenger, padd_with_zero_to_next_power_of_two};
 use utils::{ToUsize, build_poseidon_16_air, build_poseidon_24_air};
+use vm::*;
 use whir_p3::fiat_shamir::{errors::ProofError, verifier::VerifierState};
 use whir_p3::poly::evals::EvaluationsList;
 use whir_p3::poly::multilinear::MultilinearPoint;
 
-use crate::runner::build_public_memory;
-use crate::validity_proof::common::{
-    poseidon_16_column_groups, poseidon_24_column_groups, poseidon_lookup_index_statements,
-    poseidon_lookup_value,
-};
-use crate::{air::VMAir, bytecode::bytecode::Bytecode, *};
+use crate::{air::VMAir, *};
 
 pub fn verify_execution(
     bytecode: &Bytecode,

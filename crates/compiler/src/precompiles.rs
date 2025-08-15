@@ -49,9 +49,4 @@ pub const MULTILINEAR_EVAL: Precompile = Precompile {
     n_outputs: 0,
 };
 
-pub const PRECOMPILES: [Precompile; 4] = [
-    POSEIDON_16,
-    POSEIDON_24,
-    DOT_PRODUCT,
-    MULTILINEAR_EVAL,
-];
+pub const PRECOMPILES: [Precompile; 4] = [POSEIDON_16, POSEIDON_24, DOT_PRODUCT, MULTILINEAR_EVAL];

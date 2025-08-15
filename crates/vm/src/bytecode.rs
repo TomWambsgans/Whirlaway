@@ -1,4 +1,4 @@
-use crate::{F, bytecode::intermediate_bytecode::HighLevelOperation};
+use crate::F;
 use p3_field::PrimeCharacteristicRing;
 use std::collections::BTreeMap;
 
@@ -38,6 +38,7 @@ pub enum Operation {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Instruction {
+    // 3 basic instructions
     Computation {
         operation: Operation,
         arg_a: MemOrConstant,
@@ -54,6 +55,7 @@ pub enum Instruction {
         dest: MemOrConstant,
         updated_fp: MemOrFp,
     },
+    // 4 precompiles:
     Poseidon2_16 {
         arg_a: MemOrConstant, // vectorized pointer, of size 1
         arg_b: MemOrConstant, // vectorized pointer, of size 1
@@ -96,18 +98,6 @@ impl Operation {
                     Some(a / b)
                 }
             }
-        }
-    }
-}
-
-impl TryFrom<HighLevelOperation> for Operation {
-    type Error = String;
-
-    fn try_from(value: HighLevelOperation) -> Result<Self, Self::Error> {
-        match value {
-            HighLevelOperation::Add => Ok(Operation::Add),
-            HighLevelOperation::Mul => Ok(Operation::Mul),
-            _ => Err(format!("Cannot convert {:?} to +/x", value)),
         }
     }
 }

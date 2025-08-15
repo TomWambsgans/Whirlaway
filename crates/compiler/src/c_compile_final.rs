@@ -1,21 +1,8 @@
+use crate::{F, PUBLIC_INPUT_START, ZERO_VEC_PTR, intermediate_bytecode::*, lang::*};
 use p3_field::PrimeCharacteristicRing;
 use std::collections::BTreeMap;
 use utils::ToUsize;
-
-use crate::{
-    F, PUBLIC_INPUT_START, ZERO_VEC_PTR,
-    bytecode::{
-        bytecode::{
-            Bytecode, Hint, Instruction, Label, MemOrConstant, MemOrFp, MemOrFpOrConstant,
-            Operation,
-        },
-        intermediate_bytecode::{
-            IntermediaryMemOrFpOrConstant, IntermediateBytecode, IntermediateInstruction,
-            IntermediateValue,
-        },
-    },
-    lang::*,
-};
+use vm::*;
 
 impl IntermediateInstruction {
     fn is_hint(&self) -> bool {

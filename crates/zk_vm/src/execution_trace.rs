@@ -1,15 +1,15 @@
+use crate::instruction_encoder::field_representation;
 use crate::{
     COL_INDEX_FP, COL_INDEX_MEM_ADDRESS_A, COL_INDEX_MEM_ADDRESS_B, COL_INDEX_MEM_ADDRESS_C,
-    COL_INDEX_MEM_VALUE_A, COL_INDEX_MEM_VALUE_B, COL_INDEX_MEM_VALUE_C, COL_INDEX_PC, EF, F,
-    N_EXEC_COLUMNS, N_INSTRUCTION_COLUMNS, POSEIDON_16_NULL_HASH_PTR, POSEIDON_24_NULL_HASH_PTR,
-    bytecode::bytecode::{Bytecode, Instruction},
-    runner::ExecutionResult,
+    COL_INDEX_MEM_VALUE_A, COL_INDEX_MEM_VALUE_B, COL_INDEX_MEM_VALUE_C, COL_INDEX_PC,
+    N_EXEC_COLUMNS, N_INSTRUCTION_COLUMNS,
 };
 use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
 use p3_symmetric::Permutation;
 use rayon::prelude::*;
 use utils::{ToUsize, build_poseidon16, build_poseidon24};
+use vm::*;
 
 pub struct WitnessDotProduct {
     pub cycle: usize,
@@ -85,7 +85,7 @@ pub fn get_execution_trace(
         .enumerate()
     {
         let instruction = &bytecode.instructions[pc];
-        let field_repr = instruction.field_representation();
+        let field_repr = field_representation(&instruction);
 
         // println!(
         //     "Cycle {}: PC = {}, FP = {}, Instruction = {}",

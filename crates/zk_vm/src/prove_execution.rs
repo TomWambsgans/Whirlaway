@@ -1,15 +1,12 @@
+use crate::common::*;
 use crate::dot_product_air::DOT_PRODUCT_AIR_COLUMN_GROUPS;
 use crate::dot_product_air::DotProductAir;
 use crate::dot_product_air::build_dot_product_columns;
-use crate::prove::all_poseidon_16_indexes;
-use crate::prove::all_poseidon_24_indexes;
-use crate::validity_proof::common::DotProductFootprint;
-use crate::validity_proof::common::PrecompileFootprint;
-use crate::validity_proof::common::fold_bytecode;
-use crate::validity_proof::common::intitial_and_final_pc_conditions;
-use crate::validity_proof::common::poseidon_16_column_groups;
-use crate::validity_proof::common::poseidon_24_column_groups;
-use crate::validity_proof::common::poseidon_lookup_index_statements;
+use crate::execution_trace::ExecutionTrace;
+use crate::execution_trace::get_execution_trace;
+use crate::poseidon_tables::build_poseidon_columns;
+use crate::poseidon_tables::*;
+use crate::{air::VMAir, *};
 use ::air::prove_many_air_2;
 use ::air::{table::AirTable, witness::AirWitness};
 use lookup::prove_gkr_product;
@@ -34,20 +31,12 @@ use utils::{
     Evaluation, PF, build_poseidon_16_air, build_poseidon_24_air, build_prover_state,
     padd_with_zero_to_next_power_of_two,
 };
+use vm::Bytecode;
+use vm::*;
 use whir_p3::dft::EvalsDft;
 use whir_p3::poly::evals::{eval_eq, fold_multilinear};
 use whir_p3::poly::{evals::EvaluationsList, multilinear::MultilinearPoint};
 use whir_p3::utils::compute_eval_eq;
-
-use crate::prove::build_poseidon_columns;
-use crate::validity_proof::common::poseidon_lookup_value;
-use crate::{
-    air::VMAir,
-    bytecode::bytecode::Bytecode,
-    prove::{ExecutionTrace, get_execution_trace},
-    runner::execute_bytecode,
-    *,
-};
 
 pub fn prove_execution(
     bytecode: &Bytecode,

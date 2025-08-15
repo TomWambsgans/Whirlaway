@@ -16,7 +16,8 @@ use whir_p3::{
     },
 };
 
-use crate::{bytecode::bytecode::Bytecode, *};
+use crate::{instruction_encoder::field_representation, *};
+use vm::*;
 
 pub fn poseidon_16_column_groups(poseidon_16_air: &Poseidon16Air) -> Vec<Range<usize>> {
     vec![
@@ -161,7 +162,7 @@ pub fn fold_bytecode(bytecode: &Bytecode, folding_challenges: &MultilinearPoint<
         &bytecode
             .instructions
             .par_iter()
-            .flat_map(|i| padd_with_zero_to_next_power_of_two(&i.field_representation()))
+            .flat_map(|i| padd_with_zero_to_next_power_of_two(&field_representation(i)))
             .collect::<Vec<_>>(),
     );
     fold_multilinear(&encoded_bytecode, &folding_challenges)

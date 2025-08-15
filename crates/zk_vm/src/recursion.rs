@@ -1,8 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::prove::prove_execution;
-use crate::verify::verify_execution;
-use crate::*;
+use compiler::compile_program;
 use p3_field::BasedVectorSpace;
 use p3_field::PrimeCharacteristicRing;
 use pcs::WhirBatchPcs;
@@ -11,6 +9,7 @@ use utils::{
     MY_DIGEST_ELEMS, MyMerkleCompress, MyMerkleHash, build_merkle_compress, build_merkle_hash,
     build_prover_state, build_verifier_state,
 };
+use vm::*;
 use whir_p3::{
     dft::EvalsDft,
     poly::{evals::EvaluationsList, multilinear::*},
@@ -22,6 +21,9 @@ use whir_p3::{
         verifier::*,
     },
 };
+
+use crate::prove_execution::prove_execution;
+use crate::verify_execution::verify_execution;
 
 #[test]
 pub fn test_whir_verif() {

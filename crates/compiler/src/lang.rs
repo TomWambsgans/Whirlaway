@@ -1,11 +1,8 @@
 use p3_field::PrimeCharacteristicRing;
 use std::collections::BTreeMap;
+use vm::*;
 
-use crate::{
-    F,
-    bytecode::{bytecode::Label, intermediate_bytecode::HighLevelOperation},
-    precompiles::Precompile,
-};
+use crate::{F, intermediate_bytecode::HighLevelOperation, precompiles::Precompile};
 
 #[derive(Debug, Clone)]
 pub struct Program {

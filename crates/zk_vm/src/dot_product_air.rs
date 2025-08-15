@@ -3,8 +3,9 @@ use std::{borrow::Borrow, ops::Range};
 use p3_air::{Air, AirBuilder, BaseAir};
 use p3_field::PrimeCharacteristicRing;
 use p3_matrix::Matrix;
+use vm::EF;
 
-use crate::{EF, prove::WitnessDotProduct};
+use crate::execution_trace::WitnessDotProduct;
 
 /*
 | StartFlag | Len | IndexA | IndexB | IndexRes | ValueA | ValueB | Res           | Computation                   |
