@@ -112,7 +112,7 @@ fn bench_fold_multilinear_in_small_field_with_skip(c: &mut Criterion) {
         .measurement_time(Duration::from_secs(MEASUREMENT_TIME));
 
     let log2_rows_list = [22];
-    let log_2_scalars = 2; // Skip = 4
+    let log_2_scalars = 4; // Skip = 4
 
     for &log_2_rows in &log2_rows_list {
         let polys = create_random_base_field_element_polys(log_2_rows);
