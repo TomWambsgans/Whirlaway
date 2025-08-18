@@ -12,6 +12,9 @@ use p3_koala_bear::KoalaBear;
 type F = KoalaBear;
 type EF = BinomialExtensionField<F, 8>;
 
+const SAMPLE_SIZE: usize = 50;
+const MEASUREMENT_TIME: u64 = 15;
+
 fn create_random_base_field_element_polys(log_2_rows: usize) -> EvaluationsList<F> {
     let mut rng = rng();
 
@@ -57,8 +60,8 @@ fn create_random_extension_field_element_scalars(log_n: usize) -> Vec<EF> {
 fn bench_fold_multilinear_in_small_field_with_base_field_polys(c: &mut Criterion) {
     let mut group = c.benchmark_group("fold_multilinear_small_field_with_base_field_polys");
     group
-        .sample_size(30)
-        .measurement_time(Duration::from_secs(10));
+        .sample_size(SAMPLE_SIZE)
+        .measurement_time(Duration::from_secs(MEASUREMENT_TIME));
 
     let log2_rows_list = [22];
 
@@ -81,8 +84,8 @@ fn bench_fold_multilinear_in_small_field_with_base_field_polys(c: &mut Criterion
 fn bench_fold_multilinear_in_small_field_with_extension_field_polys(c: &mut Criterion) {
     let mut group = c.benchmark_group("fold_multilinear_small_field_with_extension_field_polys");
     group
-        .sample_size(30)
-        .measurement_time(Duration::from_secs(10));
+        .sample_size(SAMPLE_SIZE)
+        .measurement_time(Duration::from_secs(MEASUREMENT_TIME));
 
     let log2_rows_list = [22];
 
@@ -103,10 +106,10 @@ fn bench_fold_multilinear_in_small_field_with_extension_field_polys(c: &mut Crit
 }
 
 fn bench_fold_multilinear_in_small_field_with_skip(c: &mut Criterion) {
-    let mut group = c.benchmark_group("fold_multilinear_small_field_with_extension_field_polys");
+    let mut group = c.benchmark_group("fold_multilinear_small_field_with_skip");
     group
-        .sample_size(30)
-        .measurement_time(Duration::from_secs(10));
+        .sample_size(SAMPLE_SIZE)
+        .measurement_time(Duration::from_secs(MEASUREMENT_TIME));
 
     let log2_rows_list = [22];
     let log_2_scalars = 2; // Skip = 4
@@ -130,8 +133,8 @@ fn bench_fold_multilinear_in_small_field_with_skip(c: &mut Criterion) {
 fn bench_fold_multilinear_in_large_field_with_base_field_polys(c: &mut Criterion) {
     let mut group = c.benchmark_group("fold_multilinear_large_field_with_base_field_scalars");
     group
-        .sample_size(30)
-        .measurement_time(Duration::from_secs(10));
+        .sample_size(SAMPLE_SIZE)
+        .measurement_time(Duration::from_secs(MEASUREMENT_TIME));
 
     let log2_rows_list = [22];
 
@@ -154,8 +157,8 @@ fn bench_fold_multilinear_in_large_field_with_base_field_polys(c: &mut Criterion
 fn bench_fold_multilinear_in_large_field_with_extension_field_polys(c: &mut Criterion) {
     let mut group = c.benchmark_group("fold_multilinear_large_field_with_extension_field_scalars");
     group
-        .sample_size(30)
-        .measurement_time(Duration::from_secs(10));
+        .sample_size(SAMPLE_SIZE)
+        .measurement_time(Duration::from_secs(MEASUREMENT_TIME));
 
     let log2_rows_list = [22];
 
@@ -176,10 +179,10 @@ fn bench_fold_multilinear_in_large_field_with_extension_field_polys(c: &mut Crit
 }
 
 fn bench_fold_multilinear_in_large_field_with_skip(c: &mut Criterion) {
-    let mut group = c.benchmark_group("fold_multilinear_large_field_with_extension_field_scalars");
+    let mut group = c.benchmark_group("fold_multilinear_large_field_with_skip");
     group
-        .sample_size(30)
-        .measurement_time(Duration::from_secs(10));
+        .sample_size(SAMPLE_SIZE)
+        .measurement_time(Duration::from_secs(MEASUREMENT_TIME));
 
     let log2_rows_list = [22];
     let log_2_scalars = 2; // Skip = 4
