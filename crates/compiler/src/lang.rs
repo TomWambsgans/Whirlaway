@@ -1,5 +1,6 @@
 use p3_field::PrimeCharacteristicRing;
 use std::collections::BTreeMap;
+use utils::ToUsize;
 use vm::*;
 
 use crate::{F, intermediate_bytecode::HighLevelOperation, precompiles::Precompile};
@@ -51,6 +52,13 @@ impl SimpleExpr {
 
     pub fn is_constant(&self) -> bool {
         matches!(self, Self::Constant(_))
+    }
+
+    pub fn simplify_if_const(&self) -> Self {
+        if let Self::Constant(constant) = self {
+            return constant.try_naive_simplification().into();
+        }
+        self.clone()
     }
 }
 
@@ -177,6 +185,14 @@ impl ConstExpression {
             ConstantValue::Scalar(scalar) => Some(F::from_usize(*scalar)),
             _ => None,
         })
+    }
+
+    pub fn try_naive_simplification(&self) -> Self {
+        if let Some(value) = self.naive_eval() {
+            Self::scalar(value.to_usize())
+        } else {
+            self.clone()
+        }
     }
 }
 

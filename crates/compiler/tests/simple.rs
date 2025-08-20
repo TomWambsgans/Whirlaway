@@ -44,6 +44,20 @@ fn test_edge_case_0() {
     compile_and_run(program, &[], &[]);
 }
 
+
+#[test]
+fn test_edge_case_1() {
+    let program = r#"
+    fn main() {
+        a = malloc(1);
+        a[0] = 0;
+        assert a[8 - 8] == 0;
+        return;
+    }
+   "#;
+    compile_and_run(program, &[], &[]);
+}
+
 #[test]
 fn test_unroll() {
     // a program to check the value of the 30th Fibonacci number (832040)

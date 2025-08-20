@@ -283,15 +283,15 @@ fn simplify_lines(
                     let left = simplify_expr(left, &mut res, counters, array_manager, const_malloc);
                     let right =
                         simplify_expr(right, &mut res, counters, array_manager, const_malloc);
-                    let (var, other) = if let SimpleExpr::Var(left) = left {
+                    let (var, other) = if let Ok(left) = left.clone().try_into() {
                         (left, right)
-                    } else if let SimpleExpr::Var(right) = right {
+                    } else if let Ok(right) = right.clone().try_into() {
                         (right, left)
                     } else {
-                        unreachable!("Weird")
+                        unreachable!("Weird: {:?}, {:?}", left, right)
                     };
                     res.push(SimpleLine::Assignment {
-                        var: var.clone().into(),
+                        var: var,
                         operation: HighLevelOperation::Add,
                         arg0: other.into(),
                         arg1: SimpleExpr::zero(),
@@ -616,10 +616,11 @@ fn simplify_expr(
     const_malloc: &ConstMalloc,
 ) -> SimpleExpr {
     match expr {
-        Expression::Value(value) => return value.clone(),
+        Expression::Value(value) => return value.simplify_if_const(),
         Expression::ArrayAccess { array, index } => {
             if let Some(label) = const_malloc.map.get(array) {
-                if let Ok(offset) = ConstExpression::try_from(*index.clone()) {
+                if let Ok(mut offset) = ConstExpression::try_from(*index.clone()) {
+                    offset = offset.try_naive_simplification();
                     return SimpleExpr::ConstMallocAccess {
                         malloc_label: *label,
                         offset,
