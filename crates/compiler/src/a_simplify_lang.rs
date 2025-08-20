@@ -377,6 +377,7 @@ fn simplify_lines(
                 start,
                 end,
                 body,
+                rev,
                 unroll,
             } => {
                 if *unroll {
@@ -385,7 +386,12 @@ fn simplify_lines(
                     let start_evaluated = start.naive_eval().unwrap().to_usize();
                     let end_evaluated = end.naive_eval().unwrap().to_usize();
 
-                    for i in start_evaluated..end_evaluated {
+                    let mut range = (start_evaluated..end_evaluated).collect::<Vec<_>>();
+                    if *rev {
+                        range.reverse();
+                    }
+
+                    for i in range {
                         let mut body_copy = body.clone();
                         replace_vars_for_unroll(&mut body_copy, iterator, i, &internal_variables);
                         unrolled_lines.extend(simplify_lines(
@@ -399,6 +405,10 @@ fn simplify_lines(
                     }
                     res.extend(unrolled_lines);
                     continue;
+                }
+
+                if *rev {
+                    unimplemented!("Reverse for non-unrolled loops are not implemented yet");
                 }
 
                 let mut loop_const_malloc = ConstMalloc::default();
@@ -756,6 +766,7 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                 start,
                 end,
                 body,
+                rev: _,
                 unroll: _,
             } => {
                 let (body_internal, body_external) = find_variable_usage(body);
@@ -1006,6 +1017,7 @@ fn replace_vars_for_unroll(
                 start,
                 end,
                 body,
+                rev: _,
                 unroll: _,
             } => {
                 assert!(other_iterator != iterator);

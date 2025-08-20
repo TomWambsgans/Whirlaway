@@ -246,6 +246,12 @@ fn parse_for_statement(
 ) -> Result<Line, ParseError> {
     let mut inner = pair.into_inner();
     let iterator = inner.next().unwrap().as_str().to_string();
+    let next_peek = inner.peek().unwrap();
+    let mut rev = false;
+    if next_peek.as_rule() == Rule::rev_clause {
+        rev = true;
+        inner.next().unwrap(); // Consume the rev clause
+    }
     let start = parse_expression(inner.next().unwrap(), constants)?;
     let end = parse_expression(inner.next().unwrap(), constants)?;
 
@@ -269,6 +275,7 @@ fn parse_for_statement(
         start,
         end,
         body,
+        rev,
         unroll,
     })
 }

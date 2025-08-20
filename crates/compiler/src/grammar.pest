@@ -44,7 +44,8 @@ condition_diff = { expression ~ "!=" ~ expression }
 
 else_clause = { "else" ~ "{" ~ statement* ~ "}" }
 
-for_statement = { "for" ~ identifier ~ "in" ~ expression ~ ".." ~ expression ~ unroll_clause? ~ "{" ~ statement* ~ "}" }
+for_statement = { "for" ~ identifier ~ "in" ~ rev_clause? ~ expression ~ ".." ~ expression ~ unroll_clause? ~ "{" ~ statement* ~ "}" }
+rev_clause = { "rev" }
 unroll_clause = { "unroll" }
 
 function_call = { function_res? ~ identifier ~ "(" ~ tuple_expression? ~ ")" ~ ";" }

@@ -265,6 +265,7 @@ pub enum Line {
         start: Expression,
         end: Expression,
         body: Vec<Self>,
+        rev: bool,
         unroll: bool,
     },
     FunctionCall {
@@ -381,6 +382,7 @@ impl Line {
                 start,
                 end,
                 body,
+                rev,
                 unroll,
             } => {
                 let body_str = body
@@ -389,9 +391,10 @@ impl Line {
                     .collect::<Vec<_>>()
                     .join("\n");
                 format!(
-                    "for {} in {}..{} {}{{\n{}\n{}}}",
+                    "for {} in {}{}..{} {}{{\n{}\n{}}}",
                     iterator.to_string(),
                     start.to_string(),
+                    if *rev { "rev " } else { "" },
                     end.to_string(),
                     if *unroll { "unroll " } else { "" },
                     body_str,
