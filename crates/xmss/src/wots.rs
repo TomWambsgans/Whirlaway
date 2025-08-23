@@ -1,6 +1,6 @@
 use p3_util::log2_strict_usize;
 use rand::Rng;
-use utils::{ToUsize, to_big_endian_bits};
+use utils::{ToUsize, to_little_endian_bits};
 
 use crate::*;
 
@@ -91,7 +91,10 @@ fn iterate_hash(a: &Digest, n: usize) -> Digest {
     res
 }
 
-pub fn find_randomness_for_wots_encoding(message: &Digest, rng: &mut impl Rng) -> (Digest, [u8; V]) {
+pub fn find_randomness_for_wots_encoding(
+    message: &Digest,
+    rng: &mut impl Rng,
+) -> (Digest, [u8; V]) {
     loop {
         let randomness = rng.random();
         if let Some(encoding) = wots_encode(message, &randomness) {
@@ -104,15 +107,15 @@ pub fn wots_encode(message: &Digest, randomness: &Digest) -> Option<[u8; V]> {
     let compressed = poseidon16_compress(message, randomness);
     let encoding = compressed
         .iter()
-        .map(|kb| to_big_endian_bits(kb.to_usize(), 24))
+        .map(|kb| to_little_endian_bits(kb.to_usize(), 24))
         .flatten()
         .collect::<Vec<_>>()
         .chunks_exact(log2_strict_usize(W))
         .take(V)
         .map(|chunk| {
             let mut num = 0;
-            for bit in chunk {
-                num = (num << 1) | (*bit as u8);
+            for (index, bit) in chunk.iter().enumerate() {
+                num += (*bit as u8) << index;
             }
             num
         })

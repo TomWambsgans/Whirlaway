@@ -114,9 +114,7 @@ fn test_verify_merkle_path() {
 #[test]
 fn test_wots_encode() {
     // Public input: message_hash | randomness | encoding
-    // encoding is not a vectorized pointer
     let program = r#"
-
     const V = 68;
     const W = 4;
 
@@ -124,7 +122,12 @@ fn test_wots_encode() {
         message_hash = public_input_start / 8;
         randomness = message_hash + 1;
         expected_encoding = public_input_start + 16;
+        print(123456789);
         encoding = wots_encoding(message_hash, randomness);
+        print(123456789, 1);
+        for i in 0..V unroll {
+            assert encoding[i] == expected_encoding[i];
+        }
         return;
     }
 
@@ -138,10 +141,44 @@ fn test_wots_encode() {
         for i in 0..186 unroll {
             flipped_bits[i] = 1 - bits[i];
         }
+        zero = 0;
         for i in 0..186 unroll {
-            assert 0 == flipped_bits[i] * bits[i];
+            zero = flipped_bits[i] * bits[i]; // TODO remove the use of auxiliary var (currently it generates 2 instructions instead of 1)
         }
-        return 0;
+        res = malloc(12 * 6);
+        for i in 0..6 unroll {
+            for j in 0..12 unroll {
+                res[i * 12 + j] = bits[i * 31 + j * 2] + 2 * bits[i * 31 + j * 2 + 1];
+            }
+        }
+
+        // we need to check that the (hinted) bit decomposition is valid
+
+        for i in 0..6 unroll {
+            powers_scaled_w = malloc(12);
+            for j in 0..12 unroll {
+                powers_scaled_w[j] = res[i*12 + j] * W**j;
+            }
+            powers_scaled_sum_w = malloc(11);
+            powers_scaled_sum_w[0] = powers_scaled_w[0] + powers_scaled_w[1];
+            for j in 1..11 unroll {
+                powers_scaled_sum_w[j] = powers_scaled_sum_w[j - 1] + powers_scaled_w[j + 1];
+            }
+
+            powers_scaled_2 = malloc(7);
+            for j in 0..7 unroll {
+                powers_scaled_2[j] = bits[31 * i + 24 + j] * 2**(24 + j);
+            }
+            powers_scaled_sum_2 = malloc(6);
+            powers_scaled_sum_2[0] = powers_scaled_2[0] + powers_scaled_2[1];
+            for j in 1..6 unroll {
+                powers_scaled_sum_2[j] = powers_scaled_sum_2[j - 1] + powers_scaled_2[j + 1];
+            }
+
+            assert powers_scaled_sum_w[10] + powers_scaled_sum_2[5] == compressed_ptr[i];
+        }
+
+        return res;
     }
    "#;
 
