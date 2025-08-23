@@ -136,7 +136,6 @@ p3-challenger = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = 
 p3-util = { git = "https://github.com/TomWambsgans/Plonky3.git", branch = "w" }
 
 whir-p3 = { git = "https://github.com/TomWambsgans/whir-p3", branch = "w"}
-hashsig = { git = "https://github.com/TomWambsgans/hash-sig", branch = "w"}
 
 [dependencies]
 air.workspace = true
