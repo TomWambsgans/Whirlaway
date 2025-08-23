@@ -17,8 +17,8 @@ use whir_p3::whir::config::WhirConfigBuilder;
 
 use crate::Poseidon16;
 use crate::Poseidon24;
-use crate::build_poseidon16;
-use crate::build_poseidon24;
+use crate::get_poseidon16;
+use crate::get_poseidon24;
 
 pub type PF<F> = <F as PrimeCharacteristicRing>::PrimeSubfield;
 pub type PFPacking<F> = <PF<F> as Field>::Packing;
@@ -93,15 +93,15 @@ pub const fn packing_width<EF: Field>() -> usize {
 }
 
 pub fn build_challenger() -> MyChallenger {
-    MyChallenger::new(build_poseidon16())
+    MyChallenger::new(get_poseidon16().clone())
 }
 
 pub fn build_merkle_hash() -> MyMerkleHash {
-    MyMerkleHash::new(build_poseidon24())
+    MyMerkleHash::new(get_poseidon24().clone())
 }
 
 pub fn build_merkle_compress() -> MyMerkleCompress {
-    MyMerkleCompress::new(build_poseidon16())
+    MyMerkleCompress::new(get_poseidon16().clone())
 }
 
 pub fn build_prover_state<EF: ExtensionField<KoalaBear>>()

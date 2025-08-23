@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use p3_koala_bear::GenericPoseidon2LinearLayersKoalaBear;
 use p3_koala_bear::KoalaBear;
 use p3_koala_bear::Poseidon2KoalaBear;
@@ -43,28 +45,36 @@ pub type Poseidon24Air = Poseidon2Air<
     PARTIAL_ROUNDS_24,
 >;
 
-pub fn build_poseidon16() -> Poseidon16 {
-    let round_constants = build_poseidon16_constants();
-    let external_constants = ExternalLayerConstants::new(
-        round_constants.beginning_full_round_constants.to_vec(),
-        round_constants.ending_full_round_constants.to_vec(),
-    );
-    Poseidon16::new(
-        external_constants,
-        round_constants.partial_round_constants.to_vec(),
-    )
+static POSEIDON16_INSTANCE: OnceLock<Poseidon16> = OnceLock::new();
+
+pub fn get_poseidon16() -> &'static Poseidon16 {
+    POSEIDON16_INSTANCE.get_or_init(|| {
+        let round_constants = build_poseidon16_constants();
+        let external_constants = ExternalLayerConstants::new(
+            round_constants.beginning_full_round_constants.to_vec(),
+            round_constants.ending_full_round_constants.to_vec(),
+        );
+        Poseidon16::new(
+            external_constants,
+            round_constants.partial_round_constants.to_vec(),
+        )
+    })
 }
 
-pub fn build_poseidon24() -> Poseidon24 {
-    let round_constants = build_poseidon24_constants();
-    let external_constants = ExternalLayerConstants::new(
-        round_constants.beginning_full_round_constants.to_vec(),
-        round_constants.ending_full_round_constants.to_vec(),
-    );
-    Poseidon24::new(
-        external_constants,
-        round_constants.partial_round_constants.to_vec(),
-    )
+static POSEIDON24_INSTANCE: OnceLock<Poseidon24> = OnceLock::new();
+
+pub fn get_poseidon24() -> &'static Poseidon24 {
+    POSEIDON24_INSTANCE.get_or_init(|| {
+        let round_constants = build_poseidon24_constants();
+        let external_constants = ExternalLayerConstants::new(
+            round_constants.beginning_full_round_constants.to_vec(),
+            round_constants.ending_full_round_constants.to_vec(),
+        );
+        Poseidon24::new(
+            external_constants,
+            round_constants.partial_round_constants.to_vec(),
+        )
+    })
 }
 
 pub fn build_poseidon_16_air() -> Poseidon16Air {

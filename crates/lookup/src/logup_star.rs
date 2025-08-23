@@ -268,7 +268,7 @@ mod tests {
     use p3_field::extension::BinomialExtensionField;
     use p3_koala_bear::KoalaBear;
     use rand::{Rng, SeedableRng, rngs::StdRng};
-    use utils::{MyChallenger, build_poseidon16, init_tracing};
+    use utils::{build_challenger, init_tracing};
     use whir_p3::poly::evals::{EvaluationsList, eval_eq};
 
     type F = KoalaBear;
@@ -301,9 +301,7 @@ mod tests {
         // commit to the indexes
         let commited_indexes = indexes.clone(); // Phony commitment for the example
 
-        let poseidon16 = build_poseidon16();
-
-        let challenger = MyChallenger::new(poseidon16);
+        let challenger = build_challenger();
 
         let point = MultilinearPoint(
             (0..log_indexes_len)

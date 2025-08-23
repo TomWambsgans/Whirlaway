@@ -8,7 +8,7 @@ use p3_field::Field;
 use p3_field::PrimeCharacteristicRing;
 use p3_symmetric::Permutation;
 use rayon::prelude::*;
-use utils::{ToUsize, build_poseidon16, build_poseidon24};
+use utils::{ToUsize, get_poseidon16, get_poseidon24};
 use vm::*;
 
 pub struct WitnessDotProduct {
@@ -239,8 +239,8 @@ pub fn get_execution_trace(
     let n_poseidons_16 = poseidons_16.len();
     let n_poseidons_24 = poseidons_24.len();
 
-    let empty_poseidon16_output = build_poseidon16().permute([F::ZERO; 16]);
-    let empty_poseidon24_output = build_poseidon24().permute([F::ZERO; 24])[16..24]
+    let empty_poseidon16_output = get_poseidon16().permute([F::ZERO; 16]);
+    let empty_poseidon24_output = get_poseidon24().permute([F::ZERO; 24])[16..24]
         .try_into()
         .unwrap();
 

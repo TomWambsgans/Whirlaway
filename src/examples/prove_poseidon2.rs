@@ -13,8 +13,8 @@ use std::marker::PhantomData;
 use std::time::{Duration, Instant};
 use utils::{
     build_merkle_compress, build_merkle_hash, build_poseidon_16_air, build_poseidon_24_air,
-    build_poseidon16, build_poseidon24, build_prover_state, build_verifier_state,
-    generate_trace_poseidon_16, generate_trace_poseidon_24, init_tracing,
+    build_prover_state, build_verifier_state, generate_trace_poseidon_16,
+    generate_trace_poseidon_24, get_poseidon16, get_poseidon24, init_tracing,
     padd_with_zero_to_next_power_of_two,
 };
 use whir_p3::dft::EvalsDft;
@@ -89,11 +89,11 @@ pub fn prove_poseidon2(
 
     assert_eq!(
         &witness_matrix_16.values[n_columns_16 - 16..n_columns_16],
-        build_poseidon16().permute(witness_matrix_16.values[0..16].try_into().unwrap())
+        get_poseidon16().permute(witness_matrix_16.values[0..16].try_into().unwrap())
     );
     assert_eq!(
         &witness_matrix_24.values[n_columns_24 - 24..n_columns_24],
-        build_poseidon24().permute(witness_matrix_24.values[0..24].try_into().unwrap())
+        get_poseidon24().permute(witness_matrix_24.values[0..24].try_into().unwrap())
     );
 
     let witness_matrix_16_transposed = witness_matrix_16.transpose();

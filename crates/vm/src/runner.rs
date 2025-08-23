@@ -4,8 +4,8 @@ use p3_field::PrimeCharacteristicRing;
 use p3_field::dot_product;
 use rayon::prelude::*;
 use utils::ToUsize;
-use utils::build_poseidon16;
-use utils::build_poseidon24;
+use utils::get_poseidon16;
+use utils::get_poseidon24;
 use utils::pretty_integer;
 use whir_p3::poly::evals::EvaluationsList;
 use whir_p3::poly::multilinear::MultilinearPoint;
@@ -242,9 +242,9 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
         public_memory[i] = F::ZERO; // zero vector
     }
     public_memory[POSEIDON_16_NULL_HASH_PTR * 8..(POSEIDON_16_NULL_HASH_PTR + 2) * 8]
-        .copy_from_slice(&build_poseidon16().permute([F::ZERO; 16]));
+        .copy_from_slice(&get_poseidon16().permute([F::ZERO; 16]));
     public_memory[POSEIDON_24_NULL_HASH_PTR * 8..(POSEIDON_24_NULL_HASH_PTR + 1) * 8]
-        .copy_from_slice(&build_poseidon24().permute([F::ZERO; 24])[16..]);
+        .copy_from_slice(&get_poseidon24().permute([F::ZERO; 24])[16..]);
     public_memory
 }
 
@@ -256,8 +256,8 @@ fn execute_bytecode_helper(
     final_execution: bool,
     std_out: &mut String,
 ) -> Result<ExecutionResult, RunnerError> {
-    let poseidon_16 = build_poseidon16(); // TODO avoid rebuilding each time
-    let poseidon_24 = build_poseidon24();
+    let poseidon_16 = get_poseidon16(); // TODO avoid rebuilding each time
+    let poseidon_24 = get_poseidon24();
 
     // set public memory
     let mut memory = Memory::new(build_public_memory(public_input));

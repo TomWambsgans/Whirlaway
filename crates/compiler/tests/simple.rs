@@ -2,7 +2,7 @@ use compiler::*;
 use p3_field::BasedVectorSpace;
 use p3_symmetric::Permutation;
 use rand::{Rng, SeedableRng as _, rngs::StdRng};
-use utils::{build_poseidon16, build_poseidon24};
+use utils::{get_poseidon16, get_poseidon24};
 use vm::*;
 
 #[test]
@@ -43,7 +43,6 @@ fn test_edge_case_0() {
    "#;
     compile_and_run(program, &[], &[]);
 }
-
 
 #[test]
 fn test_edge_case_1() {
@@ -210,7 +209,7 @@ fn test_mini_program_3() {
         .unwrap();
     compile_and_run(program, &public_input, &[]);
 
-    build_poseidon16().permute_mut(&mut public_input);
+    get_poseidon16().permute_mut(&mut public_input);
     dbg!(public_input);
 }
 
@@ -236,7 +235,7 @@ fn test_mini_program_4() {
         .unwrap();
     compile_and_run(program, &public_input, &[]);
 
-    build_poseidon24().permute_mut(&mut public_input);
+    get_poseidon24().permute_mut(&mut public_input);
     dbg!(&public_input[16..]);
 }
 
