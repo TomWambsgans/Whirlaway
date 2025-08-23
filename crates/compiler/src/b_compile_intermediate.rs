@@ -466,7 +466,7 @@ fn compile_lines(
             } => {
                 instructions.push(IntermediateInstruction::DecomposeBits {
                     res_offset: compiler.stack_size,
-                    to_decompose: IntermediateValue::from_simple_expr(to_decompose, compiler),
+                    to_decompose: to_decompose.iter().map(|expr| IntermediateValue::from_simple_expr(expr, compiler)).collect(),
                 });
 
                 handle_const_malloc(
@@ -474,7 +474,7 @@ fn compile_lines(
                     &mut instructions,
                     compiler,
                     var,
-                    F::bits(),
+                    F::bits() * to_decompose.len(),
                     label,
                 );
             }

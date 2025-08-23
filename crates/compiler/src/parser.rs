@@ -442,12 +442,12 @@ fn parse_function_call(
         }
         "decompose_bits" => {
             assert!(
-                args.len() == 1 && return_data.len() == 1,
+                args.len() >= 1 && return_data.len() == 1,
                 "Invalid decompose_bits call"
             );
             Ok(Line::DecomposeBits {
                 var: return_data[0].clone(),
-                to_decompose: args[0].clone(),
+                to_decompose: args
             })
         }
         "panic" => {

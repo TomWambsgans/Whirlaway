@@ -105,8 +105,8 @@ pub enum SimpleLine {
     Panic,
     // Hints
     DecomposeBits {
-        var: Var, // a pointer to 31 field elements, containing the bits of "to_decompose"
-        to_decompose: SimpleExpr,
+        var: Var, // a pointer to 31 * len(to_decompose) field elements, containing the bits of "to_decompose"
+        to_decompose: Vec<SimpleExpr>,
         label: ConstMallocLabel,
     },
     Print {
@@ -583,13 +583,12 @@ fn simplify_lines(
             }
             Line::DecomposeBits { var, to_decompose } => {
                 assert!(!const_malloc.forbidden_vars.contains(var), "TODO");
-                let simplified_to_decompose = simplify_expr(
-                    &to_decompose,
-                    &mut res,
-                    counters,
-                    array_manager,
-                    const_malloc,
-                );
+                let simplified_to_decompose = to_decompose
+                    .iter()
+                    .map(|expr| {
+                        simplify_expr(expr, &mut res, counters, array_manager, const_malloc)
+                    })
+                    .collect::<Vec<_>>();
                 let label = const_malloc.counter;
                 const_malloc.counter += 1;
                 const_malloc.map.insert(var.clone(), label);
@@ -759,7 +758,9 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                 }
             }
             Line::DecomposeBits { var, to_decompose } => {
-                on_new_expr(&to_decompose, &internal_vars, &mut external_vars);
+                for expr in to_decompose {
+                    on_new_expr(&expr, &internal_vars, &mut external_vars);
+                }
                 internal_vars.insert(var.clone());
             }
             Line::ForLoop {
@@ -1079,12 +1080,14 @@ fn replace_vars_for_unroll(
             Line::DecomposeBits { var, to_decompose } => {
                 assert!(var != iterator, "Weird");
                 *var = format!("@unrolled_{}_{}", iterator_value, var).into();
-                replace_vars_for_unroll_in_expr(
-                    to_decompose,
-                    iterator,
-                    iterator_value,
-                    internal_vars,
-                );
+                for expr in to_decompose {
+                    replace_vars_for_unroll_in_expr(
+                        expr,
+                        iterator,
+                        iterator_value,
+                        internal_vars,
+                    );
+                }
             }
         }
     }
@@ -1306,7 +1309,9 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
             }
             Line::DecomposeBits { var, to_decompose } => {
                 assert!(!map.contains_key(var), "Variable {} is a constant", var);
-                replace_vars_by_const_in_expr(to_decompose, map);
+                for expr in to_decompose {
+                    replace_vars_by_const_in_expr(expr, map);
+                }
             }
             Line::MAlloc { var, size, .. } => {
                 assert!(!map.contains_key(var), "Variable {} is a constant", var);
@@ -1367,7 +1372,7 @@ impl SimpleLine {
                 format!(
                     "{} = decompose_bits({})",
                     result.to_string(),
-                    to_decompose.to_string()
+                    to_decompose.iter().map(|expr| expr.to_string()).collect::<Vec<_>>().join(", ")
                 )
             }
             SimpleLine::RawAccess { res, index, shift } => {

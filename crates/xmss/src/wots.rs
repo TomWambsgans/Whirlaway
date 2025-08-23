@@ -45,15 +45,7 @@ impl WotsSecretKey {
     }
 
     pub fn sign(&self, message_hash: &Digest, rng: &mut impl Rng) -> WotsSignature {
-        let mut randomness;
-        let encoding;
-        loop {
-            randomness = rng.random();
-            if let Some(encoding_found) = encode(message_hash, &randomness) {
-                encoding = encoding_found;
-                break;
-            }
-        }
+        let (randomness, encoding) = find_randomness_for_wots_encoding(message_hash, rng);
         let mut chain_tips = [Default::default(); V];
         for i in 0..V {
             chain_tips[i] = iterate_hash(&self.pre_images[i], encoding[i] as usize);
@@ -71,7 +63,7 @@ impl WotsSignature {
         message_hash: &Digest,
         signature: &WotsSignature,
     ) -> Option<WotsPublicKey> {
-        let encoding = encode(message_hash, &signature.randomness)?;
+        let encoding = wots_encode(message_hash, &signature.randomness)?;
         let mut public_key = [Default::default(); V];
         for i in 0..V {
             public_key[i] = iterate_hash(&signature.chain_tips[i], W - 1 - encoding[i] as usize);
@@ -99,7 +91,16 @@ fn iterate_hash(a: &Digest, n: usize) -> Digest {
     res
 }
 
-fn encode(message: &Digest, randomness: &Digest) -> Option<[u8; V]> {
+pub fn find_randomness_for_wots_encoding(message: &Digest, rng: &mut impl Rng) -> (Digest, [u8; V]) {
+    loop {
+        let randomness = rng.random();
+        if let Some(encoding) = wots_encode(message, &randomness) {
+            return (randomness, encoding);
+        }
+    }
+}
+
+pub fn wots_encode(message: &Digest, randomness: &Digest) -> Option<[u8; V]> {
     let compressed = poseidon16_compress(message, randomness);
     let encoding = compressed
         .iter()

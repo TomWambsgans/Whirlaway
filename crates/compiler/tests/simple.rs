@@ -45,6 +45,22 @@ fn test_edge_case_0() {
 }
 
 #[test]
+fn test_decompose_bits() {
+    let program = r#"
+    const A = 2 ** 30 - 1;
+    const B = 2 ** 10 - 1;
+    fn main() {
+        a = decompose_bits(A, B);
+        for i in 0..62  {
+            print(a[i]);
+        }
+        return;
+    }
+   "#;
+    compile_and_run(program, &[], &[]);
+}
+
+#[test]
 fn test_edge_case_1() {
     let program = r#"
     fn main() {

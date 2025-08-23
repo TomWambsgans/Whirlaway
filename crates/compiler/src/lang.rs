@@ -310,8 +310,8 @@ pub enum Line {
         vectorized: bool,
     },
     DecomposeBits {
-        var: Var, // a pointer to 31 field elements, containing the bits of "to_decompose"
-        to_decompose: Expression,
+        var: Var, // a pointer to 31 * len(to_decompose) field elements, containing the bits of "to_decompose"
+        to_decompose: Vec<Expression>,
     },
 }
 
@@ -496,7 +496,7 @@ impl Line {
                 format!(
                     "{} = decompose_bits({})",
                     var.to_string(),
-                    to_decompose.to_string()
+                    to_decompose.iter().map(|expr| expr.to_string()).collect::<Vec<_>>().join(", ")
                 )
             }
             Line::Break => "break".to_string(),

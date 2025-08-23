@@ -114,8 +114,8 @@ pub enum Hint {
         vectorized: bool,
     },
     DecomposeBits {
-        res_offset: usize, // m[fp + res_offset..fp + res_offset + 31] will contain the decomposed bits
-        to_decompose: MemOrConstant,
+        res_offset: usize, // m[fp + res_offset..fp + res_offset + 31 * len(to_decompose)] will contain the decomposed bits
+        to_decompose: Vec<MemOrConstant>,
     },
     Print {
         line_info: String,
@@ -291,7 +291,11 @@ impl ToString for Hint {
                 format!(
                     "m[fp + {}] = decompose_bits({})",
                     res_offset,
-                    to_decompose.to_string()
+                    to_decompose
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", ")
                 )
             }
             Self::Print { line_info, content } => {

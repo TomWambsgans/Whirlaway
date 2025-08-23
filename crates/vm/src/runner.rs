@@ -325,14 +325,21 @@ fn execute_bytecode_helper(
                     res_offset,
                     to_decompose,
                 } => {
-                    let to_decompose_value = to_decompose.read_value(&memory, fp)?.to_usize();
-                    for i in 0..F::bits() {
-                        let bit = if to_decompose_value & (1 << i) != 0 {
-                            F::ONE
-                        } else {
-                            F::ZERO
-                        };
-                        memory.set(fp + *res_offset + i, bit)?;
+                    let values_to_decompose = to_decompose
+                        .iter()
+                        .map(|v| Ok(v.read_value(&memory, fp)?.to_usize()))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let mut memory_index = fp + *res_offset;
+                    for &value in &values_to_decompose {
+                        for i in 0..F::bits() {
+                            let bit = if value & (1 << i) != 0 {
+                                F::ONE
+                            } else {
+                                F::ZERO
+                            };
+                            memory.set(memory_index, bit)?;
+                            memory_index += 1;
+                        }
                     }
                 }
                 Hint::Inverse { arg, res_offset } => {

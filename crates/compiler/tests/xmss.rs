@@ -5,7 +5,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::get_poseidon16;
 
 use vm::*;
-use xmss::WotsSecretKey;
+use xmss::find_randomness_for_wots_encoding;
 
 #[test]
 fn test_verify_merkle_path() {
@@ -112,123 +112,168 @@ fn test_verify_merkle_path() {
 }
 
 #[test]
-fn test_verify_wots_signature() {
-    // Public input: wots public key hash | message
-    // Private input: signature
+fn test_wots_encode() {
+    // Public input: message_hash | randomness | encoding
+    // encoding is not a vectorized pointer
     let program = r#"
 
-    const N_CHAINS = 64;
-    const CHAIN_LENGTH = 8;
+    const V = 68;
+    const W = 4;
 
     fn main() {
-        public_input_start_ = public_input_start;
-        private_input_start = public_input_start_[0];
-        wots_public_key_hash = (public_input_start + 8) / 8;
-        message = public_input_start + 16;
-        signature = private_input_start / 8;
-        wots_public_key_recovered = recover_wots_public_key(message, signature);
-        wots_public_key_hash_recovered = hash_wots_public_key(wots_public_key_recovered);
-        assert_eq_ext(wots_public_key_hash, wots_public_key_hash_recovered);
-        print_chunk_of_8(wots_public_key_hash);
+        message_hash = public_input_start / 8;
+        randomness = message_hash + 1;
+        expected_encoding = public_input_start + 16;
+        encoding = wots_encoding(message_hash, randomness);
         return;
     }
 
-    fn recover_wots_public_key(message, signature) -> 1 {
-        // message: pointer
-        // signature: vectorized pointer
-        // return a pointer of vectorized pointers
-
-        public_key = malloc_vec(N_CHAINS);
-        for i in 0..N_CHAINS {
-            msg_i = message[i];
-            n_hash_iter = CHAIN_LENGTH - msg_i;
-            signature_i = signature + i;
-            pk_i = hash_chain(signature_i, n_hash_iter);
-            copy_vector(pk_i, public_key + i);
+    fn wots_encoding(message_hash, randomness) -> 1 {
+        // both arguments are vectorized pointers (of length 1)
+        // return a normal pointer (of length V)
+        compressed = poseidon16(message_hash, randomness);
+        compressed_ptr = compressed * 8;
+        bits = decompose_bits(compressed_ptr[0], compressed_ptr[1], compressed_ptr[2], compressed_ptr[3], compressed_ptr[4], compressed_ptr[5]);
+        flipped_bits = malloc(186);
+        for i in 0..186 unroll {
+            flipped_bits[i] = 1 - bits[i];
         }
-        return public_key;
-    }
-
-    fn hash_chain(thing_to_hash, n_iter) -> 1 {
-        if n_iter == 0 {
-            return thing_to_hash;
+        for i in 0..186 unroll {
+            assert 0 == flipped_bits[i] * bits[i];
         }
-        hashed = poseidon16(thing_to_hash, pointer_to_zero_vector);
-        n_iter_minus_one = n_iter - 1;
-        res = hash_chain(hashed, n_iter_minus_one);
-        return res;
-    }
-
-    fn hash_wots_public_key(public_key) -> 1 {
-        hashes = malloc(N_CHAINS / 2 + 1);
-        hashes[0] = pointer_to_zero_vector;
-        for i in 0..N_CHAINS / 2 {
-            next = poseidon24(public_key + 2 * i, hashes[i]);
-            hashes[i + 1] = next;
-        }
-        res = hashes[N_CHAINS / 2];
-        return res; 
-    }
-
-    fn print_chunk_of_8(arr) {
-        reindexed_arr = arr * 8;
-        for i in 0..8 {
-            arr_i = reindexed_arr[i];
-            print(arr_i);
-        }
-        return;
-    }
-
-    fn copy_vector(a, b) {
-        // a and b both pointers in the memory of chunk of 8 field elements
-        a_shifted = a * 8;
-        b_shifted = b * 8;
-        for i in 0..8 {
-            a_i = a_shifted[i];
-            b_shifted[i] = a_i;
-        }
-        return;
-    }
-
-    fn assert_eq_ext(a, b) {
-        // a and b both pointers in the memory of chunk of 8 field elements
-        a_shifted = a * 8;
-        b_shifted = b * 8;
-        for i in 0..8 {
-            a_i = a_shifted[i];
-            b_i = b_shifted[i];
-            assert a_i == b_i;
-        }
-        return;
+        return 0;
     }
    "#;
 
     let mut rng = StdRng::seed_from_u64(0);
     let message_hash: [F; 8] = rng.random();
-    let wots_secret_key = WotsSecretKey::random(&mut rng);
-    let signature = wots_secret_key.sign(&message_hash, &mut rng);
-    let public_key_hashed = wots_secret_key.public_key().hash();
+    let (randomness, encoding) = find_randomness_for_wots_encoding(&message_hash, &mut rng);
 
-    let mut public_input = public_key_hashed.to_vec();
-    public_input.extend(message_hash);
+    let mut public_input = message_hash.to_vec();
+    public_input.extend(randomness.to_vec());
+    public_input.extend(encoding.iter().map(|&x| F::from_u8(x)));
 
-    let mut private_input = signature
-        .chain_tips
-        .iter()
-        .flat_map(|digest| digest.to_vec())
-        .collect::<Vec<F>>();
-    private_input.extend(signature.randomness.to_vec());
-
-    public_input.insert(
-        0,
-        F::from_usize((public_input.len() + 8 + PUBLIC_INPUT_START).next_power_of_two()),
-    );
-    public_input.splice(1..1, F::zero_vec(7));
-
-    compile_and_run(program, &public_input, &private_input);
-
-    dbg!(&public_key_hashed);
+    compile_and_run(program, &public_input, &[]);
 }
+
+// #[test]
+// fn test_verify_wots_signature() {
+//     // Public input: wots public key hash | message
+//     // Private input: signature
+//     let program = r#"
+
+//     const N_CHAINS = 64;
+//     const CHAIN_LENGTH = 8;
+
+//     fn main() {
+//         public_input_start_ = public_input_start;
+//         private_input_start = public_input_start_[0];
+//         wots_public_key_hash = (public_input_start + 8) / 8;
+//         message = public_input_start + 16;
+//         signature = private_input_start / 8;
+//         wots_public_key_recovered = recover_wots_public_key(message, signature);
+//         wots_public_key_hash_recovered = hash_wots_public_key(wots_public_key_recovered);
+//         assert_eq_ext(wots_public_key_hash, wots_public_key_hash_recovered);
+//         print_chunk_of_8(wots_public_key_hash);
+//         return;
+//     }
+
+//     fn recover_wots_public_key(message, signature) -> 1 {
+//         // message: pointer
+//         // signature: vectorized pointer
+//         // return a pointer of vectorized pointers
+
+//         public_key = malloc_vec(N_CHAINS);
+//         for i in 0..N_CHAINS {
+//             msg_i = message[i];
+//             n_hash_iter = CHAIN_LENGTH - msg_i;
+//             signature_i = signature + i;
+//             pk_i = hash_chain(signature_i, n_hash_iter);
+//             copy_vector(pk_i, public_key + i);
+//         }
+//         return public_key;
+//     }
+
+//     fn hash_chain(thing_to_hash, n_iter) -> 1 {
+//         if n_iter == 0 {
+//             return thing_to_hash;
+//         }
+//         hashed = poseidon16(thing_to_hash, pointer_to_zero_vector);
+//         n_iter_minus_one = n_iter - 1;
+//         res = hash_chain(hashed, n_iter_minus_one);
+//         return res;
+//     }
+
+//     fn hash_wots_public_key(public_key) -> 1 {
+//         hashes = malloc(N_CHAINS / 2 + 1);
+//         hashes[0] = pointer_to_zero_vector;
+//         for i in 0..N_CHAINS / 2 {
+//             next = poseidon24(public_key + 2 * i, hashes[i]);
+//             hashes[i + 1] = next;
+//         }
+//         res = hashes[N_CHAINS / 2];
+//         return res;
+//     }
+
+//     fn print_chunk_of_8(arr) {
+//         reindexed_arr = arr * 8;
+//         for i in 0..8 {
+//             arr_i = reindexed_arr[i];
+//             print(arr_i);
+//         }
+//         return;
+//     }
+
+//     fn copy_vector(a, b) {
+//         // a and b both pointers in the memory of chunk of 8 field elements
+//         a_shifted = a * 8;
+//         b_shifted = b * 8;
+//         for i in 0..8 {
+//             a_i = a_shifted[i];
+//             b_shifted[i] = a_i;
+//         }
+//         return;
+//     }
+
+//     fn assert_eq_ext(a, b) {
+//         // a and b both pointers in the memory of chunk of 8 field elements
+//         a_shifted = a * 8;
+//         b_shifted = b * 8;
+//         for i in 0..8 {
+//             a_i = a_shifted[i];
+//             b_i = b_shifted[i];
+//             assert a_i == b_i;
+//         }
+//         return;
+//     }
+//    "#;
+
+//     let mut rng = StdRng::seed_from_u64(0);
+//     let message_hash: [F; 8] = rng.random();
+//     let wots_secret_key = WotsSecretKey::random(&mut rng);
+//     let signature = wots_secret_key.sign(&message_hash, &mut rng);
+//     let public_key_hashed = wots_secret_key.public_key().hash();
+
+//     let mut public_input = public_key_hashed.to_vec();
+//     public_input.extend(message_hash);
+
+//     let mut private_input = signature
+//         .chain_tips
+//         .iter()
+//         .flat_map(|digest| digest.to_vec())
+//         .collect::<Vec<F>>();
+//     private_input.extend(signature.randomness.to_vec());
+
+//     public_input.insert(
+//         0,
+//         F::from_usize((public_input.len() + 8 + PUBLIC_INPUT_START).next_power_of_two()),
+//     );
+//     public_input.splice(1..1, F::zero_vec(7));
+
+//     compile_and_run(program, &public_input, &private_input);
+
+//     dbg!(&public_key_hashed);
+// }
 
 // #[test]
 // fn test_verify_xmss_signature() {

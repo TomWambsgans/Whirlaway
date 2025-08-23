@@ -231,7 +231,7 @@ pub fn compile_to_low_level_bytecode(
                 } => {
                     let hint = Hint::DecomposeBits {
                         res_offset,
-                        to_decompose: try_as_mem_or_constant(&to_decompose).unwrap(),
+                        to_decompose: to_decompose.iter().map(|expr| try_as_mem_or_constant(expr).unwrap()).collect(),
                     };
                     hints.entry(pc).or_insert_with(Vec::new).push(hint);
                 }
