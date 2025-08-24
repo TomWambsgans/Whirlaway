@@ -199,7 +199,7 @@ fn test_verify_wots_signature() {
     // Private input: signature = randomness | chain_tips
     let program = r#"
 
-    const V = 58;
+    const V = 68;
     const W = 4;
 
     fn main() {
@@ -209,8 +209,8 @@ fn test_verify_wots_signature() {
         message_hash = wots_public_key_hash + 1;
         signature = private_input_start / 8;
         wots_public_key_hash_recovered = wots_recover_pub_key_hashed(message_hash, signature);
-        // assert_eq_ext(wots_public_key_hash, wots_public_key_hash_recovered);
-        // print_chunk_of_8(wots_public_key_hash);
+        assert_eq_ext(wots_public_key_hash, wots_public_key_hash_recovered);
+        // print_chunk_of_8(wots_public_key_hash_recovered);
         return;
     }
 
@@ -301,11 +301,44 @@ fn test_verify_wots_signature() {
             }
         }
 
-        print_chunk_of_8(public_key + 25);
-        // print_chunk_of_8(chain_tips);
+        for i in 0..V / 2 unroll {
+            if encoding[2 * i + 1] == 2 {
+                poseidon16(chain_tips + 2 * i + 1, pointer_to_zero_vector, public_key + 4 * i + 2);
+            } else {
+                if encoding[2 * i + 1] == 1 {
+                    chain_hash_2 = malloc_vec(2);
+                    poseidon16(chain_tips +  2 * i + 1, pointer_to_zero_vector, chain_hash_2);
+                    poseidon16(chain_hash_2, pointer_to_zero_vector, public_key + (4 * i) + 2);
+                } else {
+                    if encoding[2 * i + 1] == 3 {
+                        // TODO single-instruction copy (trick based on DOT_PRODUCT precompile)
+                        public_key_ptr = (public_key + 4 * i + 2) * 8;
+                        chain_tips_ptr = (chain_tips + 2 * i + 1) * 8;
+                        for j in 0..8 unroll {
+                            public_key_ptr[j] = chain_tips_ptr[j];
+                        }
+                    } else {
+                        // encoding[2 * i + 1] == 0
+                        chain_hash_1 = malloc_vec(2);
+                        chain_hash_2 = malloc_vec(2);
+                        poseidon16(chain_tips + 2 * i + 1, pointer_to_zero_vector, chain_hash_1);
+                        poseidon16(chain_hash_1, pointer_to_zero_vector, chain_hash_2);
+                        poseidon16(chain_hash_2, pointer_to_zero_vector, public_key + 4 * i + 2);
+                    }
+                }
+            }
+        }
 
 
-        return encoding;
+        public_key_hashed = malloc_vec(V / 2);
+        poseidon24(public_key + 1, pointer_to_zero_vector, public_key_hashed);
+
+
+        for i in 1..V / 2 unroll {
+            poseidon24(public_key + (4 * i + 1), public_key_hashed + (i - 1), public_key_hashed + i);
+        }
+
+        return public_key_hashed + (V / 2 - 1);
     }
 
     fn print_chunk_of_8(arr) {
@@ -317,6 +350,18 @@ fn test_verify_wots_signature() {
         return;
     }
 
+    fn assert_eq_ext(a, b) {
+        // a and b both pointers in the memory of chunk of 8 field elements
+        a_shifted = a * 8;
+        b_shifted = b * 8;
+        for i in 0..8 unroll {
+            a_i = a_shifted[i];
+            b_i = b_shifted[i];
+            assert a_i == b_i;
+        }
+        return;
+    }
+
    "#;
 
     let mut rng = StdRng::seed_from_u64(0);
@@ -324,7 +369,7 @@ fn test_verify_wots_signature() {
     let wots_secret_key = WotsSecretKey::random(&mut rng);
     let signature = wots_secret_key.sign(&message_hash, &mut rng);
     let public_key_hashed = wots_secret_key.public_key().hash();
-    dbg!(wots_secret_key.public_key().0[12][0]);
+    // dbg!(public_key_hashed);
 
     let mut public_input = public_key_hashed.to_vec();
     public_input.extend(message_hash);
