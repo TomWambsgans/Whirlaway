@@ -292,6 +292,11 @@ fn execute_bytecode_helper(
     let mut pcs = Vec::new();
     let mut fps = Vec::new();
 
+    let mut add_counts = 0;
+    let mut mul_counts = 0;
+    let mut deref_counts = 0;
+    let mut jump_counts = 0;
+
     while pc != bytecode.ending_pc {
         if pc >= bytecode.instructions.len() {
             return Err(RunnerError::PCOutOfBounds);
@@ -423,6 +428,11 @@ fn execute_bytecode_helper(
                     }
                 }
 
+                match operation {
+                    Operation::Add => add_counts += 1,
+                    Operation::Mul => mul_counts += 1,
+                }
+
                 pc += 1;
             }
             Instruction::Deref {
@@ -440,6 +450,8 @@ fn execute_bytecode_helper(
                     let ptr = memory.get(fp + shift_0)?;
                     memory.set(ptr.to_usize() + shift_1, value)?;
                 }
+
+                deref_counts += 1;
                 pc += 1;
             }
             Instruction::JumpIfNotZero {
@@ -455,6 +467,8 @@ fn execute_bytecode_helper(
                 } else {
                     pc += 1;
                 }
+
+                jump_counts += 1;
             }
             Instruction::Poseidon2_16 { arg_a, arg_b, res } => {
                 poseidon16_calls += 1;
@@ -613,7 +627,20 @@ fn execute_bytecode_helper(
             "Memory usage: {:.1}%",
             used_memory_cells as f64 / runtime_memory_size as f64 * 100.0
         );
+
+        if false {
+            println!("Low level instruction counts:");
+            println!(
+                "COMPUTE: {} ({} ADD, {} MUL)",
+                add_counts + mul_counts,
+                add_counts,
+                mul_counts
+            );
+            println!("DEREF: {}", deref_counts);
+            println!("JUMP: {}", jump_counts);
+        }
     }
+
     let no_vec_runtime_memory = ap - initial_ap;
     Ok(ExecutionResult {
         no_vec_runtime_memory,

@@ -31,3 +31,9 @@ fn poseidon24_compress(a: &Digest, b: &Digest, c: &Digest) -> Digest {
         .try_into()
         .unwrap()
 }
+
+fn poseidon16_compress_right(a: &Digest, b: &Digest) -> Digest {
+    get_poseidon16().permute([*a, *b].concat().try_into().unwrap())[8..16]
+        .try_into()
+        .unwrap()
+}

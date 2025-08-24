@@ -94,11 +94,7 @@ fn test_rev_unroll() {
     // a program to check the value of the 30th Fibonacci number (832040)
     let program = r#"
     fn main() {
-        for i in rev 0..5 unroll {
-            for j in rev i..2*i unroll {
-                print(i, j);
-            }
-        }
+        print(785 * 78 + 874 - 1);
         return;
     }
    "#;

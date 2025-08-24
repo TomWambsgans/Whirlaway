@@ -5,7 +5,7 @@ use utils::{ToUsize, to_little_endian_bits};
 use crate::*;
 
 pub struct WotsSecretKey {
-    pre_images: [Digest; V],
+    pub pre_images: [Digest; V],
     public_key: WotsPublicKey,
 }
 
@@ -32,7 +32,7 @@ impl WotsSecretKey {
     pub fn new(pre_images: [Digest; V]) -> Self {
         let mut public_key = [Default::default(); V];
         for i in 0..V {
-            public_key[i] = iterate_hash(&pre_images[i], W - 1);
+            public_key[i] = iterate_hash(&pre_images[i], W - 1, i % 2 == 1);
         }
         Self {
             pre_images,
@@ -48,7 +48,7 @@ impl WotsSecretKey {
         let (randomness, encoding) = find_randomness_for_wots_encoding(message_hash, rng);
         let mut chain_tips = [Default::default(); V];
         for i in 0..V {
-            chain_tips[i] = iterate_hash(&self.pre_images[i], encoding[i] as usize);
+            chain_tips[i] = iterate_hash(&self.pre_images[i], encoding[i] as usize, i % 2 == 1);
         }
         WotsSignature {
             chain_tips,
@@ -66,7 +66,7 @@ impl WotsSignature {
         let encoding = wots_encode(message_hash, &signature.randomness)?;
         let mut public_key = [Default::default(); V];
         for i in 0..V {
-            public_key[i] = iterate_hash(&signature.chain_tips[i], W - 1 - encoding[i] as usize);
+            public_key[i] = iterate_hash(&signature.chain_tips[i], W - 1 - encoding[i] as usize, i % 2 == 1);
         }
         Some(WotsPublicKey(public_key))
     }
@@ -83,10 +83,14 @@ impl WotsPublicKey {
     }
 }
 
-fn iterate_hash(a: &Digest, n: usize) -> Digest {
+fn iterate_hash(a: &Digest, n: usize, keep_left: bool) -> Digest {
     let mut res = *a;
     for _ in 0..n {
-        res = poseidon16_compress(&res, &Default::default());
+        res = if keep_left {
+            poseidon16_compress(&res, &Default::default())
+        } else {
+            poseidon16_compress_right(&Default::default(), &res)
+        };
     }
     res
 }

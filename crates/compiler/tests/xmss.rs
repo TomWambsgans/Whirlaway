@@ -5,7 +5,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::get_poseidon16;
 
 use vm::*;
-use xmss::find_randomness_for_wots_encoding;
+use xmss::{WotsSecretKey, find_randomness_for_wots_encoding};
 
 #[test]
 fn test_verify_merkle_path() {
@@ -43,7 +43,7 @@ fn test_verify_merkle_path() {
         }
         is_left = are_left[0];
 
-        hashed = malloc_vec(1);
+        hashed = malloc_vec(2);
         if is_left == 1 {
             poseidon16(thing_to_hash, neighbours, hashed);
         } else {
@@ -123,9 +123,7 @@ fn test_wots_encode() {
         message_hash = public_input_start / 8;
         randomness = message_hash + 1;
         expected_encoding = public_input_start + 16;
-        print(123456789);
         encoding = wots_encoding(message_hash, randomness);
-        print(123456789, 1);
         for i in 0..V unroll {
             assert encoding[i] == expected_encoding[i];
         }
@@ -195,124 +193,158 @@ fn test_wots_encode() {
     compile_and_run(program, &public_input, &[]);
 }
 
-// #[test]
-// fn test_verify_wots_signature() {
-//     // Public input: wots public key hash | message
-//     // Private input: signature
-//     let program = r#"
+#[test]
+fn test_verify_wots_signature() {
+    // Public input: wots public_key_hash | message_hash
+    // Private input: signature = randomness | chain_tips
+    let program = r#"
 
-//     const N_CHAINS = 64;
-//     const CHAIN_LENGTH = 8;
+    const V = 58;
+    const W = 4;
 
-//     fn main() {
-//         public_input_start_ = public_input_start;
-//         private_input_start = public_input_start_[0];
-//         wots_public_key_hash = (public_input_start + 8) / 8;
-//         message = public_input_start + 16;
-//         signature = private_input_start / 8;
-//         wots_public_key_recovered = recover_wots_public_key(message, signature);
-//         wots_public_key_hash_recovered = hash_wots_public_key(wots_public_key_recovered);
-//         assert_eq_ext(wots_public_key_hash, wots_public_key_hash_recovered);
-//         print_chunk_of_8(wots_public_key_hash);
-//         return;
-//     }
+    fn main() {
+        public_input_start_ = public_input_start;
+        private_input_start = public_input_start_[0];
+        wots_public_key_hash = (public_input_start + 8) / 8;
+        message_hash = wots_public_key_hash + 1;
+        signature = private_input_start / 8;
+        wots_public_key_hash_recovered = wots_recover_pub_key_hashed(message_hash, signature);
+        // assert_eq_ext(wots_public_key_hash, wots_public_key_hash_recovered);
+        // print_chunk_of_8(wots_public_key_hash);
+        return;
+    }
 
-//     fn recover_wots_public_key(message, signature) -> 1 {
-//         // message: pointer
-//         // signature: vectorized pointer
-//         // return a pointer of vectorized pointers
+    fn wots_recover_pub_key_hashed(message_hash, signature) -> 1 {
+        // message_hash: vectorized pointers (of length 1)
+        // signature: vectorized pointer = randomness | chain_tips
+        // return a vectorized pointer (of length 1), the hashed public key
+        
+        randomness = signature;
+        chain_tips = signature + 1;
 
-//         public_key = malloc_vec(N_CHAINS);
-//         for i in 0..N_CHAINS {
-//             msg_i = message[i];
-//             n_hash_iter = CHAIN_LENGTH - msg_i;
-//             signature_i = signature + i;
-//             pk_i = hash_chain(signature_i, n_hash_iter);
-//             copy_vector(pk_i, public_key + i);
-//         }
-//         return public_key;
-//     }
+        // 1) We encode message_hash + randomness into the d-th layer of the hypercube
 
-//     fn hash_chain(thing_to_hash, n_iter) -> 1 {
-//         if n_iter == 0 {
-//             return thing_to_hash;
-//         }
-//         hashed = poseidon16(thing_to_hash, pointer_to_zero_vector);
-//         n_iter_minus_one = n_iter - 1;
-//         res = hash_chain(hashed, n_iter_minus_one);
-//         return res;
-//     }
+        compressed = malloc_vec(2);
+        poseidon16(message_hash, randomness, compressed);
+        compressed_ptr = compressed * 8;
+        bits = decompose_bits(compressed_ptr[0], compressed_ptr[1], compressed_ptr[2], compressed_ptr[3], compressed_ptr[4], compressed_ptr[5]);
+        flipped_bits = malloc(186);
+        for i in 0..186 unroll {
+            flipped_bits[i] = 1 - bits[i];
+        }
+        zero = 0;
+        for i in 0..186 unroll {
+            zero = flipped_bits[i] * bits[i]; // TODO remove the use of auxiliary var (currently it generates 2 instructions instead of 1)
+        }
+        encoding = malloc(12 * 6);
+        for i in 0..6 unroll {
+            for j in 0..12 unroll {
+                encoding[i * 12 + j] = bits[i * 31 + j * 2] + 2 * bits[i * 31 + j * 2 + 1];
+            }
+        }
 
-//     fn hash_wots_public_key(public_key) -> 1 {
-//         hashes = malloc(N_CHAINS / 2 + 1);
-//         hashes[0] = pointer_to_zero_vector;
-//         for i in 0..N_CHAINS / 2 {
-//             next = poseidon24(public_key + 2 * i, hashes[i]);
-//             hashes[i + 1] = next;
-//         }
-//         res = hashes[N_CHAINS / 2];
-//         return res;
-//     }
+        // we need to check that the (hinted) bit decomposition is valid
 
-//     fn print_chunk_of_8(arr) {
-//         reindexed_arr = arr * 8;
-//         for i in 0..8 {
-//             arr_i = reindexed_arr[i];
-//             print(arr_i);
-//         }
-//         return;
-//     }
+        for i in 0..6 unroll {
+            powers_scaled_w = malloc(12);
+            for j in 0..12 unroll {
+                powers_scaled_w[j] = encoding[i*12 + j] * W**j;
+            }
+            powers_scaled_sum_w = malloc(11);
+            powers_scaled_sum_w[0] = powers_scaled_w[0] + powers_scaled_w[1];
+            for j in 1..11 unroll {
+                powers_scaled_sum_w[j] = powers_scaled_sum_w[j - 1] + powers_scaled_w[j + 1];
+            }
 
-//     fn copy_vector(a, b) {
-//         // a and b both pointers in the memory of chunk of 8 field elements
-//         a_shifted = a * 8;
-//         b_shifted = b * 8;
-//         for i in 0..8 {
-//             a_i = a_shifted[i];
-//             b_shifted[i] = a_i;
-//         }
-//         return;
-//     }
+            powers_scaled_2 = malloc(7);
+            for j in 0..7 unroll {
+                powers_scaled_2[j] = bits[31 * i + 24 + j] * 2**(24 + j);
+            }
+            powers_scaled_sum_2 = malloc(6);
+            powers_scaled_sum_2[0] = powers_scaled_2[0] + powers_scaled_2[1];
+            for j in 1..6 unroll {
+                powers_scaled_sum_2[j] = powers_scaled_sum_2[j - 1] + powers_scaled_2[j + 1];
+            }
 
-//     fn assert_eq_ext(a, b) {
-//         // a and b both pointers in the memory of chunk of 8 field elements
-//         a_shifted = a * 8;
-//         b_shifted = b * 8;
-//         for i in 0..8 {
-//             a_i = a_shifted[i];
-//             b_i = b_shifted[i];
-//             assert a_i == b_i;
-//         }
-//         return;
-//     }
-//    "#;
+            assert powers_scaled_sum_w[10] + powers_scaled_sum_2[5] == compressed_ptr[i];
+        }
 
-//     let mut rng = StdRng::seed_from_u64(0);
-//     let message_hash: [F; 8] = rng.random();
-//     let wots_secret_key = WotsSecretKey::random(&mut rng);
-//     let signature = wots_secret_key.sign(&message_hash, &mut rng);
-//     let public_key_hashed = wots_secret_key.public_key().hash();
+        // FANCY OPTIMIZATION IDEA:
+        // We know for sure that each number n of the encoding is < W. We can use a JUMP to a + n * b (a, b two constants).
 
-//     let mut public_input = public_key_hashed.to_vec();
-//     public_input.extend(message_hash);
+        public_key = malloc_vec(V * 2);
+        for i in 0..V / 2 unroll {
+            if encoding[2 * i] == 2 {
+                poseidon16(pointer_to_zero_vector, chain_tips + 2 * i, public_key + 4 * i);
+            } else {
+                if encoding[2 * i] == 1 {
+                    chain_hash_2 = malloc_vec(2);
+                    poseidon16(pointer_to_zero_vector, chain_tips +  2 * i, chain_hash_2);
+                    poseidon16(pointer_to_zero_vector, chain_hash_2 + 1, public_key + 4 * i);
+                } else {
+                    if encoding[2 * i] == 3 {
+                        // TODO single-instruction copy (trick based on DOT_PRODUCT precompile)
+                        public_key_ptr = (public_key + 4 * i + 1) * 8;
+                        chain_tips_ptr = (chain_tips + 2 * i) * 8;
+                        for j in 0..8 unroll {
+                            public_key_ptr[j] = chain_tips_ptr[j];
+                        }
+                    } else {
+                        // encoding[2 * i] == 0
+                        chain_hash_1 = malloc_vec(2);
+                        chain_hash_2 = malloc_vec(2);
+                        poseidon16(pointer_to_zero_vector, chain_tips + 2 * i, chain_hash_1);
+                        poseidon16(pointer_to_zero_vector, chain_hash_1 + 1, chain_hash_2);
+                        poseidon16(pointer_to_zero_vector, chain_hash_2 + 1, public_key + 4 * i);
+                    }
+                }
+            }
+        }
 
-//     let mut private_input = signature
-//         .chain_tips
-//         .iter()
-//         .flat_map(|digest| digest.to_vec())
-//         .collect::<Vec<F>>();
-//     private_input.extend(signature.randomness.to_vec());
+        print_chunk_of_8(public_key + 25);
+        // print_chunk_of_8(chain_tips);
 
-//     public_input.insert(
-//         0,
-//         F::from_usize((public_input.len() + 8 + PUBLIC_INPUT_START).next_power_of_two()),
-//     );
-//     public_input.splice(1..1, F::zero_vec(7));
 
-//     compile_and_run(program, &public_input, &private_input);
+        return encoding;
+    }
 
-//     dbg!(&public_key_hashed);
-// }
+    fn print_chunk_of_8(arr) {
+        reindexed_arr = arr * 8;
+        for i in 0..8 {
+            arr_i = reindexed_arr[i];
+            print(arr_i);
+        }
+        return;
+    }
+
+   "#;
+
+    let mut rng = StdRng::seed_from_u64(0);
+    let message_hash: [F; 8] = rng.random();
+    let wots_secret_key = WotsSecretKey::random(&mut rng);
+    let signature = wots_secret_key.sign(&message_hash, &mut rng);
+    let public_key_hashed = wots_secret_key.public_key().hash();
+    dbg!(wots_secret_key.public_key().0[12][0]);
+
+    let mut public_input = public_key_hashed.to_vec();
+    public_input.extend(message_hash);
+
+    let mut private_input = signature.randomness.to_vec();
+    private_input.extend(
+        signature
+            .chain_tips
+            .iter()
+            .flat_map(|digest| digest.to_vec()),
+    );
+
+    public_input.insert(
+        0,
+        F::from_usize((public_input.len() + 8 + PUBLIC_INPUT_START).next_power_of_two()),
+    );
+    public_input.splice(1..1, F::zero_vec(7));
+
+    compile_and_run(program, &public_input, &private_input);
+}
 
 // #[test]
 // fn test_verify_xmss_signature() {
