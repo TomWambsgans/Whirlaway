@@ -238,9 +238,18 @@ pub fn build_public_memory(public_input: &[F]) -> Vec<F> {
     let public_memory_len = (PUBLIC_INPUT_START + public_input.len()).next_power_of_two();
     let mut public_memory = F::zero_vec(public_memory_len);
     public_memory[PUBLIC_INPUT_START..][..public_input.len()].copy_from_slice(public_input);
+
+    // "zero" vector
     for i in ZERO_VEC_PTR * 8..(ZERO_VEC_PTR + 2) * 8 {
-        public_memory[i] = F::ZERO; // zero vector
+        public_memory[i] = F::ZERO;
     }
+
+    // "one" vector
+    public_memory[ONE_VEC_PTR * 8] = F::ONE;
+    for i in ONE_VEC_PTR * 8 + 1..(ONE_VEC_PTR + 1) * 8 {
+        public_memory[i] = F::ZERO;
+    }
+
     public_memory[POSEIDON_16_NULL_HASH_PTR * 8..(POSEIDON_16_NULL_HASH_PTR + 2) * 8]
         .copy_from_slice(&get_poseidon16().permute([F::ZERO; 16]));
     public_memory[POSEIDON_24_NULL_HASH_PTR * 8..(POSEIDON_24_NULL_HASH_PTR + 1) * 8]

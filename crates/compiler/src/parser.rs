@@ -531,6 +531,9 @@ fn parse_var_or_constant(
             "pointer_to_zero_vector" => Ok(SimpleExpr::Constant(ConstExpression::Value(
                 ConstantValue::PointerToZeroVector,
             ))),
+            "pointer_to_one_vector" => Ok(SimpleExpr::Constant(ConstExpression::Value(
+                ConstantValue::PointerToOneVector,
+            ))),
             _ => {
                 if let Some(value) = constants.get(text) {
                     Ok(SimpleExpr::Constant(ConstExpression::Value(

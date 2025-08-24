@@ -42,7 +42,7 @@ pub fn run_whir_verif() {
     const LOG_INV_RATE = 2; 
     const N_ROUNDS = 3;
     
-    const PADDING_FOR_INITIAL_MERKLE_LEAVES = 7;
+    const PADDING_FOR_INITIAL_MERKLE_LEAVES = 6;
 
     const FOLDING_FACTOR_0 = 7;
     const FOLDING_FACTOR_1 = 4;
@@ -248,6 +248,7 @@ pub fn run_whir_verif() {
     }
 
     fn sumcheck(fs_state, n_steps, claimed_sum) -> 3 {
+
         fs_states_a = malloc(n_steps + 1);
         fs_states_a[0] = fs_state;
 
@@ -257,15 +258,23 @@ pub fn run_whir_verif() {
         folding_randomness = malloc_vec(n_steps); // in reverse order.
 
         for sc_round in 0..n_steps {
+
             fs_state_5, poly = fs_receive(fs_states_a[sc_round], 3); // vectorized pointer of len 1
+
             sum_over_boolean_hypercube = degree_two_polynomial_sum_at_0_and_1(poly);
+            print(111);
+            print_chunk(sum_over_boolean_hypercube);
+            print_chunk(claimed_sums[sc_round]);
             assert_eq_extension(sum_over_boolean_hypercube, claimed_sums[sc_round]);
+            print(2222);
+            
             fs_state_6, rand = fs_sample_ef(fs_state_5);  // vectorized pointer of len 1
             fs_states_a[sc_round + 1] = fs_state_6;
             new_claimed_sum = degree_two_polynomial_eval(poly, rand);
             claimed_sums[sc_round + 1] = new_claimed_sum;
             copy_chunk_vec(rand, folding_randomness +  n_steps - 1 - sc_round);
         }
+
         new_state = fs_states_a[n_steps];
         new_claimed_sum = claimed_sums[n_steps];
 
@@ -363,7 +372,6 @@ pub fn run_whir_verif() {
 
     fn whir_round(fs_state, prev_root, folding_factor, two_pow_folding_factor, is_first_round, num_queries, domain_size, claimed_sum, grinding_bits) -> 7 {
         fs_state_7, folding_randomness, new_claimed_sum_a = sumcheck(fs_state, folding_factor, claimed_sum);
-
         fs_state_8, root, ood_point, ood_eval = parse_commitment(fs_state_7);
    
         fs_state_11, circle_values, folds = 
@@ -375,6 +383,7 @@ pub fn run_whir_verif() {
 
         claimed_sum_supplement_side = malloc_vec(1);
         dot_product_dynamic(folds, combination_randomness_powers + 1, claimed_sum_supplement_side, num_queries);
+
         claimed_sum_supplement = add_extension_ret(claimed_sum_supplement_side, ood_eval);
         new_claimed_sum_b = add_extension_ret(claimed_sum_supplement, new_claimed_sum_a);
 
@@ -882,6 +891,7 @@ pub fn run_whir_verif() {
     
     fn assert_eq_extension(a, b)  {
         null_ptr = pointer_to_zero_vector; // TODO avoid having to store this in a variable
+        print(pointer_to_zero_vector);
         add_extension(a, null_ptr, b);
         return;
     }

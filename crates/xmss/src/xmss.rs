@@ -12,9 +12,7 @@ pub struct XmssSignature {
     pub merkle_proof: Vec<(bool, Digest)>,
 }
 
-pub struct XmssPublicKey {
-    pub root: Digest,
-}
+pub struct XmssPublicKey(pub Digest);
 
 impl XmssSecretKey {
     pub fn random(rng: &mut impl Rng) -> Self {
@@ -67,9 +65,7 @@ impl XmssSecretKey {
     }
 
     pub fn public_key(&self) -> XmssPublicKey {
-        XmssPublicKey {
-            root: self.merkle_tree.last().unwrap()[0],
-        }
+        XmssPublicKey(self.merkle_tree.last().unwrap()[0])
     }
 }
 
@@ -93,6 +89,6 @@ impl XmssPublicKey {
                 current_hash = poseidon16_compress(neighbour, &current_hash);
             }
         }
-        current_hash == self.root
+        current_hash == self.0
     }
 }

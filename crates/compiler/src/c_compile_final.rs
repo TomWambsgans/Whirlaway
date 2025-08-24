@@ -286,6 +286,7 @@ fn eval_constant_value(constant: &ConstantValue, compiler: &Compiler) -> usize {
         ConstantValue::Scalar(scalar) => *scalar,
         ConstantValue::PublicInputStart => PUBLIC_INPUT_START,
         ConstantValue::PointerToZeroVector => ZERO_VEC_PTR,
+        ConstantValue::PointerToOneVector => ONE_VEC_PTR,
         ConstantValue::FunctionSize { function_name } => *compiler
             .memory_size_per_function
             .get(function_name)

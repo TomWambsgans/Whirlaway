@@ -18,7 +18,7 @@ pub const CHAIN_LENGTH: usize = 1 << W;
 pub const D: usize = 90;
 pub const TARGET_SUM: usize = V * (W - 1) - D;
 
-pub const XMSS_MERKLE_HEIGHT: usize = 5;
+pub const XMSS_MERKLE_HEIGHT: usize = 10;
 
 fn poseidon16_compress(a: &Digest, b: &Digest) -> Digest {
     get_poseidon16().permute([*a, *b].concat().try_into().unwrap())[0..8]

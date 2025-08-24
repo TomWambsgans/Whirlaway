@@ -101,6 +101,7 @@ pub enum ConstantValue {
     Scalar(usize),
     PublicInputStart,
     PointerToZeroVector, // In the memory of chunks of 8 field elements
+    PointerToOneVector, // In the memory of chunks of 8 field elements
     FunctionSize { function_name: Label },
     Label(Label),
 }
@@ -518,6 +519,7 @@ impl ToString for ConstantValue {
             ConstantValue::Scalar(scalar) => scalar.to_string(),
             ConstantValue::PublicInputStart => "@public_input_start".to_string(),
             ConstantValue::PointerToZeroVector => "@pointer_to_zero_vector".to_string(),
+            ConstantValue::PointerToOneVector => "@pointer_to_one_vector".to_string(),
             ConstantValue::FunctionSize { function_name } => {
                 format!("@function_size_{}", function_name)
             }
