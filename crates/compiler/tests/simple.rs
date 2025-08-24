@@ -202,7 +202,8 @@ fn test_mini_program_3() {
     fn main() {
         a = public_input_start / 8;
         b = a + 1;
-        c = poseidon16(a, b);
+        c = malloc_vec(2);
+        poseidon16(a, b, c);
 
         c_shifted = c * 8;
         d_shifted = (c + 1) * 8;
@@ -235,7 +236,8 @@ fn test_mini_program_4() {
     fn main() {
         a = public_input_start / 8;
         c = a + 2;
-        f = poseidon24(a, c);
+        f = malloc_vec(1);
+        poseidon24(a, c, f);
 
         f_shifted = f * 8;
         for j in 0..8 {

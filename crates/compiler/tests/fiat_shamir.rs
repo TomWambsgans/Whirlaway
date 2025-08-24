@@ -124,7 +124,8 @@ fn test_fiat_shamir_complete() {
             input_buffer_ptr[i] = l_ptr[i];
         }
 
-        l_r = poseidon16(input_buffer, fs_state[2]);
+        l_r = malloc_vec(2);
+        poseidon16(input_buffer, fs_state[2], l_r);
         new_fs_state = malloc(6);
         new_fs_state[0] = fs_state[0];
         new_fs_state[1] = l_r;
@@ -179,7 +180,8 @@ fn test_fiat_shamir_complete() {
         steps_done = 8 - input_buffer_size;
 
         // duplexing
-        l_r = poseidon16(input_buffer, fs_state[2]);
+        l_r = malloc_vec(2);
+        poseidon16(input_buffer, fs_state[2], l_r);
         new_fs_state = malloc(6);
         new_fs_state[0] = transcript_ptr + steps_done;
         new_fs_state[1] = l_r;
@@ -334,7 +336,8 @@ fn test_fiat_shamir_simple() {
             new_l_ptr[i] = l_ptr[i];
         }
 
-        l_r_updated = poseidon16(new_l, fs_state[2]);
+        l_r_updated = malloc_vec(2);
+        poseidon16(new_l, fs_state[2], l_r_updated);
         new_fs_state = malloc(4);
         new_fs_state[0] = fs_state[0] + 1; // read one 1 chunk of 8 field elements (7 are useless)
         new_fs_state[1] = l_r_updated;
@@ -406,7 +409,8 @@ fn test_fiat_shamir_simple() {
         }
 
         // duplexing
-        l_r = poseidon16(fs_state[1], fs_state[2]);
+        l_r = malloc_vec(2);
+        poseidon16(fs_state[1], fs_state[2], l_r);
         new_fs_state = malloc(4);
         new_fs_state[0] = fs_state[0];
         new_fs_state[1] = l_r;
@@ -448,7 +452,8 @@ fn test_fiat_shamir_simple() {
         // observe n chunk of 8 field elements from the transcript
         // and return the updated fs_state
         // duplexing
-        l_r = poseidon16(fs_state[0], fs_state[2]);
+        l_r = malloc_vec(2);
+        poseidon16(fs_state[0], fs_state[2], l_r);
         new_fs_state = malloc(4);
         new_fs_state[0] = fs_state[0] + 1;
         new_fs_state[1] = l_r;

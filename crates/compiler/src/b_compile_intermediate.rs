@@ -104,10 +104,6 @@ impl IntermediateValue {
         }
     }
 
-    fn from_var(var: &Var, compiler: &Compiler) -> Self {
-        Self::from_simple_expr(&var.clone().into(), compiler)
-    }
-
     fn from_var_or_const_malloc_access(
         var_or_const: &VarOrConstMallocAccess,
         compiler: &Compiler,
@@ -383,9 +379,8 @@ fn compile_lines(
                         ..
                     },
                 args,
-                res,
             } => {
-                compile_poseidon(&mut instructions, args, res, compiler, declared_vars, true)?;
+                compile_poseidon(&mut instructions, args, compiler, true)?;
             }
 
             SimpleLine::Precompile {
@@ -395,9 +390,8 @@ fn compile_lines(
                         ..
                     },
                 args,
-                res,
             } => {
-                compile_poseidon(&mut instructions, args, res, compiler, declared_vars, false)?;
+                compile_poseidon(&mut instructions, args, compiler, false)?;
             }
             SimpleLine::Precompile {
                 precompile:
@@ -466,7 +460,10 @@ fn compile_lines(
             } => {
                 instructions.push(IntermediateInstruction::DecomposeBits {
                     res_offset: compiler.stack_size,
-                    to_decompose: to_decompose.iter().map(|expr| IntermediateValue::from_simple_expr(expr, compiler)).collect(),
+                    to_decompose: to_decompose
+                        .iter()
+                        .map(|expr| IntermediateValue::from_simple_expr(expr, compiler))
+                        .collect(),
                 });
 
                 handle_const_malloc(
@@ -595,27 +592,14 @@ fn setup_function_call(
 fn compile_poseidon(
     instructions: &mut Vec<IntermediateInstruction>,
     args: &[SimpleExpr],
-    res: &[Var],
     compiler: &mut Compiler,
-    declared_vars: &mut BTreeSet<Var>,
     over_16: bool, // otherwise over_24
 ) -> Result<(), String> {
-    assert_eq!(args.len(), 2);
-    assert_eq!(res.len(), 1);
-    let res_var = &res[0];
-
-    // Allocate memory for result
-    if declared_vars.insert(res_var.clone()) {
-        instructions.push(IntermediateInstruction::RequestMemory {
-            offset: compiler.get_offset(&res_var.clone().into()),
-            size: ConstExpression::scalar(if over_16 { 2 } else { 1 }).into(),
-            vectorized: true,
-        });
-    }
+    assert_eq!(args.len(), 3);
 
     let low_level_arg_a = IntermediateValue::from_simple_expr(&args[0], compiler);
     let low_level_arg_b = IntermediateValue::from_simple_expr(&args[1], compiler);
-    let low_level_res = IntermediateValue::from_var(res_var, compiler);
+    let low_level_res = IntermediateValue::from_simple_expr(&args[2], compiler);
 
     if over_16 {
         instructions.push(IntermediateInstruction::Poseidon2_16 {
@@ -675,11 +659,6 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
             SimpleLine::FunctionCall { return_data, .. } => {
                 internal_vars.extend(return_data.iter().cloned());
             }
-            SimpleLine::Precompile {
-                res: return_data, ..
-            } => {
-                internal_vars.extend(return_data.iter().cloned());
-            }
             SimpleLine::IfNotZero {
                 then_branch,
                 else_branch,
@@ -688,7 +667,10 @@ fn find_internal_vars(lines: &[SimpleLine]) -> BTreeSet<Var> {
                 internal_vars.extend(find_internal_vars(then_branch));
                 internal_vars.extend(find_internal_vars(else_branch));
             }
-            SimpleLine::Panic | SimpleLine::Print { .. } | SimpleLine::FunctionRet { .. } => {}
+            SimpleLine::Panic
+            | SimpleLine::Print { .. }
+            | SimpleLine::FunctionRet { .. }
+            | SimpleLine::Precompile { .. } => {}
         }
     }
     internal_vars

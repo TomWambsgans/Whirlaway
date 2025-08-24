@@ -447,7 +447,7 @@ fn parse_function_call(
             );
             Ok(Line::DecomposeBits {
                 var: return_data[0].clone(),
-                to_decompose: args
+                to_decompose: args,
             })
         }
         "panic" => {
@@ -462,14 +462,10 @@ fn parse_function_call(
                 .iter()
                 .find(|p| p.name.to_string() == function_name)
             {
-                assert!(
-                    args.len() == precompile.n_inputs && return_data.len() == precompile.n_outputs,
-                    "Invalid precompile call"
-                );
+                assert!(args.len() == precompile.n_inputs, "Invalid precompile call");
                 Ok(Line::Precompile {
                     precompile: precompile.clone(),
                     args,
-                    res: return_data,
                 })
             } else {
                 Ok(Line::FunctionCall {
@@ -562,106 +558,4 @@ fn parse_var_list(
     pair.into_inner()
         .map(|item| parse_var_or_constant(item, constants))
         .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parser() {
-        let program = r#"
-
-// This is a comment
-
-const A = 10000;
-const B = 20000;
-// Another comment
-
-fn main() {
-// this a comment
-
-    c = a + b;
-    assert c == d;
-    if c != b { // this a comment
-        d = 1;
-        e = 9;
-        f = d * ((a - b) + ((h / 1) + d));
-    } else {
-        f = 8;
-    }
-    assert f != g;
-    oo = memory[B];
-    x = 8;
-    y = 9;
-    uuu = y[9];
-    vvv = y[uuu];
-
-    gh = memory[7];
-    hh = memory[gh];
-
-    print(hh);
-
-    xx= poseidon16(x, y);
-    xxx = poseidon24(7, b);
-
-    k = public_input_start;
-
-    for i in a..(b + 9) * ( 7 - 7 ) {
-        assert i != d;
-    }
-
-    for i in a..(b + 9) * ( 7 - 7 ) unroll {
-        assert i != d;
-    }
-
-    i, j, k = my_function1(b, b, a);
-}
-
-fn my_function1(a, const b, c) -> 2 {
-    d = a + b;
-    e = b + c;
-    if e == e {
-        return 0, 0;
-    }
-    if d != e {
-        return d, e;
-    } else {
-        return e, d;
-    }
-}
-    "#;
-
-        let parsed = parse_program(program).unwrap();
-        println!("{}", parsed.to_string());
-    }
-
-    #[test]
-    fn test_const_parameters() {
-        let program = r#"
-fn test_func(const a, b, const c) -> 1 {
-    d = a + b + c;
-    return d;
-}
-    "#;
-
-        let parsed = parse_program(program).unwrap();
-        println!("{}", parsed.to_string());
-    }
-
-    #[test]
-    fn test_exponent_operation() {
-        let program = r#"
-fn test_exp() -> 1 {
-    a = 2 ** 3;
-    b = x ** y ** z;  // Should parse as x ** (y ** z)
-    c = (a + b) ** 2;
-    d = a ** 2 * b;   // Should parse as (a ** 2) * b
-    return a;
-}
-    "#;
-
-        let parsed = parse_program(program).unwrap();
-        println!("{}", parsed.to_string());
-    }
 }

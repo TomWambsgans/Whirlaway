@@ -2,7 +2,6 @@
 pub struct Precompile {
     pub name: PrecompileName,
     pub n_inputs: usize,
-    pub n_outputs: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -27,26 +26,22 @@ impl ToString for PrecompileName {
 
 pub const POSEIDON_16: Precompile = Precompile {
     name: PrecompileName::Poseidon16,
-    n_inputs: 2,
-    n_outputs: 1,
+    n_inputs: 3,
 };
 
 pub const POSEIDON_24: Precompile = Precompile {
     name: PrecompileName::Poseidon24,
-    n_inputs: 2,
-    n_outputs: 1,
+    n_inputs: 3,
 };
 
 pub const DOT_PRODUCT: Precompile = Precompile {
     name: PrecompileName::DotProduct,
     n_inputs: 4,
-    n_outputs: 0,
 };
 
 pub const MULTILINEAR_EVAL: Precompile = Precompile {
     name: PrecompileName::MultilinearEval,
     n_inputs: 4,
-    n_outputs: 0,
 };
 
 pub const PRECOMPILES: [Precompile; 4] = [POSEIDON_16, POSEIDON_24, DOT_PRODUCT, MULTILINEAR_EVAL];

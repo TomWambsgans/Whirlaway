@@ -43,10 +43,11 @@ fn test_verify_merkle_path() {
         }
         is_left = are_left[0];
 
+        hashed = malloc_vec(1);
         if is_left == 1 {
-            hashed = poseidon16(thing_to_hash, neighbours);
+            poseidon16(thing_to_hash, neighbours, hashed);
         } else {
-            hashed = poseidon16(neighbours, thing_to_hash);
+            poseidon16(neighbours, thing_to_hash, hashed);
         }
 
         next_step = step + 1;
@@ -134,7 +135,8 @@ fn test_wots_encode() {
     fn wots_encoding(message_hash, randomness) -> 1 {
         // both arguments are vectorized pointers (of length 1)
         // return a normal pointer (of length V)
-        compressed = poseidon16(message_hash, randomness);
+        compressed = malloc_vec(2);
+        poseidon16(message_hash, randomness, compressed);
         compressed_ptr = compressed * 8;
         bits = decompose_bits(compressed_ptr[0], compressed_ptr[1], compressed_ptr[2], compressed_ptr[3], compressed_ptr[4], compressed_ptr[5]);
         flipped_bits = malloc(186);

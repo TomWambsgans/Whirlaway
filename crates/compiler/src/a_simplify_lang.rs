@@ -100,7 +100,6 @@ pub enum SimpleLine {
     Precompile {
         precompile: Precompile,
         args: Vec<SimpleExpr>,
-        res: Vec<Var>,
     },
     Panic,
     // Hints
@@ -512,11 +511,7 @@ fn simplify_lines(
                     return_data: simplified_return_data,
                 });
             }
-            Line::Precompile {
-                precompile,
-                args,
-                res: return_data,
-            } => {
+            Line::Precompile { precompile, args } => {
                 let simplified_args = args
                     .iter()
                     .map(|arg| simplify_expr(arg, &mut res, counters, array_manager, const_malloc))
@@ -524,7 +519,6 @@ fn simplify_lines(
                 res.push(SimpleLine::Precompile {
                     precompile: precompile.clone(),
                     args: simplified_args,
-                    res: return_data.clone(),
                 });
             }
             Line::Print { line_info, content } => {
@@ -743,13 +737,9 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
             Line::Precompile {
                 precompile: _,
                 args,
-                res,
             } => {
                 for arg in args {
                     on_new_expr(arg, &internal_vars, &mut external_vars);
-                }
-                for r in res {
-                    internal_vars.insert(r.clone());
                 }
             }
             Line::Print { content, .. } => {
@@ -1049,13 +1039,9 @@ fn replace_vars_for_unroll(
             Line::Precompile {
                 precompile: _,
                 args,
-                res,
             } => {
                 for arg in args {
                     replace_vars_for_unroll_in_expr(arg, iterator, iterator_value, internal_vars);
-                }
-                for ret in res {
-                    *ret = format!("@unrolled_{}_{}", iterator_value, ret).into();
                 }
             }
             Line::Break => {}
@@ -1081,12 +1067,7 @@ fn replace_vars_for_unroll(
                 assert!(var != iterator, "Weird");
                 *var = format!("@unrolled_{}_{}", iterator_value, var).into();
                 for expr in to_decompose {
-                    replace_vars_for_unroll_in_expr(
-                        expr,
-                        iterator,
-                        iterator_value,
-                        internal_vars,
-                    );
+                    replace_vars_for_unroll_in_expr(expr, iterator, iterator_value, internal_vars);
                 }
             }
         }
@@ -1293,13 +1274,9 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
             Line::Precompile {
                 precompile: _,
                 args,
-                res: return_data,
             } => {
                 for arg in args {
                     replace_vars_by_const_in_expr(arg, map);
-                }
-                for r in return_data {
-                    assert!(!map.contains_key(r), "Return variable {} is a constant", r);
                 }
             }
             Line::Print { content, .. } => {
@@ -1372,7 +1349,11 @@ impl SimpleLine {
                 format!(
                     "{} = decompose_bits({})",
                     result.to_string(),
-                    to_decompose.iter().map(|expr| expr.to_string()).collect::<Vec<_>>().join(", ")
+                    to_decompose
+                        .iter()
+                        .map(|expr| expr.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 )
             }
             SimpleLine::RawAccess { res, index, shift } => {
@@ -1448,14 +1429,9 @@ impl SimpleLine {
                     .join(", ");
                 format!("return {}", return_data_str)
             }
-            SimpleLine::Precompile {
-                precompile,
-                args,
-                res: return_data,
-            } => {
+            SimpleLine::Precompile { precompile, args } => {
                 format!(
-                    "{} = {}({})",
-                    return_data.join(", "),
+                    "{}({})",
                     &precompile.name.to_string(),
                     args.iter()
                         .map(|arg| arg.to_string())

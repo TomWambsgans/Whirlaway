@@ -301,8 +301,9 @@ pub fn run_whir_verif() {
             internal_states = malloc(1 + (n_chuncks_per_answer / 2)); // "/ 2" because with poseidon24 we hash 2 chuncks of 8 field elements at each permutation
             internal_states[0] = pointer_to_zero_vector; // initial state
             for j in 0..n_chuncks_per_answer / 2 {
-                new_state = poseidon24(answer + (2*j), internal_states[j]);
-                internal_states[j + 1] = new_state;
+                h24 = malloc_vec(1);
+                poseidon24(answer + (2*j), internal_states[j], h24);
+                internal_states[j + 1] = h24;
             }
             leaf_hashes[i] = internal_states[n_chuncks_per_answer / 2];
         }
@@ -328,7 +329,8 @@ pub fn run_whir_verif() {
                     left = states[j];
                     right = merkle_path + j;
                 }
-                state_j_plus_1 = poseidon16(left, right);
+                state_j_plus_1 = malloc_vec(2);
+                poseidon16(left, right, state_j_plus_1);
                 states[j + 1] = state_j_plus_1;
             }
             assert_eq_extension(states[folded_domain_size], prev_root);
@@ -680,7 +682,8 @@ pub fn run_whir_verif() {
             new_l_ptr[i] = l_ptr[i];
         }
 
-        l_r_updated = poseidon16(new_l, fs_state[2]);
+        l_r_updated = malloc_vec(2);
+        poseidon16(new_l, fs_state[2], l_r_updated);
         new_fs_state = malloc(4);
         new_fs_state[0] = fs_state[0] + 1; // read one 1 chunk of 8 field elements (7 are useless)
         new_fs_state[1] = l_r_updated;
@@ -743,7 +746,8 @@ pub fn run_whir_verif() {
         }
 
         // duplexing
-        l_r = poseidon16(fs_state[1], fs_state[2]);
+        l_r = malloc_vec(2);
+        poseidon16(fs_state[1], fs_state[2], l_r);
         new_fs_state = malloc(4);
         new_fs_state[0] = fs_state[0];
         new_fs_state[1] = l_r;
@@ -785,7 +789,8 @@ pub fn run_whir_verif() {
         // observe n chunk of 8 field elements from the transcript
         // and return the updated fs_state
         // duplexing
-        l_r = poseidon16(fs_state[0], fs_state[2]);
+        l_r = malloc_vec(2);
+        poseidon16(fs_state[0], fs_state[2], l_r);
         new_fs_state = malloc(4);
         new_fs_state[0] = fs_state[0] + 1;
         new_fs_state[1] = l_r;

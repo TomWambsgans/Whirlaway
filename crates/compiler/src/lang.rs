@@ -295,7 +295,6 @@ pub enum Line {
     Precompile {
         precompile: Precompile,
         args: Vec<Expression>,
-        res: Vec<Var>,
     },
     Break,
     Panic,
@@ -450,15 +449,9 @@ impl Line {
             Line::Precompile {
                 precompile,
                 args,
-                res: return_data,
             } => {
                 format!(
-                    "{} = {}({})",
-                    return_data
-                        .iter()
-                        .map(|var| var.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", "),
+                    "{}({})",
                     precompile.name.to_string(),
                     args.iter()
                         .map(|arg| arg.to_string())
