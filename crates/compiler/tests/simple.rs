@@ -45,6 +45,37 @@ fn test_edge_case_0() {
 }
 
 #[test]
+fn test_edge_case_1() {
+    let program = r#"
+    fn main() {
+        a = malloc(1);
+        a[0] = 0;
+        assert a[8 - 8] == 0;
+        return;
+    }
+   "#;
+    compile_and_run(program, &[], &[]);
+}
+
+#[test]
+fn test_edge_case_2() {
+    let program = r#"
+    fn main() {
+        for i in 0..5 unroll {
+            x = i;
+            print(x);
+        }
+        for i in 0..3 unroll {
+            x = i;
+            print(x);
+        }
+        return;
+    }
+   "#;
+    compile_and_run(program, &[], &[]);
+}
+
+#[test]
 fn test_decompose_bits() {
     let program = r#"
     const A = 2 ** 30 - 1;
@@ -54,19 +85,6 @@ fn test_decompose_bits() {
         for i in 0..62  {
             print(a[i]);
         }
-        return;
-    }
-   "#;
-    compile_and_run(program, &[], &[]);
-}
-
-#[test]
-fn test_edge_case_1() {
-    let program = r#"
-    fn main() {
-        a = malloc(1);
-        a[0] = 0;
-        assert a[8 - 8] == 0;
         return;
     }
    "#;
