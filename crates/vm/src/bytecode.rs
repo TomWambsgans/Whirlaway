@@ -117,6 +117,9 @@ pub enum Hint {
         res_offset: usize, // m[fp + res_offset..fp + res_offset + 31 * len(to_decompose)] will contain the decomposed bits
         to_decompose: Vec<MemOrConstant>,
     },
+    CounterHint {
+        res_offset: usize, // m[fp + res_offset] will contain the result
+    },
     Print {
         line_info: String,
         content: Vec<MemOrConstant>,
@@ -297,6 +300,9 @@ impl ToString for Hint {
                         .collect::<Vec<String>>()
                         .join(", ")
                 )
+            }
+            Self::CounterHint { res_offset } => {
+                format!("m[fp + {}] = counter_hint()", res_offset)
             }
             Self::Print { line_info, content } => {
                 format!(

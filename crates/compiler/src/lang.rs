@@ -101,7 +101,7 @@ pub enum ConstantValue {
     Scalar(usize),
     PublicInputStart,
     PointerToZeroVector, // In the memory of chunks of 8 field elements
-    PointerToOneVector, // In the memory of chunks of 8 field elements
+    PointerToOneVector,  // In the memory of chunks of 8 field elements
     FunctionSize { function_name: Label },
     Label(Label),
 }
@@ -313,6 +313,9 @@ pub enum Line {
         var: Var, // a pointer to 31 * len(to_decompose) field elements, containing the bits of "to_decompose"
         to_decompose: Vec<Expression>,
     },
+    CounterHint {
+        var: Var,
+    },
 }
 
 impl ToString for Expression {
@@ -393,6 +396,9 @@ impl Line {
                     )
                 }
             }
+            Line::CounterHint { var } => {
+                format!("{} = counter_hint({})", var.to_string(), var.to_string())
+            }
             Line::ForLoop {
                 iterator,
                 start,
@@ -447,10 +453,7 @@ impl Line {
                     .join(", ");
                 format!("return {}", return_data_str)
             }
-            Line::Precompile {
-                precompile,
-                args,
-            } => {
+            Line::Precompile { precompile, args } => {
                 format!(
                     "{}({})",
                     precompile.name.to_string(),
@@ -490,7 +493,11 @@ impl Line {
                 format!(
                     "{} = decompose_bits({})",
                     var.to_string(),
-                    to_decompose.iter().map(|expr| expr.to_string()).collect::<Vec<_>>().join(", ")
+                    to_decompose
+                        .iter()
+                        .map(|expr| expr.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 )
             }
             Line::Break => "break".to_string(),

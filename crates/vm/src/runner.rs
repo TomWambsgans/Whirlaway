@@ -306,6 +306,8 @@ fn execute_bytecode_helper(
     let mut deref_counts = 0;
     let mut jump_counts = 0;
 
+    let mut counter_hint = 0;
+
     while pc != bytecode.ending_pc {
         if pc >= bytecode.instructions.len() {
             return Err(RunnerError::PCOutOfBounds);
@@ -355,6 +357,10 @@ fn execute_bytecode_helper(
                             memory_index += 1;
                         }
                     }
+                }
+                Hint::CounterHint { res_offset } => {
+                    memory.set(fp + *res_offset, F::from_usize(counter_hint))?;
+                    counter_hint += 1;
                 }
                 Hint::Inverse { arg, res_offset } => {
                     let value = arg.read_value(&memory, fp)?;

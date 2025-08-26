@@ -450,6 +450,15 @@ fn parse_function_call(
                 to_decompose: args,
             })
         }
+        "counter_hint" => {
+            assert!(
+                args.is_empty() && return_data.len() == 1,
+                "Invalid counter_hint call"
+            );
+            Ok(Line::CounterHint {
+                var: return_data[0].clone(),
+            })
+        }
         "panic" => {
             assert!(
                 return_data.is_empty() && args.is_empty(),

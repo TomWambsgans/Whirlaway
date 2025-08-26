@@ -108,6 +108,9 @@ pub enum SimpleLine {
         to_decompose: Vec<SimpleExpr>,
         label: ConstMallocLabel,
     },
+    CounterHint {
+        var: Var,
+    },
     Print {
         line_info: String,
         content: Vec<SimpleExpr>,
@@ -168,7 +171,7 @@ pub fn simplify_program(mut program: Program) -> SimpleProgram {
 struct Counters {
     aux_vars: usize,
     loops: usize,
-    unrolls: usize
+    unrolls: usize,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -395,7 +398,13 @@ fn simplify_lines(
 
                     for i in range {
                         let mut body_copy = body.clone();
-                        replace_vars_for_unroll(&mut body_copy, iterator, unroll_index, i, &internal_variables);
+                        replace_vars_for_unroll(
+                            &mut body_copy,
+                            iterator,
+                            unroll_index,
+                            i,
+                            &internal_variables,
+                        );
                         unrolled_lines.extend(simplify_lines(
                             &body_copy,
                             counters,
@@ -595,6 +604,9 @@ fn simplify_lines(
                     label,
                 });
             }
+            Line::CounterHint { var } => {
+                res.push(SimpleLine::CounterHint { var: var.clone() });
+            }
             Line::Panic => {
                 res.push(SimpleLine::Panic);
             }
@@ -754,6 +766,9 @@ pub fn find_variable_usage(lines: &[Line]) -> (BTreeSet<Var>, BTreeSet<Var>) {
                 for expr in to_decompose {
                     on_new_expr(&expr, &internal_vars, &mut external_vars);
                 }
+                internal_vars.insert(var.clone());
+            }
+            Line::CounterHint { var } => {
                 internal_vars.insert(var.clone());
             }
             Line::ForLoop {
@@ -959,11 +974,29 @@ fn replace_vars_for_unroll_in_expr(
             if internal_vars.contains(array) {
                 *array = format!("@unrolled_{}_{}_{}", unroll_index, iterator_value, array).into();
             }
-            replace_vars_for_unroll_in_expr(index, iterator, unroll_index, iterator_value, internal_vars);
+            replace_vars_for_unroll_in_expr(
+                index,
+                iterator,
+                unroll_index,
+                iterator_value,
+                internal_vars,
+            );
         }
         Expression::Binary { left, right, .. } => {
-            replace_vars_for_unroll_in_expr(left, iterator, unroll_index, iterator_value, internal_vars);
-            replace_vars_for_unroll_in_expr(right, iterator, unroll_index, iterator_value, internal_vars);
+            replace_vars_for_unroll_in_expr(
+                left,
+                iterator,
+                unroll_index,
+                iterator_value,
+                internal_vars,
+            );
+            replace_vars_for_unroll_in_expr(
+                right,
+                iterator,
+                unroll_index,
+                iterator_value,
+                internal_vars,
+            );
         }
     }
 }
@@ -980,7 +1013,13 @@ fn replace_vars_for_unroll(
             Line::Assignment { var, value } => {
                 assert!(var != iterator, "Weird");
                 *var = format!("@unrolled_{}_{}_{}", unroll_index, iterator_value, var).into();
-                replace_vars_for_unroll_in_expr(value, iterator, unroll_index, iterator_value, internal_vars);
+                replace_vars_for_unroll_in_expr(
+                    value,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
+                );
             }
             Line::ArrayAssign {
                 // array[index] = value
@@ -990,24 +1029,73 @@ fn replace_vars_for_unroll(
             } => {
                 assert!(array != iterator, "Weird");
                 if internal_vars.contains(array) {
-                    *array = format!("@unrolled_{}_{}_{}", unroll_index, iterator_value, array).into();
+                    *array =
+                        format!("@unrolled_{}_{}_{}", unroll_index, iterator_value, array).into();
                 }
-                replace_vars_for_unroll_in_expr(index, iterator, unroll_index, iterator_value, internal_vars);
-                replace_vars_for_unroll_in_expr(value, iterator, unroll_index, iterator_value, internal_vars);
+                replace_vars_for_unroll_in_expr(
+                    index,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
+                );
+                replace_vars_for_unroll_in_expr(
+                    value,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
+                );
             }
             Line::Assert(Boolean::Equal { left, right } | Boolean::Different { left, right }) => {
-                replace_vars_for_unroll_in_expr(left, iterator, unroll_index, iterator_value, internal_vars);
-                replace_vars_for_unroll_in_expr(right, iterator, unroll_index, iterator_value, internal_vars);
+                replace_vars_for_unroll_in_expr(
+                    left,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
+                );
+                replace_vars_for_unroll_in_expr(
+                    right,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
+                );
             }
             Line::IfCondition {
                 condition: Boolean::Equal { left, right } | Boolean::Different { left, right },
                 then_branch,
                 else_branch,
             } => {
-                replace_vars_for_unroll_in_expr(left, iterator, unroll_index, iterator_value, internal_vars);
-                replace_vars_for_unroll_in_expr(right, iterator, unroll_index, iterator_value, internal_vars);
-                replace_vars_for_unroll(then_branch, iterator, unroll_index, iterator_value, internal_vars);
-                replace_vars_for_unroll(else_branch, iterator, unroll_index, iterator_value, internal_vars);
+                replace_vars_for_unroll_in_expr(
+                    left,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
+                );
+                replace_vars_for_unroll_in_expr(
+                    right,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
+                );
+                replace_vars_for_unroll(
+                    then_branch,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
+                );
+                replace_vars_for_unroll(
+                    else_branch,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
+                );
             }
             Line::ForLoop {
                 iterator: other_iterator,
@@ -1018,10 +1106,32 @@ fn replace_vars_for_unroll(
                 unroll: _,
             } => {
                 assert!(other_iterator != iterator);
-                *other_iterator = format!("@unrolled_{}_{}_{}", unroll_index, iterator_value, other_iterator).into();
-                replace_vars_for_unroll_in_expr(start, iterator, unroll_index, iterator_value, internal_vars);
-                replace_vars_for_unroll_in_expr(end, iterator, unroll_index, iterator_value, internal_vars);
-                replace_vars_for_unroll(body, iterator, unroll_index, iterator_value, internal_vars);
+                *other_iterator = format!(
+                    "@unrolled_{}_{}_{}",
+                    unroll_index, iterator_value, other_iterator
+                )
+                .into();
+                replace_vars_for_unroll_in_expr(
+                    start,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
+                );
+                replace_vars_for_unroll_in_expr(
+                    end,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
+                );
+                replace_vars_for_unroll(
+                    body,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
+                );
             }
             Line::FunctionCall {
                 function_name: _,
@@ -1030,7 +1140,13 @@ fn replace_vars_for_unroll(
             } => {
                 // Function calls are not unrolled, so we don't need to change them
                 for arg in args {
-                    replace_vars_for_unroll_in_expr(arg, iterator, unroll_index, iterator_value, internal_vars);
+                    replace_vars_for_unroll_in_expr(
+                        arg,
+                        iterator,
+                        unroll_index,
+                        iterator_value,
+                        internal_vars,
+                    );
                 }
                 for ret in return_data {
                     *ret = format!("@unrolled_{}_{}_{}", unroll_index, iterator_value, ret).into();
@@ -1038,7 +1154,13 @@ fn replace_vars_for_unroll(
             }
             Line::FunctionRet { return_data } => {
                 for ret in return_data {
-                    replace_vars_for_unroll_in_expr(ret, iterator, unroll_index, iterator_value, internal_vars);
+                    replace_vars_for_unroll_in_expr(
+                        ret,
+                        iterator,
+                        unroll_index,
+                        iterator_value,
+                        internal_vars,
+                    );
                 }
             }
             Line::Precompile {
@@ -1046,7 +1168,13 @@ fn replace_vars_for_unroll(
                 args,
             } => {
                 for arg in args {
-                    replace_vars_for_unroll_in_expr(arg, iterator, unroll_index, iterator_value, internal_vars);
+                    replace_vars_for_unroll_in_expr(
+                        arg,
+                        iterator,
+                        unroll_index,
+                        iterator_value,
+                        internal_vars,
+                    );
                 }
             }
             Line::Break => {}
@@ -1055,7 +1183,13 @@ fn replace_vars_for_unroll(
                 // Print statements are not unrolled, so we don't need to change them
                 *line_info += &format!(" (unrolled {} {})", unroll_index, iterator_value);
                 for var in content {
-                    replace_vars_for_unroll_in_expr(var, iterator, unroll_index, iterator_value, internal_vars);
+                    replace_vars_for_unroll_in_expr(
+                        var,
+                        iterator,
+                        unroll_index,
+                        iterator_value,
+                        internal_vars,
+                    );
                 }
             }
             Line::MAlloc {
@@ -1065,15 +1199,30 @@ fn replace_vars_for_unroll(
             } => {
                 assert!(var != iterator, "Weird");
                 *var = format!("@unrolled_{}_{}_{}", unroll_index, iterator_value, var).into();
-                replace_vars_for_unroll_in_expr(size, iterator, unroll_index, iterator_value, internal_vars);
+                replace_vars_for_unroll_in_expr(
+                    size,
+                    iterator,
+                    unroll_index,
+                    iterator_value,
+                    internal_vars,
+                );
                 // vectorized is not changed
             }
             Line::DecomposeBits { var, to_decompose } => {
                 assert!(var != iterator, "Weird");
                 *var = format!("@unrolled_{}_{}_{}", unroll_index, iterator_value, var).into();
                 for expr in to_decompose {
-                    replace_vars_for_unroll_in_expr(expr, iterator, unroll_index, iterator_value, internal_vars);
+                    replace_vars_for_unroll_in_expr(
+                        expr,
+                        iterator,
+                        unroll_index,
+                        iterator_value,
+                        internal_vars,
+                    );
                 }
+            }
+            Line::CounterHint { var } => {
+                *var = format!("@unrolled_{}_{}_{}", unroll_index, iterator_value, var).into();
             }
         }
     }
@@ -1295,6 +1444,9 @@ fn replace_vars_by_const_in_lines(lines: &mut [Line], map: &BTreeMap<Var, F>) {
                     replace_vars_by_const_in_expr(expr, map);
                 }
             }
+            Line::CounterHint { var } => {
+                assert!(!map.contains_key(var), "Variable {} is a constant", var);
+            }
             Line::MAlloc { var, size, .. } => {
                 assert!(!map.contains_key(var), "Variable {} is a constant", var);
                 replace_vars_by_const_in_expr(size, map);
@@ -1360,6 +1512,9 @@ impl SimpleLine {
                         .collect::<Vec<_>>()
                         .join(", ")
                 )
+            }
+            SimpleLine::CounterHint { var: result } => {
+                format!("{} = counter_hint()", result.to_string(),)
             }
             SimpleLine::RawAccess { res, index, shift } => {
                 format!(

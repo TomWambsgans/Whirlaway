@@ -134,6 +134,9 @@ pub enum IntermediateInstruction {
         res_offset: usize, // m[fp + res_offset..fp + res_offset + 31 * len(to_decompose)] will contain the decomposed bits
         to_decompose: Vec<IntermediateValue>,
     },
+    CounterHint {
+        res_offset: usize,
+    },
     Print {
         line_info: String, // information about the line where the print occurs
         content: Vec<IntermediateValue>, // values to print
@@ -252,8 +255,15 @@ impl ToString for IntermediateInstruction {
                 format!(
                     "m[fp + {}..] = decompose_bits({})",
                     res_offset,
-                    to_decompose.iter().map(|expr| expr.to_string()).collect::<Vec<_>>().join(", ")
+                    to_decompose
+                        .iter()
+                        .map(|expr| expr.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 )
+            }
+            Self::CounterHint { res_offset } => {
+                format!("m[fp + {}] = counter_hint()", res_offset)
             }
             Self::Computation {
                 operation,

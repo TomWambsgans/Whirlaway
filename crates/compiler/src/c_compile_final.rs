@@ -10,6 +10,7 @@ impl IntermediateInstruction {
             Self::RequestMemory { .. }
             | Self::Print { .. }
             | Self::DecomposeBits { .. }
+            | Self::CounterHint { .. }
             | Self::Inverse { .. } => true,
             Self::Computation { .. }
             | Self::Panic
@@ -231,8 +232,15 @@ pub fn compile_to_low_level_bytecode(
                 } => {
                     let hint = Hint::DecomposeBits {
                         res_offset,
-                        to_decompose: to_decompose.iter().map(|expr| try_as_mem_or_constant(expr).unwrap()).collect(),
+                        to_decompose: to_decompose
+                            .iter()
+                            .map(|expr| try_as_mem_or_constant(expr).unwrap())
+                            .collect(),
                     };
+                    hints.entry(pc).or_insert_with(Vec::new).push(hint);
+                }
+                IntermediateInstruction::CounterHint { res_offset } => {
+                    let hint = Hint::CounterHint { res_offset };
                     hints.entry(pc).or_insert_with(Vec::new).push(hint);
                 }
                 IntermediateInstruction::Inverse { arg, res_offset } => {
