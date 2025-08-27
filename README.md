@@ -29,7 +29,7 @@ CPU: 85K poseidon2 / s, GPU: 1M poseidon2 / s (RTX 4090) -> switch to branch [gp
 
 `RUSTFLAGS='-C target-cpu=native' cargo test --release --package rec_aggregation --lib -- recursion::test_whir_recursion --nocapture`
 
-The full recursion program is not finished yet. Instead, we prove validity of a WHIR opening, with 25 variables, and rare = 1/4.
+The full recursion program is not finished yet. Instead, we prove validity of a WHIR opening, with 25 variables, and rate = 1/4.
 
 ![Alt text](docs/benchmark_graphs/graphs/recursive_whir_opening.svg)
 
