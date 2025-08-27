@@ -291,7 +291,7 @@ fn execute_bytecode_helper(
     let mut poseidon16_calls = 0;
     let mut poseidon24_calls = 0;
     let mut dot_product_ext_ext_calls = 0;
-    let mut dot_product_base_ext_calls = 0;
+    let mut multilinear_eval_calls = 0;
     let mut cpu_cycles = 0;
 
     let mut last_checkpoint_cpu_cycles = 0;
@@ -567,7 +567,7 @@ fn execute_bytecode_helper(
                 res,
                 n_vars,
             } => {
-                dot_product_base_ext_calls += 1;
+                multilinear_eval_calls += 1;
 
                 let ptr_coeffs = coeffs.read_value(&memory, fp)?.to_usize();
                 let ptr_point = point.read_value(&memory, fp)?.to_usize();
@@ -626,10 +626,10 @@ fn execute_bytecode_helper(
                 pretty_integer(dot_product_ext_ext_calls)
             );
         }
-        if dot_product_base_ext_calls > 0 {
+        if multilinear_eval_calls > 0 {
             println!(
-                "DotProductBaseExt calls: {}",
-                pretty_integer(dot_product_base_ext_calls)
+                "MultilinearEval calls: {}",
+                pretty_integer(multilinear_eval_calls)
             );
         }
         let used_memory_cells = memory

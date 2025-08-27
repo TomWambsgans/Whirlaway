@@ -13,9 +13,6 @@ use crate::common::build_batch_pcs;
 
 #[test]
 fn test_xmss_aggregate() {
-    // RUSTFLAGS='-C target-cpu=native' cargo test --release --package rec_aggregation --lib -- xmss_aggregate::test_xmss_aggregate --exact --nocapture
-
-    // RUSTFLAGS='-C target-cpu=native' cargo test --release --package rec_aggregation --lib -- recursion::test_whir_recursion --exact --nocapture
     // Public input:  message_hash | all_public_keys | bitield
     // Private input: signatures = (randomness | chain_tips | merkle_path)
     let mut program = r#"
@@ -186,7 +183,7 @@ fn test_xmss_aggregate() {
     }
    "#.to_string();
 
-    const N_PUBLIC_KEYS: usize = 200;
+    const N_PUBLIC_KEYS: usize = 500;
     const INV_BITFIELD_DENSITY: usize = 1; // 1 / INV_BITFIELD_DENSITY of the bits are 1 in the bitfield
 
     let xmss_signature_size_padded = (V + 1 + XMSS_MERKLE_HEIGHT) + XMSS_MERKLE_HEIGHT.div_ceil(8);

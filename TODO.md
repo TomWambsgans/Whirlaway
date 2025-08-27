@@ -28,3 +28,4 @@
 - bounddary condition on dot_product table: first flag = 1
 - verify correctness of the Grand Product check
 - Proof size: replace all equality checks in the verifier algo by value deduction
+- WIR recursion: batch the multilinear_eval calls on initial merkle leaves

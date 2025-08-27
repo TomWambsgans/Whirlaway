@@ -28,7 +28,6 @@ use crate::common::build_batch_pcs;
 
 #[test]
 pub fn test_whir_recursion() {
-    // RUSTFLAGS='-C target-cpu=native' cargo test --release --package rec_aggregation --lib -- recursion::test_whir_recursion --exact --nocapture
     let program_str = r#"
 
     // 1 OOD QUERY PER ROUND, 0 GRINDING
