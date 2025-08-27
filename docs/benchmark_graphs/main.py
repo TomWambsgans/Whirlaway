@@ -3,17 +3,19 @@ import matplotlib.dates as mdates
 from datetime import datetime, timedelta
 
 
-def create_duration_graph(data, target, title):
+def create_duration_graph(data, target, target_label, title, y_legend, file):
     dates = []
-    durations = []
+    values = []
 
     for day, duration in data:
         dates.append(datetime.strptime(day, '%Y-%m-%d'))
-        durations.append(duration)
+        values.append(duration)
 
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(dates, durations, marker='o', linewidth=2,
-            markersize=7, color='#2E86AB')
+    color = '#2E86AB'
+
+    _, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(dates, values, marker='o', linewidth=2,
+            markersize=7, color=color)
 
     min_date = min(dates)
     max_date = max(dates)
@@ -27,27 +29,34 @@ def create_duration_graph(data, target, title):
 
     plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
 
-    ax.axhline(y=target, color='green', linestyle='--',
-               linewidth=2, label=f'Target ({target} s)')
+    ax.axhline(y=target, color=color, linestyle='--',
+               linewidth=2, label=target_label)
 
-    ax.set_ylabel('Proving time (s)', fontsize=12)
+    ax.set_ylabel(y_legend, fontsize=12)
     ax.set_title(title, fontsize=16, pad=15)
     ax.grid(True, alpha=0.3)
     ax.legend()
 
-    ax.set_ylim(0, max(durations) * 1.1)
+    ax.set_ylim(0, max(max(values), target) * 1.1)
 
     plt.tight_layout()
-    file_name = title.replace(" ", "_").lower()
-    plt.savefig(f'graphs/{file_name}.svg', format='svg', bbox_inches='tight')
+    plt.savefig(f'graphs/{file}.svg', format='svg', bbox_inches='tight')
 
 
 if __name__ == "__main__":
 
     create_duration_graph(data=[
-        ('2025-08-27', 2.7),
-    ], target=0.25, title="Recursive WHIR opening")
+        ('2025-08-27', 85000),
+    ], target=300_000, target_label="Target (300.000 Poseidon2 / s)", title="Raw Poseidon2", y_legend= "Poseidons proven / s", file = "raw_poseidons")
 
     create_duration_graph(data=[
-        ('2025-08-27', 14),
-    ], target=0.5, title="500 XMSS aggregated")
+        ('2025-08-27', 2.7),
+    ], target=0.25, target_label = "Target (0.25 s)", title="Recursive WHIR opening", y_legend= "Proving time (s)", file = "recursive_whir_opening")
+
+    create_duration_graph(data=[
+        ('2025-08-27', 14.2),
+    ], target=0.5, target_label = "Target (0.5 s)", title="500 XMSS aggregated: proving time", y_legend= "Proving time (s)", file = "xmss_aggregated_time")
+
+    create_duration_graph(data=[
+            ('2025-08-27', 14.2 / 0.92),
+        ], target=2.0, target_label = "Target (2x)", title="500 XMSS aggregated: zkVM overhead vs raw Poseidons", y_legend= "", file = "xmss_aggregated_overhead")

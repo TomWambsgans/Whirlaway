@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{env, time::Instant};
 
 use compiler::*;
 use p3_field::PrimeCharacteristicRing;
@@ -185,26 +185,27 @@ fn test_xmss_aggregate() {
    "#.to_string();
 
     const LOG_LIFETIME: usize = 32;
-    const N_PUBLIC_KEYS: usize = 500;
-    const INV_BITFIELD_DENSITY: usize = 1; // 1 / INV_BITFIELD_DENSITY of the bits are 1 in the bitfield
+    const INV_BITFIELD_DENSITY: usize = 1; // (1 / INV_BITFIELD_DENSITY) of the bits are 1 in the bitfield
+
+    let n_public_keys: usize = env::var("NUM_XMSS_AGGREGATED").unwrap().parse().unwrap();
 
     let xmss_signature_size_padded = (V + 1 + LOG_LIFETIME) + LOG_LIFETIME.div_ceil(8);
     program = program
         .replace("LOG_LIFETIME_PLACE_HOLDER", &LOG_LIFETIME.to_string())
-        .replace("N_PUBLIC_KEYS_PLACE_HOLDER", &N_PUBLIC_KEYS.to_string())
+        .replace("N_PUBLIC_KEYS_PLACE_HOLDER", &n_public_keys.to_string())
         .replace(
             "XMSS_SIG_SIZE_PLACE_HOLDER",
             &xmss_signature_size_padded.to_string(),
         );
 
-    let bitfield = (0..N_PUBLIC_KEYS)
+    let bitfield = (0..n_public_keys)
         .map(|i| i % INV_BITFIELD_DENSITY == 0)
         .collect::<Vec<_>>();
 
     let mut rng = StdRng::seed_from_u64(0);
     let message_hash: [F; 8] = rng.random();
 
-    let (all_public_keys, all_signatures): (Vec<_>, Vec<_>) = (0..N_PUBLIC_KEYS)
+    let (all_public_keys, all_signatures): (Vec<_>, Vec<_>) = (0..n_public_keys)
         .into_par_iter()
         .map(|i| {
             let mut rng = StdRng::seed_from_u64(i as u64);
@@ -266,7 +267,7 @@ fn test_xmss_aggregate() {
     verify_execution(&bytecode, &public_input, proof_data, &batch_pcs).unwrap();
     println!(
         "XMSS aggregation (n_signatures = {}, lifetime = 2^{})",
-        N_PUBLIC_KEYS / INV_BITFIELD_DENSITY,
+        n_public_keys / INV_BITFIELD_DENSITY,
         LOG_LIFETIME
     );
     println!("Proving time: {:?}", proving_time);

@@ -23,7 +23,9 @@ cpu: i9-12900H, ram: 32 gb
 
 `RUSTFLAGS='-C target-cpu=native' cargo run --release`
 
-CPU: 85K poseidon2 / s, GPU: 1M poseidon2 / s (RTX 4090) -> switch to branch [gpu](https://github.com/TomWambsgans/Whirlaway/tree/gpu)
+50 % over 16 field elements, 50 % over 24 field elements. rate = 1/2
+
+![Alt text](docs/benchmark_graphs/graphs/raw_poseidons.svg)
 
 ### Recursion
 
@@ -35,12 +37,13 @@ The full recursion program is not finished yet. Instead, we prove validity of a 
 
 ### XMSS aggregation
 
-`RUSTFLAGS='-C target-cpu=native' cargo test --release --package rec_aggregation --lib -- xmss_aggregate::test_xmss_aggregate --nocapture --ignored`
+`RUSTFLAGS='-C target-cpu=native' NUM_XMSS_AGGREGATED='500' cargo test --release --package rec_aggregation --lib -- xmss_aggregate::test_xmss_aggregate --nocapture --ignored`
 
 
-500 XMSS aggregated. "Trivial encoding".
+500 XMSS aggregated. "Trivial encoding" (for now).
 
-![Alt text](docs/benchmark_graphs/graphs/500_xmss_aggregated.svg)
+![Alt text](docs/benchmark_graphs/graphs/xmss_aggregated_time.svg)
+![Alt text](docs/benchmark_graphs/graphs/xmss_aggregated_overhead.svg)
 
 ## Credits
 
