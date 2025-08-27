@@ -2,7 +2,6 @@ use p3_field::{ExtensionField, cyclic_subgroup_known_order, dot_product};
 use p3_util::log2_ceil_usize;
 use std::ops::Range;
 use sumcheck::SumcheckComputation;
-use tracing::instrument;
 use utils::univariate_selectors;
 use utils::{Evaluation, from_end};
 use utils::{FSVerifier, PF};
@@ -18,7 +17,6 @@ use crate::utils::{matrix_down_lde, matrix_up_lde};
 
 use super::table::AirTable;
 
-#[instrument(name = "air table: verify many", skip_all)]
 pub fn verify_many_air_2<'a, EF: ExtensionField<PF<EF>>, A1: MyAir<EF>, A2: MyAir<EF>>(
     verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,
     tables_1: &[&AirTable<EF, A1>],
@@ -38,7 +36,6 @@ pub fn verify_many_air_2<'a, EF: ExtensionField<PF<EF>>, A1: MyAir<EF>, A2: MyAi
     )
 }
 
-#[instrument(name = "air table: verify many", skip_all)]
 pub fn verify_many_air_3<
     'a,
     EF: ExtensionField<PF<EF>>,
@@ -222,7 +219,6 @@ pub fn verify_many_air_3<
 }
 
 impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
-    #[instrument(name = "air table: verify", skip_all)]
     pub fn verify(
         &self,
         verifier_state: &mut FSVerifier<EF, impl FSChallenger<EF>>,

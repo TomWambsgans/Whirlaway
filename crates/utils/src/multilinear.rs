@@ -3,7 +3,6 @@ use std::borrow::Borrow;
 use p3_field::{BasedVectorSpace, PackedValue};
 use p3_field::{ExtensionField, Field, dot_product};
 use rayon::prelude::*;
-use tracing::instrument;
 use whir_p3::poly::evals::EvaluationsList;
 
 use crate::{EFPacking, PF};
@@ -108,7 +107,6 @@ pub fn fold_extension_packed<EF: ExtensionField<PF<EF>>>(
         .collect()
 }
 
-#[instrument(name = "multilinears_linear_combination", skip_all)]
 pub fn multilinears_linear_combination<
     F: Field,
     EF: ExtensionField<F>,
@@ -180,7 +178,6 @@ pub fn batch_fold_multilinear_in_small_field_packed<EF: ExtensionField<PF<EF>>>(
 //     dst
 // }
 
-#[instrument(name = "add_multilinears", skip_all)]
 pub fn add_multilinears<F: Field>(pol1: &[F], pol2: &[F]) -> Vec<F> {
     assert_eq!(pol1.len(), pol2.len());
     let mut dst = pol1.to_vec();

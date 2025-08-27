@@ -14,7 +14,7 @@ use rayon::prelude::*;
 use sumcheck::Mle;
 use sumcheck::MleGroupRef;
 use sumcheck::{SumcheckComputation, SumcheckComputationPacked};
-use tracing::{info_span, instrument};
+use tracing::instrument;
 use utils::pack_extension;
 use utils::packing_log_width;
 use utils::packing_width;
@@ -97,7 +97,6 @@ where
     (claim, up_layer_eval_left, up_layer_eval_right)
 }
 
-#[instrument(skip_all)]
 fn prove_gkr_quotient_step<EF: Field>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     up_layer: &[EF],
@@ -112,7 +111,7 @@ where
     let mid_len = len / 2;
     let quarter_len = mid_len / 2;
 
-    let eq_poly = info_span!("eq_poly").in_scope(|| eval_eq(&claim.point.0[1..]));
+    let eq_poly = eval_eq(&claim.point.0[1..]);
 
     let mut sums_x = EF::zero_vec(up_layer.len() / 4);
     let mut sums_one_minus_x = EF::zero_vec(up_layer.len() / 4);
@@ -174,20 +173,17 @@ where
             vec![u0_folded[0], u1_folded[0], u2_folded[0], u3_folded[0]],
         )
     } else {
-        let (mut sc_point, inner_evals, _) =
-            info_span!("remaining sumcheck rounds").in_scope(|| {
-                sumcheck::prove::<EF, _>(
-                    1,
-                    MleGroupRef::Extension(vec![u0_folded, u1_folded, u2_folded, u3_folded]),
-                    &GKRQuotientComputation { u4_const, u5_const },
-                    &[EF::ONE],
-                    Some((claim.point.0[1..].to_vec(), None)),
-                    false,
-                    prover_state,
-                    next_sum,
-                    Some(missing_mul_factor),
-                )
-            });
+        let (mut sc_point, inner_evals, _) = sumcheck::prove::<EF, _>(
+            1,
+            MleGroupRef::Extension(vec![u0_folded, u1_folded, u2_folded, u3_folded]),
+            &GKRQuotientComputation { u4_const, u5_const },
+            &[EF::ONE],
+            Some((claim.point.0[1..].to_vec(), None)),
+            false,
+            prover_state,
+            next_sum,
+            Some(missing_mul_factor),
+        );
         sc_point.insert(0, first_sumcheck_challenge);
         (sc_point, inner_evals)
     };
@@ -218,7 +214,6 @@ where
     )
 }
 
-#[instrument(skip_all)]
 fn prove_gkr_quotient_step_packed<EF: Field>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     up_layer_packed: &Vec<EFPacking<EF>>,
@@ -237,7 +232,7 @@ where
     let mid_len_packed = len_packed / 2;
     let quarter_len_packed = mid_len_packed / 2;
 
-    let eq_poly = info_span!("eq_poly").in_scope(|| eval_eq(&claim.point.0[1..]));
+    let eq_poly = eval_eq(&claim.point.0[1..]);
 
     let mut eq_poly_packed = pack_extension(&eq_poly);
 
@@ -301,27 +296,25 @@ where
 
     eq_poly_packed.resize(eq_poly_packed.len() / 2, Default::default());
 
-    let (mut sc_point, quarter_evals, _) = info_span!("remaining sumcheck rounds").in_scope(|| {
-        sumcheck::prove::<EF, _>(
-            1,
-            MleGroupRef::ExtensionPacked(vec![
-                u0_folded_packed,
-                u1_folded_packed,
-                u2_folded_packed,
-                u3_folded_packed,
-            ]),
-            &GKRQuotientComputation { u4_const, u5_const },
-            &[],
-            Some((
-                claim.point.0[1..].to_vec(),
-                Some(Mle::ExtensionPacked(eq_poly_packed)),
-            )),
-            false,
-            prover_state,
-            next_sum,
-            Some(missing_mul_factor),
-        )
-    });
+    let (mut sc_point, quarter_evals, _) = sumcheck::prove::<EF, _>(
+        1,
+        MleGroupRef::ExtensionPacked(vec![
+            u0_folded_packed,
+            u1_folded_packed,
+            u2_folded_packed,
+            u3_folded_packed,
+        ]),
+        &GKRQuotientComputation { u4_const, u5_const },
+        &[],
+        Some((
+            claim.point.0[1..].to_vec(),
+            Some(Mle::ExtensionPacked(eq_poly_packed)),
+        )),
+        false,
+        prover_state,
+        next_sum,
+        Some(missing_mul_factor),
+    );
     sc_point.insert(0, first_sumcheck_challenge);
 
     prover_state.add_extension_scalars(&quarter_evals);

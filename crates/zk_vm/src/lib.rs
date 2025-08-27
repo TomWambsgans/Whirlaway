@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), allow(unused_crate_dependencies))]
+
 use std::ops::Range;
 
 use compiler::{PRECOMPILES, compile_program};
@@ -11,9 +13,6 @@ mod instruction_encoder;
 mod poseidon_tables;
 pub mod prove_execution;
 pub mod verify_execution;
-
-#[cfg(test)]
-pub mod recursion;
 
 const UNIVARIATE_SKIPS: usize = 4;
 

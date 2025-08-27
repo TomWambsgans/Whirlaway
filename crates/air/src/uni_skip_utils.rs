@@ -1,8 +1,6 @@
 use p3_field::Field;
-use tracing::instrument;
 use whir_p3::poly::evals::{eval_eq, scale_poly};
 
-#[instrument(name = "matrix_up_folded", skip_all)]
 pub fn matrix_up_folded<F: Field>(outer_challenges: &[F]) -> Vec<F> {
     let n = outer_challenges.len();
     let mut folded = eval_eq(outer_challenges);
@@ -12,7 +10,6 @@ pub fn matrix_up_folded<F: Field>(outer_challenges: &[F]) -> Vec<F> {
     folded
 }
 
-#[instrument(name = "matrix_down_folded", skip_all)]
 pub fn matrix_down_folded<F: Field>(outer_challenges: &[F]) -> Vec<F> {
     let n = outer_challenges.len();
     let mut folded = vec![F::ZERO; 1 << n];

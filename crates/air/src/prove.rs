@@ -232,7 +232,7 @@ pub fn prove_many_air_3<
 }
 
 impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
-    #[instrument(name = "air: prove base", skip_all)]
+    #[instrument(name = "air: prove in base", skip_all)]
     pub fn prove_base<'a>(
         &self,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
@@ -253,7 +253,7 @@ impl<EF: ExtensionField<PF<EF>>, A: MyAir<EF>> AirTable<EF, A> {
         res.pop().unwrap()
     }
 
-    #[instrument(name = "air: prove base", skip_all)]
+    #[instrument(name = "air: prove in extension", skip_all)]
     pub fn prove_extension<'a>(
         &self,
         prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
@@ -442,8 +442,7 @@ fn open_structured_columns<'a, EF: ExtensionField<PF<EF>> + ExtensionField<IF>, 
         ];
 
         // TODO do not recompute
-        let inner_sum = info_span!("inner sum evaluation")
-            .in_scope(|| batched_column_mixed.evaluate(&MultilinearPoint(point.clone())));
+        let inner_sum = batched_column_mixed.evaluate(&MultilinearPoint(point.clone()));
 
         all_inner_mles.push(MleGroupOwned::Extension(mles_for_inner_sumcheck));
         all_inner_sums.push(inner_sum);

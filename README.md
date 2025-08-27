@@ -21,6 +21,8 @@ CPU: 90K poseidon2 / s (i9-12900H), more soon
 
 GPU: 1M poseidon2 / s (RTX 4090) -> switch to branch [gpu](https://github.com/TomWambsgans/Whirlaway/tree/gpu)
 
+
+
 ## Credits
 
 - [Plonky3](https://github.com/Plonky3/Plonky3) for its finite field crates and poseidon2 AIR arithmetization (`src/examples/poseidon2_koala_bear`).

@@ -82,7 +82,6 @@ where
     (product, claim)
 }
 
-#[instrument(skip_all)]
 fn prove_gkr_product_step<EF: Field>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     up_layer: &[EF],
@@ -100,7 +99,6 @@ where
     )
 }
 
-#[instrument(skip_all)]
 fn prove_gkr_product_step_packed<EF: Field>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     up_layer_packed: &[EFPacking<EF>],
@@ -121,7 +119,6 @@ where
     )
 }
 
-#[instrument(skip_all)]
 fn prove_gkr_product_step_core<EF: Field>(
     prover_state: &mut FSProver<EF, impl FSChallenger<EF>>,
     up_layer: MleGroupRef<EF>,

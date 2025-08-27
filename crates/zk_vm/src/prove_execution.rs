@@ -602,22 +602,26 @@ pub fn prove_execution(
         .evaluate(&grand_product_mem_values_mixing_challenges),
     };
 
-    let exec_evals_to_prove =
-        exec_table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, exec_witness);
+    let exec_evals_to_prove = info_span!("Execution AIR proof")
+        .in_scope(|| exec_table.prove_base(&mut prover_state, UNIVARIATE_SKIPS, exec_witness));
 
-    let poseidon_evals_to_prove = prove_many_air_2(
-        &mut prover_state,
-        UNIVARIATE_SKIPS,
-        &[&p16_table],
-        &[&p24_table],
-        &[p16_witness],
-        &[p24_witness],
-    );
+    let poseidon_evals_to_prove = info_span!("Poseidons AIR proof").in_scope(|| {
+        prove_many_air_2(
+            &mut prover_state,
+            UNIVARIATE_SKIPS,
+            &[&p16_table],
+            &[&p24_table],
+            &[p16_witness],
+            &[p24_witness],
+        )
+    });
     let p16_evals_to_prove = &poseidon_evals_to_prove[0];
     let p24_evals_to_prove = &poseidon_evals_to_prove[1];
 
     let dot_product_evals_to_prove =
-        dot_product_table.prove_extension(&mut prover_state, 1, dot_product_witness);
+         info_span!("Dot Product AIR proof").in_scope(|| {
+             dot_product_table.prove_extension(&mut prover_state, 1, dot_product_witness)
+         });
 
     // Main memory lookup
     let exec_memory_indexes = padd_with_zero_to_next_power_of_two(

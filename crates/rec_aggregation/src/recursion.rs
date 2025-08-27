@@ -1,9 +1,9 @@
 use std::marker::PhantomData;
+use std::time::Instant;
 
 use compiler::compile_program;
 use p3_field::BasedVectorSpace;
 use p3_field::PrimeCharacteristicRing;
-use pcs::WhirBatchPcs;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::{
     MY_DIGEST_ELEMS, MyMerkleCompress, MyMerkleHash, build_merkle_compress, build_merkle_hash,
@@ -21,16 +21,14 @@ use whir_p3::{
         verifier::*,
     },
 };
+use zk_vm::prove_execution::prove_execution;
+use zk_vm::verify_execution::verify_execution;
 
-use crate::prove_execution::prove_execution;
-use crate::verify_execution::verify_execution;
+use crate::common::build_batch_pcs;
 
 #[test]
-pub fn test_whir_verif() {
-    run_whir_verif();
-}
-
-pub fn run_whir_verif() {
+pub fn test_whir_recursion() {
+    // RUSTFLAGS='-C target-cpu=native' cargo test --release --package rec_aggregation --lib -- recursion::test_whir_recursion --exact --nocapture
     let program_str = r#"
 
     // 1 OOD QUERY PER ROUND, 0 GRINDING
@@ -262,11 +260,7 @@ pub fn run_whir_verif() {
             fs_state_5, poly = fs_receive(fs_states_a[sc_round], 3); // vectorized pointer of len 1
 
             sum_over_boolean_hypercube = degree_two_polynomial_sum_at_0_and_1(poly);
-            print(111);
-            print_chunk(sum_over_boolean_hypercube);
-            print_chunk(claimed_sums[sc_round]);
             assert_eq_extension(sum_over_boolean_hypercube, claimed_sums[sc_round]);
-            print(2222);
             
             fs_state_6, rand = fs_sample_ef(fs_state_5);  // vectorized pointer of len 1
             fs_states_a[sc_round + 1] = fs_state_6;
@@ -891,7 +885,6 @@ pub fn run_whir_verif() {
     
     fn assert_eq_extension(a, b)  {
         null_ptr = pointer_to_zero_vector; // TODO avoid having to store this in a variable
-        print(pointer_to_zero_vector);
         add_extension(a, null_ptr, b);
         return;
     }
@@ -1032,39 +1025,11 @@ pub fn run_whir_verif() {
         .verify(&mut verifier_state, &parsed_commitment, &statement)
         .unwrap();
 
-    // Validity Proof:
-
     // utils::init_tracing();
-    let base_pcs = WhirConfigBuilder {
-        folding_factor: FoldingFactor::ConstantFromSecondRound(7, 4),
-        soundness_type: SecurityAssumption::CapacityBound,
-        merkle_hash: build_merkle_hash(),
-        merkle_compress: build_merkle_compress(),
-        pow_bits: 16,
-        max_num_variables_to_send_coeffs: 6,
-        rs_domain_initial_reduction_factor: 5,
-        security_level: 128,
-        starting_log_inv_rate: 1,
-        base_field: PhantomData::<F>,
-        extension_field: PhantomData::<EF>,
-    };
-
-    let extension_pcs = WhirConfigBuilder {
-        folding_factor: FoldingFactor::ConstantFromSecondRound(4, 4),
-        soundness_type: SecurityAssumption::CapacityBound,
-        merkle_hash: build_merkle_hash(),
-        merkle_compress: build_merkle_compress(),
-        pow_bits: 16,
-        max_num_variables_to_send_coeffs: 6,
-        rs_domain_initial_reduction_factor: 2,
-        security_level: 128,
-        starting_log_inv_rate: 1,
-        base_field: PhantomData::<EF>,
-        extension_field: PhantomData::<EF>,
-    };
-
     let bytecode = compile_program(program_str);
-    let batch_pcs = WhirBatchPcs(base_pcs, extension_pcs);
+    let batch_pcs = build_batch_pcs();
+    let time = Instant::now();
     let proof_data = prove_execution(&bytecode, &public_input, &[], &batch_pcs);
+    println!("WHIR recursion, proving time: {:?}", time.elapsed());
     verify_execution(&bytecode, &public_input, proof_data, &batch_pcs).unwrap();
 }
