@@ -5,7 +5,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use utils::get_poseidon16;
 
 use vm::*;
-use xmss::{WotsSecretKey, XMSS_MERKLE_HEIGHT, XmssSecretKey, find_randomness_for_wots_encoding};
+use xmss::{WotsSecretKey, XmssSecretKey, find_randomness_for_wots_encoding};
 
 #[test]
 fn test_verify_merkle_path() {
@@ -367,7 +367,7 @@ fn test_verify_xmss_signature() {
 
     const V = 68;
     const W = 4;
-    const XMSS_MERKLE_HEIGHT = XMSS_MERKLE_HEIGHT_PLACE_HOLDER;
+    const LOG_LIFETIME = LOG_LIFETIME_PLACE_HOLDER;
 
     fn main() {
         public_input_start_ = public_input_start;
@@ -389,7 +389,7 @@ fn test_verify_xmss_signature() {
         randomness = signature; // vectorized
         chain_tips = signature + 1; // vectorized
         merkle_neighbours = chain_tips + V; // vectorized
-        merkle_are_left = (merkle_neighbours + XMSS_MERKLE_HEIGHT) * 8; // non-vectorized
+        merkle_are_left = (merkle_neighbours + LOG_LIFETIME) * 8; // non-vectorized
 
         // 1) We encode message_hash + randomness into the d-th layer of the hypercube
 
@@ -501,14 +501,14 @@ fn test_verify_xmss_signature() {
 
         wots_pubkey_hashed = public_key_hashed + (V / 2 - 1);
 
-        merkle_hashes = malloc_vec(XMSS_MERKLE_HEIGHT * 2);
+        merkle_hashes = malloc_vec(LOG_LIFETIME * 2);
         if merkle_are_left[0] == 1 {
             poseidon16(wots_pubkey_hashed, merkle_neighbours, merkle_hashes);
         } else {
             poseidon16(merkle_neighbours, wots_pubkey_hashed, merkle_hashes);
         }
 
-        for h in 1..XMSS_MERKLE_HEIGHT unroll {
+        for h in 1..LOG_LIFETIME unroll {
             if merkle_are_left[h] == 1 {
                 poseidon16(merkle_hashes + (2 * (h-1)), merkle_neighbours + h, merkle_hashes + 2 * h);
             } else {
@@ -516,7 +516,7 @@ fn test_verify_xmss_signature() {
             }
         }
 
-        return merkle_hashes + (XMSS_MERKLE_HEIGHT * 2 - 2);
+        return merkle_hashes + (LOG_LIFETIME * 2 - 2);
     }
 
     fn print_chunk_of_8(arr) {
@@ -530,14 +530,16 @@ fn test_verify_xmss_signature() {
 
    "#.to_string();
 
+   const LOG_LIFETIME: usize = 5;
+
     program = program.replace(
-        "XMSS_MERKLE_HEIGHT_PLACE_HOLDER",
-        &XMSS_MERKLE_HEIGHT.to_string(),
+        "LOG_LIFETIME_PLACE_HOLDER",
+        &LOG_LIFETIME.to_string(),
     );
 
     let mut rng = StdRng::seed_from_u64(0);
     let message_hash: [F; 8] = rng.random();
-    let xmss_secret_key = XmssSecretKey::random(&mut rng);
+    let xmss_secret_key = XmssSecretKey::<LOG_LIFETIME>::random(&mut rng);
     let signature = xmss_secret_key.sign(&message_hash, 2, &mut rng);
     // dbg!(public_key_hashed);
 

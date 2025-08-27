@@ -6,12 +6,13 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::prelude::*;
 
 use vm::*;
-use xmss::{V, XMSS_MERKLE_HEIGHT, XmssSecretKey, XmssSignature};
+use xmss::{PhonyXmssSecretKey, V, XmssSignature};
 use zk_vm::{prove_execution::prove_execution, verify_execution::verify_execution};
 
 use crate::common::build_batch_pcs;
 
 #[test]
+#[ignore]
 fn test_xmss_aggregate() {
     // Public input:  message_hash | all_public_keys | bitield
     // Private input: signatures = (randomness | chain_tips | merkle_path)
@@ -19,7 +20,7 @@ fn test_xmss_aggregate() {
 
     const V = 68;
     const W = 4;
-    const XMSS_MERKLE_HEIGHT = XMSS_MERKLE_HEIGHT_PLACE_HOLDER;
+    const LOG_LIFETIME = LOG_LIFETIME_PLACE_HOLDER;
     const N_PUBLIC_KEYS = N_PUBLIC_KEYS_PLACE_HOLDER;
     const XMSS_SIG_SIZE = XMSS_SIG_SIZE_PLACE_HOLDER; // vectorized and padded
 
@@ -52,7 +53,7 @@ fn test_xmss_aggregate() {
         randomness = signature; // vectorized
         chain_tips = signature + 1; // vectorized
         merkle_neighbours = chain_tips + V; // vectorized
-        merkle_are_left = (merkle_neighbours + XMSS_MERKLE_HEIGHT) * 8; // non-vectorized
+        merkle_are_left = (merkle_neighbours + LOG_LIFETIME) * 8; // non-vectorized
 
         // 1) We encode message_hash + randomness into the d-th layer of the hypercube
 
@@ -164,14 +165,14 @@ fn test_xmss_aggregate() {
 
         wots_pubkey_hashed = public_key_hashed + (V / 2 - 1);
 
-        merkle_hashes = malloc_vec(XMSS_MERKLE_HEIGHT * 2);
+        merkle_hashes = malloc_vec(LOG_LIFETIME * 2);
         if merkle_are_left[0] == 1 {
             poseidon16(wots_pubkey_hashed, merkle_neighbours, merkle_hashes);
         } else {
             poseidon16(merkle_neighbours, wots_pubkey_hashed, merkle_hashes);
         }
 
-        for h in 1..XMSS_MERKLE_HEIGHT unroll {
+        for h in 1..LOG_LIFETIME unroll {
             if merkle_are_left[h] == 1 {
                 poseidon16(merkle_hashes + (2 * (h-1)), merkle_neighbours + h, merkle_hashes + 2 * h);
             } else {
@@ -179,19 +180,17 @@ fn test_xmss_aggregate() {
             }
         }
 
-        return merkle_hashes + (XMSS_MERKLE_HEIGHT * 2 - 2);
+        return merkle_hashes + (LOG_LIFETIME * 2 - 2);
     }
    "#.to_string();
 
+    const LOG_LIFETIME: usize = 32;
     const N_PUBLIC_KEYS: usize = 500;
     const INV_BITFIELD_DENSITY: usize = 1; // 1 / INV_BITFIELD_DENSITY of the bits are 1 in the bitfield
 
-    let xmss_signature_size_padded = (V + 1 + XMSS_MERKLE_HEIGHT) + XMSS_MERKLE_HEIGHT.div_ceil(8);
+    let xmss_signature_size_padded = (V + 1 + LOG_LIFETIME) + LOG_LIFETIME.div_ceil(8);
     program = program
-        .replace(
-            "XMSS_MERKLE_HEIGHT_PLACE_HOLDER",
-            &XMSS_MERKLE_HEIGHT.to_string(),
-        )
+        .replace("LOG_LIFETIME_PLACE_HOLDER", &LOG_LIFETIME.to_string())
         .replace("N_PUBLIC_KEYS_PLACE_HOLDER", &N_PUBLIC_KEYS.to_string())
         .replace(
             "XMSS_SIG_SIZE_PLACE_HOLDER",
@@ -210,9 +209,11 @@ fn test_xmss_aggregate() {
         .map(|i| {
             let mut rng = StdRng::seed_from_u64(i as u64);
             if bitfield[i] {
-                let xmss_secret_key = XmssSecretKey::random(&mut rng);
-                let signature = xmss_secret_key.sign(&message_hash, 2, &mut rng);
-                (xmss_secret_key.public_key().0, Some(signature))
+                let signature_index = rng.random_range(0..1 << LOG_LIFETIME);
+                let xmss_secret_key =
+                    PhonyXmssSecretKey::<LOG_LIFETIME>::random(&mut rng, signature_index);
+                let signature = xmss_secret_key.sign(&message_hash, &mut rng);
+                (xmss_secret_key.public_key.0, Some(signature))
             } else {
                 (rng.random(), None) // random pub key
             }
@@ -253,9 +254,7 @@ fn test_xmss_aggregate() {
                 .iter()
                 .map(|(is_left, _)| F::new(*is_left as u32)),
         );
-        private_input.extend(F::zero_vec(
-            XMSS_MERKLE_HEIGHT.next_multiple_of(8) - XMSS_MERKLE_HEIGHT,
-        ));
+        private_input.extend(F::zero_vec(LOG_LIFETIME.next_multiple_of(8) - LOG_LIFETIME));
     }
 
     utils::init_tracing();
@@ -268,7 +267,7 @@ fn test_xmss_aggregate() {
     println!(
         "XMSS aggregation (n_signatures = {}, lifetime = 2^{})",
         N_PUBLIC_KEYS / INV_BITFIELD_DENSITY,
-        XMSS_MERKLE_HEIGHT
+        LOG_LIFETIME
     );
     println!("Proving time: {:?}", proving_time);
 }

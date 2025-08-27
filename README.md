@@ -35,10 +35,10 @@ The full recursion program is not finished yet. Instead, we prove validity of a 
 
 ### XMSS aggregation
 
-`RUSTFLAGS='-C target-cpu=native' cargo test --release --package rec_aggregation --lib -- xmss_aggregate::test_xmss_aggregate --nocapture`
+`RUSTFLAGS='-C target-cpu=native' cargo test --release --package rec_aggregation --lib -- xmss_aggregate::test_xmss_aggregate --nocapture --ignored`
 
 
-500 XMSS aggregated. "Trivial encoding". Very low lifetime (2^5, otherwise key generation is too long, but expect less than 10% of difference with longer liftetimes)
+500 XMSS aggregated. "Trivial encoding".
 
 ![Alt text](docs/benchmark_graphs/graphs/500_xmss_aggregated.svg)
 

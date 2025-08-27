@@ -2,7 +2,7 @@ use rand::Rng;
 
 use crate::*;
 
-pub struct XmssSecretKey {
+pub struct XmssSecretKey<const LOG_LIFETIME: usize> {
     pub wots_secret_keys: Vec<WotsSecretKey>,
     pub merkle_tree: Vec<Vec<Digest>>,
 }
@@ -12,12 +12,12 @@ pub struct XmssSignature {
     pub merkle_proof: Vec<(bool, Digest)>,
 }
 
-pub struct XmssPublicKey(pub Digest);
+pub struct XmssPublicKey<const LOG_LIFETIME: usize>(pub Digest);
 
-impl XmssSecretKey {
+impl<const LOG_LIFETIME: usize> XmssSecretKey<LOG_LIFETIME> {
     pub fn random(rng: &mut impl Rng) -> Self {
         let mut wots_secret_keys = Vec::new();
-        for _ in 0..1 << XMSS_MERKLE_HEIGHT {
+        for _ in 0..1 << LOG_LIFETIME {
             wots_secret_keys.push(WotsSecretKey::random(rng));
         }
         let leaves = wots_secret_keys
@@ -25,7 +25,7 @@ impl XmssSecretKey {
             .map(|w| w.public_key().hash())
             .collect::<Vec<_>>();
         let mut merkle_tree = vec![leaves];
-        for _ in 0..XMSS_MERKLE_HEIGHT {
+        for _ in 0..LOG_LIFETIME {
             let mut next_level = Vec::new();
             let current_level = merkle_tree.last().unwrap();
             for (left, right) in current_level.chunks(2).map(|chunk| (chunk[0], chunk[1])) {
@@ -41,13 +41,13 @@ impl XmssSecretKey {
 
     pub fn sign(&self, message_hash: &Digest, index: usize, rng: &mut impl Rng) -> XmssSignature {
         assert!(
-            index < (1 << XMSS_MERKLE_HEIGHT),
+            index < (1 << LOG_LIFETIME),
             "Index out of bounds for XMSS signature"
         );
         let wots_signature = self.wots_secret_keys[index].sign(message_hash, rng);
         let mut merkle_proof = Vec::new();
         let mut current_index = index;
-        for level in 0..XMSS_MERKLE_HEIGHT {
+        for level in 0..LOG_LIFETIME {
             let is_left = current_index % 2 == 0;
             let neighbour_index = if is_left {
                 current_index + 1
@@ -64,12 +64,12 @@ impl XmssSecretKey {
         }
     }
 
-    pub fn public_key(&self) -> XmssPublicKey {
+    pub fn public_key(&self) -> XmssPublicKey<LOG_LIFETIME> {
         XmssPublicKey(self.merkle_tree.last().unwrap()[0])
     }
 }
 
-impl XmssPublicKey {
+impl<const LOG_LIFETIME: usize> XmssPublicKey<LOG_LIFETIME> {
     pub fn verify(&self, message_hash: &Digest, signature: &XmssSignature) -> bool {
         let Some(wots_public_key) = signature
             .wots_signature
@@ -79,7 +79,7 @@ impl XmssPublicKey {
         };
         // merkle root verification
         let mut current_hash = wots_public_key.hash();
-        if signature.merkle_proof.len() != XMSS_MERKLE_HEIGHT {
+        if signature.merkle_proof.len() != LOG_LIFETIME {
             return false;
         }
         for (is_left, neighbour) in &signature.merkle_proof {
