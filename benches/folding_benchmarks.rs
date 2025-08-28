@@ -1,7 +1,7 @@
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use rand::{RngCore, rng};
 use std::time::Duration;
-use utils::{RoundType, fold_multilinear_in_large_field, fold_multilinear_in_small_field};
+use utils::{fold_multilinear_in_large_field, fold_multilinear_in_small_field};
 use whir_p3::poly::evals::EvaluationsList;
 
 use p3_field::BasedVectorSpace;
@@ -75,13 +75,7 @@ fn bench_fold_multilinear_in_small_field_with_base_field_polys(c: &mut Criterion
             BenchmarkId::from_parameter(format!("Rows: 2ˆ{}", log_2_rows)),
             &polys,
             |b, polys| {
-                b.iter(|| {
-                    fold_multilinear_in_small_field(
-                        black_box(polys),
-                        black_box(&scalars),
-                        RoundType::WithNoSkips,
-                    )
-                })
+                b.iter(|| fold_multilinear_in_small_field(black_box(polys), black_box(&scalars)))
             },
         );
     }
@@ -108,13 +102,7 @@ fn bench_fold_multilinear_in_small_field_with_extension_field_polys(c: &mut Crit
             BenchmarkId::from_parameter(format!("Rows: 2ˆ{}", log_2_rows)),
             &polys,
             |b, polys| {
-                b.iter(|| {
-                    fold_multilinear_in_small_field(
-                        black_box(polys),
-                        black_box(&scalars),
-                        RoundType::WithNoSkips,
-                    )
-                })
+                b.iter(|| fold_multilinear_in_small_field(black_box(polys), black_box(&scalars)))
             },
         );
     }
@@ -142,13 +130,7 @@ fn bench_fold_multilinear_in_small_field_with_skip(c: &mut Criterion) {
             BenchmarkId::from_parameter(format!("Rows: 2ˆ{}", log_2_rows)),
             &polys,
             |b, polys| {
-                b.iter(|| {
-                    fold_multilinear_in_small_field(
-                        black_box(polys),
-                        black_box(&scalars),
-                        RoundType::WithSkips,
-                    )
-                })
+                b.iter(|| fold_multilinear_in_small_field(black_box(polys), black_box(&scalars)))
             },
         );
     }
@@ -175,13 +157,7 @@ fn bench_fold_multilinear_in_large_field_with_base_field_polys(c: &mut Criterion
             BenchmarkId::from_parameter(format!("Rows: 2ˆ{}", log_2_rows)),
             &polys,
             |b, polys| {
-                b.iter(|| {
-                    fold_multilinear_in_large_field(
-                        black_box(polys),
-                        black_box(&scalars),
-                        RoundType::WithNoSkips,
-                    )
-                })
+                b.iter(|| fold_multilinear_in_large_field(black_box(polys), black_box(&scalars)))
             },
         );
     }
@@ -208,13 +184,7 @@ fn bench_fold_multilinear_in_large_field_with_extension_field_polys(c: &mut Crit
             BenchmarkId::from_parameter(format!("Rows: 2ˆ{}", log_2_rows)),
             &polys,
             |b, polys| {
-                b.iter(|| {
-                    fold_multilinear_in_large_field(
-                        black_box(polys),
-                        black_box(&scalars),
-                        RoundType::WithNoSkips,
-                    )
-                })
+                b.iter(|| fold_multilinear_in_large_field(black_box(polys), black_box(&scalars)))
             },
         );
     }
@@ -242,13 +212,7 @@ fn bench_fold_multilinear_in_large_field_with_skip(c: &mut Criterion) {
             BenchmarkId::from_parameter(format!("Rows: 2ˆ{}", log_2_rows)),
             &polys,
             |b, polys| {
-                b.iter(|| {
-                    fold_multilinear_in_large_field(
-                        black_box(polys),
-                        black_box(&scalars),
-                        RoundType::WithSkips,
-                    )
-                })
+                b.iter(|| fold_multilinear_in_large_field(black_box(polys), black_box(&scalars)))
             },
         );
     }
