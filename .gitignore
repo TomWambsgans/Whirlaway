@@ -1,3 +1,5 @@
 /target
 .vscode
 /crates/cuda-engine/kernels/build/*
+flamegraph.svg
+profile.json.gz

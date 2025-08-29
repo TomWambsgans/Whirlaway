@@ -12,29 +12,43 @@ pub fn fold_multilinear_in_small_field<F: Field, EF: ExtensionField<F>>(
     scalars: &[F],
 ) -> EvaluationsList<EF> {
     assert!(scalars.len().is_power_of_two() && scalars.len() <= m.num_evals());
-    let new_size = m.num_evals() / scalars.len();
 
-    if TypeId::of::<F>() == TypeId::of::<EF>() {
-        return unsafe {
-            std::mem::transmute(fold_multilinear_packed::<F>(
-                std::mem::transmute(m),
-                scalars,
-            ))
-        };
+    // Case skips == 1:
+    if scalars.len() == 2 {
+        let new_size = m.num_evals() / 2;
+        let (first_half, second_half) = m.evals().split_at(new_size);
+
+        EvaluationsList::new(
+            first_half
+                .par_iter()
+                .zip(second_half.par_iter())
+                .map(|(&a, &b)| a * scalars[0] + b * scalars[1])
+                .collect(),
+        )
+    } else {
+        let new_size = m.num_evals() / scalars.len();
+        if TypeId::of::<F>() == TypeId::of::<EF>() {
+            return unsafe {
+                std::mem::transmute(fold_multilinear_packed::<F>(
+                    std::mem::transmute(m),
+                    scalars,
+                ))
+            };
+        }
+
+        EvaluationsList::new(
+            (0..new_size)
+                .into_par_iter()
+                .map(|i| {
+                    scalars
+                        .iter()
+                        .enumerate()
+                        .map(|(j, s)| m.evals()[i + j * new_size] * *s)
+                        .sum()
+                })
+                .collect(),
+        )
     }
-
-    EvaluationsList::new(
-        (0..new_size)
-            .into_par_iter()
-            .map(|i| {
-                scalars
-                    .iter()
-                    .enumerate()
-                    .map(|(j, s)| m.evals()[i + j * new_size] * *s)
-                    .sum()
-            })
-            .collect(),
-    )
 }
 
 // TODO packing for all the cases
@@ -78,19 +92,34 @@ pub fn fold_multilinear_in_large_field<F: Field, EF: ExtensionField<F>>(
     scalars: &[EF],
 ) -> EvaluationsList<EF> {
     assert!(scalars.len().is_power_of_two() && scalars.len() <= m.num_evals());
-    let new_size = m.num_evals() / scalars.len();
-    EvaluationsList::new(
-        (0..new_size)
-            .into_par_iter()
-            .map(|i| {
-                scalars
-                    .iter()
-                    .enumerate()
-                    .map(|(j, s)| *s * m.evals()[i + j * new_size])
-                    .sum()
-            })
-            .collect(),
-    )
+
+    // Case skips == 1:
+    if scalars.len() == 2 {
+        let new_size = m.num_evals() / 2;
+        let (first_half, second_half) = m.evals().split_at(new_size);
+
+        EvaluationsList::new(
+            first_half
+                .par_iter()
+                .zip(second_half.par_iter())
+                .map(|(&a, &b)| scalars[0] * a + scalars[1] * b)
+                .collect(),
+        )
+    } else {
+        let new_size = m.num_evals() / scalars.len();
+        EvaluationsList::new(
+            (0..new_size)
+                .into_par_iter()
+                .map(|i| {
+                    scalars
+                        .iter()
+                        .enumerate()
+                        .map(|(j, s)| *s * m.evals()[i + j * new_size])
+                        .sum()
+                })
+                .collect(),
+        )
+    }
 }
 
 #[instrument(name = "multilinears_linear_combination", skip_all)]

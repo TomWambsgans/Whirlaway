@@ -145,3 +145,15 @@ tracing-forest.workspace = true
 tracing-subscriber.workspace = true
 whir-p3.workspace = true
 p3-uni-stark.workspace = true
+
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+utils = { path = "crates/utils" }
+
+
+[[bench]]
+name = "folding_benchmarks"
+harness = false
+
+criterion = { version = "0.5", features = ["html_reports"] }
