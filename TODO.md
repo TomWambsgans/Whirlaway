@@ -21,6 +21,7 @@
 - Batched logup*: when computing the eq() factor we can opti if the points contain boolean factor
 - Recursion program: batch the initial leaf evals in a single multilineae evaluation (+ only 1 statement on the point per vm multilinear eval (instead of `n_vars` ones))
 - Lev's trick to skip some low-level modular reduction
+- Sumcheckcheck, case z = 0, no need to fold, only keep first half of the values (done in PR 33 by Lambda) (and also in WHIR?)
 
 ## Not Perf
 

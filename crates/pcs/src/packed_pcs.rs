@@ -1,5 +1,6 @@
 use p3_field::{ExtensionField, Field};
 use p3_util::log2_strict_usize;
+use tracing::instrument;
 use utils::{Evaluation, FSProver, FSVerifier, PF};
 use whir_p3::{
     dft::EvalsDft,
@@ -30,6 +31,7 @@ pub fn num_packed_vars_for_vars(vars_per_polynomial: &[usize]) -> usize {
     TreeOfVariables::compute_optimal(vars_per_polynomial.to_vec()).total_vars()
 }
 
+#[instrument(skip_all)]
 pub fn packed_pcs_commit<F: Field, EF: ExtensionField<F>, Pcs: PCS<F, EF>>(
     pcs: &Pcs,
     polynomials: &[&[F]],
